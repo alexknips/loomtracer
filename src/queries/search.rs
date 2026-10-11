@@ -26,7 +26,8 @@ use super::shared::{
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, DecisionStatus};
 use super::terms::{
-    content_query, outside_negation, resolver_question, stem, word_stems, RelatedWord, WordMatch,
+    content_query, outside_negation, resolver_question, spelled_together, stem, word_stems,
+    RelatedWord, WordMatch,
 };
 use super::{QueryContext, QueryResponse};
 
@@ -1321,6 +1322,7 @@ fn collect_graph_search_results(
             headline: match_info.headline_words,
             title: match_info.title_words,
             about: match_info.about_words,
+            spelled: match_info.spelled_words,
             stand_in_headline: match_info.stand_in_headline,
             stand_in_title: match_info.stand_in_title,
             reached,
@@ -1423,6 +1425,8 @@ struct Holding {
     title: BTreeSet<usize>,
     /// `SearchMatchInfo::about_words`.
     about: BTreeSet<usize>,
+    /// `SearchMatchInfo::spelled_words`.
+    spelled: BTreeSet<usize>,
     /// `SearchMatchInfo::stand_in_headline`.
     stand_in_headline: BTreeSet<usize>,
     /// `SearchMatchInfo::stand_in_title`.
@@ -1466,6 +1470,9 @@ struct TermWeights {
     holders: HashMap<usize, usize>,
     /// How many matched decisions hold each term as a word, a form of one or a stand-in.
     reachers: HashMap<usize, usize>,
+    /// How many matched decisions spell each term together with the term after it in their title
+    /// or topic keys (`Holding::spelled`).
+    spellers: HashMap<usize, usize>,
     /// How many decisions were searched.
     searched: usize,
 }
@@ -1474,7 +1481,11 @@ impl TermWeights {
     fn new(holdings: &[Holding], searched: usize) -> Self {
         let mut holders: HashMap<usize, usize> = HashMap::new();
         let mut reachers: HashMap<usize, usize> = HashMap::new();
+        let mut spellers: HashMap<usize, usize> = HashMap::new();
         for holding in holdings {
+            for term in &holding.spelled {
+                *spellers.entry(*term).or_default() += 1;
+            }
             for term in &holding.held {
                 *holders.entry(*term).or_default() += 1;
             }
@@ -1485,6 +1496,7 @@ impl TermWeights {
         Self {
             holders,
             reachers,
+            spellers,
             searched,
         }
     }
@@ -1541,6 +1553,10 @@ const SHARED_HEADLINE_WORDS_MIN: usize = 2;
 const SUBJECT_RARITY: f64 = 0.6;
 /// ... and carry at least this share of the weight of all the question's words.
 const SUBJECT_SHARE: f64 = 0.4;
+/// A pair of words is rare when no more than this many decisions hold each of them, see
+/// `admit_below_bar`: a decision holding two words of the question that nearly nobody else holds,
+/// one of them in its title or topic keys.
+const RARE_PAIR_HOLDERS: usize = 2;
 /// At most this many decisions below the bar are added to an answer.
 const BELOW_BAR_LIMIT: usize = 3;
 
@@ -1556,6 +1572,10 @@ const BELOW_BAR_LIMIT: usize = 3;
 ///   `ln(searched + 1)` and `SHARED_WORDS_SHARE` of all the terms' weight: that many words few
 ///   decisions hold do not meet by chance, whereas two that sit in a long rationale do ("load" and
 ///   "timeout" of a load balancer question), or
+/// - it holds two of the terms, one in its title or topic keys, that `RARE_PAIR_HOLDERS` decisions
+///   or fewer each hold, with the weight tests of the first ("how far does the forecast's leftover
+///   tail reach?" against the decision titled for the leftover that says "tail" in its rationale,
+///   whereas "forecast" is held by six decisions and "far" and "reach" by one each), or
 /// - the ledger is small (`SMALL_LEDGER`), so counts say little, and a term the decision's title or
 ///   topic keys hold is held by no other decision: its capturer named it as the subject, or
 /// - the words its title or topic keys hold weigh, together, at least `SUBJECT_RARITY` times
@@ -1564,7 +1584,12 @@ const BELOW_BAR_LIMIT: usize = 3;
 ///   under?" against the one decision titled for the licence, whereas "code" and "under" are held by
 ///   a decision in five). Words the ledger lacks weigh in the total, so a question that adds to the
 ///   rare word several that nobody holds ("do we need a licence to play music in the office?")
-///   never reaches the share.
+///   never reaches the share, or
+/// - its title or topic keys spell two of the question's words together ("file store" against
+///   `FileStore`), and the decisions that spell that pair are as few as a subject word's holders
+///   (`SUBJECT_RARITY`): two words that join into a word of the ledger are not chance, so the
+///   share of the other words does not matter ("how does the file store throw away expired
+///   entries?").
 ///
 /// At most `BELOW_BAR_LIMIT` of them, those holding the most weight, are added; they all lack more
 /// terms than any decision at the bar, so they come after those and each is labelled with the
@@ -1597,10 +1622,23 @@ fn admit_below_bar(
             .iter()
             .map(|term| weights.weight_of(*term))
             .sum();
+        let rare_pair = holding.held.len() >= 2
+            && !holding.headline.is_empty()
+            && holding.held.iter().all(|term| {
+                weights
+                    .holders
+                    .get(term)
+                    .is_some_and(|n| *n <= RARE_PAIR_HOLDERS)
+            });
         let pair = (holding.held.len() >= SHARED_WORDS_MIN
-            || holding.headline.len() >= SHARED_HEADLINE_WORDS_MIN)
+            || holding.headline.len() >= SHARED_HEADLINE_WORDS_MIN
+            || rare_pair)
             && shared >= SHARED_WORDS_RARITY * weights.ledger().ln()
             && shared >= SHARED_WORDS_SHARE * total;
+        let spelled = holding.spelled.iter().any(|term| {
+            let spellers = weights.spellers.get(term).copied().unwrap_or(0);
+            weights.weight_for(spellers) >= SUBJECT_RARITY * weights.ledger().ln()
+        });
         let named = weights.searched <= SMALL_LEDGER
             && holding
                 .headline
@@ -1613,7 +1651,7 @@ fn admit_below_bar(
             .sum();
         let subject =
             headline >= SUBJECT_RARITY * weights.ledger().ln() && headline >= SUBJECT_SHARE * total;
-        if pair || named || subject {
+        if pair || named || subject || spelled {
             below.push((shared, decision.id.as_str(), index));
         }
     }
@@ -1778,6 +1816,10 @@ struct SearchMatchInfo {
     /// What `About` weighs: `headline_words`, and the terms the decision's recorded question
     /// holds as words. The question a decision answers is as much what it is about as its title.
     about_words: BTreeSet<usize>,
+    /// The terms (by position) that the title or a topic key holds spelled together with the term
+    /// after it (`SearchTerms::spelled`): `FileStore` for "file store". Both words are then in
+    /// `held_words`, `headline_words` and `about_words`.
+    spelled_words: BTreeSet<usize>,
     /// The terms the title or a topic key holds only through a stand-in word, never as the term
     /// or a form of it.
     stand_in_headline: BTreeSet<usize>,
@@ -1876,6 +1918,9 @@ struct SearchTerms<'a> {
     /// One per term, in the same order, for a request that reads related words; empty otherwise.
     related: Vec<RelatedWord<'a>>,
     close: CloseMatch,
+    /// One per term, in the same order, for an asker that reads: the word the term makes with the
+    /// term after it, written together (`spelled_together`); empty otherwise.
+    spelled: Vec<String>,
     /// The question was asked negated ("don't adopt Kafka"). The negation is not one of `terms`:
     /// it never makes a decision lack a word. It only marks a decision whose title says every
     /// term outright as the opposite of what was asked (`SearchMatchInfo::polarity_mismatch`).
@@ -1889,6 +1934,7 @@ impl<'a> SearchTerms<'a> {
             stemmed: false,
             related: Vec::new(),
             close: CloseMatch::Never,
+            spelled: Vec::new(),
             negated: false,
         }
     }
@@ -1899,6 +1945,7 @@ impl<'a> SearchTerms<'a> {
             stemmed: true,
             related: Self::related_words(terms, related),
             close,
+            spelled: Self::spelled_words(terms, close),
             negated,
         }
     }
@@ -1909,7 +1956,18 @@ impl<'a> SearchTerms<'a> {
             stemmed: true,
             related: Self::related_words(terms, true),
             close: CloseMatch::Half,
+            spelled: Self::spelled_words(terms, CloseMatch::Half),
             negated,
+        }
+    }
+
+    /// Only the asker that reads (`CloseMatch::Half`) admits a decision on a pair of words spelled
+    /// together.
+    fn spelled_words(terms: &[String], close: CloseMatch) -> Vec<String> {
+        if close == CloseMatch::Half {
+            spelled_together(terms)
+        } else {
+            Vec::new()
         }
     }
 
@@ -1949,6 +2007,7 @@ fn evaluate_search_match(
     let mut headline_words = BTreeSet::new();
     let mut title_words = BTreeSet::new();
     let mut about_words = BTreeSet::new();
+    let mut spelled_words = BTreeSet::new();
     let mut stand_in_headline = BTreeSet::new();
     let mut stand_in_title = BTreeSet::new();
     let mut reached = BTreeSet::new();
@@ -2018,6 +2077,31 @@ fn evaluate_search_match(
             }
         }
 
+        // "file store" is what a person asks and `FileStore` is what the title says: neither word
+        // is a word of the title, the two together are. The title or topic key that spells a pair
+        // of the question's words together holds both, as it would had it written them apart.
+        if reads && in_headline {
+            for (index, spelled) in search_terms.spelled.iter().enumerate() {
+                if spelled.is_empty() || !value_lower.contains(spelled.as_str()) {
+                    continue;
+                }
+                let stems = field_stems.get_or_insert_with(|| word_stems(&value_lower));
+                if !stems.contains(stem(spelled)) {
+                    continue;
+                }
+                spelled_words.insert(index);
+                for term in [index, index + 1] {
+                    held_words.insert(term);
+                    headline_words.insert(term);
+                    headline_hits += 1;
+                    about_words.insert(term);
+                    if field.field == "decision.title" {
+                        title_words.insert(term);
+                    }
+                }
+            }
+        }
+
         if !field_matched {
             continue;
         }
@@ -2084,6 +2168,7 @@ fn evaluate_search_match(
         headline_any,
         title_words,
         about_words,
+        spelled_words,
         stand_in_headline,
         stand_in_title,
         stand_in_reached: reached,

@@ -452,6 +452,24 @@ pub(crate) fn word_stems(text: &str) -> BTreeSet<&str> {
         .collect()
 }
 
+/// For each term of a question, the word it makes with the term after it, written together:
+/// "file" and "store" make "filestore", the way a ledger spells `FileStore`, "data" and "base" make
+/// "database". Empty for a term that is last or whose pair has a digit, a hyphen or a short word in
+/// it: those are ids and compounds that are written the way they are asked. A person asks "file
+/// store" and the decision says `FileStore`, so neither word is a word of the decision; the two
+/// together are its subject.
+pub(crate) fn spelled_together(terms: &[String]) -> Vec<String> {
+    let spellable = |term: &str| term.len() >= 3 && is_plain_word(term);
+    terms
+        .iter()
+        .enumerate()
+        .map(|(index, term)| match terms.get(index + 1) {
+            Some(next) if spellable(term) && spellable(next) => format!("{term}{next}"),
+            _ => String::new(),
+        })
+        .collect()
+}
+
 /// Suffixes that make a noun or an adjective of a verb or a noun (`accept` -> `acceptance`,
 /// `refute` -> `refutation`, `move` -> `movement`) or an adverb of an adjective (`public` ->
 /// `publicly`), each with the fewest letters that must be left once it is off, so a short word is
@@ -519,8 +537,9 @@ fn word_keys(word: &str) -> Vec<&str> {
 /// Groups of words that say the same thing in this product's own vocabulary, so a question that
 /// uses one finds a decision that uses another: the site draws a supersession as "replaces", the
 /// UI says "assumption" where the code says "hypothesis", one asker's "picture" is another's
-/// "graph", and what the app calls an edge the site's diagrams draw as an arrow. Fixed and
-/// literal, like `QUESTION_STOPWORDS`: nothing is learned and nothing is guessed. Any word of a
+/// "graph", the story a person asks about is the chapters the Flow view draws, and what the app
+/// calls an edge the site's diagrams draw as an arrow. Fixed and literal, like
+/// `QUESTION_STOPWORDS`: nothing is learned and nothing is guessed. Any word of a
 /// group, and any form of it, stands in for any other. A stand-in is never the word itself: a
 /// decision that has the word asked for outranks one that only has a stand-in (`WordMatch`). The
 /// groups are disjoint, and kept small on purpose: a word belongs here only when people do ask
@@ -538,6 +557,7 @@ pub(crate) const WORD_GROUPS: &[&[&str]] = &[
     &["assumption", "hypothesis", "hypotheses", "premise"],
     &["ui", "interface"],
     &["graph", "diagram", "chart", "picture"],
+    &["story", "chapter"],
     &["site", "website"],
     &["edge", "arrow"],
     &["link", "url", "address"],

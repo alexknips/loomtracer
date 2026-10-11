@@ -471,7 +471,10 @@ decision below the bar is returned when
   and together they weigh at least 1.25 times `ln(n + 1)` and a fifth of the weight
   of all the question's words: that many words few decisions hold do not meet by
   chance, whereas two that sit in a long rationale do ("load" and "timeout" of a
-  load balancer question), or
+  load balancer question). Two words are enough when no more than two decisions
+  hold either of them, one of them in the title or a topic key ("how far does the
+  forecast's leftover tail reach?" lists the decision titled for the leftover whose
+  rationale says "tail"), or
 - the ledger is small (16 decisions or fewer, too few for counts to say what is
   rare), and a word its title or topic keys hold is held by no other decision: its
   capturer named it as the subject, or
@@ -483,7 +486,12 @@ decision below the bar is returned when
   "code" and "under" sit in the rationales of a decision in five. A question that
   adds to the rare word several that nobody holds ("do we need a licence to play
   music in the office?") never reaches the share, and a rare word that sits only in
-  a rationale does not name a decision.
+  a rationale does not name a decision, or
+- its title or topic keys spell two of the question's words together ("file store"
+  against `FileStore`, "data base" against `database`), and that pair is as rare as a
+  subject word is above: two words that join into a word of the ledger are no chance
+  meeting, so the other words of the question do not matter ("how does the file store
+  throw away expired entries?"). A rationale that spells them together does not count.
 
 At most three such decisions are added (the ones holding the most weight, then
 decision id), each carrying `missing_terms` like any close match. `why` and

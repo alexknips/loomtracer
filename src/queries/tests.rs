@@ -1891,6 +1891,119 @@ fn fluent_search_does_not_list_a_decision_that_holds_the_rare_word_only_in_its_r
 }
 
 #[test]
+fn fluent_search_lists_the_decision_that_holds_two_words_nobody_else_does_one_of_them_in_its_title(
+) -> Result<()> {
+    let scenario = generic_ledger(
+        20,
+        &[
+            (
+                "d:leftover",
+                "Leftover mass draws beyond longest completed duration",
+                "Tail cut at oldest open item.",
+            ),
+            ("d:forecast-a", "Forecast shows percentiles", "Wording."),
+            ("d:forecast-b", "Forecast per team", "Wording."),
+            ("d:forecast-c", "Forecast dates are ranges", "Wording."),
+        ],
+    )?;
+
+    // Two of five words: the leftover and the tail. "Far" and "reach" are held by nobody and
+    // "forecast" by three decisions, so neither the three-word test nor the share test lets it in.
+    let (items, _) = fluent_answer(&scenario, "forecast leftover tail reach far", 10)?;
+
+    assert_eq!(
+        items.first().map(|(id, _)| id.as_str()),
+        Some("d:leftover"),
+        "two words one decision holds, one of them in its title, are no chance meeting: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_does_not_list_a_pair_when_one_of_its_words_is_common_or_neither_is_in_the_title(
+) -> Result<()> {
+    let common = generic_ledger(
+        20,
+        &[
+            (
+                "d:leftover",
+                "Leftover mass draws beyond longest completed duration",
+                "Tail cut at oldest open item.",
+            ),
+            ("d:tail-a", "Unrelated one", "A tail in a rationale."),
+            ("d:tail-b", "Unrelated two", "Another tail in a rationale."),
+            ("d:tail-c", "Unrelated three", "Yet another tail."),
+        ],
+    )?;
+    let (items, _) = fluent_answer(&common, "forecast leftover tail reach far", 10)?;
+    assert!(
+        items.iter().all(|(id, _)| id != "d:leftover"),
+        "a word four decisions hold is not rare enough to make a pair: {items:?}"
+    );
+
+    let rationale = generic_ledger(
+        20,
+        &[(
+            "d:readme",
+            "README wording",
+            "Leftover and tail, in a long rationale.",
+        )],
+    )?;
+    let (items, _) = fluent_answer(&rationale, "forecast leftover tail reach far", 10)?;
+    assert!(
+        items.iter().all(|(id, _)| id != "d:readme"),
+        "two rare words in a rationale are a chance meeting: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_the_decision_whose_title_spells_two_of_the_words_together() -> Result<()> {
+    let scenario = generic_ledger(
+        20,
+        &[
+            (
+                "d:store",
+                "FileStore retention deletes in one batch",
+                "Retention removes old rows under one lock.",
+            ),
+            ("d:file", "Keep file open", "Wording about file."),
+        ],
+    )?;
+
+    // "File store" is what a person asks; the title says `FileStore`. The other four words are
+    // held by nobody, so the share of the question the title carries is small.
+    let (items, _) = fluent_answer(&scenario, "file store throw away expired entries", 10)?;
+
+    assert!(
+        items.iter().any(|(id, _)| id == "d:store"),
+        "the title says the two words together: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_does_not_read_two_words_into_a_rationale_that_spells_them_together() -> Result<()>
+{
+    let scenario = generic_ledger(
+        20,
+        &[(
+            "d:retention",
+            "Retention policy",
+            "FileStore removes old rows under one lock.",
+        )],
+    )?;
+
+    let (items, _) = fluent_answer(&scenario, "file store throw away expired entries", 10)?;
+
+    assert!(
+        items.iter().all(|(id, _)| id != "d:retention"),
+        "a word in a long rationale does not name the decision: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn fluent_search_reads_an_adverb_as_the_word_a_title_says() -> Result<()> {
     let scenario = generic_ledger(
         20,
@@ -2332,6 +2445,15 @@ fn a_stand_in_word_matches_and_is_not_the_word_itself() {
         Some(WordMatch::StandIn)
     );
     assert_eq!(held("edges", "an arrow"), Some(WordMatch::StandIn));
+    // A person asks about the story; the Flow view draws it in chapters (hivemind-9wk9e).
+    assert_eq!(
+        held("story", "flow's svg chapters draw pixel-true"),
+        Some(WordMatch::StandIn)
+    );
+    assert_eq!(
+        held("chapters", "the search story"),
+        Some(WordMatch::StandIn)
+    );
     // The word itself wins wherever the text also has a stand-in for it.
     assert_eq!(
         held("interface", "the ui, the interface"),

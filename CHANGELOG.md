@@ -479,6 +479,34 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`recall`, `why` and `verify` find a decision from a question that adds everyday words to
+  the one rare word the decision holds, when the decision holds a second rare word or spells
+  two of the question's words as one.** "How far does the forecast's leftover tail reach?"
+  found nothing although the decision titled "... leftover mass draws beyond longest completed
+  duration ..." says "tail" in its rationale and `recall "leftover"` finds it first; "how
+  does the file store throw away expired entries?" listed only a competitor-check note,
+  although the decision titled "FileStore retention deletes ..." is about it. A decision
+  below the half bar is now also listed when it holds two of the question's words, one in its
+  title or topic keys, that no more than two decisions hold each (and that weigh what the
+  existing pair test asks), and when its title or topic keys spell two consecutive words of
+  the question together ("file store" is `FileStore`, "data base" is `database`) and few
+  decisions do. A rationale that spells them together does not count. "File store" now counts as
+  two words of the title, so the decision comes first among the ones below the bar. The story
+  the user asks about is also the chapters the Flow view draws (`story` and `chapter` join the
+  stand-in words), so "why did the names in the story pictures shrink to almost nothing on a
+  phone?" lists the SVG-chapters decision third instead of sixth. Through the debug build of
+  this change on a copy of the crew ledger (534 events, 69 decisions), 480 questions: the
+  checker's 203 go from 171 to 174 in the recall top three (the leftover and file-store
+  questions are first, the story-pictures question third) and `why` lists the right decision
+  for 173 instead of 171; 40 fresh questions of the same shape go from 33 to 36; the
+  other 237 lose no right answer, and one lists one more decision below an unchanged first;
+  the 95 unrelated controls answer exactly as before, "do we need a licence to play music
+  in the office?" among them. Not fixed: "what stops someone hard-coding a colour in a
+  component?" still finds nothing. The decision about colour holds one word of the five, in its
+  rationale, and six other decisions hold one word of the same question each (two of them
+  "colour" too, the others "stops", "someone" and "component"), as rare as "colour"; no count
+  of words tells them from an unrelated question. `docs/AGENT_FLUENT_QUERYING.md` and the `recall_decisions` tool description state
+  the rule. (hivemind-9wk9e)
 - **`why`, `verify` and `recall` by description, and a plain `search` with a status or time
   window, answer in a fraction of a second on a ledger of a thousand decisions instead of
   timing out.** On the city cell (1,084 decisions) they took 20-30 s and mostly ended in
