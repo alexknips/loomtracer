@@ -5533,14 +5533,14 @@ fn floor_reads_scenario() -> Result<Scenario> {
 }
 
 /// The JSON a read of one decision carries for the floor: `binds`, `undo_cost`, `floor`.
-fn floor_json_of(decision: &impl serde::Serialize) -> Result<serde_json::Value> {
-    let value = serde_json::to_value(decision)?;
+fn floor_json_of(decision: &impl serde::Serialize) -> serde_json::Value {
+    let value = serde_json::to_value(decision).expect("decision serializes");
     let pick = |key: &str| value.get(key).cloned().unwrap_or(serde_json::Value::Null);
-    Ok(json!({
+    json!({
         "binds": pick("binds"),
         "undo_cost": pick("undo_cost"),
         "floor": pick("floor"),
-    }))
+    })
 }
 
 /// What each of the four decisions of `floor_reads_scenario` reads as, in the JSON a read carries.
@@ -5584,7 +5584,7 @@ fn get_decision_carries_the_recorded_answers_and_the_floor_they_reach() -> Resul
         let decision = get_decision(&graph, id)?
             .data
             .ok_or_else(|| query_error(format!("{id} exists")))?;
-        assert_eq!(floor_json_of(&decision)?, expected, "{id}");
+        assert_eq!(floor_json_of(&decision), expected, "{id}");
     }
     let apple = get_decision(&graph, "d:apple")?
         .data
@@ -5624,7 +5624,7 @@ fn a_decision_below_the_floor_is_still_found_by_search_recall_and_topic_reads() 
             .into_iter()
             .find(|(id, _)| *id == decision.id)
             .map(|(_, expected)| expected);
-        assert_eq!(Some(floor_json_of(decision)?), expected, "{}", decision.id);
+        assert_eq!(Some(floor_json_of(decision)), expected, "{}", decision.id);
     }
 
     // Graph search by topic: unfiltered, nothing hidden for being below the floor.
@@ -5652,7 +5652,7 @@ fn a_decision_below_the_floor_is_still_found_by_search_recall_and_topic_reads() 
             .find(|(id, _)| *id == item.decision.id)
             .map(|(_, expected)| expected);
         assert_eq!(
-            Some(floor_json_of(&item.decision)?),
+            Some(floor_json_of(&item.decision)),
             expected,
             "{}",
             item.decision.id

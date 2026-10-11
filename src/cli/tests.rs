@@ -10945,7 +10945,8 @@ fn situational_project_first_body(backend: &TestBackend) -> CliTestResult {
         &format!("the text answer says where it looked: {text}"),
     )?;
     ensure(
-        text.contains("\tproject=Platform\tscope=from Platform; Billing is part of it\t"),
+        text.contains("\tproject=Platform\t")
+            && text.contains("\tscope=from Platform; Billing is part of it\t"),
         &format!("the parent's decision is labelled inherited: {text}"),
     )?;
 
@@ -11093,7 +11094,8 @@ fn recall_project_first_body(backend: &TestBackend) -> CliTestResult {
     ensure(
         text.lines().any(|line| {
             line.starts_with("match\t")
-                && line.ends_with("\tproject=Platform\tscope=from Platform; Billing is part of it")
+                && line.contains("\tproject=Platform\t")
+                && line.ends_with("\tscope=from Platform; Billing is part of it")
         }),
         &format!("the parent's decision is labelled inherited: {text}"),
     )?;

@@ -691,11 +691,14 @@ fn the_brief_carries_what_the_decision_binds_what_undoing_it_costs_and_the_floor
         "undo cost: costly (Renaming back breaks every script already moved)"
     );
     assert_eq!(
-        serde_json::to_value(&rename)?["binds"],
+        serde_json::to_value(&rename).expect("brief serializes")["binds"],
         json!({"level": "something", "statement": "Users and scripts that call the old name"}),
         "the brief's JSON keeps the level and the statement"
     );
-    assert_eq!(serde_json::to_value(&rename)?["floor"], json!("cleared"));
+    assert_eq!(
+        serde_json::to_value(&rename).expect("brief serializes")["floor"],
+        json!("cleared")
+    );
 
     // Apple vs apple: the brief says it is below the floor, and still returns it.
     let apple = brief("d:apple")?;
@@ -704,9 +707,12 @@ fn the_brief_carries_what_the_decision_binds_what_undoing_it_costs_and_the_floor
         apple.floor.below_floor_line().as_deref(),
         Some("floor: below the decision floor")
     );
-    assert_eq!(serde_json::to_value(&apple)?["floor"], json!("below"));
     assert_eq!(
-        serde_json::to_value(&apple)?["undo_cost"],
+        serde_json::to_value(&apple).expect("brief serializes")["floor"],
+        json!("below")
+    );
+    assert_eq!(
+        serde_json::to_value(&apple).expect("brief serializes")["undo_cost"],
         json!({"level": "cheap"})
     );
 
@@ -715,7 +721,7 @@ fn the_brief_carries_what_the_decision_binds_what_undoing_it_costs_and_the_floor
     assert_eq!(legacy.floor.verdict, FloorVerdict::NotAsked);
     assert_eq!(legacy.floor.binds_line(), "binds: not asked");
     assert_eq!(legacy.floor.undo_cost_line(), "undo cost: not asked");
-    let legacy_json = serde_json::to_value(&legacy)?;
+    let legacy_json = serde_json::to_value(&legacy).expect("brief serializes");
     assert_eq!(legacy_json["floor"], json!("not_asked"));
     assert!(
         legacy_json.get("binds").is_none() && legacy_json.get("undo_cost").is_none(),

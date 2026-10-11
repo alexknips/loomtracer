@@ -986,6 +986,11 @@ mod tests {
         answers: &FloorAnswers,
     ) -> String {
         let topic_keys = ["floor".to_owned()];
+        let option_labels = ["Do it".to_owned(), "Leave it".to_owned()];
+        let option_ids: Vec<String> = option_labels
+            .iter()
+            .map(|label| commands.record_option("test-actor", label, label).unwrap()) // ubs:ignore: test-only helper; panicking is correct in tests
+            .collect();
         commands
             .propose_decision(DecisionProposalInput {
                 grounding: Grounding::NotAsked,
@@ -995,9 +1000,9 @@ mod tests {
                 title,
                 rationale: "A stated reason for the summary floor test",
                 topic_keys: &topic_keys,
-                option_ids: &[],
-                option_labels: &[],
-                chosen_option_id: None,
+                option_ids: &option_ids,
+                option_labels: &option_labels,
+                chosen_option_id: option_ids.first().map(String::as_str),
                 decided_by: None,
                 delegated_by: None,
                 still_proposed: false,
@@ -1036,8 +1041,8 @@ mod tests {
             "Keep the previous export format",
             "Nobody asked the floor questions of this one",
             &["floor"],
-            &[],
-            None,
+            &["Do it", "Leave it"],
+            Some("Do it"),
         );
         let graph = make_graph(&ledger);
         let summarize = |ids: &[&String], mode| {
