@@ -8,13 +8,14 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use crate::events::{self, EventPayload, ReadEvent};
+use crate::events::{self, EventPayload, EventType, ReadEvent};
 use crate::ledger::{AnyLedger, EventLedger, SqliteEventLedger, TenantScopedLedger};
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::decision::{DecisionView, HypothesisContext};
 use super::grounding::{hypothesis_facts_from_row, GroundingState};
+use super::history::LEDGER_READ_PAGE_SIZE;
 use super::project_label::ProjectLabels;
 use super::project_scope::{project_scope, MatchScope, ProjectScope, ScopeNote, ScopeRelation};
 use super::same_as::{fold_linked, RecordedCopy};
@@ -917,20 +918,41 @@ fn decision_proposed_at_by_id(
     context: &QueryContext,
     ledger: &impl EventLedger,
 ) -> Result<BTreeMap<String, DateTime<Utc>>> {
+    // Only the proposals leave the ledger: a time window must not cost a read of every ingest
+    // transcript a cell holds (hivemind-7jon8).
     let mut proposed_at = BTreeMap::new();
-    ledger.replay_from_for_tenant(&context.tenant_id, 0, &mut |event| {
-        let ReadEvent::Payload(payload) = events::validate_for_read(event)
-            .map_err(|error| query_error(format!("invalid event during search replay: {error}")))?
-        else {
-            return Ok(());
+    let mut offset = 0;
+    loop {
+        let page = ledger.read_types_for_tenant(
+            &context.tenant_id,
+            &[EventType::DecisionProposed],
+            &[],
+            offset,
+            LEDGER_READ_PAGE_SIZE,
+        )?;
+        let Some(last) = page.last().and_then(|event| event.event_id) else {
+            break;
         };
-        if let EventPayload::DecisionProposed(payload) = *payload {
-            if let Some(ts) = event.ts {
-                proposed_at.insert(payload.decision_id, ts);
+        offset = last;
+        let full_page = page.len() >= LEDGER_READ_PAGE_SIZE;
+        for event in &page {
+            let ReadEvent::Payload(payload) =
+                events::validate_for_read(event).map_err(|error| {
+                    query_error(format!("invalid event during search replay: {error}"))
+                })?
+            else {
+                continue;
+            };
+            if let EventPayload::DecisionProposed(payload) = *payload {
+                if let Some(ts) = event.ts {
+                    proposed_at.insert(payload.decision_id, ts);
+                }
             }
         }
-        Ok(())
-    })?;
+        if !full_page {
+            break;
+        }
+    }
     Ok(proposed_at)
 }
 

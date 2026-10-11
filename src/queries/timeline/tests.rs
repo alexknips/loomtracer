@@ -3,9 +3,10 @@
 use chrono::{Duration, Utc};
 
 use crate::commands::{Commands, DecisionProposalInput, GroundInput, Grounding};
-use crate::events::{Event, EventId, EventType, RelationKind, TenantId};
-use crate::ledger::{EventLedger, InMemoryEventLedger};
+use crate::events::{RelationKind, TenantId};
+use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
+use crate::queries::test_fixtures::TypedReadsOnly;
 use crate::queries::DecisionStatus;
 use crate::Result;
 
@@ -562,50 +563,6 @@ fn an_empty_ledger_has_no_changes() -> Result<()> {
     assert!(response.data.items.is_empty());
     assert!(!response.truncated);
     Ok(())
-}
-
-/// A ledger that refuses to be read whole, as a cell's is too big to be: only a read of named
-/// event types gets through.
-struct TypedReadsOnly<'a>(&'a InMemoryEventLedger);
-
-impl EventLedger for TypedReadsOnly<'_> {
-    fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> Result<EventId> {
-        self.0.append_for_tenant(tenant_id, event)
-    }
-
-    fn read_for_tenant(
-        &self,
-        _tenant_id: &TenantId,
-        _offset: EventId,
-        _limit: usize,
-    ) -> Result<Vec<Event>> {
-        Err(crate::queries::shared::query_error("read the whole ledger").into())
-    }
-
-    fn replay_from_for_tenant(
-        &self,
-        tenant_id: &TenantId,
-        offset: EventId,
-        callback: &mut dyn FnMut(&Event) -> Result<()>,
-    ) -> Result<()> {
-        self.0.replay_from_for_tenant(tenant_id, offset, callback)
-    }
-
-    fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
-        self.0.latest_offset_for_tenant(tenant_id)
-    }
-
-    fn read_types_for_tenant(
-        &self,
-        tenant_id: &TenantId,
-        types: &[EventType],
-        omit_payload_keys: &[&str],
-        offset: EventId,
-        limit: usize,
-    ) -> Result<Vec<Event>> {
-        self.0
-            .read_types_for_tenant(tenant_id, types, omit_payload_keys, offset, limit)
-    }
 }
 
 #[test]

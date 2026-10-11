@@ -1225,6 +1225,51 @@ fn a_search_reports_every_status_as_the_one_by_one_derivation_does() -> Result<(
     Ok(())
 }
 
+/// The ids a search over February 2026 finds.
+fn february_window_ids(ledger: &impl EventLedger, graph: &MemoryGraph) -> Result<Vec<String>> {
+    let response = search_decisions_with_ledger(
+        &QueryContext::local(),
+        ledger,
+        graph,
+        &SearchDecisionRequest {
+            since: Some("2026-02-01T00:00:00Z".parse().expect("time parses")),
+            until: Some("2026-02-28T00:00:00Z".parse().expect("time parses")),
+            limit: 10,
+            ..SearchDecisionRequest::default()
+        },
+    )?;
+    Ok(response
+        .data
+        .items
+        .into_iter()
+        .map(|item| item.decision.id)
+        .collect())
+}
+
+#[test]
+fn a_time_window_dates_decisions_from_their_proposals_alone() -> Result<()> {
+    // The window needs only when each decision was proposed; reading every event of a cell's
+    // ledger to learn it kept a plain `search` with `since`/`until` from answering (hivemind-7jon8).
+    let scenario = Scenario::new();
+    for (id, at) in [
+        ("d:january", "2026-01-10T00:00:00Z"),
+        ("d:february", "2026-02-10T00:00:00Z"),
+        ("d:march", "2026-03-10T00:00:00Z"),
+    ] {
+        scenario.decision(id, id, "human:alice", at)?;
+    }
+    let graph = scenario.graph()?;
+
+    let whole = february_window_ids(scenario.ledger(), &graph)?;
+    let typed = february_window_ids(
+        &super::test_fixtures::TypedReadsOnly(scenario.ledger()),
+        &graph,
+    )?;
+    assert_eq!(whole, vec!["d:february".to_owned()]);
+    assert_eq!(typed, whole);
+    Ok(())
+}
+
 /// One decision per `(id, title, rationale)`, filed by a human with no options or evidence.
 fn titled_decisions(decisions: &[(&str, &str, &str)]) -> Result<Scenario> {
     let scenario = Scenario::new();
