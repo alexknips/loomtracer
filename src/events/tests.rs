@@ -15,6 +15,16 @@ const FIXTURES: &[(&str, &str, EventType)] = &[
         EventType::DecisionProposed,
     ),
     (
+        include_str!("../../schemas/v0/decision.proposed.json"),
+        include_str!("../../tests/fixtures/v0/floor/decision.proposed.stated.json"),
+        EventType::DecisionProposed,
+    ),
+    (
+        include_str!("../../schemas/v0/decision.proposed.json"),
+        include_str!("../../tests/fixtures/v0/floor/decision.proposed.below_floor.json"),
+        EventType::DecisionProposed,
+    ),
+    (
         include_str!("../../schemas/v0/decision.requested.json"),
         include_str!("../../tests/fixtures/v0/decision.requested.json"),
         EventType::DecisionRequested,
@@ -253,6 +263,137 @@ fn inherited_project_source_is_a_wire_value_a_replacement_records() {
         EventPayload::DecisionProposed(ref proposed)
             if proposed.project_source == Some(ProjectSource::Inherited)
     ));
+}
+
+fn floor_event(fixture: &str) -> Event {
+    serde_json::from_str(fixture).expect("fixture deserializes")
+}
+
+const STATED_FLOOR_FIXTURE: &str =
+    include_str!("../../tests/fixtures/v0/floor/decision.proposed.stated.json");
+
+#[test]
+fn a_proposal_carries_the_floor_answers_through_validation() {
+    let payload =
+        validate(&floor_event(STATED_FLOOR_FIXTURE)).expect("a stated proposal validates");
+    let EventPayload::DecisionProposed(proposed) = payload else {
+        panic!("a decision.proposed payload");
+    };
+    assert_eq!(
+        proposed.binds,
+        Some(BindsAnswer::something(
+            "Users and scripts that call the old name"
+        ))
+    );
+    assert_eq!(
+        proposed.undo_cost,
+        Some(UndoCostAnswer::costly(
+            "Renaming back breaks every script already moved to the new name"
+        ))
+    );
+
+    let below = validate(&floor_event(include_str!(
+        "../../tests/fixtures/v0/floor/decision.proposed.below_floor.json"
+    )))
+    .expect("a below-floor proposal validates: nothing is refused for being below it");
+    let EventPayload::DecisionProposed(below) = below else {
+        panic!("a decision.proposed payload");
+    };
+    assert_eq!(below.binds, Some(BindsAnswer::nothing()));
+    assert_eq!(below.undo_cost, Some(UndoCostAnswer::cheap()));
+}
+
+#[test]
+fn an_event_from_before_the_answers_existed_replays_as_not_asked_and_writes_none_back() {
+    // The top-level fixture predates `binds` and `undo_cost`: it must keep replaying, and
+    // re-serializing it must not invent either field (existing ledger data is carried across
+    // unchanged, never rewritten).
+    let event: Event = serde_json::from_str(include_str!(
+        "../../tests/fixtures/v0/decision.proposed.json"
+    ))
+    .unwrap();
+    let EventPayload::DecisionProposed(proposed) = validate(&event).expect("old event validates")
+    else {
+        panic!("a decision.proposed payload");
+    };
+    assert_eq!(proposed.binds, None);
+    assert_eq!(proposed.undo_cost, None);
+    let rewritten = serde_json::to_value(&proposed).unwrap();
+    assert!(rewritten.get("binds").is_none() && rewritten.get("undo_cost").is_none());
+}
+
+#[test]
+fn a_proposal_with_only_one_floor_answer_is_refused() {
+    for dropped in ["binds", "undo_cost"] {
+        let mut event = floor_event(STATED_FLOOR_FIXTURE);
+        event.payload.as_object_mut().unwrap().remove(dropped);
+        assert!(
+            matches!(
+                validate(&event),
+                Err(EventValidationError::FloorAnswerUnpaired(..))
+            ),
+            "{dropped} dropped"
+        );
+    }
+}
+
+#[test]
+fn a_floor_answer_without_its_sentence_or_with_a_blank_one_is_refused() {
+    for (field, answer) in [
+        ("binds", json!({"level": "something"})),
+        ("binds", json!({"level": "something", "statement": "  "})),
+        (
+            "binds",
+            json!({"level": "nothing", "statement": "but it does"}),
+        ),
+        ("undo_cost", json!({"level": "costly"})),
+        (
+            "undo_cost",
+            json!({"level": "cheap", "statement": "it is not"}),
+        ),
+    ] {
+        let mut event = floor_event(STATED_FLOOR_FIXTURE);
+        event.payload[field] = answer.clone();
+        assert!(
+            matches!(
+                validate(&event),
+                Err(EventValidationError::InvalidFloorAnswer { .. })
+            ),
+            "{field} = {answer}"
+        );
+    }
+}
+
+#[test]
+fn the_schema_rejects_unpaired_and_incoherent_floor_answers() {
+    let schema: Value =
+        serde_json::from_str(include_str!("../../schemas/v0/decision.proposed.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).expect("schema compiles");
+
+    let mut unpaired = serde_json::from_str::<Value>(STATED_FLOOR_FIXTURE).unwrap();
+    unpaired["payload"]
+        .as_object_mut()
+        .unwrap()
+        .remove("undo_cost");
+    assert!(!validator.is_valid(&unpaired), "binds alone");
+
+    for (field, answer) in [
+        ("binds", json!({"level": "something"})),
+        (
+            "binds",
+            json!({"level": "nothing", "statement": "but it does"}),
+        ),
+        ("undo_cost", json!({"level": "costly"})),
+        (
+            "undo_cost",
+            json!({"level": "cheap", "statement": "it is not"}),
+        ),
+        ("undo_cost", json!({"level": "pricey", "statement": "x"})),
+    ] {
+        let mut event = serde_json::from_str::<Value>(STATED_FLOOR_FIXTURE).unwrap();
+        event["payload"][field] = answer.clone();
+        assert!(!validator.is_valid(&event), "{field} = {answer}");
+    }
 }
 
 fn delegated_acceptance_event() -> Event {

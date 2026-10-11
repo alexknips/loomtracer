@@ -11,6 +11,7 @@ Usage:
                (--rests-on-decision "..." | --rests-on-evidence "..." \
                 --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) \
                [--would-change-if "..."] [--check-by DATE] [--confidence low|medium|high] \
+               (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo) \
                [--project HANDLE] [--declare-topic KEY,...] [--old ID] [--pick N] [--topic T]
 
   supersede.sh '#1' --title "..." --rationale "..." --bet   # resolve candidate #1
@@ -23,6 +24,12 @@ The replacement must say what it rests on (a decision we already made,
 something observed, something assumed, or a declared --bet); a supersede that
 names nothing is refused and nothing is written. A '#N' given to
 --rests-on-decision refers to the previous ambiguous candidate list.
+
+The replacement must also say what it binds beyond the edit in front of you
+(--binds "..." or --binds-nothing) and what undoing it would cost
+(--undo-cost "..." or --cheap-to-undo); one that leaves either out is refused
+and nothing is written. A replacement that binds nothing and is cheap to undo
+is still recorded; the reply says it is below the decision floor.
 
 The replacement's project is worked out from where this runs (the nearest
 .hivemind-project file walking up from the working directory, then the project

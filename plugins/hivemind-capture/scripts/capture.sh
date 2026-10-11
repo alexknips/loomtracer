@@ -8,7 +8,8 @@ Usage:
     --topic-keys topic[,topic] --options "Label[,Label]" [--option "Label"]... \
     [--chose "Label"] \
     (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | \
-     --rests-on-assumption "..." | --bet ["..."])
+     --rests-on-assumption "..." | --bet ["..."]) \
+    (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo)
   capture.sh "<text>" --kind evidence
   capture.sh "<text>" --kind hypothesis
   capture.sh "<text>"
@@ -64,6 +65,19 @@ is refused (exit 2) and nothing is written. Answer with at least one of:
 Existing --evidence <id> / --hypotheses <id> also count. --confidence
 low|medium|high records the decider's own stated confidence; omit it otherwise.
 The decider's own words are not a grounding — they go in --quote.
+
+Every decision capture also says what it binds and what undoing it would cost; a
+capture that leaves either out is refused (exit 2) and nothing is written. Answer both:
+  --binds TEXT | --binds-nothing
+                              What the decision binds beyond the edit in front
+                              of you (other people, other code, a later
+                              choice), in one sentence; or that it binds
+                              nothing.
+  --undo-cost TEXT | --cheap-to-undo
+                              What undoing it would cost, in one sentence; or
+                              that undoing it is cheap, an ordinary edit.
+A decision that binds nothing and is cheap to undo is still recorded; the
+confirmation says it is below the decision floor.
 
 Every decision capture says which project it belongs to and how that was
 determined. Without --project the CLI works it out from where this runs (the
@@ -332,8 +346,10 @@ emit_decision() {
   if [[ "${#FORWARDED[@]}" -eq 0 ]]; then
     cat >&2 <<'ERROR'
 decision captures require structured decision.capture flags:
-  --title, --rationale, --topic-keys, --options, and what the decision rests on
-  (--rests-on-decision, --rests-on-evidence, --rests-on-assumption, or --bet)
+  --title, --rationale, --topic-keys, --options, what the decision rests on
+  (--rests-on-decision, --rests-on-evidence, --rests-on-assumption, or --bet),
+  and what it binds and what undoing it would cost
+  (--binds or --binds-nothing, --undo-cost or --cheap-to-undo)
 ERROR
     exit 2
   fi
@@ -447,7 +463,7 @@ while [[ $# -gt 0 ]]; do
       FORWARDED+=("$1" "${2:-}")
       shift 2
       ;;
-    --title|--rationale|--topic-keys|--options|--chose|--decided-by|--delegated-by|--hypotheses|--evidence|--quote|--question|--answers|--rests-on-decision|--rests-on-evidence|--evidence-source|--rests-on-assumption|--would-change-if|--check-by|--confidence|--project|--project-source|--declare-topic)
+    --title|--rationale|--topic-keys|--options|--chose|--decided-by|--delegated-by|--hypotheses|--evidence|--quote|--question|--answers|--rests-on-decision|--rests-on-evidence|--evidence-source|--rests-on-assumption|--would-change-if|--check-by|--confidence|--project|--project-source|--declare-topic|--binds|--undo-cost)
       FORWARDED+=("$1" "${2:-}")
       shift 2
       ;;
@@ -465,7 +481,7 @@ while [[ $# -gt 0 ]]; do
         shift
       fi
       ;;
-    --still-proposed)
+    --still-proposed|--binds-nothing|--cheap-to-undo)
       FORWARDED+=("$1")
       shift
       ;;

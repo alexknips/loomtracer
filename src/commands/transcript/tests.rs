@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::commands::{
-    personal_project_handle, ClassifiedBatchRecorded, CommandContext, Commands, GroundingPlan,
-    SupersedeInput,
+    personal_project_handle, ClassifiedBatchRecorded, CommandContext, Commands, FloorInput,
+    GroundingPlan, SupersedeInput,
 };
 use crate::events::{
     CaptureItem, Event, EventProvenance, EventType, IngestBatchReceivedPayload, TenantId,
@@ -937,6 +937,7 @@ fn a_person_replaces_a_draft_and_the_draft_reads_superseded() {
             project: None,
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("a person can replace a draft");
 

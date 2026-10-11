@@ -3,8 +3,8 @@
 use uuid::Uuid;
 
 use crate::commands::{
-    Commands, DecisionProposalEventUuids, DecisionProposalInput, Grounding, GroundingPlan,
-    GROUNDING_REQUIRED_MESSAGE,
+    Commands, DecisionProposalEventUuids, DecisionProposalInput, FloorInput, Grounding,
+    GroundingPlan, GROUNDING_REQUIRED_MESSAGE,
 };
 use crate::events::{Event, EventPayload, EventType, QuestionRecordedPayload};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
@@ -37,6 +37,7 @@ fn proposal<'a>(
         question,
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     }
 }
 

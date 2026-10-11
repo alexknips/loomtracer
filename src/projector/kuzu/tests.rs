@@ -4,7 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::events::TenantId;
-use crate::projector::tests::every_event_scenario;
+use crate::projector::tests::{
+    assert_floor_scenario_projection, every_event_scenario, floor_scenario,
+};
 use crate::projector::{project_from_ledger, rebuild_graph_for_tenant};
 
 #[test]
@@ -625,6 +627,18 @@ fn failure_modes_group_by_the_profile_like_the_other_backends() -> Result<()> {
     crate::projector::project_from_ledger(scenario.ledger(), &graph, 0)?;
 
     crate::quality_profile::failure_modes::tests::assert_failure_mode_scenario(&graph)?;
+
+    let _ = fs::remove_dir_all(temp_dir);
+    Ok(())
+}
+
+#[test]
+fn the_decision_floor_answers_land_in_their_columns_like_the_other_backends() -> Result<()> {
+    let temp_dir = test_graph_dir("decision-floor");
+    let graph = KuzuGraph::open(&temp_dir)?;
+    project_from_ledger(&floor_scenario()?, &graph, 0)?;
+
+    assert_floor_scenario_projection(&graph)?;
 
     let _ = fs::remove_dir_all(temp_dir);
     Ok(())

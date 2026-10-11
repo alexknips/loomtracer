@@ -11,8 +11,11 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::{CommandContext, Commands, DecisionProposalInput, Grounding, SupersedeInput};
+use crate::commands::{
+    CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding, SupersedeInput,
+};
 use crate::events::{CaptureItem, EventProvenance, IngestTurn};
+use crate::floor::FloorAnswers;
 use crate::grounding::{
     resolve_grounding, GroundingResolution, GroundingSpec, WIRE_GROUNDING_REFUSAL,
 };
@@ -71,6 +74,13 @@ pub(super) struct CaptureDecisionRequest {
     /// `GroundingSpec::from_wire`). Required — a capture that names nothing is refused.
     #[serde(default)]
     grounding: Option<Vec<serde_json::Value>>,
+    /// What the decision binds: `{level: nothing|something, statement?}`. Required — parsed with
+    /// the MCP tools' parser (`FloorAnswers::from_wire`).
+    #[serde(default)]
+    binds: Option<serde_json::Value>,
+    /// What undoing the decision would cost: `{level: cheap|costly, statement?}`. Required.
+    #[serde(default)]
+    undo_cost: Option<serde_json::Value>,
     /// Confidence in the decider's own words: low | medium | high.
     #[serde(default)]
     expressed_confidence: Option<String>,
@@ -123,6 +133,12 @@ pub(super) struct SupersedeRequest {
     /// What the replacement rests on; see `CaptureDecisionRequest::grounding`. Required.
     #[serde(default)]
     grounding: Option<Vec<serde_json::Value>>,
+    /// What the replacement binds and what undoing it costs; see `CaptureDecisionRequest::binds`.
+    /// Both required.
+    #[serde(default)]
+    binds: Option<serde_json::Value>,
+    #[serde(default)]
+    undo_cost: Option<serde_json::Value>,
     #[serde(default)]
     expressed_confidence: Option<String>,
     /// Deprecated alias for `{kind:"assumption", hypothesis_id}` grounding items.
@@ -401,6 +417,7 @@ fn capture_decision_blocking(
         &req.hypothesis_ids,
         &req.evidence_ids,
     )?;
+    let floor = wire_floor(req.binds.as_ref(), req.undo_cost.as_ref())?;
 
     let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
     // Resolve every named premise before anything is written; an ambiguous or unmatched one is
@@ -490,6 +507,7 @@ fn capture_decision_blocking(
                 still_proposed: req.still_proposed,
                 quote: req.quote.as_deref(),
                 question: req.question.as_deref(),
+                floor: FloorInput::Stated(&floor),
             },
             &resolved.plan,
         )
@@ -513,7 +531,17 @@ fn capture_decision_blocking(
     if let Some(question) = proposal.question {
         reply["question_id"] = serde_json::json!(question.question_id);
     }
+    floor.reply().insert_into(&mut reply);
     Ok(reply)
+}
+
+/// Parse and require the REST `binds` and `undo_cost` bodies: the same objects and the same
+/// refusal text the MCP tools take.
+fn wire_floor(
+    binds: Option<&serde_json::Value>,
+    undo_cost: Option<&serde_json::Value>,
+) -> ApiResult<FloorAnswers> {
+    FloorAnswers::from_wire(binds, undo_cost).map_err(ApiError::validation)
 }
 
 /// Parse and require the REST `grounding` body: the same typed items and deprecated
@@ -682,6 +710,7 @@ pub(super) async fn supersede_handler(
             &req.hypothesis_ids,
             &req.evidence_ids,
         )?;
+        let floor = wire_floor(req.binds.as_ref(), req.undo_cost.as_ref())?;
         let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
         let resolved = match resolve_grounding(&ledger, &ctx.tenant_id, grounding_spec)
             .map_err(to_api_error)?
@@ -712,6 +741,7 @@ pub(super) async fn supersede_handler(
                 evidence_ids: &[],
                 grounding: Some(&resolved.plan),
                 expressed_confidence: req.expressed_confidence.as_deref(),
+                floor: FloorInput::Stated(&floor),
             })
             .map_err(to_api_error)?;
 
@@ -721,7 +751,7 @@ pub(super) async fn supersede_handler(
         let new_status =
             derive_decision_status(graph, &outcome.new_decision_id).map_err(to_api_error)?;
 
-        Ok(serde_json::json!({
+        let mut reply = serde_json::json!({
             "old_decision_id": old_decision_id,
             "new_decision_id": outcome.new_decision_id,
             "proposal_event_id": outcome.proposal_event_id,
@@ -731,7 +761,9 @@ pub(super) async fn supersede_handler(
             "new_decision_status": new_status,
             "rests_on": resolved.label(outcome.rests_on),
             "premise_stale": outcome.premise_stale,
-        }))
+        });
+        floor.reply().insert_into(&mut reply);
+        Ok(reply)
     })
     .await;
 

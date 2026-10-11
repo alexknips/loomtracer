@@ -2,7 +2,7 @@
 #[cfg(test)]
 use serde_json::json;
 
-use crate::commands::{Commands, DecisionProposalInput, Grounding};
+use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use crate::ledger::InMemoryEventLedger;
 
 use super::*;
@@ -34,6 +34,7 @@ fn propose(commands: &Commands<'_, InMemoryEventLedger>, title: &str) -> String 
             question: None,
             delegated_by: None,
             project: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision")
 }

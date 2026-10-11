@@ -44,6 +44,35 @@
 //! - A premise decision that is already superseded or rejected is allowed and reported as
 //!   `premise_stale`.
 //!
+//! # The decision floor (`FloorInput`, hivemind-bbnw.10)
+//!
+//! Every capture asks two questions, and the answers are recorded on `decision.proposed`: what
+//! the decision binds beyond the edit in front of the capturer (`nothing`, or `something` plus
+//! one sentence) and what undoing it would cost (`cheap`, or `costly` plus one sentence). The
+//! capture verbs (CLI `emit decision.capture` and `supersede`, MCP `capture_decision` and
+//! `supersede_decision`, REST `POST /v1/decisions` and `POST /v1/decisions/{id}/supersessions`)
+//! pass `FloorInput::Stated`; enforced by `propose_decision*` and `supersede`, tested in
+//! `commands/tests.rs`:
+//!
+//! - A verb refuses a call that leaves either answer out, before anything resolves or is
+//!   written (CLI exit 2, MCP tool error, REST 400): the refusal names both questions and their
+//!   `nothing` / `cheap` answers. The commands only ever see two answers or `NotAsked`.
+//! - A `Stated` answer must be well-formed (`BindsAnswer::check`, `UndoCostAnswer::check`): a
+//!   sentence goes with `something` / `costly`, not with `nothing` / `cheap`, and it is not
+//!   blank. A malformed answer is a `Validation` error raised before the first write, so a
+//!   refused capture leaves no evidence, assumption or option behind.
+//! - Nothing is refused for being below the floor. A capture that binds nothing and is cheap to
+//!   undo is recorded like any other; the verb's reply carries `floor: {binds, undo_cost,
+//!   cleared}` and, when below, `below_floor: true` with the note (`crate::floor`). The floor
+//!   (`cleared`, `below`, `not_asked`) is a pure function of the two recorded levels
+//!   (`floor::floor_verdict`), derived at read time and never stored.
+//! - `NotAsked` is reserved for the paths that never ask: raw `emit decision.proposed`,
+//!   classifier ingest, document import, Slack and the interactive `review` supersede. They
+//!   record neither answer, and so does every event written before the answers existed: all of
+//!   them read `not_asked`. There is no backfill.
+//! - The answers are part of "the same supersede": a retry that answers differently is a new
+//!   supersession, never a silent match that would report answers the ledger does not hold.
+//!
 //! # Importer writes ahead of a proposal (`preflight_proposal`, hivemind-poum)
 //!
 //! An importer (Slack thread import, document import) writes an ask, evidence or hypotheses
@@ -265,6 +294,7 @@ use crate::events::{
     ProjectLinkPayload, ProjectRegisteredPayload, ProjectSource, ProjectTopicDeclaredPayload,
     RelationAddedPayload, RelationKind, SuggestionSurfacedPayload, TenantId,
 };
+use crate::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
 use crate::ledger::EventLedger;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
@@ -362,6 +392,48 @@ impl<'a> Grounding<'a> {
             }
             Self::NotAsked => false,
         }
+    }
+}
+
+/// The decision floor's two answers at capture (hivemind-bbnw.10): what the decision binds and
+/// what undoing it would cost. `Stated` is what every capture verb (CLI `emit decision.capture`
+/// and `supersede`, MCP `capture_decision` and `supersede_decision`, REST) passes: both answers,
+/// recorded on `decision.proposed`. `NotAsked` is reserved for the paths that never ask: raw
+/// `emit decision.proposed`, classifier ingest, document import, Slack, and the interactive
+/// `review` supersede. A below-floor answer is never refused (D1 = A1): it is recorded and the
+/// verb's reply says so.
+#[derive(Debug, Clone, Copy)]
+pub enum FloorInput<'a> {
+    Stated(&'a FloorAnswers),
+    NotAsked,
+}
+
+impl<'a> FloorInput<'a> {
+    fn binds(self) -> Option<&'a BindsAnswer> {
+        match self {
+            Self::Stated(answers) => Some(&answers.binds),
+            Self::NotAsked => None,
+        }
+    }
+
+    fn undo_cost(self) -> Option<&'a UndoCostAnswer> {
+        match self {
+            Self::Stated(answers) => Some(&answers.undo_cost),
+            Self::NotAsked => None,
+        }
+    }
+
+    /// A stated answer that is malformed (a sentence missing or blank where one is required, or
+    /// given where none belongs) is a `Validation` error; `NotAsked` is never refused.
+    fn check(self) -> Result<()> {
+        if let Self::Stated(answers) = self {
+            answers.binds.check().map_err(CommandError::Validation)?;
+            answers
+                .undo_cost
+                .check()
+                .map_err(CommandError::Validation)?;
+        }
+        Ok(())
     }
 }
 
@@ -545,6 +617,8 @@ pub struct DecisionProposalInput<'a> {
     pub question: Option<&'a str>,
     /// What this decision rests on. See `Grounding`.
     pub grounding: Grounding<'a>,
+    /// What this decision binds and what undoing it costs. See `FloorInput`.
+    pub floor: FloorInput<'a>,
     /// Expressed confidence from the decider's own words: low | medium | high. Never
     /// system-computed. Validated against that fixed vocabulary when present.
     pub expressed_confidence: Option<&'a str>,
@@ -584,6 +658,9 @@ pub struct SupersedeInput<'a> {
     /// carries the old decision's own `hypothesis_ids`/`evidence_ids` forward instead of asking
     /// the capture question.
     pub grounding: Option<&'a GroundingPlan>,
+    /// What the replacement binds and what undoing it costs. See `FloorInput`; the interactive
+    /// `review` supersede leaves it `NotAsked`, like `grounding`.
+    pub floor: FloorInput<'a>,
     /// Expressed confidence from the decider's own words: low | medium | high. See
     /// `DecisionProposalInput::expressed_confidence`.
     pub expressed_confidence: Option<&'a str>,
@@ -668,6 +745,9 @@ struct DecisionProposalSnapshot {
     project: Option<String>,
     project_source: Option<ProjectSource>,
     expressed_confidence: Option<String>,
+    /// The decision floor's two answers as recorded; `None` for a decision that was never asked.
+    binds: Option<BindsAnswer>,
+    undo_cost: Option<UndoCostAnswer>,
 }
 
 /// A decision a classifier drafted from a transcript: one decision capture of an
@@ -729,6 +809,8 @@ impl ClassifiedDecision {
             project: None,
             project_source: Some(ProjectSource::PersonalFallback),
             expressed_confidence: self.expressed_confidence,
+            binds: None,
+            undo_cost: None,
         }
     }
 }
@@ -1763,6 +1845,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         require_quote_pairing(input.quote, input.question)?;
         require_readable_rationale(input.rationale, input.quote.is_some())?;
         require_valid_expressed_confidence(input.expressed_confidence)?;
+        input.floor.check()?;
 
         let normalized_topic_keys: Vec<String> = input
             .topic_keys
@@ -1990,6 +2073,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         require_quote_pairing(input.quote, input.question)?;
         require_readable_rationale(input.rationale, input.quote.is_some())?;
         require_valid_expressed_confidence(input.expressed_confidence)?;
+        input.floor.check()?;
 
         let normalized_topic_keys: Vec<String> = input
             .topic_keys
@@ -2114,6 +2198,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                 question: input.question.map(ToOwned::to_owned),
                 project,
                 project_source: Some(project_source),
+                binds: input.floor.binds().cloned(),
+                undo_cost: input.floor.undo_cost().cloned(),
             }),
             None,
             event_uuids.proposal,
@@ -2427,6 +2513,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         validate_title("new_title", input.new_title)?;
         require_non_empty("new_rationale", input.new_rationale)?;
         require_optional_non_empty("chosen_option_label", input.chosen_option_label)?;
+        // Before the replacement's options are recorded: a malformed answer leaves nothing behind.
+        input.floor.check()?;
 
         let old_decision = self
             .decision_proposal_snapshot(input.old_decision_id)?
@@ -2524,6 +2612,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
 
         let proposal_props = DecisionProposalInput {
             grounding,
+            floor: input.floor,
             expressed_confidence: input.expressed_confidence,
             actor_id: input.actor_id,
             title: input.new_title,
@@ -3765,6 +3854,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                 && proposal.evidence_ids == props.evidence_ids
                 && proposal.project.as_deref() == props.project.map(|project| project.handle)
                 && proposal.expressed_confidence.as_deref() == props.expressed_confidence
+                && proposal.binds.as_ref() == props.floor.binds()
+                && proposal.undo_cost.as_ref() == props.floor.undo_cost()
                 && recorded_premises == requested_premises
             {
                 let relation_event_ids = relation_event_ids_by_causation
@@ -4065,7 +4156,15 @@ fn decision_proposal_snapshot_from_event(event: &Event) -> Option<DecisionPropos
             .and_then(ProjectSource::parse),
         expressed_confidence: payload_value_as_str(event, "expressed_confidence")
             .map(str::to_owned),
+        binds: payload_answer(event, "binds"),
+        undo_cost: payload_answer(event, "undo_cost"),
     })
+}
+
+/// A decision-floor answer from a raw `decision.proposed` payload; `None` when absent or when it
+/// does not parse (an event that could not have been written by the commands layer).
+fn payload_answer<T: serde::de::DeserializeOwned>(event: &Event, key: &str) -> Option<T> {
+    serde_json::from_value(event.payload.get(key)?.clone()).ok()
 }
 
 /// `(batch event id, capture index)` for a classified capture's node id

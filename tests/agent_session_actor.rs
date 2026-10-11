@@ -70,6 +70,8 @@ fn seed(dir: &Path, title: &str) -> TestResult<String> {
         SEEDER,
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--title",
         title,
@@ -159,6 +161,8 @@ fn follow_up_verbs_run_by_an_agent_with_no_actor_record_the_agent() -> TestResul
         dir,
         &[
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &target,
             "--title",

@@ -11,13 +11,14 @@ use crate::events::{
     EventSource, EventType, HypothesisKind, IngestTurn, ProjectAnchorKind, ProjectLinkKind,
     ProjectSource, RelationKind,
 };
+use crate::floor::{BindsAnswer, BindsLevel, FloorAnswers, UndoCostAnswer, UndoCostLevel};
 use crate::ledger::{EventLedger, InMemoryEventLedger, SqliteEventLedger};
 
 use super::{
     agent_actor_session, find_bare_list_reference, normalize_topic_key, personal_project_handle,
     CommandContext, Commands, DecisionPlacement, DecisionProposalInput, DeterminedProject,
-    GroundInput, Grounding, GroundingPlan, NewBet, NewEvidence, RestsOnKind, SupersedeInput,
-    SupersedeOutcome, MAX_TITLE_LEN, MAX_TOPIC_KEY_LEN, PERSONAL_FALLBACK_NOTICE,
+    FloorInput, GroundInput, Grounding, GroundingPlan, NewBet, NewEvidence, RestsOnKind,
+    SupersedeInput, SupersedeOutcome, MAX_TITLE_LEN, MAX_TOPIC_KEY_LEN, PERSONAL_FALLBACK_NOTICE,
 };
 
 #[test]
@@ -313,6 +314,7 @@ fn propose_decision_fans_out_relation_events_with_causation_linkage() {
             evidence_ids: std::slice::from_ref(&evidence_id),
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision");
 
@@ -388,6 +390,7 @@ fn propose_decision_stores_paired_quote_and_question() {
             quote: Some("1a"),
             question: Some("Should a personal project be visible to the whole tenant?"),
             project: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision with paired quote/question");
 
@@ -433,6 +436,7 @@ fn propose_decision_rejects_quote_without_question() {
             quote: Some("1a"),
             question: None,
             project: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("quote without question must be refused");
     assert!(
@@ -470,6 +474,7 @@ fn propose_decision_accepts_a_question_without_a_quote() {
             quote: None,
             question: Some("Should a personal project be visible to the whole tenant?"),
             project: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("a question needs no quote");
     assert!(decision_id.starts_with("decision-"));
@@ -502,6 +507,7 @@ fn propose_decision_rejects_rationale_shorter_than_the_minimum_length() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("a too-short rationale must be refused");
     assert!(
@@ -537,6 +543,7 @@ fn propose_decision_rejects_rationale_with_too_few_words() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("a rationale with too few words must be refused");
     assert!(
@@ -572,6 +579,7 @@ fn propose_decision_rejects_rationale_with_a_bare_list_reference() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("a bare list-item reference must be refused without quote/question");
     assert!(
@@ -629,6 +637,7 @@ fn propose_decision_accepts_a_rationale_holding_figures_with_a_unit_suffix() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("a rationale with figures is a readable rationale");
 }
@@ -761,6 +770,7 @@ fn propose_decision_accepts_a_rationale_quoting_a_full_decision_id() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("a full decision id in the rationale is not a bare list item");
 }
@@ -792,6 +802,7 @@ fn propose_decision_allows_a_list_shaped_rationale_when_quote_and_question_are_g
             evidence_ids: &[],
             quote: Some("1a"),
             question: Some("Should the numbered alternative be adopted instead?"),
+            floor: FloorInput::NotAsked,
         })
         .expect("quote/question pair is the escape hatch for a list-shaped rationale");
 }
@@ -825,6 +836,7 @@ fn propose_decision_refuses_unregistered_project_handle() {
             quote: None,
             question: None,
             project: Some(DeterminedProject::stated("billing")),
+            floor: FloorInput::NotAsked,
         })
         .expect_err("unregistered project handle must be refused");
     let message = error.to_string();
@@ -869,6 +881,7 @@ fn propose_decision_accepts_registered_project_handle_and_records_stated_source(
             quote: None,
             question: None,
             project: Some(DeterminedProject::stated("billing")),
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision with a registered project succeeds");
 
@@ -920,6 +933,7 @@ fn propose_decision_without_project_records_personal_fallback_and_no_handle() {
             quote: None,
             question: None,
             project: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision without a project succeeds");
 
@@ -968,6 +982,7 @@ fn propose_decision_rejects_reserved_personal_prefix_as_stated_project() {
             quote: None,
             question: None,
             project: Some(DeterminedProject::stated("personal:alice")),
+            floor: FloorInput::NotAsked,
         })
         .expect_err("a stated personal: handle must be refused");
     assert!(
@@ -1009,6 +1024,7 @@ fn supersede_inherits_old_decision_project_when_not_restated() {
             quote: None,
             question: None,
             project: Some(DeterminedProject::stated("billing")),
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision A");
 
@@ -1027,6 +1043,7 @@ fn supersede_inherits_old_decision_project_when_not_restated() {
             project: None,
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede succeeds");
 
@@ -1092,6 +1109,7 @@ fn supersede_overrides_project_when_explicitly_stated() {
             quote: None,
             question: None,
             project: Some(DeterminedProject::stated("billing")),
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision A");
 
@@ -1110,6 +1128,7 @@ fn supersede_overrides_project_when_explicitly_stated() {
             project: Some(DeterminedProject::stated("payments")),
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede succeeds");
 
@@ -1182,6 +1201,7 @@ impl PlacementFixture {
             quote: None,
             question: None,
             project,
+            floor: FloorInput::NotAsked,
         }
     }
 }
@@ -1334,6 +1354,7 @@ fn supersede_reports_the_inherited_or_stated_placement() {
             project,
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
     };
 
@@ -1395,6 +1416,7 @@ fn supersede_of_a_personal_fallback_decision_stays_announced() {
             project: None,
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede succeeds");
     assert_eq!(outcome.placement.project, "personal:agent:claude");
@@ -1427,6 +1449,7 @@ fn supersede_unstated(
             project: None,
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede succeeds")
 }
@@ -1627,6 +1650,7 @@ fn direct_agent_decision_persists_agent_provenance() {
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             })
             .expect("agent decision proposed")
     };
@@ -1682,6 +1706,7 @@ fn accept_and_reject_invariant_for_same_actor_is_enforced() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose");
 
@@ -1723,6 +1748,7 @@ fn propose_decision_with_decided_by_emits_accepted_event_from_that_actor() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose with decided_by");
 
@@ -1770,6 +1796,7 @@ fn propose_decision_decided_by_requires_chosen_option_id() {
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     });
     assert!(
         result.is_err(),
@@ -1807,6 +1834,7 @@ fn propose_decision_chosen_option_defaults_to_self_accepted() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose");
 
@@ -1851,6 +1879,7 @@ fn propose_decision_still_proposed_keeps_chosen_option_open() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose");
 
@@ -1889,6 +1918,7 @@ fn propose_decision_still_proposed_conflicts_with_decided_by() {
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     });
     assert!(
         result.is_err(),
@@ -1922,6 +1952,7 @@ fn agent_capture_input<'a>(
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     }
 }
 
@@ -2228,6 +2259,7 @@ fn propose_decision_rejects_mismatched_option_labels_length() {
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     });
     assert!(result.is_err());
 }
@@ -2271,6 +2303,7 @@ project for non-coders, anyone registers, parent const";
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("run-on title over the cap must be rejected");
     let message = error.to_string();
@@ -2308,6 +2341,7 @@ fn propose_decision_rejects_title_at_max_len_plus_one() {
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     });
     assert!(
         result.is_err(),
@@ -2344,6 +2378,7 @@ fn propose_decision_accepts_title_at_exactly_max_len() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("title exactly at the cap must be accepted");
 }
@@ -2376,6 +2411,7 @@ fn propose_decision_rejects_multi_sentence_title() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("a title with two sentences must be rejected");
     assert!(
@@ -2414,6 +2450,7 @@ fn propose_decision_rejects_numbered_list_title() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("a numbered-list title must be rejected");
     assert!(
@@ -2452,6 +2489,7 @@ fn propose_decision_accepts_title_with_single_trailing_period_and_version_dots()
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("a single trailing period plus version dots must be accepted");
 }
@@ -2483,6 +2521,7 @@ fn supersede_rejects_new_title_over_max_length() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("decision");
 
@@ -2501,6 +2540,7 @@ fn supersede_rejects_new_title_over_max_length() {
         evidence_ids: &[],
         grounding: None,
         expressed_confidence: None,
+        floor: FloorInput::NotAsked,
     });
     assert!(
         result.is_err(),
@@ -2546,6 +2586,7 @@ fn propose_decision_persists_option_descriptions_on_the_event() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision");
 
@@ -2603,6 +2644,7 @@ fn supersede_requires_both_decisions_to_exist() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("decision a");
 
@@ -2625,6 +2667,7 @@ fn supersede_requires_both_decisions_to_exist() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("decision b");
 
@@ -2664,6 +2707,7 @@ fn disagree_records_reason_and_is_idempotent_for_same_actor() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("decision");
 
@@ -2727,6 +2771,7 @@ fn supersede_proposes_replacement_marks_old_and_is_idempotent() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("decision");
 
@@ -2745,6 +2790,7 @@ fn supersede_proposes_replacement_marks_old_and_is_idempotent() {
             evidence_ids: &[],
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede succeeds");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
@@ -2763,6 +2809,7 @@ fn supersede_proposes_replacement_marks_old_and_is_idempotent() {
             evidence_ids: &[],
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("retry succeeds");
 
@@ -2817,6 +2864,7 @@ fn supersede_choosing(
             evidence_ids: &[],
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede succeeds")
 }
@@ -2941,6 +2989,7 @@ fn first_class_disagree_and_supersede_require_existing_targets() {
             evidence_ids: &[],
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .is_err());
 }
@@ -2972,6 +3021,7 @@ fn attach_evidence_requires_existing_endpoints() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("decision");
     let evidence_id = commands
@@ -3728,6 +3778,7 @@ fn propose_decision_with_title(
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose succeeds")
 }
@@ -4012,6 +4063,7 @@ fn propose_decision_normalizes_topic_keys() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose");
 
@@ -4079,6 +4131,7 @@ fn propose_minimal_decision(commands: &Commands<'_, InMemoryEventLedger>, title:
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose minimal decision")
 }
@@ -4116,6 +4169,7 @@ fn propose_decision_with_declared_grounding_creates_follows_from_edge_with_causa
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision with declared grounding");
 
@@ -4179,6 +4233,7 @@ fn propose_decision_rejects_declared_grounding_with_nothing_named() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("declared-but-empty grounding must be refused");
     assert!(
@@ -4230,6 +4285,7 @@ fn propose_decision_rejects_self_premise() {
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             },
             decision_id,
             super::DecisionProposalEventUuids {
@@ -4282,6 +4338,7 @@ fn propose_decision_rejects_nonexistent_premise() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("nonexistent premise must be refused");
     assert!(
@@ -4329,6 +4386,7 @@ fn propose_decision_reports_stale_premise_when_superseded() {
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             },
             decision_id,
             super::DecisionProposalEventUuids {
@@ -4387,6 +4445,7 @@ fn propose_decision_reports_only_rejected_or_superseded_premises_as_stale() {
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             },
             "decision-with-mixed-premises",
             super::DecisionProposalEventUuids {
@@ -4430,6 +4489,7 @@ fn propose_decision_validates_expressed_confidence_vocabulary() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect_err("invalid expressed_confidence must be refused");
     assert!(
@@ -4467,6 +4527,7 @@ fn propose_decision_stores_expressed_confidence_from_input() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision with expressed_confidence");
 
@@ -4965,6 +5026,7 @@ fn grounded_input<'a>(
         question: None,
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     }
 }
 
@@ -5438,6 +5500,7 @@ fn grounded_supersede_input<'a>(
         grounding: Some(plan),
         expressed_confidence: None,
         project: None,
+        floor: FloorInput::NotAsked,
     }
 }
 
@@ -5682,6 +5745,7 @@ fn proposed_gateway_decision(commands: &Commands<'_, InMemoryEventLedger>) -> St
             evidence_ids: &[evidence],
             quote: Some(GATEWAY_QUOTE),
             question: Some(GATEWAY_QUESTION),
+            floor: FloorInput::NotAsked,
         })
         .expect("decision")
 }
@@ -6146,6 +6210,7 @@ fn capture_with_topics_naming(
         quote: None,
         question,
         project: project.map(DeterminedProject::stated),
+        floor: FloorInput::NotAsked,
     })
 }
 
@@ -6423,6 +6488,7 @@ fn a_supersede_answers_to_the_vocabulary_of_the_project_it_inherits() {
             project: None,
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
     };
 
@@ -7079,6 +7145,7 @@ fn link_same_as_reads_by_event_type_not_every_event() {
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             })
             .expect("proposes")
     };
@@ -7271,6 +7338,7 @@ fn propose_with_fixed_id(commands: &Commands<'_, InMemoryEventLedger>, decision_
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             },
             decision_id,
             super::DecisionProposalEventUuids {
@@ -7433,4 +7501,359 @@ fn a_cited_id_that_matches_no_decision_or_several_is_not_reported() {
         exact.cited_not_linked,
         vec!["decision-aaaaaaaa-0000-4000-8000-000000000002".to_owned()]
     );
+}
+
+// ---------------------------------------------------------------------------
+// The decision floor (hivemind-bbnw.10): what a capture binds and what undoing it costs
+// ---------------------------------------------------------------------------
+
+/// The payload of every `decision.proposed` in the ledger, oldest first.
+fn proposal_payloads(ledger: &InMemoryEventLedger) -> Vec<serde_json::Value> {
+    ledger
+        .read(0, 500)
+        .expect("read events")
+        .into_iter()
+        .filter(|event| event.event_type == EventType::DecisionProposed)
+        .map(|event| event.payload)
+        .collect()
+}
+
+fn rename_answers() -> FloorAnswers {
+    FloorAnswers {
+        binds: BindsAnswer::something("Users and scripts that call the old name"),
+        undo_cost: UndoCostAnswer::cheap(),
+    }
+}
+
+fn apple_answers() -> FloorAnswers {
+    FloorAnswers {
+        binds: BindsAnswer::nothing(),
+        undo_cost: UndoCostAnswer::cheap(),
+    }
+}
+
+fn merge_tonight_answers() -> FloorAnswers {
+    FloorAnswers {
+        binds: BindsAnswer::nothing(),
+        undo_cost: UndoCostAnswer::costly("An audit will ask why the flaky test was ignored"),
+    }
+}
+
+/// A grounded capture that rests on one new assumption, with `floor` as its answers.
+fn capture_with_floor(
+    commands: &Commands<'_, InMemoryEventLedger>,
+    title: &str,
+    floor: FloorInput<'_>,
+) -> crate::Result<super::GroundedProposal> {
+    let option_id = commands.record_option("actor:alice", "A", "Option A")?;
+    let labels = ["A".to_owned()];
+    let topics = ["topic".to_owned()];
+    commands.propose_grounded_decision(
+        DecisionProposalInput {
+            floor,
+            ..grounded_input(&option_id, &labels, &topics, title)
+        },
+        &GroundingPlan {
+            new_assumptions: vec!["Nobody else depends on this".to_owned()],
+            ..GroundingPlan::default()
+        },
+    )
+}
+
+#[test]
+fn a_stated_floor_is_recorded_on_the_proposal_and_an_unasked_capture_records_none() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let rename = rename_answers();
+    let merge = merge_tonight_answers();
+
+    capture_with_floor(
+        &commands,
+        "Rename beadline check",
+        FloorInput::Stated(&rename),
+    )
+    .expect("a rename-style capture lands");
+    capture_with_floor(&commands, "Merge tonight", FloorInput::Stated(&merge))
+        .expect("a merge-tonight capture lands");
+    capture_with_floor(&commands, "A raw proposal", FloorInput::NotAsked)
+        .expect("an unasked capture lands");
+
+    let payloads = proposal_payloads(&ledger);
+    assert_eq!(payloads.len(), 3);
+    assert_eq!(
+        payloads[0]["binds"],
+        json!({"level": "something", "statement": "Users and scripts that call the old name"})
+    );
+    assert_eq!(payloads[0]["undo_cost"], json!({"level": "cheap"}));
+    assert_eq!(payloads[1]["binds"], json!({"level": "nothing"}));
+    assert_eq!(
+        payloads[1]["undo_cost"],
+        json!({"level": "costly", "statement": "An audit will ask why the flaky test was ignored"})
+    );
+    assert!(
+        payloads[2].get("binds").is_none() && payloads[2].get("undo_cost").is_none(),
+        "a capture nobody asked records no answer, not a default one: {}",
+        payloads[2]
+    );
+    for payload in &payloads {
+        let event_payload =
+            serde_json::from_value::<crate::events::DecisionProposedPayload>(payload.clone())
+                .expect("the recorded payload parses back");
+        assert_eq!(
+            event_payload.binds.is_some(),
+            event_payload.undo_cost.is_some(),
+            "the two answers come together"
+        );
+    }
+}
+
+#[test]
+fn a_capture_that_binds_nothing_and_is_cheap_to_undo_is_recorded_not_refused() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let apple = apple_answers();
+    assert_eq!(apple.verdict(), crate::floor::FloorVerdict::Below);
+
+    capture_with_floor(&commands, "Apple, not apple", FloorInput::Stated(&apple))
+        .expect("below the floor is still recorded: it is marked in the reply, not refused");
+
+    let payloads = proposal_payloads(&ledger);
+    assert_eq!(payloads.len(), 1);
+    assert_eq!(payloads[0]["binds"], json!({"level": "nothing"}));
+    assert_eq!(payloads[0]["undo_cost"], json!({"level": "cheap"}));
+}
+
+#[test]
+fn the_verdict_is_cleared_for_a_rename_and_for_merging_tonight() {
+    assert_eq!(
+        rename_answers().verdict(),
+        crate::floor::FloorVerdict::Cleared
+    );
+    assert_eq!(
+        merge_tonight_answers().verdict(),
+        crate::floor::FloorVerdict::Cleared
+    );
+    assert_eq!(rename_answers().binds.level, BindsLevel::Something);
+    assert_eq!(
+        merge_tonight_answers().undo_cost.level,
+        UndoCostLevel::Costly
+    );
+}
+
+#[test]
+fn a_malformed_stated_floor_is_refused_before_anything_is_written() {
+    let malformed = [
+        (
+            "a missing binds sentence",
+            FloorAnswers {
+                binds: BindsAnswer {
+                    level: BindsLevel::Something,
+                    statement: None,
+                },
+                undo_cost: UndoCostAnswer::cheap(),
+            },
+            "`binds` at level `something` needs a `statement`",
+        ),
+        (
+            "a blank binds sentence",
+            FloorAnswers {
+                binds: BindsAnswer::something("   "),
+                undo_cost: UndoCostAnswer::cheap(),
+            },
+            "`binds.statement` must not be blank",
+        ),
+        (
+            "a missing undo-cost sentence",
+            FloorAnswers {
+                binds: BindsAnswer::nothing(),
+                undo_cost: UndoCostAnswer {
+                    level: UndoCostLevel::Costly,
+                    statement: None,
+                },
+            },
+            "`undo_cost` at level `costly` needs a `statement`",
+        ),
+        (
+            "a sentence on a zero answer",
+            FloorAnswers {
+                binds: BindsAnswer {
+                    level: BindsLevel::Nothing,
+                    statement: Some("but it does".to_owned()),
+                },
+                undo_cost: UndoCostAnswer::cheap(),
+            },
+            "`binds` at level `nothing` takes no `statement`",
+        ),
+    ];
+    for (what, answers, expected) in malformed {
+        let ledger = InMemoryEventLedger::new();
+        let commands = Commands::new(&ledger);
+        let option_id = commands
+            .record_option("actor:alice", "A", "Option A")
+            .expect("option");
+        let events_before = ledger.read(0, 100).expect("read").len();
+        let labels = ["A".to_owned()];
+        let topics = ["topic".to_owned()];
+        let refusal = commands
+            .propose_grounded_decision(
+                DecisionProposalInput {
+                    floor: FloorInput::Stated(&answers),
+                    ..grounded_input(&option_id, &labels, &topics, "Refused capture")
+                },
+                &GroundingPlan {
+                    // New nodes the capture would write first: none may be left behind.
+                    new_evidence: vec![NewEvidence {
+                        content: "an observation".to_owned(),
+                        source: None,
+                    }],
+                    new_assumptions: vec!["an assumption".to_owned()],
+                    ..GroundingPlan::default()
+                },
+            )
+            .expect_err(what);
+        assert!(refusal.to_string().contains(expected), "{what}: {refusal}");
+        assert_eq!(
+            ledger.read(0, 100).expect("read").len(),
+            events_before,
+            "{what}: a refused capture writes no evidence, assumption or decision"
+        );
+    }
+}
+
+#[test]
+fn the_plain_proposal_path_refuses_a_malformed_floor_too() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let option_id = commands
+        .record_option("actor:alice", "A", "Option A")
+        .expect("option");
+    let labels = ["A".to_owned()];
+    let topics = ["topic".to_owned()];
+    let answers = FloorAnswers {
+        binds: BindsAnswer::something(""),
+        undo_cost: UndoCostAnswer::cheap(),
+    };
+    let refusal = commands
+        .propose_decision(DecisionProposalInput {
+            grounding: Grounding::Declared {
+                premise_decision_ids: &[],
+                evidence_ids: &[],
+                hypothesis_ids: &["hypothesis-1".to_owned()],
+            },
+            floor: FloorInput::Stated(&answers),
+            ..grounded_input(&option_id, &labels, &topics, "Plain proposal")
+        })
+        .expect_err("a malformed floor is refused on the plain path as well");
+    assert!(
+        refusal
+            .to_string()
+            .contains("`binds.statement` must not be blank"),
+        "{refusal}"
+    );
+    assert!(proposal_payloads(&ledger).is_empty());
+}
+
+#[test]
+fn supersede_records_its_floor_and_an_identical_retry_matches_the_first_call() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+    let plan = GroundingPlan {
+        new_assumptions: vec!["the old approach fails again".to_owned()],
+        ..GroundingPlan::default()
+    };
+    let rename = rename_answers();
+
+    let first = commands
+        .supersede(SupersedeInput {
+            floor: FloorInput::Stated(&rename),
+            ..grounded_supersede_input(&old_decision_id, &plan)
+        })
+        .expect("supersede with answers");
+    let payloads = proposal_payloads(&ledger);
+    let replacement = payloads.last().expect("the replacement proposal");
+    assert_eq!(replacement["binds"]["level"], "something");
+    assert_eq!(replacement["undo_cost"], json!({"level": "cheap"}));
+    let events_after_first = ledger.read(0, 500).expect("read").len();
+
+    let retry = commands
+        .supersede(SupersedeInput {
+            floor: FloorInput::Stated(&rename),
+            ..grounded_supersede_input(&old_decision_id, &plan)
+        })
+        .expect("an identical retry");
+    assert_eq!(retry.new_decision_id, first.new_decision_id);
+    assert_eq!(
+        ledger.read(0, 500).expect("read").len(),
+        events_after_first,
+        "an identical retry writes nothing"
+    );
+
+    // A retry that answers differently is a new supersession, never a silent match that would
+    // report answers the ledger does not hold.
+    let apple = apple_answers();
+    let different = commands
+        .supersede(SupersedeInput {
+            floor: FloorInput::Stated(&apple),
+            ..grounded_supersede_input(&old_decision_id, &plan)
+        })
+        .expect("a retry with other answers");
+    assert_ne!(different.new_decision_id, first.new_decision_id);
+}
+
+#[test]
+fn supersede_refuses_a_malformed_floor_before_recording_anything() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+    let plan = GroundingPlan {
+        new_evidence: vec![NewEvidence {
+            content: "an observation".to_owned(),
+            source: None,
+        }],
+        ..GroundingPlan::default()
+    };
+    let events_before = ledger.read(0, 500).expect("read").len();
+    let answers = FloorAnswers {
+        binds: BindsAnswer::nothing(),
+        undo_cost: UndoCostAnswer::costly("  "),
+    };
+
+    let refusal = commands
+        .supersede(SupersedeInput {
+            floor: FloorInput::Stated(&answers),
+            ..grounded_supersede_input(&old_decision_id, &plan)
+        })
+        .expect_err("a blank undo-cost sentence is refused");
+
+    assert!(
+        refusal
+            .to_string()
+            .contains("`undo_cost.statement` must not be blank"),
+        "{refusal}"
+    );
+    assert_eq!(
+        ledger.read(0, 500).expect("read").len(),
+        events_before,
+        "no option, evidence or replacement is left behind"
+    );
+}
+
+#[test]
+fn a_supersede_nobody_asked_records_no_answers() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+    let plan = GroundingPlan {
+        new_assumptions: vec!["still holds".to_owned()],
+        ..GroundingPlan::default()
+    };
+
+    commands
+        .supersede(grounded_supersede_input(&old_decision_id, &plan))
+        .expect("an unasked supersede is never refused");
+
+    let payloads = proposal_payloads(&ledger);
+    let replacement = payloads.last().expect("the replacement proposal");
+    assert!(replacement.get("binds").is_none() && replacement.get("undo_cost").is_none());
 }

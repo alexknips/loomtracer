@@ -6,7 +6,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use hivemind::commands::{Commands, DecisionProposalInput, Grounding};
+use hivemind::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use hivemind::events::EventType;
 use hivemind::ledger::{EventLedger, SqliteEventLedger};
 
@@ -204,6 +204,7 @@ fn run_worker() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             quote: None,
             question: None,
             project: None,
+            floor: FloorInput::NotAsked,
         })?;
     }
 

@@ -1,0 +1,27 @@
+{
+  "event_id": 3,
+  "event_uuid": "018f5d8a-03fb-7df0-8e36-64d7410cfe41",
+  "correlation_id": "session-1",
+  "causation_event_id": null,
+  "type": "decision.proposed",
+  "actor_id": "agent-a",
+  "source": "agent",
+  "source_ref": "agent:codex:session-1",
+  "payload": {
+    "decision_id": "dec-3",
+    "title": "Rename beadline check to doctor",
+    "rationale": "The command checks the whole install, not only the beadline, and users reach for doctor first.",
+    "topic_keys": ["cli"],
+    "option_ids": ["opt-rename", "opt-keep"],
+    "option_labels": ["Rename to doctor", "Keep the old name"],
+    "option_descriptions": ["Matches what the command does", "No churn for scripts"],
+    "chosen_option_id": "opt-rename",
+    "hypothesis_ids": [],
+    "evidence_ids": [],
+    "project": "hivemind",
+    "project_source": "stated",
+    "binds": { "level": "something", "statement": "Users and scripts that call the old name" },
+    "undo_cost": { "level": "costly", "statement": "Renaming back breaks every script already moved to the new name" }
+  },
+  "ts": "2026-05-17T20:40:43Z"
+}

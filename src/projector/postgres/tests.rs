@@ -928,6 +928,34 @@ fn get_decision_brief_matches_memory() -> Result<()> {
     })
 }
 
+// ── Decision floor answers parity (hivemind-bbnw.10) ────────────────────────────
+//
+// `binds_level`, `binds`, `undo_cost_level` and `undo_cost` ride on the Decision node beside the
+// other proposal properties. They must land and read back through the Postgres JSONB merge as
+// they do in memory, and a proposal nobody asked must read back with none of them.
+
+#[test]
+fn decision_floor_answers_match_memory() -> Result<()> {
+    with_postgres_graph("floor-parity", |pg| {
+        let memory = MemoryGraph::default();
+        let ledger = crate::projector::tests::floor_scenario()?;
+        project_from_ledger(&ledger, &memory, 0)?;
+        project_from_ledger(&ledger, pg, 0)?;
+
+        for decision_id in ["decision:rename", "decision:apple", "decision:unasked"] {
+            let memory_row = crate::projector::tests::floor_properties(&memory, decision_id)?;
+            let pg_row = crate::projector::tests::floor_properties(pg, decision_id)?;
+            if memory_row != pg_row {
+                return Err(test_error(format!(
+                    "floor properties of {decision_id}: memory={memory_row:?} pg={pg_row:?}"
+                )));
+            }
+        }
+        // Not vacuous: the equality above passes if both sides read all-Null.
+        crate::projector::tests::assert_floor_scenario_projection(pg)
+    })
+}
+
 // ── Recorded option text parity (hivemind-hk5z) ─────────────────────────────────
 //
 // `recorded_label` rides on the Option node beside the readable `label`. It must land and read

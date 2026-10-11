@@ -338,6 +338,8 @@ fn capture_agent_decision(
         vec![
             "emit".to_owned(),
             "decision.capture".to_owned(),
+            "--binds-nothing".to_owned(),
+            "--cheap-to-undo".to_owned(),
             "--bet".to_owned(),
             "--agent-tool".to_owned(),
             tool.to_owned(),

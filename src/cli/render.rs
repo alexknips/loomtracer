@@ -10,6 +10,7 @@ use crate::commands::{
 };
 use crate::error::{CliError, CommandError};
 use crate::events::{EventId, EventType, ModelDimension};
+use crate::floor::FloorReply;
 use crate::importance::{Importance, ImportanceReport};
 use crate::ingest::{DocumentImportReport, DocumentPreparationReport};
 use crate::projector::{
@@ -2447,6 +2448,13 @@ pub(crate) struct SupersedeCommandOutput {
     pub(crate) rests_on: Vec<RestsOn>,
     /// Premise decisions already superseded or rejected when named.
     pub(crate) premise_stale: Vec<String>,
+    /// What the replacement binds and what undoing it costs, and whether that clears the floor.
+    pub(crate) floor: FloorReply,
+    /// `true` only when the answers are below the decision floor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) below_floor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) below_floor_note: Option<&'static str>,
 }
 
 /// The `emit decision.capture` reply: the `OutputEnvelope` fields plus what the decision rests
@@ -2473,6 +2481,13 @@ pub(crate) struct CaptureCommandOutput {
     /// The question node the decision was linked to, when the capture named a question.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) question_id: Option<String>,
+    /// What the decision binds and what undoing it costs, and whether that clears the floor.
+    pub(crate) floor: FloorReply,
+    /// `true` only when the answers are below the decision floor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) below_floor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) below_floor_note: Option<&'static str>,
 }
 
 /// The question a `ground --answers` linked the decision to.

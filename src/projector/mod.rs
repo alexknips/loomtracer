@@ -1129,6 +1129,11 @@ fn counter_suffixed_slug(base: &str, tail: &str, suffix: u32) -> String {
     format!("{base}-{tail}-{suffix}")
 }
 
+/// A string property, `Null` when there is none.
+fn optional_graph_string(value: Option<&str>) -> GraphValue {
+    value.map_or(GraphValue::Null, |text| GraphValue::String(text.to_owned()))
+}
+
 fn project_decision_proposed(
     graph: &impl GraphView,
     actor_id: &str,
@@ -1205,6 +1210,43 @@ fn project_decision_proposed(
                 project_source.map_or(GraphValue::Null, |source| {
                     GraphValue::String(source.as_str().to_owned())
                 }),
+            ),
+            // The decision floor's two answers (hivemind-bbnw.10), exactly as stated. All four
+            // stay Null for a decision that was never asked (every event before the answers
+            // existed, raw emit, classifier ingest, import, Slack); the floor itself is derived
+            // at read time from the two levels, never stored.
+            (
+                "binds_level",
+                payload.binds.as_ref().map_or(GraphValue::Null, |binds| {
+                    GraphValue::String(binds.level.as_str().to_owned())
+                }),
+            ),
+            (
+                "binds",
+                optional_graph_string(
+                    payload
+                        .binds
+                        .as_ref()
+                        .and_then(|binds| binds.statement.as_deref()),
+                ),
+            ),
+            (
+                "undo_cost_level",
+                payload
+                    .undo_cost
+                    .as_ref()
+                    .map_or(GraphValue::Null, |undo_cost| {
+                        GraphValue::String(undo_cost.level.as_str().to_owned())
+                    }),
+            ),
+            (
+                "undo_cost",
+                optional_graph_string(
+                    payload
+                        .undo_cost
+                        .as_ref()
+                        .and_then(|undo_cost| undo_cost.statement.as_deref()),
+                ),
             ),
         ],
     );

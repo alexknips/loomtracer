@@ -71,6 +71,11 @@ LOG_MAX_BYTES = 1_000_000
 MAX_LABEL_CHARS = 80
 MAX_TITLE_CHARS = 120
 
+# What every captured answer says it binds and what undoing it costs (see `answer_arguments`).
+BINDS_STATEMENT = "The work that follows in this session goes the way the person chose."
+UNDO_COST_STATEMENT = (
+    "Reversing a person's ruling means asking them again and redoing the work done on it."
+)
 COMBINED_DESCRIPTION = "Several of the offered options together, as the person picked them."
 OWN_ANSWER_DESCRIPTION = "The person's own answer, in their words; not one of the options offered."
 
@@ -583,6 +588,12 @@ def answer_arguments(
         # The write layer asks what every decision rests on. Nothing was stated with the answer,
         # so it is recorded as what it is: a bet with nothing declared.
         "grounding": [{"kind": "bet"}],
+        # The write layer also asks what a decision binds and what undoing it costs. The hook
+        # cannot judge either, but it knows what a person's ruling is: they were asked because the
+        # work was waiting on the choice, so it binds the work that follows, and reversing it means
+        # going back to them. Both answers say that and nothing more.
+        "binds": {"level": "something", "statement": BINDS_STATEMENT},
+        "undo_cost": {"level": "costly", "statement": UNDO_COST_STATEMENT},
     }
     if fallback_topic:
         arguments["declare_topics"] = [FALLBACK_TOPIC]

@@ -61,11 +61,49 @@
         "project_source": {
           "enum": ["stated", "folder_marker", "rig", "current_project", "job", "personal_fallback", "moved", "inherited"],
           "description": "How project was determined. Omitted on events predating this field; the write layer records personal_fallback whenever no project handle is given, and inherited on a replacement that states no project and takes the project the decision it replaces is filed in."
+        },
+        "binds": {
+          "$ref": "#/$defs/binds",
+          "description": "What the capturer said the decision binds beyond the edit in front of them. Omitted means not asked: every event before this field, a raw emit, classifier ingest, document import and Slack. Recorded together with undo_cost or not at all."
+        },
+        "undo_cost": {
+          "$ref": "#/$defs/undo_cost",
+          "description": "What the capturer said undoing the decision would cost. Omitted means not asked. Recorded together with binds or not at all."
         }
+      },
+      "dependentRequired": {
+        "binds": ["undo_cost"],
+        "undo_cost": ["binds"]
       }
     }
   },
   "$defs": {
+    "binds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level"],
+      "properties": {
+        "level": { "enum": ["nothing", "something"] },
+        "statement": { "type": "string", "minLength": 1, "description": "One sentence saying what it binds. Present exactly when level is something." }
+      },
+      "oneOf": [
+        { "properties": { "level": { "const": "nothing" } }, "not": { "required": ["statement"] } },
+        { "properties": { "level": { "const": "something" } }, "required": ["statement"] }
+      ]
+    },
+    "undo_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level"],
+      "properties": {
+        "level": { "enum": ["cheap", "costly"] },
+        "statement": { "type": "string", "minLength": 1, "description": "One sentence saying what undoing it costs. Present exactly when level is costly." }
+      },
+      "oneOf": [
+        { "properties": { "level": { "const": "cheap" } }, "not": { "required": ["statement"] } },
+        { "properties": { "level": { "const": "costly" } }, "required": ["statement"] }
+      ]
+    },
     "id": { "type": "string", "minLength": 1 },
     "id_array": {
       "type": "array",

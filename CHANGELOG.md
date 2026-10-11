@@ -7,6 +7,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Breaking changes
 
+- **Every capture says what the decision binds and what undoing it would cost.** The CLI
+  `emit decision.capture` and `supersede` take `--binds <what>` or `--binds-nothing`, and
+  `--undo-cost <what>` or `--cheap-to-undo`: one of each pair is required. The MCP tools
+  `capture_decision` and `supersede_decision` and REST `POST /v1/decisions` and
+  `POST /v1/decisions/{id}/supersessions` take `binds: {level: nothing|something, statement?}`
+  and `undo_cost: {level: cheap|costly, statement?}`, both required, a sentence with
+  `something` / `costly` and none otherwise. A call that leaves either out is refused and
+  nothing is written (CLI exit 2, MCP tool error, REST 400); clients that send neither are
+  refused once a server runs this release. Nothing is refused for being below the floor: a
+  decision that binds nothing and is cheap to undo is recorded, and the reply says so
+  (`floor: {binds, undo_cost, cleared}`, plus `below_floor: true` and a note when it is below).
+  `decision.proposed` gains optional `binds` and `undo_cost`; the decision node carries
+  `binds_level`, `binds`, `undo_cost_level` and `undo_cost` on every backend. Raw
+  `emit decision.proposed`, classifier ingest, document import, Slack, and every decision
+  recorded before this release carry neither and read "not asked"; nothing is backfilled. The
+  server must run this release before any client sends the fields. (hivemind-bbnw.10)
 - **`score_decision` and `scan_decision_quality` return the quality profile and attention
   findings; the score, the tier and the five deductions are gone.** `score_decision` now
   returns the decision's seven dimensions (framing, alternatives, information, reasoning,

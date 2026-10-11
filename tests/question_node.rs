@@ -59,6 +59,8 @@ fn capture(dir: &Path, title: &str, chose: &str, question: Option<&str>) -> Test
     let mut args = vec![
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--title",
         title,
@@ -446,6 +448,8 @@ fn capture_answering(
     let mut args = vec![
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--title",
         title,
         "--rationale",

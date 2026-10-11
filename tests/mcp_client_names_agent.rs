@@ -101,6 +101,8 @@ fn mcp_capture_actor(
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Name the agent from the client",
                 "rationale": "The client already says who it is in its handshake, so the right name needs no flag",
@@ -218,6 +220,8 @@ fn a_plain_cli_agent_capture_with_nothing_to_go_on_is_not_filed_as_codex() -> Te
         .args([
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--source",
             "agent",
             "--bet",
@@ -249,6 +253,8 @@ fn a_cli_capture_with_the_flag_is_unchanged() -> TestResult<()> {
         .args([
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--source",
             "agent",
             "--agent-tool",

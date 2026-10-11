@@ -1,7 +1,9 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
 use crate::commands::Commands;
-use crate::commands::{DecisionProposalInput, DeterminedProject, Grounding, SupersedeInput};
+use crate::commands::{
+    DecisionProposalInput, DeterminedProject, FloorInput, Grounding, SupersedeInput,
+};
 use crate::events::{ProjectAnchorKind, ProjectLinkKind};
 use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph};
@@ -267,6 +269,7 @@ impl<'a> DecisionRecorder<'a> {
             grounding: Grounding::NotAsked,
             expressed_confidence: None,
             project: project.map(DeterminedProject::stated),
+            floor: FloorInput::NotAsked,
         })
     }
 }
@@ -481,6 +484,7 @@ fn decisions_in_project_shows_a_superseded_decision_as_superseded() -> Result<()
         project: None,
         grounding: None,
         expressed_confidence: None,
+        floor: FloorInput::NotAsked,
     })?;
 
     let page = found(list_decisions(&graph_of(&ledger)?, "billing", 25, None)?);

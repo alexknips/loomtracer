@@ -35,6 +35,7 @@ src/cli/current_project/tests.rs
 src/cli/project_context/tests.rs
 src/commands/tests.rs
 src/grounding/tests.rs
+src/floor/tests.rs
 src/queries/follows_from/tests.rs
 src/commands/ground_later/tests.rs
 src/commands/question/tests.rs

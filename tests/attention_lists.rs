@@ -74,6 +74,8 @@ fn capture_answers(dir: &Path, title: &str, chose: &str, request_id: &str) -> Te
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--bet",
             "--title",
             title,
@@ -199,6 +201,8 @@ fn the_lists_and_the_timeline_follow_a_decision_through_its_life() -> TestResult
         true,
         &[
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &sqlite,
             "--title",
@@ -274,6 +278,8 @@ fn a_decision_nobody_asked_about_has_no_ask_and_no_duration() -> TestResult<()> 
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--bet",
             "--title",
             "Ship in October",

@@ -481,6 +481,36 @@ fn grounding_property() -> Value {
     })
 }
 
+/// The `binds` input of `capture_decision` and `supersede_decision`: what the decision binds
+/// beyond the edit in front of the capturer (hivemind-bbnw.10).
+fn binds_property() -> Value {
+    json!({
+        "type": "object",
+        "required": ["level"],
+        "additionalProperties": false,
+        "properties": {
+            "level": { "enum": ["nothing", "something"], "description": "`nothing` when no other person, code or later choice depends on this decision; `something` when one does." },
+            "statement": { "type": "string", "description": "One sentence saying what it binds. Required with `something`; not allowed with `nothing`." }
+        },
+        "description": "Required. Does this decision bind anything beyond the edit in front of you (other people, other code, a later choice)? `{level: \"nothing\"}`, or `{level: \"something\", statement}` saying what. A capture that leaves it out is refused and nothing is written."
+    })
+}
+
+/// The `undo_cost` input of `capture_decision` and `supersede_decision`: what undoing the decision
+/// would cost (hivemind-bbnw.10).
+fn undo_cost_property() -> Value {
+    json!({
+        "type": "object",
+        "required": ["level"],
+        "additionalProperties": false,
+        "properties": {
+            "level": { "enum": ["cheap", "costly"], "description": "`cheap` when undoing it is an ordinary edit; `costly` when it costs something real." },
+            "statement": { "type": "string", "description": "One sentence saying what undoing it costs. Required with `costly`; not allowed with `cheap`." }
+        },
+        "description": "Required. What would undoing this decision cost? `{level: \"cheap\"}`, or `{level: \"costly\", statement}` saying what. A capture that leaves it out is refused and nothing is written. A decision that binds nothing and is cheap to undo is still recorded; the reply marks it `below_floor`."
+    })
+}
+
 fn expressed_confidence_property() -> Value {
     json!({
         "type": "string",
@@ -506,10 +536,10 @@ pub fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "capture_decision",
-            "description": "Record a decision with rationale, topic keys, at least one option, and what it rests on (`grounding`, required). Defaults actor_id to agent:<tool>:<name> (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`) and writes source=agent. A `chosen_option_label` means the decision was already made: it self-accepts from `actor_id` by default, or from `decided_by` when the decider differs (e.g. a human decided, an agent is scribing it); pass `delegated_by` when an agent decided for itself within a scope a human delegated. Pass `still_proposed` to keep a genuine open recommendation at `proposed` instead. When your rationale or question names an earlier decision (its id or its title), put that decision in `grounding` as `{kind:\"decision\"}`: it is what this one follows from, and prose alone records no link (look it up first with `recall_decisions` if you only know the title). When what you rest on is a person's ruling, record the ruling as that person's decision (`decided_by` them, their words in `quote` with `question`) and ground yours on it; never put it in `grounding` as your `evidence`. The reply lists `rests_on` (what was recorded), `premise_stale` (named decisions already superseded or rejected) and, only when present, `cited_not_linked`: decisions whose id your rationale names but the grounding does not list. It is a hint, the capture is recorded either way; if yours follows from one, add it with `ground_decision`.",
+            "description": "Record a decision with rationale, topic keys, at least one option, what it rests on (`grounding`, required), and what it binds and what undoing it would cost (`binds` and `undo_cost`, both required). Defaults actor_id to agent:<tool>:<name> (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`) and writes source=agent. A `chosen_option_label` means the decision was already made: it self-accepts from `actor_id` by default, or from `decided_by` when the decider differs (e.g. a human decided, an agent is scribing it); pass `delegated_by` when an agent decided for itself within a scope a human delegated. Pass `still_proposed` to keep a genuine open recommendation at `proposed` instead. When your rationale or question names an earlier decision (its id or its title), put that decision in `grounding` as `{kind:\"decision\"}`: it is what this one follows from, and prose alone records no link (look it up first with `recall_decisions` if you only know the title). When what you rest on is a person's ruling, record the ruling as that person's decision (`decided_by` them, their words in `quote` with `question`) and ground yours on it; never put it in `grounding` as your `evidence`. The reply lists `floor` (`{binds, undo_cost, cleared}`: your two answers and whether they clear the decision floor, which they do when the decision binds something or is costly to undo; a decision that does neither is still recorded and the reply adds `below_floor: true` with a note), `rests_on` (what was recorded), `premise_stale` (named decisions already superseded or rejected) and, only when present, `cited_not_linked`: decisions whose id your rationale names but the grounding does not list. It is a hint, the capture is recorded either way; if yours follows from one, add it with `ground_decision`.",
             "inputSchema": {
                 "type": "object",
-                "required": ["title", "rationale", "topic_keys", "options", "grounding"],
+                "required": ["title", "rationale", "topic_keys", "options", "grounding", "binds", "undo_cost"],
                 "properties": {
                     "actor_id": { "type": "string", "description": "Optional capturing actor override. Defaults to `agent:<tool>:<name>` (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`)." },
                     "title": { "type": "string", "maxLength": 120, "description": "A name, not a summary: one sentence, at most 120 characters. Longer reasoning goes in `rationale`." },
@@ -532,6 +562,8 @@ pub fn tool_definitions() -> Vec<Value> {
                     "delegated_by": { "type": "string", "description": "The human (`human:<name>`) whose delegated scope this decision falls within, when `actor_id` (an agent) decided it for itself — the self-acceptance carries the marker, so an agent deciding under a delegation is distinguishable from one deciding alone (no marker). Requires `chosen_option_label`. Mutually exclusive with `still_proposed`; conflicts with a `decided_by` other than `actor_id`. A standing delegation is the same value repeated on each capture in that scope." },
                     "still_proposed": { "type": "boolean", "description": "Keep the decision at `proposed` even though `chosen_option_label` is set, for a genuine open recommendation awaiting someone else's decision. Defaults to false, which self-accepts (or accepts from `decided_by`) immediately after proposing." },
                     "grounding": grounding_property(),
+                    "binds": binds_property(),
+                    "undo_cost": undo_cost_property(),
                     "expressed_confidence": expressed_confidence_property(),
                     "hypothesis_ids": { "type": "array", "items": { "type": "string" }, "description": "Deprecated alias: ids listed here count as `{kind:\"assumption\", hypothesis_id}` grounding items." },
                     "evidence_ids": { "type": "array", "items": { "type": "string" }, "description": "Deprecated alias: ids listed here count as `{kind:\"evidence\", evidence_id}` grounding items." },
@@ -585,10 +617,10 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "supersede_decision",
-            "description": "Propose a replacement decision that says what it rests on (`grounding`, required) and mark it as superseding an old decision. Wraps `hivemind supersede`. Resolves the old decision by `old_decision_id` or a free-text `description` (+ optional `topic`) — exactly one of `old_decision_id`/`description` is required, the same fluent resolution `get_decision_neighborhood` uses. An ambiguous description returns a successful result shaped `{outcome: \"ambiguous\", candidates: [...]}`, not an error, with no write; re-call with `old_decision_id` from that list. The same shape is returned when no decision contains every word but some contain most of them: each such close candidate lists the words it lacks in `missing_terms`, and none is picked for you. A description matching nothing is also a successful result, shaped `{outcome: \"not_found\"}`, also with no write.",
+            "description": "Propose a replacement decision that says what it rests on (`grounding`, required) and what it binds and what undoing it would cost (`binds` and `undo_cost`, both required), and mark it as superseding an old decision. Wraps `hivemind supersede`. Resolves the old decision by `old_decision_id` or a free-text `description` (+ optional `topic`) — exactly one of `old_decision_id`/`description` is required, the same fluent resolution `get_decision_neighborhood` uses. An ambiguous description returns a successful result shaped `{outcome: \"ambiguous\", candidates: [...]}`, not an error, with no write; re-call with `old_decision_id` from that list. The same shape is returned when no decision contains every word but some contain most of them: each such close candidate lists the words it lacks in `missing_terms`, and none is picked for you. A description matching nothing is also a successful result, shaped `{outcome: \"not_found\"}`, also with no write.",
             "inputSchema": {
                 "type": "object",
-                "required": ["title", "rationale", "grounding"],
+                "required": ["title", "rationale", "grounding", "binds", "undo_cost"],
                 "properties": {
                     "actor_id": { "type": "string", "description": "Superseding actor. Defaults to `agent:<tool>:<name>` when omitted (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`)." },
                     "old_decision_id": { "type": "string" },
@@ -615,6 +647,8 @@ pub fn tool_definitions() -> Vec<Value> {
                     "chosen_option_label": { "type": "string", "description": "Label of the option the replacement chose; must match one of `options`. Setting this means the decision was already made: the replacement self-accepts from `actor_id` — see `still_proposed` to keep it open instead." },
                     "still_proposed": { "type": "boolean", "description": "Keep the replacement at `proposed` even though `chosen_option_label` is set, for a genuine open recommendation awaiting someone else's decision. Defaults to false, which self-accepts immediately after recording the supersession." },
                     "grounding": grounding_property(),
+                    "binds": binds_property(),
+                    "undo_cost": undo_cost_property(),
                     "expressed_confidence": expressed_confidence_property(),
                     "hypothesis_ids": { "type": "array", "items": { "type": "string" }, "description": "Deprecated alias: ids listed here count as `{kind:\"assumption\", hypothesis_id}` grounding items." },
                     "evidence_ids": { "type": "array", "items": { "type": "string" }, "description": "Deprecated alias: ids listed here count as `{kind:\"evidence\", evidence_id}` grounding items." },

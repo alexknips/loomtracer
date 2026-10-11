@@ -71,6 +71,8 @@ fn capture_answers(dir: &Path, title: &str, chose: &str, request_id: &str) -> Te
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--bet",
             "--title",
             title,

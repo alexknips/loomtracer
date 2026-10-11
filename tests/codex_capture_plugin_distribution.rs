@@ -132,6 +132,8 @@ fn claude_code_capture_command_writes_human_decision() -> TestResult<()> {
             "--chose",
             "repo-command",
             "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     assert!(
@@ -381,6 +383,8 @@ fn claude_code_plugin_capture_and_query_scripts_write_agent_decision() -> TestRe
             "--chose",
             "plugin-command",
             "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     assert!(
@@ -454,6 +458,8 @@ fn query_decisions_script_finds_decisions_captured_by_a_different_session() -> T
             "--chose",
             "cross-session",
             "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     assert!(
@@ -514,6 +520,8 @@ fn capture_joined_query_fixture(root: &Path, hivemind_dir: &Path) -> TestResult<
             "--chose",
             "join-words",
             "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     require(
@@ -665,6 +673,8 @@ fn codex_capture_defaults_actor_from_session_environment() -> TestResult<()> {
         .args([
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--bet",
             "--title",
             "Capture Codex plugin decisions without setup",
@@ -729,6 +739,8 @@ fn capture_plugin_scripts_derive_codex_session_context() -> TestResult<()> {
             "--chose",
             "session-context",
             "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     assert!(
@@ -817,6 +829,8 @@ fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()
             "--chose",
             "rig-ledger",
             "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     require(
@@ -1200,6 +1214,8 @@ fn capture_script_forwards_grounding_flags_and_refuses_an_ungrounded_capture() -
         "ci run 9",
         "--rests-on-assumption",
         "The script keeps forwarding unknown flags",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "The CLI keeps its grounding flag names",
         "--would-change-if",
@@ -1307,6 +1323,8 @@ fn capture_script_answers_a_question_that_was_asked_and_the_request_stops_waitin
             &request_id,
             "--rests-on-assumption",
             "Customers are in the euro area",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     require(
@@ -1379,6 +1397,8 @@ fn capture_script_keeps_an_option_label_with_a_comma_whole() -> TestResult<()> {
             label,
             "--rests-on-assumption",
             "Option labels are phrases and phrases hold commas",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     require(
@@ -1466,6 +1486,8 @@ fn capture_script_refuses_option_on_a_cli_without_it_and_writes_nothing() -> Tes
                 "naming",
                 "--rests-on-assumption",
                 "Because",
+                "--binds-nothing",
+                "--cheap-to-undo",
             ])
             .args(option_flags)
             .output()?)
@@ -1576,6 +1598,8 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
                 "--chose",
                 "weekly",
                 "--bet",
+                "--binds-nothing",
+                "--cheap-to-undo",
                 "--project",
                 "billing",
             ])
@@ -1608,6 +1632,8 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
                 "--chose",
                 "monthly",
                 "--bet",
+                "--binds-nothing",
+                "--cheap-to-undo",
             ])
             .output()?;
         require(
@@ -1675,6 +1701,8 @@ fn capture_through_binary(
         .args([
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--title",
             title,
             "--rationale",
@@ -1687,6 +1715,8 @@ fn capture_through_binary(
             "nightly",
             "--rests-on-assumption",
             "Testers tolerate occasional breakage",
+            "--binds-nothing",
+            "--cheap-to-undo",
         ])
         .output()?;
     assert!(

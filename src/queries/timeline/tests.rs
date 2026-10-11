@@ -2,7 +2,7 @@
 #[cfg(test)]
 use chrono::{Duration, Utc};
 
-use crate::commands::{Commands, DecisionProposalInput, GroundInput, Grounding};
+use crate::commands::{Commands, DecisionProposalInput, FloorInput, GroundInput, Grounding};
 use crate::events::{RelationKind, TenantId};
 use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
@@ -46,6 +46,7 @@ fn capture(
         question,
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     })
 }
 

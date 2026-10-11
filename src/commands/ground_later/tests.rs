@@ -3,7 +3,8 @@
 use chrono::{DateTime, Utc};
 
 use crate::commands::{
-    Commands, DecisionProposalInput, Grounding, GroundingPlan, NewBet, NewEvidence, RestsOnKind,
+    Commands, DecisionProposalInput, FloorInput, Grounding, GroundingPlan, NewBet, NewEvidence,
+    RestsOnKind,
 };
 use crate::events::{Event, EventType};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
@@ -34,6 +35,7 @@ fn propose(commands: &Commands<'_, InMemoryEventLedger>, title: &str) -> String 
             question: None,
             delegated_by: None,
             project: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision")
 }

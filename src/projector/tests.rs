@@ -6110,3 +6110,124 @@ fn arrow_annotating_a_node_no_event_created_gives_it_a_placeholder_origin() -> R
     );
     Ok(())
 }
+
+// ── The decision floor's answers (hivemind-bbnw.10) ──
+
+/// Three proposals: a rename that states both answers with sentences, an Apple-style one that
+/// states the two zero answers, and one nobody asked (as every event before the answers
+/// existed, a raw emit, a classifier ingest, an import and Slack are).
+pub(super) fn floor_scenario() -> Result<InMemoryEventLedger> {
+    let ledger = InMemoryEventLedger::new();
+    let proposal = |decision_id: &str, extra: serde_json::Value| {
+        let mut payload = json!({
+            "decision_id": decision_id,
+            "title": format!("Floor test {decision_id}"),
+            "rationale": "A stated reason for the decision floor projection test",
+            "topic_keys": ["floor"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        });
+        if let (Some(base), Some(extra)) = (payload.as_object_mut(), extra.as_object()) {
+            base.extend(extra.clone());
+        }
+        event(EventType::DecisionProposed, "actor:alice", payload)
+    };
+    for event in [
+        proposal(
+            "decision:rename",
+            json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "costly", "statement": "Renaming back breaks every script already moved"}
+            }),
+        ),
+        proposal(
+            "decision:apple",
+            json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+        ),
+        proposal("decision:unasked", json!({})),
+    ] {
+        ledger.append(event)?;
+    }
+    Ok(ledger)
+}
+
+/// The four floor properties of one decision node, in `binds_level, binds, undo_cost_level,
+/// undo_cost` order, read with the single-node lookup shape every backend answers (the one
+/// `queries::shared::node_row` issues). A property the node does not carry reads as `Null`.
+pub(super) fn floor_properties(
+    graph: &impl GraphView,
+    decision_id: &str,
+) -> Result<Vec<GraphValue>> {
+    let rows = graph.query(
+        "MATCH (node:`Decision` {id: $id}) RETURN node.id AS id, node.binds_level AS binds_level, node.binds AS binds, node.undo_cost_level AS undo_cost_level, node.undo_cost AS undo_cost LIMIT 1;",
+        &GraphParams::from([("id".to_owned(), GraphValue::String(decision_id.to_owned()))]),
+    )?;
+    let row = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| projector_error(format!("no Decision node {decision_id}")))?;
+    Ok(["binds_level", "binds", "undo_cost_level", "undo_cost"]
+        .into_iter()
+        .map(|key| row.get(key).cloned().unwrap_or(GraphValue::Null))
+        .collect())
+}
+
+/// What `floor_scenario` projects, on whichever backend `graph` is: the recorded answers
+/// verbatim, and `Null` for a proposal nobody asked.
+pub(super) fn assert_floor_scenario_projection(graph: &impl GraphView) -> Result<()> {
+    let text = |value: &str| GraphValue::String(value.to_owned());
+    assert_eq!(
+        floor_properties(graph, "decision:rename")?,
+        vec![
+            text("something"),
+            text("Users and scripts that call the old name"),
+            text("costly"),
+            text("Renaming back breaks every script already moved"),
+        ]
+    );
+    assert_eq!(
+        floor_properties(graph, "decision:apple")?,
+        vec![
+            text("nothing"),
+            GraphValue::Null,
+            text("cheap"),
+            GraphValue::Null
+        ]
+    );
+    assert_eq!(
+        floor_properties(graph, "decision:unasked")?,
+        vec![GraphValue::Null; 4],
+        "an old or unasked proposal reads not asked: no level, no sentence"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_proposal_projects_its_floor_answers_onto_the_decision_node() -> Result<()> {
+    let graph = project_ledger(&floor_scenario()?)?;
+    assert_floor_scenario_projection(&graph)
+}
+
+#[test]
+fn the_floor_is_derived_from_the_projected_levels_and_an_unasked_decision_reads_not_asked(
+) -> Result<()> {
+    use crate::floor::{floor_verdict_from_stored, FloorVerdict};
+    let graph = project_ledger(&floor_scenario()?)?;
+    let verdict = |decision_id: &str| -> Result<FloorVerdict> {
+        let properties = floor_properties(&graph, decision_id)?;
+        let level = |index: usize| match properties.get(index) {
+            Some(GraphValue::String(text)) => Some(text.clone()),
+            _ => None,
+        };
+        Ok(floor_verdict_from_stored(
+            level(0).as_deref(),
+            level(2).as_deref(),
+        ))
+    };
+    assert_eq!(verdict("decision:rename")?, FloorVerdict::Cleared);
+    assert_eq!(verdict("decision:apple")?, FloorVerdict::Below);
+    assert_eq!(verdict("decision:unasked")?, FloorVerdict::NotAsked);
+    Ok(())
+}

@@ -1,6 +1,6 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
-use crate::commands::{Commands, DecisionProposalInput, Grounding};
+use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use crate::events::TenantId;
 use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
@@ -41,6 +41,7 @@ fn capture(
         question,
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     })
 }
 

@@ -167,6 +167,8 @@ async fn capture_and_query_decision() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Adopt REST for the HTTP API",
                 "rationale": "REST maps naturally to resources and is curl-friendly",
@@ -228,6 +230,8 @@ async fn search_source_filter_matches_api_source() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:src-filter",
                 "title": "Source filter test decision",
@@ -269,6 +273,8 @@ async fn search_actor_id_accepts_comma_separated_list() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Actor list filter decision",
                 "rationale": "Verifies comma-separated actor_id is wired",
@@ -346,6 +352,8 @@ async fn disagree_updates_decision_status() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Use SQLite for all storage",
                 "rationale": "Simple and embeddable, no separate server to run",
@@ -394,6 +402,8 @@ async fn supersede_links_old_to_new_decision() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Use bearer tokens for auth",
                 "rationale": "Simple to implement and easy to revoke per session",
@@ -412,6 +422,8 @@ async fn supersede_links_old_to_new_decision() {
         post_json(
             &format!("/v1/decisions/{old_id}/supersessions"),
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Use bearer tokens + Ed25519 signing for auth",
                 "rationale": "Bearer alone lacks audit trail; signing adds integrity",
@@ -532,6 +544,217 @@ async fn capture_decision_validates_required_fields() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
     assert_eq!(body["error"]["code"], "validation_error"); // ubs:ignore
+}
+
+// ---------------------------------------------------------------------------
+// The decision floor (hivemind-bbnw.10): `binds` and `undo_cost` on POST /v1/decisions and
+// POST /v1/decisions/{id}/supersessions
+// ---------------------------------------------------------------------------
+
+fn floor_capture_body(title: &str, floor: Value) -> Value {
+    let mut body = serde_json::json!({
+        "grounding": [{"kind": "bet"}],
+        "title": title,
+        "rationale": "REST maps naturally to resources and is curl-friendly",
+        "topic_keys": ["api-design"],
+        "options": [{ "label": "REST" }],
+        "chosen_option_label": "REST"
+    });
+    if let (Some(base), Some(floor)) = (body.as_object_mut(), floor.as_object()) {
+        base.extend(floor.clone());
+    }
+    body
+}
+
+#[tokio::test]
+async fn capture_refuses_a_call_that_leaves_a_floor_answer_out_with_400_and_writes_nothing() {
+    let dir = test_ledger_dir();
+
+    for (what, floor) in [
+        ("neither answer", serde_json::json!({})),
+        (
+            "only binds",
+            serde_json::json!({"binds": {"level": "nothing"}}),
+        ),
+        (
+            "only undo_cost",
+            serde_json::json!({"undo_cost": {"level": "cheap"}}),
+        ),
+        (
+            "a null answer",
+            serde_json::json!({"binds": null, "undo_cost": {"level": "cheap"}}),
+        ),
+    ] {
+        let (status, body) = call(
+            app(dir.clone()),
+            post_json("/v1/decisions", floor_capture_body("Adopt REST", floor)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{what}: {body}"); // ubs:ignore
+        assert_eq!(body["error"]["code"], "validation_error", "{what}"); // ubs:ignore
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("binds") && message.contains("undo cost"),
+            "{what}: {message}"
+        ); // ubs:ignore
+        assert!(message.contains("nothing was written"), "{what}: {message}"); // ubs:ignore
+    }
+
+    for (what, floor, expected) in [
+        (
+            "a sentence missing",
+            serde_json::json!({"binds": {"level": "something"}, "undo_cost": {"level": "cheap"}}),
+            "`binds` at level `something` needs a `statement`",
+        ),
+        (
+            "an unknown level",
+            serde_json::json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "free"}}),
+            "`undo_cost.level` `free` is not one of cheap, costly",
+        ),
+        (
+            "an unknown field",
+            serde_json::json!({"binds": {"level": "nothing", "why": "x"}, "undo_cost": {"level": "cheap"}}),
+            "`binds` has unknown field `why`",
+        ),
+    ] {
+        let (status, body) = call(
+            app(dir.clone()),
+            post_json("/v1/decisions", floor_capture_body("Adopt REST", floor)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{what}: {body}"); // ubs:ignore
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains(expected), "{what}: {message}"); // ubs:ignore
+    }
+
+    // Nothing was appended by any refusal.
+    let (status, body) = call(app(dir.clone()), get_req("/v1/decisions/search?q=REST")).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["result_count"], 0, "{body}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn capture_lands_a_below_floor_decision_marked_and_clears_the_floor_for_the_others() {
+    let dir = test_ledger_dir();
+
+    let (status, apple) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            floor_capture_body(
+                "Write Apple with a capital",
+                serde_json::json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{apple}"); // ubs:ignore
+    assert_eq!(
+        apple["floor"],
+        serde_json::json!({"binds": "nothing", "undo_cost": "cheap", "cleared": false}) // ubs:ignore
+    );
+    assert_eq!(apple["below_floor"], true); // ubs:ignore
+    assert!(apple["below_floor_note"].as_str().is_some()); // ubs:ignore
+    assert!(apple["decision_id"].as_str().is_some()); // ubs:ignore
+
+    for (title, floor, expected) in [
+        (
+            "Rename beadline check to doctor",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "cheap"}
+            }),
+            serde_json::json!({"binds": "something", "undo_cost": "cheap", "cleared": true}),
+        ),
+        (
+            "Merge tonight despite the flaky test",
+            serde_json::json!({
+                "binds": {"level": "nothing"},
+                "undo_cost": {"level": "costly", "statement": "An audit will ask why we ignored it"}
+            }),
+            serde_json::json!({"binds": "nothing", "undo_cost": "costly", "cleared": true}),
+        ),
+    ] {
+        let (status, body) = call(
+            app(dir.clone()),
+            post_json("/v1/decisions", floor_capture_body(title, floor)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{title}: {body}"); // ubs:ignore
+        assert_eq!(body["floor"], expected, "{title}"); // ubs:ignore
+        assert!(body.get("below_floor").is_none(), "{title}: {body}"); // ubs:ignore
+    }
+
+    // Search and recall stay unfiltered: the below-floor decision is there to be found.
+    let (status, body) = call(
+        app(dir.clone()),
+        get_req("/v1/decisions/search?q=Apple+capital"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert!(body["result_count"].as_u64().unwrap_or(0) >= 1, "{body}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn supersede_takes_the_floor_answers_and_refuses_without_them() {
+    let dir = test_ledger_dir();
+    let (status, old) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            floor_capture_body(
+                "Use a single queue",
+                serde_json::json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{old}"); // ubs:ignore
+    let old_id = old["decision_id"].as_str().unwrap().to_owned();
+    let uri = format!("/v1/decisions/{old_id}/supersessions");
+    let replacement = |floor: Value| {
+        let mut body = serde_json::json!({
+            "title": "Use two queues",
+            "rationale": "Spelled out: the reasons are written here in full sentences.",
+            "grounding": [{"kind": "bet"}]
+        });
+        if let (Some(base), Some(floor)) = (body.as_object_mut(), floor.as_object()) {
+            base.extend(floor.clone());
+        }
+        body
+    };
+
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &uri,
+            replacement(serde_json::json!({"binds": {"level": "nothing"}})),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
+    assert_eq!(body["error"]["code"], "validation_error"); // ubs:ignore
+
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &uri,
+            replacement(serde_json::json!({
+                "binds": {"level": "something", "statement": "Producers write to two queues"},
+                "undo_cost": {"level": "cheap"}
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(
+        body["floor"],
+        serde_json::json!({"binds": "something", "undo_cost": "cheap", "cleared": true}) // ubs:ignore
+    );
+    assert!(body["new_decision_id"].as_str().is_some()); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -702,6 +925,8 @@ async fn rls_cross_tenant_decision_not_visible() {
         post_json_as_tenant(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Alpha-only architecture decision",
                 "rationale": "Belongs to alpha only — must not cross tenant boundary",
@@ -755,6 +980,8 @@ async fn unregistered_tenant_header_is_rejected_on_read_and_write() {
         post_json_as_tenant(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Should never be captured",
                 "rationale": "the tenant does not exist",
@@ -812,6 +1039,8 @@ async fn supersede_nonexistent_decision_returns_404() {
         post_json(
             "/v1/decisions/nonexistent-id/supersessions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "New decision",
                 "rationale": "Better approach",
@@ -858,6 +1087,8 @@ async fn situational_route_matches_before_decision_id_route() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Situational route test decision",
                 "rationale": "Verifies the static /situational route wins over /:id",
@@ -908,6 +1139,8 @@ async fn recall_route_returns_ranked_items_and_digest() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Recall route test: adopt widget caching",
                 "rationale": "Verifies GET /v1/decisions/recall returns ranked items + digest",
@@ -944,6 +1177,8 @@ async fn why_resolves_by_id_and_by_description() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Why route test: unique neighborhood target",
                 "rationale": "Verifies GET /v1/decisions/why by id and by description",
@@ -984,6 +1219,8 @@ async fn why_and_verify_answer_a_description_that_shares_half_its_words_and_name
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Decision links use title slugs worked out the same in every browser",
                 "rationale": "A slug computed from the title gives the same link on every device",
@@ -1060,6 +1297,8 @@ async fn why_returns_ambiguous_outcome_for_ambiguous_description() {
             post_json(
                 "/v1/decisions",
                 serde_json::json!({
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "title": title,
                     "rationale": "Fixture for why-ambiguity test",
@@ -1108,6 +1347,8 @@ async fn verify_resolves_by_id_and_by_description() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Verify route test: unique brief target",
                 "rationale": "Verifies GET /v1/decisions/verify by id and by description",
@@ -1180,6 +1421,8 @@ async fn verify_returns_ambiguous_outcome_for_ambiguous_description() {
             post_json(
                 "/v1/decisions",
                 serde_json::json!({
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "title": title,
                     "rationale": "Fixture for verify-ambiguity test",
@@ -1959,6 +2202,8 @@ async fn decisions_proposed_over_http_link_as_restatements_too() {
             post_json(
                 "/v1/decisions",
                 serde_json::json!({
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "title": title,
                     "rationale": "One server for every tenant",
@@ -2175,6 +2420,8 @@ async fn possibly_related_offers_same_conversation_and_specific_topics_and_draws
             post_json(
                 "/v1/decisions",
                 serde_json::json!({
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "title": format!("Refinery routine {index}"),
                     "rationale": "A routine call made inside the merge queue, nothing more",
@@ -2193,6 +2440,8 @@ async fn possibly_related_offers_same_conversation_and_specific_topics_and_draws
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Document the Kuzu gate",
                 "rationale": "The gate is easy to forget unless the runbook names it",
@@ -2671,6 +2920,8 @@ async fn mcp_http_capture_and_get_decision_round_trip() {
             "params": {
                 "name": "capture_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "title": "Use axum for HTTP",
                     "rationale": "Good ergonomics and async support",
@@ -2762,6 +3013,8 @@ async fn graph_returns_shape_after_decision() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Use SQLite for the hosted MVP",
                 "rationale": "Single binary, zero ops",
@@ -2924,6 +3177,8 @@ async fn capture_for_graph(
     decided_by: Option<&str>,
 ) -> String {
     let mut body = serde_json::json!({
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
         "grounding": [{"kind": "bet"}],
         "title": title,
         "rationale": "Graph standing fixture: enough words to pass validation",
@@ -3014,6 +3269,8 @@ async fn attention_lists_and_the_decision_timeline_read_over_http() {
         post_json(
             &format!("/v1/decisions/{disputed}/supersessions"),
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "The replacement",
                 "rationale": "Learned something that changes the call",
@@ -3160,6 +3417,8 @@ async fn status_events_list_what_changed_a_decisions_status_over_http() {
         post_json(
             &format!("/v1/decisions/{decision}/supersessions"),
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "The replacement",
                 "rationale": "Learned something that changes the call",
@@ -3250,6 +3509,8 @@ async fn graph_decisions_carry_their_status_and_who_decided() {
         post_json(
             &format!("/v1/decisions/{superseded}/supersessions"),
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "The replacement",
                 "rationale": "Learned something that changes the call",
@@ -3305,6 +3566,8 @@ async fn supersede_still_proposed_keeps_a_chosen_replacement_open() {
     let old = capture_for_graph(&dir, "Replaced later", Some("Option two"), None).await;
     let supersede = |title: &str, extra: serde_json::Value| {
         let mut body = serde_json::json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": title,
             "rationale": "Learned something that changes the call",
@@ -3347,6 +3610,8 @@ async fn graph_option_nodes_carry_a_title() {
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Pick the store",
                 "rationale": "Graph option title fixture: enough words to pass validation",
@@ -3394,6 +3659,8 @@ async fn graph_option_nodes_carry_what_was_recorded_when_it_reads_differently() 
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Name the product",
                 "rationale": "Graph recorded-option fixture: enough words to pass validation",
@@ -3411,6 +3678,8 @@ async fn graph_option_nodes_carry_what_was_recorded_when_it_reads_differently() 
         post_json(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Pick the capture path",
                 "rationale": "Graph recorded-option fixture: enough words to pass validation",
@@ -3768,6 +4037,8 @@ async fn actor_bound_to_token_not_header() {
         authed_post(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Actor binding test",
                 "rationale": "verifying actor comes from token",
@@ -3975,6 +4246,8 @@ async fn mint_agent_token_writes_show_agent_actor() {
         authed_post(
             "/v1/decisions",
             serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Agent token actor test",
                 "rationale": "verifying agent tokens read as agents",
@@ -4134,6 +4407,8 @@ async fn mcp_capture_and_read_context(
     actor_id: Option<&str>,
 ) -> Value {
     let mut arguments = serde_json::json!({
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
         "grounding": [{"kind": "bet"}],
         "title": title,
         "rationale": "pins who an MCP-over-HTTP write is attributed to",
@@ -4354,6 +4629,8 @@ fn capture_body(title: &str, grounding: Value) -> Value {
         "rationale": "Rationale text long enough for the readable floor and then some",
         "topic_keys": ["grounding"],
         "options": [{ "label": "adopt" }],
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
         "grounding": grounding,
     })
 }
@@ -4531,6 +4808,8 @@ async fn supersession_requires_and_records_grounding() {
             "title": "Use scoped service tokens",
             "rationale": "Scoped tokens preserve audit boundaries for every caller",
             "options": ["scoped-tokens"],
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": grounding,
         })
     };

@@ -129,7 +129,9 @@ fn tenant_ids_are_distinct() -> TestResult<()> {
 
 #[test]
 fn local_tenant_is_isolated_from_named_tenants() -> TestResult<()> {
-    use hivemind::commands::{CommandContext, Commands, DecisionProposalInput, Grounding};
+    use hivemind::commands::{
+        CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding,
+    };
     use hivemind::events::{EventProvenance, TenantId};
 
     let ledger = InMemoryEventLedger::new();
@@ -166,6 +168,7 @@ fn local_tenant_is_isolated_from_named_tenants() -> TestResult<()> {
         quote: None,
         question: None,
         project: None,
+        floor: FloorInput::NotAsked,
     })?;
 
     let local_dataset = multi_tenant::TenantDataset {

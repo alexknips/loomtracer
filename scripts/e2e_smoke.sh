@@ -159,7 +159,9 @@ decision_resp=$(curl_json POST /v1/decisions '{
   "still_proposed": true,
   "grounding": [
     {"kind": "evidence", "content": "SQLite allows one writer at a time", "source": "https://www.sqlite.org/lockingv3.html"}
-  ]
+  ],
+  "binds": {"level": "something", "statement": "Every tenant-scoped feature assumes concurrent writers"},
+  "undo_cost": {"level": "costly", "statement": "Moving data back to a single-writer store is a migration"}
 }')
 
 if echo "$decision_resp" | jq -e '.decision_id' > /dev/null 2>&1; then
@@ -304,7 +306,7 @@ mcp_capture=$(curl -s \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"capture_decision","arguments":{"actor_id":"agent:e2e:smoke-mcp","title":"e2e-smoke MCP: prefer immutable events","rationale":"Immutable append-only log simplifies auditing","topic_keys":["e2e","architecture"],"options":[{"label":"immutable"},{"label":"mutable"}],"chosen_option_label":"immutable","grounding":[{"kind":"assumption","statement":"Auditors need to replay history exactly as it was written"}]}}}' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"capture_decision","arguments":{"actor_id":"agent:e2e:smoke-mcp","title":"e2e-smoke MCP: prefer immutable events","rationale":"Immutable append-only log simplifies auditing","topic_keys":["e2e","architecture"],"options":[{"label":"immutable"},{"label":"mutable"}],"chosen_option_label":"immutable","grounding":[{"kind":"assumption","statement":"Auditors need to replay history exactly as it was written"}],"binds":{"level":"something","statement":"Audit tooling replays the log as written"},"undo_cost":{"level":"cheap"}}}}' \
   "$BASE_URL/mcp")
 
 if echo "$mcp_capture" | jq -e '.result.content[0].text' > /dev/null 2>&1; then
@@ -339,7 +341,7 @@ mcp_capture_fluent_a=$(curl -s \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"capture_decision","arguments":{"actor_id":"agent:e2e:smoke-mcp","title":"e2e-smoke MCP fluent: adopt async billing queue","rationale":"Durability beats latency for billing events","topic_keys":["e2e","fluent"],"options":[{"label":"async"}],"grounding":[{"kind":"bet","statement":"Billing volume stays low enough for one queue"}]}}}' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"capture_decision","arguments":{"actor_id":"agent:e2e:smoke-mcp","title":"e2e-smoke MCP fluent: adopt async billing queue","rationale":"Durability beats latency for billing events","topic_keys":["e2e","fluent"],"options":[{"label":"async"}],"grounding":[{"kind":"bet","statement":"Billing volume stays low enough for one queue"}],"binds":{"level":"something","statement":"Billing events all flow through one queue"},"undo_cost":{"level":"cheap"}}}}' \
   "$BASE_URL/mcp")
 mcp_capture_fluent_b=$(curl -s \
   -H "Content-Type: application/json" \
@@ -348,7 +350,7 @@ mcp_capture_fluent_b=$(curl -s \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
-  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"capture_decision","arguments":{"actor_id":"agent:e2e:smoke-mcp","title":"e2e-smoke MCP fluent: adopt async notifications queue","rationale":"Durability beats latency for notification events","topic_keys":["e2e","fluent"],"options":[{"label":"async"}],"grounding":[{"kind":"bet","statement":"Notification volume stays low enough for one queue"}]}}}' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"capture_decision","arguments":{"actor_id":"agent:e2e:smoke-mcp","title":"e2e-smoke MCP fluent: adopt async notifications queue","rationale":"Durability beats latency for notification events","topic_keys":["e2e","fluent"],"options":[{"label":"async"}],"grounding":[{"kind":"bet","statement":"Notification volume stays low enough for one queue"}],"binds":{"level":"something","statement":"Notification events all flow through one queue"},"undo_cost":{"level":"cheap"}}}}' \
   "$BASE_URL/mcp")
 
 MCP_FLUENT_DECISION_A=""
@@ -707,7 +709,9 @@ else
     --rationale "e2e smoke: batching removes the retry queue's backlog risk entirely" \
     --options "batched-writes" \
     --chose "batched-writes" \
-    --rests-on-assumption "Batching removes the retry backlog risk") || true
+    --rests-on-assumption "Batching removes the retry backlog risk" \
+    --binds "Ingestion callers write in batches" \
+    --cheap-to-undo) || true
   if echo "$ic_supersede" | jq -e --arg id "$IC_D1_ID" \
       '.old_decision_id == $id and .old_decision_status == "superseded"' > /dev/null 2>&1; then
     pass "CLI (in-container): supersede --pick 2 — supersedes the ingestion decision"
@@ -734,7 +738,9 @@ if [[ -n "$DECISION_ID" ]]; then
     "rationale": "Initial idea before Postgres was chosen",
     "topic_keys": ["storage", "e2e"],
     "options": [{"label": "mysql"}],
-    "grounding": [{"kind": "bet", "statement": "MySQL is the database we already know"}]
+    "grounding": [{"kind": "bet", "statement": "MySQL is the database we already know"}],
+    "binds": {"level": "nothing"},
+    "undo_cost": {"level": "cheap"}
   }')
   D2_ID=$(echo "$d2_resp" | jq -r '.decision_id // empty')
 
@@ -749,7 +755,7 @@ if [[ -n "$DECISION_ID" ]]; then
   if [[ -n "$D2_ID" ]]; then
     # Supersede D2 by creating a new replacement decision (title+rationale for the NEW decision)
     supersede_resp=$(curl_json POST "/v1/decisions/$D2_ID/supersessions" \
-      '{"title": "e2e-smoke: Postgres selected over MySQL", "rationale": "e2e smoke: Postgres chosen over MySQL after evaluation", "grounding": [{"kind": "evidence", "content": "Evaluation found MySQL lacks the concurrent tenant story", "source": "e2e smoke"}]}')
+      '{"title": "e2e-smoke: Postgres selected over MySQL", "rationale": "e2e smoke: Postgres chosen over MySQL after evaluation", "grounding": [{"kind": "evidence", "content": "Evaluation found MySQL lacks the concurrent tenant story", "source": "e2e smoke"}], "binds": {"level": "something", "statement": "Tenant features assume Postgres"}, "undo_cost": {"level": "cheap"}}')
     if echo "$supersede_resp" | jq -e '.new_decision_id' > /dev/null 2>&1; then
       pass "POST /v1/decisions/{id}/supersessions"
 

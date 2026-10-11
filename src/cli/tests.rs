@@ -678,6 +678,8 @@ fn option_flag_keeps_a_comma_inside_its_label() -> CliTestResult {
         dir,
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--agent-tool",
         "claude",
@@ -908,6 +910,8 @@ fn supersede_takes_option_labels_with_a_comma_whole() -> CliTestResult {
     let cli = Cli::parse_from([
         "hivemind",
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         "decision-1",
         "--title",
@@ -1501,6 +1505,8 @@ fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
         "--hivemind-dir",
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         &old_decision_id,
         "--bet",
@@ -1544,6 +1550,8 @@ fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
         "--hivemind-dir",
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         &old_decision_id,
         "--bet",
@@ -1606,6 +1614,8 @@ fn supersede_cli_still_proposed_keeps_a_chosen_replacement_open() {
             "--hivemind-dir",
             hivemind_dir.to_str().expect("utf-8 temp path"),
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &old_decision_id,
             "--bet",
@@ -1670,6 +1680,8 @@ fn supersede_cli_records_agent_source_for_agent_actor() {
         "--hivemind-dir",
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         &old_decision_id,
         "--bet",
@@ -2160,6 +2172,8 @@ fn supersede_fluent_description_resolves_uniquely_and_records_body(
             "actor:bob",
             "--json",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "shared admin token",
             "--bet",
             "--title",
@@ -2233,6 +2247,8 @@ fn supersede_fluent_ambiguous_description_short_circuits_without_writing_body(
             "actor:bob",
             "--json",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "adopt async queue",
             "--bet",
             "--title",
@@ -2371,6 +2387,8 @@ fn query_chain_and_why_aliases_resolve_by_description() -> CliTestResult {
         "--hivemind-dir",
         dir,
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         &old_decision_id,
         "--bet",
@@ -3400,6 +3418,8 @@ fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_i
         "--hivemind-dir",
         dir,
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         goal_id.trim(),
         "--title",
@@ -4721,6 +4741,8 @@ fn decision_capture_with_decided_by_is_the_acceptance_test_for_ledger_fidelity()
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--agent-tool",
         "claude",
@@ -4816,6 +4838,8 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
             dir,
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--agent-tool",
             "claude",
             "--agent-session",
@@ -6311,6 +6335,8 @@ fn emit_decision_capture_records_codex_and_claude_agent_provenance() {
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--agent-tool",
         "codex",
@@ -6337,6 +6363,8 @@ fn emit_decision_capture_records_codex_and_claude_agent_provenance() {
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--agent-tool",
         "claude",
@@ -6410,6 +6438,8 @@ fn emit_decision_capture_records_human_provenance_when_requested() {
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--source",
         "human",
@@ -6498,6 +6528,8 @@ fn capture_with_actor_flag(hivemind_dir: &std::path::Path, actor: &str, title: &
         hivemind_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--title",
         title,
@@ -7788,6 +7820,8 @@ fn capture_for_project_list(
         "--json",
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--actor-id",
         actor_id,
         "--title",
@@ -9538,6 +9572,13 @@ fn run_supersede_text(
 }
 
 fn capture_args_for<'a>(title: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
+    let mut args = capture_args_without_floor(title, extra);
+    args.splice(2..2, ["--binds-nothing", "--cheap-to-undo"]);
+    args
+}
+
+/// `capture_args_for` before the two decision-floor answers: a caller adds the pair under test.
+fn capture_args_without_floor<'a>(title: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
     let mut args = vec![
         "emit",
         "decision.capture",
@@ -9567,6 +9608,14 @@ fn without_bet_grounding(mut reply: serde_json::Value) -> serde_json::Value {
     assert_eq!(rests_on[0]["kind"], "bet", "{rests_on}");
     assert_eq!(rests_on.as_array().map(Vec::len), Some(1));
     assert_eq!(object.remove("premise_stale"), Some(serde_json::json!([])));
+    // The decision floor's answers are the floor tests' business (hivemind-bbnw.10): check the
+    // reply carries them and set them aside, like the grounding.
+    assert!(
+        object.remove("floor").is_some(),
+        "the reply names the floor"
+    );
+    object.remove("below_floor");
+    object.remove("below_floor_note");
     reply
 }
 
@@ -9852,6 +9901,8 @@ fn supersede_names_its_project_body(backend: &TestBackend) -> CliTestResult {
                 "--actor",
                 "agent:claude:session-1",
                 "supersede",
+                "--binds-nothing",
+                "--cheap-to-undo",
                 "--old",
                 old,
                 "--title",
@@ -9934,6 +9985,8 @@ fn supersede_names_its_project_body(backend: &TestBackend) -> CliTestResult {
             "--actor",
             "agent:claude:session-1",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &new_id,
             "--title",
@@ -9964,6 +10017,8 @@ fn supersede_names_its_project_body(backend: &TestBackend) -> CliTestResult {
             "--actor",
             "agent:claude:session-1",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &old,
             "--title",
@@ -10021,6 +10076,13 @@ fn grounding_cli(
 
 /// `emit decision.capture` args for a decision titled `title`, with `grounding` appended.
 fn grounded_capture_args<'a>(title: &'a str, grounding: &[&'a str]) -> Vec<&'a str> {
+    let mut args = grounded_capture_args_without_floor(title, grounding);
+    args.splice(2..2, ["--binds-nothing", "--cheap-to-undo"]);
+    args
+}
+
+/// `grounded_capture_args` before the two decision-floor answers.
+fn grounded_capture_args_without_floor<'a>(title: &'a str, grounding: &[&'a str]) -> Vec<&'a str> {
     let mut args = vec![
         "emit",
         "decision.capture",
@@ -10218,6 +10280,8 @@ fn decision_capture_bet_modifiers_require_a_bet() {
             "hivemind",
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--title",
             "t",
             "--rationale",
@@ -10476,6 +10540,8 @@ fn decision_capture_reports_a_stale_premise_in_json_and_text() {
 fn grounded_supersede_args<'a>(old_id: &'a str, grounding: &[&'a str]) -> Vec<&'a str> {
     let mut args = vec![
         "supersede",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--old",
         old_id,
         "--title",
@@ -10541,7 +10607,7 @@ fn supersede_without_grounding_is_refused_and_with_grounding_records_it() {
 /// `project_label` on each decision object, and every text rendering shows the label.
 #[test]
 fn every_query_answer_names_its_project() -> CliTestResult {
-    use crate::commands::{CommandContext, Commands, DecisionProposalInput, Grounding};
+    use crate::commands::{CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding};
     use crate::events::{EventProvenance, TenantId};
     use crate::ledger::SqliteEventLedger;
 
@@ -10595,6 +10661,7 @@ fn every_query_answer_names_its_project() -> CliTestResult {
                 question: None,
                 delegated_by: None,
                 project: project.map(crate::commands::DeterminedProject::stated),
+                floor: FloorInput::NotAsked,
             })?);
         }
         (ids[0].clone(), ids[1].clone())
@@ -11477,6 +11544,8 @@ fn supersede_of_a_moved_decision_is_filed_where_it_was_moved_body(
             "--actor",
             "human:alice",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &old,
             "--title",
@@ -11526,6 +11595,8 @@ fn supersede_of_a_moved_decision_is_filed_where_it_was_moved_body(
             "--actor",
             "human:alice",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &new_id,
             "--title",
@@ -12037,6 +12108,8 @@ fn supersede_from_context_follows_the_folder_or_inherits_body(
                 "--actor",
                 "human:bob",
                 "supersede",
+                "--binds-nothing",
+                "--cheap-to-undo",
                 "--old",
                 old,
                 "--title",
@@ -12345,6 +12418,8 @@ fn supersede_of_a_spanning_change_follows_the_parent_or_inherits() -> CliTestRes
                 "--actor",
                 "human:bob",
                 "supersede",
+                "--binds-nothing",
+                "--cheap-to-undo",
                 "--old",
                 old,
                 "--title",
@@ -12418,6 +12493,8 @@ fn project_from_context_parses_on_the_capture_verbs_and_mcp() -> CliTestResult {
     ensure(
         argv(&[
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             "decision-1",
             "--title",
@@ -12783,6 +12860,8 @@ fn a_supersede_from_a_rig_the_ledger_has_no_project_for_inherits_instead_of_refu
             "--actor",
             "human:bob",
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             old.as_str(),
             "--title",
@@ -13073,6 +13152,397 @@ fn a_restated_decision_is_one_decision_to_recall_and_why() -> CliTestResult {
         "naming a pair already linked writes nothing",
     )?;
 
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// The decision floor (hivemind-bbnw.10): `--binds` / `--binds-nothing` and `--undo-cost` /
+// `--cheap-to-undo` on `emit decision.capture` and `supersede`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn decision_capture_without_both_floor_answers_is_refused_with_exit_2_and_writes_nothing() {
+    let hivemind_dir = unique_test_dir("capture-no-floor");
+    let assumption = ["--rests-on-assumption", "Nobody else depends on this"];
+
+    for (what, floor) in [
+        ("neither answer", &[][..]),
+        ("only what it binds", &["--binds-nothing"][..]),
+        ("only what undoing costs", &["--cheap-to-undo"][..]),
+        (
+            "binds with a sentence, no undo cost",
+            &["--binds", "Other scripts"][..],
+        ),
+        (
+            "undo cost with a sentence, no binds",
+            &["--undo-cost", "A migration"][..],
+        ),
+    ] {
+        let mut args = grounded_capture_args_without_floor("Adopt the new queue", &assumption);
+        args.extend_from_slice(floor);
+        let error = grounding_cli(&hivemind_dir, false, &args)
+            .expect_err("a capture that leaves a floor answer out is refused");
+
+        assert_eq!(exit_code_for_error(&error).code(), 2, "{what}");
+        let message = error.to_string();
+        for flag in [
+            "--binds",
+            "--binds-nothing",
+            "--undo-cost",
+            "--cheap-to-undo",
+        ] {
+            assert!(
+                message.contains(flag),
+                "{what}: refusal must name {flag}: {message}"
+            );
+        }
+        assert!(message.contains("nothing was written"), "{what}: {message}");
+        assert_eq!(ledger_event_count(&hivemind_dir), 0, "{what}");
+    }
+
+    // The same refusal holds for `supersede`, before the old decision is even resolved.
+    let old = seed_decision(&hivemind_dir, "A decision to replace");
+    let events_before = ledger_event_count(&hivemind_dir);
+    let error = grounding_cli(
+        &hivemind_dir,
+        false,
+        &[
+            "supersede",
+            "--old",
+            &old,
+            "--title",
+            "The replacement",
+            "--rationale",
+            "Rationale text long enough for the readable floor and then some",
+            "--bet",
+        ],
+    )
+    .expect_err("a supersede without the floor answers is refused");
+    assert_eq!(exit_code_for_error(&error).code(), 2);
+    assert!(error.to_string().contains("--cheap-to-undo"), "{error}");
+    assert_eq!(ledger_event_count(&hivemind_dir), events_before);
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}
+
+#[test]
+fn a_floor_sentence_must_not_be_blank_and_the_two_forms_of_one_answer_exclude_each_other() {
+    let hivemind_dir = unique_test_dir("capture-floor-blank");
+    let assumption = ["--rests-on-assumption", "Nobody else depends on this"];
+
+    for floor in [
+        ["--binds", "  ", "--cheap-to-undo"],
+        ["--binds-nothing", "--undo-cost", "\t"],
+    ] {
+        let mut args = grounded_capture_args_without_floor("Adopt the new queue", &assumption);
+        args.extend_from_slice(&floor);
+        let error = grounding_cli(&hivemind_dir, false, &args)
+            .expect_err("a blank sentence is not an answer");
+        assert_eq!(exit_code_for_error(&error).code(), 2, "{floor:?}");
+        assert!(error.to_string().contains("must not be empty"), "{error}");
+    }
+    assert_eq!(ledger_event_count(&hivemind_dir), 0);
+
+    // clap refuses `--binds TEXT` together with `--binds-nothing` before anything runs.
+    for (first, second) in [
+        ("--binds", "--binds-nothing"),
+        ("--undo-cost", "--cheap-to-undo"),
+    ] {
+        let mut args = vec!["hivemind"];
+        args.extend(grounded_capture_args_without_floor(
+            "Adopt the new queue",
+            &assumption,
+        ));
+        args.extend([first, "x", second]);
+        let error = Cli::try_parse_from(args)
+            .expect_err("the sentence form and the zero form of one answer exclude each other");
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::ArgumentConflict,
+            "{first} and {second}: {error}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}
+
+/// The proposals the backend's ledger holds, oldest first, as their payloads.
+fn backend_proposal_payloads(backend: &TestBackend) -> Vec<serde_json::Value> {
+    use crate::ledger::EventLedger;
+
+    let cli = Cli::parse_from(cli_args(backend, &["project", "list"]));
+    let tenant = cli_tenant(&cli).expect("test tenant is valid");
+    let ledger =
+        crate::ledger::AnyLedger::open(&crate::ledger::LedgerConfig::from_cli(&cli), &tenant)
+            .expect("ledger opens");
+    ledger
+        .read_for_tenant(&tenant, 0, 1000)
+        .expect("read events")
+        .into_iter()
+        .filter(|event| event.event_type == crate::events::EventType::DecisionProposed)
+        .map(|event| event.payload)
+        .collect()
+}
+
+/// A JSON-mode `emit` / `supersede`, as the reply object.
+fn run_json_reply(
+    backend: &TestBackend,
+    rest: &[&str],
+) -> std::result::Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let mut args = vec!["--json"];
+    args.extend_from_slice(rest);
+    let cli = Cli::parse_from(cli_args(backend, &args));
+    let mut notices = Vec::new();
+    let output = match &cli.command {
+        Command::Emit(emit) => run_emit_with_notices(&cli, emit, &mut notices)?,
+        Command::Supersede(supersede) => run_supersede_with_notices(&cli, supersede, &mut notices)?,
+        _ => return Err("expected an emit or supersede command".into()),
+    };
+    Ok(serde_json::from_str(&output)?)
+}
+
+fn capture_floor_answers_body(backend: &TestBackend) -> CliTestResult {
+    use crate::floor::BELOW_FLOOR_NOTE;
+
+    fn with<'a>(title: &'a str, floor: &[&'a str]) -> Vec<&'a str> {
+        let mut args = capture_args_without_floor(
+            title,
+            &["--rests-on-assumption", "Customers accept euro invoices"],
+        );
+        args.extend_from_slice(floor);
+        args
+    }
+
+    // Apple vs apple: binds nothing and cheap to undo. It LANDS, and the reply says it is below.
+    let (stdout, notices) = run_emit_text(
+        backend,
+        &with(
+            "Write Apple with a capital",
+            &["--binds-nothing", "--cheap-to-undo"],
+        ),
+    )?;
+    ensure(
+        stdout.trim().starts_with("decision-"),
+        "text mode stays the bare decision id",
+    )?;
+    ensure(
+        notices.contains("below_floor:") && notices.contains(BELOW_FLOOR_NOTE),
+        &format!("the text reply says it is below the floor: {notices}"),
+    )?;
+    let json = run_json_reply(
+        backend,
+        &with(
+            "Write Apple with a capital, again",
+            &["--binds-nothing", "--cheap-to-undo"],
+        ),
+    )?;
+    ensure_eq(
+        json["floor"].clone(),
+        serde_json::json!({"binds": "nothing", "undo_cost": "cheap", "cleared": false}),
+        "the JSON reply carries the floor",
+    )?;
+    ensure_eq(
+        json["below_floor"].clone(),
+        serde_json::json!(true),
+        "below_floor",
+    )?;
+    ensure_eq(
+        json["below_floor_note"].clone(),
+        serde_json::json!(BELOW_FLOOR_NOTE),
+        "the note",
+    )?;
+
+    // A rename-style capture (binds users and scripts) and a merge-tonight capture (costly to
+    // undo) clear the floor: no below-floor marker anywhere.
+    let (stdout, notices) = run_emit_text(
+        backend,
+        &with(
+            "Rename beadline check to doctor",
+            &[
+                "--binds",
+                "Users and scripts that call the old name",
+                "--cheap-to-undo",
+            ],
+        ),
+    )?;
+    ensure(stdout.trim().starts_with("decision-"), "rename: bare id")?;
+    ensure(
+        !notices.contains("below_floor"),
+        &format!("rename clears the floor: {notices}"),
+    )?;
+    let json = run_json_reply(
+        backend,
+        &with(
+            "Merge tonight despite the flaky test",
+            &[
+                "--binds-nothing",
+                "--undo-cost",
+                "An audit will ask why we ignored it",
+            ],
+        ),
+    )?;
+    ensure_eq(
+        json["floor"].clone(),
+        serde_json::json!({"binds": "nothing", "undo_cost": "costly", "cleared": true}),
+        "merge-tonight clears the floor",
+    )?;
+    ensure(
+        json.get("below_floor").is_none() && json.get("below_floor_note").is_none(),
+        "a cleared capture carries no below-floor marker",
+    )?;
+
+    // What was recorded is exactly what was stated.
+    let payloads = backend_proposal_payloads(backend);
+    ensure_eq(
+        payloads.len(),
+        4,
+        "all four captures landed, including the below-floor ones",
+    )?;
+    ensure_eq(
+        payloads[0]["binds"].clone(),
+        serde_json::json!({"level": "nothing"}),
+        "apple binds",
+    )?;
+    ensure_eq(
+        payloads[0]["undo_cost"].clone(),
+        serde_json::json!({"level": "cheap"}),
+        "apple undo cost",
+    )?;
+    ensure_eq(
+        payloads[2]["binds"].clone(),
+        serde_json::json!({"level": "something", "statement": "Users and scripts that call the old name"}),
+        "rename binds",
+    )?;
+    ensure_eq(
+        payloads[3]["undo_cost"].clone(),
+        serde_json::json!({"level": "costly", "statement": "An audit will ask why we ignored it"}),
+        "merge undo cost",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn emit_capture_records_the_floor_answers_and_marks_a_below_floor_capture() -> CliTestResult {
+    capture_floor_answers_body(&TestBackend::sqlite("emit-floor-answers"))
+}
+
+#[test]
+fn emit_capture_records_the_floor_answers_and_marks_a_below_floor_capture_postgres() -> CliTestResult
+{
+    let Some(backend) = TestBackend::postgres("emit-floor-answers-pg") else {
+        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        return Ok(());
+    };
+    capture_floor_answers_body(&backend)
+}
+
+fn supersede_floor_answers_body(backend: &TestBackend) -> CliTestResult {
+    use crate::floor::BELOW_FLOOR_NOTE;
+
+    let old = run_json_reply(backend, &capture_args_for("Use a single queue", &[]))?;
+    let old_id = old["value"]
+        .as_str()
+        .ok_or("the capture names its decision")?
+        .to_owned();
+    let events_before = backend_event_count(backend);
+
+    // Leaving an answer out is refused and nothing is written, not even the replacement's options.
+    let error = run_supersede_text(
+        backend,
+        &[
+            "--actor",
+            "agent:claude:session-1",
+            "supersede",
+            "--old",
+            &old_id,
+            "--title",
+            "Use two queues",
+            "--rationale",
+            PROJECT_TEST_RATIONALE,
+            "--bet",
+            "--binds-nothing",
+        ],
+    )
+    .expect_err("a supersede that leaves the undo cost out is refused");
+    ensure(
+        error.to_string().contains("--cheap-to-undo"),
+        &format!("{error}"),
+    )?;
+    ensure_eq(
+        backend_event_count(backend),
+        events_before,
+        "a refused supersede writes nothing",
+    )?;
+
+    // A below-floor supersede still lands, marked.
+    let (_stdout, notices) = run_supersede_text(
+        backend,
+        &[
+            "--actor",
+            "agent:claude:session-1",
+            "supersede",
+            "--old",
+            &old_id,
+            "--title",
+            "Use two queues",
+            "--rationale",
+            PROJECT_TEST_RATIONALE,
+            "--bet",
+            "--binds-nothing",
+            "--cheap-to-undo",
+        ],
+    )?;
+    ensure(
+        notices.contains(BELOW_FLOOR_NOTE),
+        &format!("the supersede reply says it is below the floor: {notices}"),
+    )?;
+    let payloads = backend_proposal_payloads(backend);
+    let replacement = payloads.last().ok_or("the replacement was proposed")?;
+    ensure_eq(
+        replacement["binds"].clone(),
+        serde_json::json!({"level": "nothing"}),
+        "binds",
+    )?;
+    ensure_eq(
+        replacement["undo_cost"].clone(),
+        serde_json::json!({"level": "cheap"}),
+        "undo cost",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn supersede_records_the_floor_answers_and_refuses_a_missing_one() -> CliTestResult {
+    supersede_floor_answers_body(&TestBackend::sqlite("supersede-floor-answers"))
+}
+
+#[test]
+fn supersede_records_the_floor_answers_and_refuses_a_missing_one_postgres() -> CliTestResult {
+    let Some(backend) = TestBackend::postgres("supersede-floor-answers-pg") else {
+        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        return Ok(());
+    };
+    supersede_floor_answers_body(&backend)
+}
+
+#[test]
+fn raw_emit_decision_proposed_asks_nothing_and_records_no_floor_answer() -> CliTestResult {
+    let hivemind_dir = unique_test_dir("raw-emit-no-floor");
+    seed_decision(&hivemind_dir, "A raw proposal is never asked");
+
+    let ledger = SqliteEventLedger::open(&hivemind_dir)?;
+    let proposals: Vec<_> = ledger
+        .read(0, 100)?
+        .into_iter()
+        .filter(|event| event.event_type == crate::events::EventType::DecisionProposed)
+        .collect();
+    ensure_eq(proposals.len(), 1, "one raw proposal")?;
+    ensure(
+        proposals[0].payload.get("binds").is_none()
+            && proposals[0].payload.get("undo_cost").is_none(),
+        "a raw emit records neither answer: it reads not asked",
+    )?;
     let _ = std::fs::remove_dir_all(&hivemind_dir);
     Ok(())
 }

@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::commands::{Commands, DecisionProposalInput, Grounding};
+use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use crate::events::{Event, EventId, EventSource, EventType, TenantId};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
@@ -46,6 +46,7 @@ fn capture(
         question: None,
         delegated_by,
         project: None,
+        floor: FloorInput::NotAsked,
     })
 }
 

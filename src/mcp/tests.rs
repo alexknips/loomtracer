@@ -268,6 +268,19 @@ fn capture_and_supersede_tools_require_a_grounding_array() {
             required.contains(&"grounding"),
             "{name}: grounding is required"
         );
+        for answer in ["binds", "undo_cost"] {
+            assert!(required.contains(&answer), "{name}: {answer} is required");
+        }
+        assert_eq!(
+            schema["properties"]["binds"]["properties"]["level"]["enum"],
+            json!(["nothing", "something"]),
+            "{name}"
+        );
+        assert_eq!(
+            schema["properties"]["undo_cost"]["properties"]["level"]["enum"],
+            json!(["cheap", "costly"]),
+            "{name}"
+        );
 
         let grounding = &schema["properties"]["grounding"];
         assert_eq!(grounding["type"], "array", "{name}");
@@ -349,6 +362,8 @@ fn capture_decision_accepts_a_single_string_topic_key_and_a_rationale_with_figur
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:1",
                 "title": "Price the contract below the 28k line",
@@ -462,6 +477,8 @@ fn capture_then_get_round_trips_a_decision() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:1",
                 "title": "Use SQLite for ledger",
@@ -520,6 +537,8 @@ fn capture_decision_with_decided_by_advances_to_accepted_with_correct_authorship
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:claude:hivemind-crew",
                 "title": "Ledger must distinguish who decided from who recorded",
@@ -600,6 +619,8 @@ fn capture_decision_decided_by_without_chosen_option_is_rejected() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:claude:hivemind-crew",
                 "title": "Decided by without a choice",
@@ -631,6 +652,8 @@ fn capture_decision_quote_without_question_is_rejected() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:claude:hivemind-crew",
                 "title": "Quote with no stated question",
@@ -662,6 +685,8 @@ fn capture_decision_stores_paired_quote_and_question() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:claude:hivemind-crew",
                 "title": "Personal projects are visible tenant-wide",
@@ -684,6 +709,8 @@ fn capture_decision_stores_paired_quote_and_question() {
 
 fn capture_with_question_request(id: u64, title: &str, question: Option<&str>) -> String {
     let mut arguments = json!({
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
         "grounding": [{"kind": "bet"}],
         "actor_id": "agent:claude:hivemind-crew",
         "title": title,
@@ -756,6 +783,8 @@ fn capture_with_rationale_note(id: u64, title: &str, note: &str, grounding: Valu
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": grounding,
                 "actor_id": "agent:claude:hivemind-crew",
                 "title": title,
@@ -915,6 +944,8 @@ fn write_tools_default_actor_to_configured_agent_session() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Default MCP actor",
                 "rationale": "MCP write tools should not require per-call actor boilerplate",
@@ -960,6 +991,8 @@ fn search_decisions_tool_returns_fts_query_response() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:search",
                 "title": "Adopt authentication boundary",
@@ -1025,6 +1058,8 @@ fn recall_decisions_tool_returns_ranked_and_digest() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:recall",
                 "title": "Use JWT for auth tokens",
@@ -1093,6 +1128,8 @@ fn a_long_phrase_sharing_one_word_still_finds_the_decision_through_recall_and_se
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:long-phrase",
                 "title": "Use lxml strict XML parser and XPath for xjq",
@@ -1177,6 +1214,8 @@ fn recent_decisions_tool_returns_recent_query_response() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:recent",
                 "title": "Keep recent decisions discoverable",
@@ -1238,6 +1277,8 @@ fn disagree_decision_tool_contests_and_defaults_actor() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:1",
                 "title": "Keep auth as-is",
@@ -1310,6 +1351,8 @@ fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:1",
                 "title": "Keep auth as-is",
@@ -1387,6 +1430,8 @@ fn disagree_decision_tool_ambiguous_description_does_not_write() {
             "params": {
                 "name": "capture_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "title": format!("Adopt async queue for {topic}"),
                     "rationale": "because those are the reasons we discussed",
@@ -1447,6 +1492,8 @@ fn a_read_tool_answers_a_description_that_shares_half_its_words_and_a_write_tool
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Decision links use title slugs worked out the same in every browser",
                 "rationale": "A slug computed from the title gives the same link on every device",
@@ -1518,6 +1565,8 @@ fn supersede_decision_tool_marks_old_and_is_idempotent() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:1",
                 "title": "Use shared admin token",
@@ -1541,6 +1590,8 @@ fn supersede_decision_tool_marks_old_and_is_idempotent() {
         "params": {
             "name": "supersede_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "old_decision_id": old_decision_id,
                 "title": "Use scoped service tokens",
@@ -1631,6 +1682,8 @@ fn summarize_single_decision_via_mcp() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:test:summarize",
                 "title": "Adopt event sourcing",
@@ -1908,6 +1961,8 @@ mod transport_parity {
     #[tokio::test]
     async fn get_situational_decisions_matches_topic_key_across_transports() {
         let setup_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Use SQLite for the ledger",
             "rationale": "Local-first storage is enough for v1",
@@ -1963,6 +2018,8 @@ mod transport_parity {
     #[tokio::test]
     async fn get_situational_decisions_since_offset_flags_changed_across_transports() {
         let setup_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Use SQLite for the ledger",
             "rationale": "Local-first storage is enough for v1",
@@ -2000,6 +2057,8 @@ mod transport_parity {
     #[tokio::test]
     async fn recall_decisions_matches_topic_across_transports() {
         let setup_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Use SQLite for the ledger",
             "rationale": "Local-first storage is enough for v1",
@@ -2074,6 +2133,8 @@ mod transport_parity {
         let stdio_dir = unique_dir("parity-stdio-malformed-assessment");
         let http_dir = unique_dir("parity-http-malformed-assessment");
         let capture_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Use SQLite for the ledger",
             "rationale": "Local-first storage is enough for v1",
@@ -2179,6 +2240,8 @@ mod transport_parity {
             "capture_decision",
             "happy-chosen",
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Use SQLite for the ledger",
                 "rationale": "Local-first storage is enough for v1",
@@ -2218,6 +2281,8 @@ mod transport_parity {
             "capture_decision",
             "happy-unchosen",
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Evaluate caching layers",
                 "rationale": "Need more data before choosing",
@@ -2253,6 +2318,8 @@ mod transport_parity {
                 json!({
                     "title": "t", "rationale": "r", "topic_keys": ["x"],
                     "options": [{"label": "a"}], "chosen_option_label": "b",
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}]
                 }),
                 "chosen_option_label must match one of the supplied option labels",
@@ -2264,7 +2331,7 @@ mod transport_parity {
             ),
             (
                 "empty-grounding",
-                json!({"title": "t", "rationale": "r", "topic_keys": ["x"], "options": [{"label": "a"}], "grounding": []}),
+                json!({"title": "t", "rationale": "r", "topic_keys": ["x"], "options": [{"label": "a"}], "binds": {"level": "something", "statement": "Later work builds on it"}, "undo_cost": {"level": "cheap"}, "grounding": []}),
                 crate::grounding::WIRE_GROUNDING_REFUSAL,
             ),
             (
@@ -2272,9 +2339,73 @@ mod transport_parity {
                 json!({
                     "title": "t", "rationale": "r", "topic_keys": ["x"],
                     "options": [{"label": "a"}],
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "decision", "description": "x", "decision_id": "decision-1"}]
                 }),
                 "`grounding[0]` of kind `decision` needs exactly one of `description` or `decision_id`",
+            ),
+            (
+                "missing-both-floor-answers",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}]
+                }),
+                crate::floor::FLOOR_REFUSAL,
+            ),
+            (
+                "missing-undo-cost",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}],
+                    "binds": {"level": "nothing"}
+                }),
+                crate::floor::FLOOR_REFUSAL,
+            ),
+            (
+                "binds-something-without-a-sentence",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}],
+                    "binds": {"level": "something"}, "undo_cost": {"level": "cheap"}
+                }),
+                "`binds` at level `something` needs a `statement`: one sentence saying what",
+            ),
+            (
+                "undo-cost-costly-with-a-blank-sentence",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}],
+                    "binds": {"level": "nothing"}, "undo_cost": {"level": "costly", "statement": " "}
+                }),
+                "`undo_cost.statement` must not be blank",
+            ),
+            (
+                "cheap-with-a-sentence",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}],
+                    "binds": {"level": "nothing"}, "undo_cost": {"level": "cheap", "statement": "free"}
+                }),
+                "`undo_cost` at level `cheap` takes no `statement`; use level `costly` to say what",
+            ),
+            (
+                "unknown-binds-level",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}],
+                    "binds": {"level": "plenty"}, "undo_cost": {"level": "cheap"}
+                }),
+                "`binds.level` `plenty` is not one of nothing, something",
+            ),
+            (
+                "binds-is-not-an-object",
+                json!({
+                    "title": "t", "rationale": "r", "topic_keys": ["x"],
+                    "options": [{"label": "a"}], "grounding": [{"kind": "bet"}],
+                    "binds": "nothing", "undo_cost": {"level": "cheap"}
+                }),
+                "`binds` must be an object {level: nothing | something, statement?}",
             ),
         ];
         for (label, arguments, expected_message) in cases {
@@ -2322,6 +2453,8 @@ mod transport_parity {
             dir,
             "capture_decision",
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": grounding,
                 "title": title,
                 "rationale": "Chosen because it is enough for the first version",
@@ -2918,6 +3051,8 @@ mod transport_parity {
 
         for title in titles {
             let seed = json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": title,
                 "rationale": "seed for get_decision_neighborhood parity test",
@@ -3048,6 +3183,8 @@ mod transport_parity {
         let http_dir = unique_dir("parity-http-supersede-by-id");
 
         let seed = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Use shared admin token",
             "rationale": "Fastest path to ship given the deadline",
@@ -3067,6 +3204,8 @@ mod transport_parity {
 
         let supersede_args = |old_decision_id: &str| {
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "old_decision_id": old_decision_id,
                 "title": "Use scoped service tokens",
@@ -3125,6 +3264,8 @@ mod transport_parity {
             "supersede-unique-desc",
             &["Use shared admin token"],
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "description": "shared admin token",
                 "title": "Use scoped service tokens",
@@ -3155,6 +3296,8 @@ mod transport_parity {
             "supersede-still-proposed",
             &["Use shared admin token"],
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "description": "shared admin token",
                 "title": "Recommend scoped service tokens",
@@ -3186,6 +3329,8 @@ mod transport_parity {
             "Adopt async queue for notifications",
         ] {
             let seed = json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": title,
                 "rationale": "seed for supersede_decision parity test",
@@ -3200,6 +3345,8 @@ mod transport_parity {
         let http_offset_before = ledger_offset(&http_dir);
 
         let supersede_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "description": "adopt async queue",
             "title": "Adopt async queue (v2)",
@@ -3248,6 +3395,8 @@ mod transport_parity {
         let http_dir = unique_dir("parity-http-supersede-not-found");
 
         let seed = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Adopt async billing queue",
             "rationale": "seed for supersede_decision parity test",
@@ -3261,6 +3410,8 @@ mod transport_parity {
         let http_offset_before = ledger_offset(&http_dir);
 
         let supersede_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "description": "totally unrelated widget factory zzz",
             "title": "Irrelevant replacement",
@@ -3300,6 +3451,8 @@ mod transport_parity {
     #[tokio::test]
     async fn get_decision_outcome_resolves_by_decision_id() {
         let setup_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Adopt blue-green deploys",
             "rationale": "Zero-downtime releases keep users unaffected during deploys",
@@ -3467,6 +3620,8 @@ mod transport_parity {
         let (stdio, http) = run_after_with_id(
             "capture_decision",
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Keep auth as-is",
                 "rationale": "Avoids migration work and keeps the schema stable",
@@ -3584,6 +3739,8 @@ mod transport_parity {
             ),
         ] {
             let seed = json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": title,
                 "rationale": rationale,
@@ -3735,6 +3892,8 @@ mod transport_parity {
         let mut http_id = None;
         for title in titles {
             let seed = json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": title,
                 "rationale": "seed for hivemind_compact_view parity test",
@@ -4208,6 +4367,8 @@ mod transport_parity {
             "rationale": "Bounded retries avoid unbounded backlog growth under load",
             "topic_keys": ["billing"],
             "options": [{"label": "queue"}],
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
         })
     }
@@ -4645,6 +4806,8 @@ mod transport_parity {
 
     async fn seed_premise(stdio_dir: &std::path::Path, http_dir: &std::path::Path, title: &str) {
         let seed = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": title,
             "rationale": "seed for the grounding parity tests, long enough to read",
@@ -4667,6 +4830,8 @@ mod transport_parity {
             "topic_keys": ["parity"],
             "options": [{"label": "adopt"}],
             "expressed_confidence": "high",
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [
                 {"kind": "decision", "description": "Keep the ledger append-only"},
                 {"kind": "evidence", "content": "p95 was 180ms in run 42", "source": "ci run 42"},
@@ -4775,6 +4940,8 @@ mod transport_parity {
             "rationale": "Rationale text long enough for the readable floor",
             "topic_keys": ["parity"],
             "options": [{"label": "ship"}],
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [
                 {"kind": "assumption", "statement": "must not be stranded"},
                 {"kind": "decision", "description": "Adopt the queue"},
@@ -4908,6 +5075,8 @@ mod transport_parity {
                     "rationale": "Scoped tokens preserve audit boundaries",
                     "options": [{"label": "scoped-service-tokens"}],
                     "chosen_option_label": "scoped-service-tokens",
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                 }),
             )
@@ -4936,6 +5105,8 @@ mod transport_parity {
                     "rationale": "Payments owns credential rotation for both products",
                     "options": [{"label": "payments-owned"}],
                     "chosen_option_label": "payments-owned",
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "project": "payments",
                 }),
@@ -4955,6 +5126,8 @@ mod transport_parity {
                     "rationale": "Hardware tokens remove the shared secret entirely",
                     "options": [{"label": "hardware-tokens"}],
                     "chosen_option_label": "hardware-tokens",
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "project": "not-registered",
                 }),
@@ -5603,6 +5776,8 @@ mod transport_parity {
                 "rationale": "Rationale text long enough for the readable floor",
                 "topic_keys": ["parity"],
                 "options": [{"label": "adopt"}],
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [
                     {"kind": "evidence", "content": "must not be stranded"},
                     item,
@@ -5675,6 +5850,8 @@ mod transport_parity {
                     "options": [{"label": "adopt"}],
                     "evidence_ids": [evidence_id],
                     "hypothesis_ids": [hypothesis_id],
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                 }),
             )
             .await;
@@ -5709,6 +5886,8 @@ mod transport_parity {
             "title": "Use scoped service tokens",
             "rationale": "Scoped tokens preserve audit boundaries for every caller",
             "options": [{"label": "scoped-tokens"}],
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [
                 {"kind": "decision", "description": "Keep audit boundaries"},
                 {"kind": "evidence", "content": "the shared token leaked twice", "source": "incident 7"},
@@ -5927,6 +6106,8 @@ mod transport_parity {
                 "old_decision_id": old_id,
                 "title": "Use per-service tokens",
                 "rationale": "One shared token cannot be rotated without an outage",
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
             }),
         );
@@ -6131,6 +6312,8 @@ mod transport_parity {
                 "rationale": "Scoped tokens preserve audit boundaries",
                 "options": [{"label": "scoped-service-tokens"}],
                 "chosen_option_label": "scoped-service-tokens",
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
             })
         };
@@ -6253,6 +6436,8 @@ mod transport_parity {
         let stdio_dir = unique_dir("parity-stdio-ground-by-id");
         let http_dir = unique_dir("parity-http-ground-by-id");
         let seed = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
             "grounding": [{"kind": "bet"}],
             "title": "Adopt the shared admin token",
             "rationale": "seed for the grounding parity tests, long enough to read",
@@ -6493,6 +6678,8 @@ mod transport_parity {
 
         let capture = |request_id: &str| {
             json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": "Use SQLite for the prototype",
                 "rationale": "The prototype is single-writer and needs no server",
@@ -6607,4 +6794,211 @@ mod transport_parity {
             ); // ubs:ignore: test-only assertion
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The decision floor (hivemind-bbnw.10): `binds` and `undo_cost` on capture_decision and
+// supersede_decision
+// ---------------------------------------------------------------------------
+
+fn floor_capture(id: u64, title: &str, floor: Value) -> String {
+    let mut arguments = json!({
+        "grounding": [{"kind": "bet"}],
+        "actor_id": "agent:claude:hivemind-crew",
+        "title": title,
+        "rationale": "Spelled out: the reasons are written here in full sentences.",
+        "topic_keys": ["storage"],
+        "options": [{"label": "Only option"}],
+        "chosen_option_label": "Only option"
+    });
+    if let (Some(base), Some(floor)) = (arguments.as_object_mut(), floor.as_object()) {
+        base.extend(floor.clone());
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": {"name": "capture_decision", "arguments": arguments}
+    })
+    .to_string()
+}
+
+/// The payload of every `decision.proposed` the ledger in `dir` holds.
+fn recorded_proposals(dir: &std::path::Path) -> Vec<Value> {
+    let ledger = SqliteEventLedger::open(dir).expect("ledger opens");
+    ledger
+        .read(0, 1000)
+        .expect("read events")
+        .into_iter()
+        .filter(|event| event.event_type == crate::events::EventType::DecisionProposed)
+        .map(|event| event.payload)
+        .collect()
+}
+
+#[test]
+fn capture_decision_refuses_a_call_that_leaves_a_floor_answer_out_and_writes_nothing() {
+    let dir = unique_dir("floor-missing");
+    let config = McpConfig::new(&dir).with_session_id("floor-missing-session");
+    let request = floor_capture(1, "Adopt the new queue", json!({}));
+    let responses = drive(&config, &[request.as_str()]);
+    let result = &responses[0]["result"];
+    assert_eq!(result["isError"], true, "{result:?}");
+    assert_eq!(
+        result["content"][0]["text"].as_str(),
+        Some(crate::floor::FLOOR_REFUSAL)
+    );
+    // The refusal names both questions and the `nothing` / `cheap` answers.
+    let text = crate::floor::FLOOR_REFUSAL;
+    for word in [
+        "binds",
+        "undo cost",
+        "nothing",
+        "cheap",
+        "nothing was written",
+    ] {
+        assert!(text.contains(word), "{word}");
+    }
+    // Nothing reached the ledger: not the decision, not its option.
+    assert!(recorded_proposals(&dir).is_empty());
+    assert_eq!(
+        SqliteEventLedger::open(&dir)
+            .expect("ledger opens")
+            .read(0, 1000)
+            .expect("read events")
+            .len(),
+        0,
+        "a refused capture appends no event at all"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn capture_decision_records_a_below_floor_capture_and_says_so() {
+    let dir = unique_dir("floor-below");
+    let config = McpConfig::new(&dir).with_session_id("floor-below-session");
+    let apple = floor_capture(
+        1,
+        "Write Apple with a capital",
+        json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+    );
+    let rename = floor_capture(
+        2,
+        "Rename beadline check to doctor",
+        json!({
+            "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+            "undo_cost": {"level": "cheap"}
+        }),
+    );
+    let merge = floor_capture(
+        3,
+        "Merge tonight despite the flaky test",
+        json!({
+            "binds": {"level": "nothing"},
+            "undo_cost": {"level": "costly", "statement": "An audit will ask why we ignored it"}
+        }),
+    );
+    let responses = drive(&config, &[apple.as_str(), rename.as_str(), merge.as_str()]);
+
+    let apple = &responses[0]["result"]["structuredContent"];
+    assert_eq!(
+        apple["floor"],
+        json!({"binds": "nothing", "undo_cost": "cheap", "cleared": false})
+    );
+    assert_eq!(apple["below_floor"], true);
+    assert_eq!(apple["below_floor_note"], crate::floor::BELOW_FLOOR_NOTE);
+    for (index, expected) in [
+        (
+            1,
+            json!({"binds": "something", "undo_cost": "cheap", "cleared": true}),
+        ),
+        (
+            2,
+            json!({"binds": "nothing", "undo_cost": "costly", "cleared": true}),
+        ),
+    ] {
+        let cleared = &responses[index]["result"]["structuredContent"];
+        assert_eq!(cleared["floor"], expected, "capture {index}");
+        assert!(
+            cleared.get("below_floor").is_none() && cleared.get("below_floor_note").is_none(),
+            "a cleared capture carries no below-floor marker: {cleared}"
+        );
+    }
+
+    let proposals = recorded_proposals(&dir);
+    assert_eq!(proposals.len(), 3, "the below-floor capture landed too");
+    assert_eq!(proposals[0]["binds"], json!({"level": "nothing"}));
+    assert_eq!(proposals[0]["undo_cost"], json!({"level": "cheap"}));
+    assert_eq!(
+        proposals[1]["binds"],
+        json!({"level": "something", "statement": "Users and scripts that call the old name"})
+    );
+    assert_eq!(
+        proposals[2]["undo_cost"],
+        json!({"level": "costly", "statement": "An audit will ask why we ignored it"})
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn supersede_decision_takes_the_floor_answers_and_refuses_without_them() {
+    let dir = unique_dir("floor-supersede");
+    let config = McpConfig::new(&dir).with_session_id("floor-supersede-session");
+    let capture = floor_capture(
+        1,
+        "Use a single queue",
+        json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+    );
+    let first = drive(&config, &[capture.as_str()]);
+    let old_id = first[0]["result"]["structuredContent"]["decision_id"]
+        .as_str()
+        .expect("decision_id")
+        .to_owned();
+    let supersede = |id: u64, floor: Value| {
+        let mut arguments = json!({
+            "actor_id": "agent:claude:hivemind-crew",
+            "old_decision_id": old_id,
+            "title": "Use two queues",
+            "rationale": "Spelled out: the reasons are written here in full sentences.",
+            "grounding": [{"kind": "bet"}]
+        });
+        if let (Some(base), Some(floor)) = (arguments.as_object_mut(), floor.as_object()) {
+            base.extend(floor.clone());
+        }
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {"name": "supersede_decision", "arguments": arguments}
+        })
+        .to_string()
+    };
+
+    let events_before = recorded_proposals(&dir).len();
+    let refused = supersede(2, json!({"binds": {"level": "nothing"}}));
+    let responses = drive(&config, &[refused.as_str()]);
+    assert_eq!(responses[0]["result"]["isError"], true);
+    assert_eq!(
+        responses[0]["result"]["content"][0]["text"].as_str(),
+        Some(crate::floor::FLOOR_REFUSAL)
+    );
+    assert_eq!(recorded_proposals(&dir).len(), events_before);
+
+    let landed = supersede(
+        3,
+        json!({
+            "binds": {"level": "something", "statement": "Producers write to two queues"},
+            "undo_cost": {"level": "cheap"}
+        }),
+    );
+    let responses = drive(&config, &[landed.as_str()]);
+    let reply = &responses[0]["result"]["structuredContent"];
+    assert_eq!(
+        reply["floor"],
+        json!({"binds": "something", "undo_cost": "cheap", "cleared": true})
+    );
+    let proposals = recorded_proposals(&dir);
+    let replacement = proposals.last().expect("the replacement proposal");
+    assert_eq!(replacement["binds"]["level"], "something");
+    assert_eq!(replacement["undo_cost"], json!({"level": "cheap"}));
+    let _ = std::fs::remove_dir_all(&dir);
 }

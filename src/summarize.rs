@@ -863,7 +863,7 @@ fn render_digest_text(
 #[cfg(test)]
 mod tests {
     use super::*; // ubs:ignore: test-only glob import; standard Rust test module idiom
-    use crate::commands::{Commands, DecisionProposalInput, Grounding, SupersedeInput};
+    use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding, SupersedeInput};
     use crate::events::TenantId;
     use crate::ledger::InMemoryEventLedger;
     use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
@@ -915,6 +915,7 @@ mod tests {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         };
         commands.propose_decision(input).unwrap() // ubs:ignore: test-only helper; panicking is correct in tests
     }
@@ -1021,6 +1022,7 @@ mod tests {
             evidence_ids: &[],
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         };
         let outcome = commands.supersede(supersede_input).unwrap(); // ubs:ignore: test-only; panicking is correct in tests
         let new_id = outcome.new_decision_id;

@@ -36,10 +36,11 @@ use serde_json::{json, Map, Value};
 
 use crate::commands::{
     CommandContext, Commands, DecisionPlacement, DecisionProposalInput, DeterminedProject,
-    Grounding, SupersedeInput,
+    FloorInput, Grounding, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, HivemindError};
 use crate::events::{AckAction, EventProvenance, ProjectSource, TenantId};
+use crate::floor::FloorAnswers;
 use crate::grounding::{
     premise_cycle_refusal, resolve_grounding, GroundingResolution, GroundingSpec,
     WIRE_GROUNDING_REFUSAL,
@@ -345,6 +346,9 @@ pub(crate) struct CaptureDecisionArgs {
     /// What the decision rests on: the `grounding` array plus the deprecated `hypothesis_ids` /
     /// `evidence_ids` aliases. Never empty — see [`GroundingSpec::from_wire`].
     pub(crate) grounding: GroundingSpec,
+    /// What the decision binds and what undoing it costs: the `binds` and `undo_cost` objects.
+    /// Both required — see [`FloorAnswers::from_wire`].
+    pub(crate) floor: FloorAnswers,
     /// Confidence in the decider's own words: low | medium | high. Validated by the commands.
     pub(crate) expressed_confidence: Option<String>,
     /// Verbatim words of the decider, self-contained. Requires `question`. See `quote` on
@@ -381,6 +385,14 @@ fn require_wire_grounding(
         return Err(CoreError::InvalidArgument(refusal.to_owned()));
     }
     Ok(spec)
+}
+
+/// The decision floor's two answers from the wire `binds` and `undo_cost` objects, shared with
+/// REST (see [`FloorAnswers::from_wire`]). A call that leaves either out is refused before
+/// anything is resolved or written.
+fn wire_floor(args: &Map<String, Value>) -> Result<FloorAnswers, CoreError> {
+    FloorAnswers::from_wire(args.get("binds"), args.get("undo_cost"))
+        .map_err(CoreError::InvalidArgument)
 }
 
 /// The wire grounding, possibly naming nothing: [`require_wire_grounding`] without the refusal,
@@ -496,6 +508,7 @@ impl CaptureDecisionArgs {
         }
 
         let grounding = require_wire_grounding(args, WIRE_GROUNDING_REFUSAL)?;
+        let floor = wire_floor(args)?;
         let expressed_confidence = optional_string(args, "expressed_confidence")?;
 
         Ok(Self {
@@ -509,6 +522,7 @@ impl CaptureDecisionArgs {
             delegated_by,
             still_proposed,
             grounding,
+            floor,
             expressed_confidence,
             quote,
             question,
@@ -594,6 +608,7 @@ pub(crate) fn capture_decision<P: LedgerProvider>(
                 still_proposed: args.still_proposed,
                 quote: args.quote.as_deref(),
                 question: question.as_deref(),
+                floor: FloorInput::Stated(&args.floor),
             },
             &resolved.plan,
         )
@@ -620,6 +635,7 @@ pub(crate) fn capture_decision<P: LedgerProvider>(
     if let Some(question) = proposal.question {
         reply["question_id"] = json!(question.question_id);
     }
+    args.floor.reply().insert_into(&mut reply);
     insert_placement(&mut reply, &proposal.placement);
     Ok(ToolOutput(reply))
 }
@@ -1337,6 +1353,9 @@ pub(crate) struct SupersedeDecisionArgs {
     pub(crate) project: Option<String>,
     /// How `project` was determined; `stated` when omitted. Requires `project`.
     pub(crate) project_source: Option<ProjectSource>,
+    /// What the replacement binds and what undoing it costs; both required, as for
+    /// `capture_decision`.
+    pub(crate) floor: FloorAnswers,
     /// Topic keys this supersession adds to its project's vocabulary; each must be one of the
     /// keys it ends up with. See `Commands::declaring_topics`.
     pub(crate) declare_topics: Vec<String>,
@@ -1362,6 +1381,7 @@ impl SupersedeDecisionArgs {
             chosen_option_label: optional_string(args, "chosen_option_label")?,
             still_proposed: optional_bool(args, "still_proposed")?,
             grounding: require_wire_grounding(args, WIRE_GROUNDING_REFUSAL)?,
+            floor: wire_floor(args)?,
             expressed_confidence: optional_string(args, "expressed_confidence")?,
             declare_topics: optional_string_array(args, "declare_topics")?,
         })
@@ -1426,6 +1446,7 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
             evidence_ids: &[],
             grounding: Some(&resolved.plan),
             expressed_confidence: args.expressed_confidence.as_deref(),
+            floor: FloorInput::Stated(&args.floor),
         })
         .map_err(CoreError::from)?;
 
@@ -1447,6 +1468,7 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
         "rests_on": resolved.label(outcome.rests_on),
         "premise_stale": outcome.premise_stale,
     });
+    args.floor.reply().insert_into(&mut reply);
     insert_placement(&mut reply, &outcome.placement);
     Ok(ToolOutput(reply))
 }

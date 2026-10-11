@@ -103,6 +103,8 @@ fn mcp_stdio_server_handles_initialize_list_and_capture() {
         "params": {
             "name": "capture_decision",
             "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "actor_id": "agent:e2e:1",
                 "title": "Adopt MCP transport",
@@ -359,6 +361,8 @@ fn capture_decision_through_mcp_server(
             "params": {
                 "name": "capture_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "actor_id": format!("agent:e2e:{server_index}"),
                     "title": format!("Concurrent MCP write {server_index}"),
@@ -441,6 +445,8 @@ fn mcp_search_decisions_e2e() {
             "params": {
                 "name": "capture_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "actor_id": "agent:test:search-e2e",
                     "title": "Use quorum-consensus for distributed writes",
@@ -530,6 +536,8 @@ fn mcp_summarize_decisions_e2e() {
             "params": {
                 "name": "capture_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "actor_id": "agent:test:summarize-e2e",
                     "title": "Adopt event-driven architecture",
@@ -587,6 +595,8 @@ fn mcp_summarize_decisions_e2e() {
             "params": {
                 "name": "supersede_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "old_decision_id": decision_id,
                     "title": "Adopt event-driven architecture v2",
@@ -672,6 +682,8 @@ fn mcp_compact_view_e2e() {
             "params": {
                 "name": "capture_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "actor_id": "agent:test:compact-e2e",
                     "title": "Deploy on bare-metal servers",
@@ -702,6 +714,8 @@ fn mcp_compact_view_e2e() {
             "params": {
                 "name": "supersede_decision",
                 "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
                     "old_decision_id": original_id,
                     "title": "Deploy on managed Kubernetes",
@@ -806,6 +820,8 @@ fn mcp_m3_tools_are_tenant_isolated() {
                 "params": {
                     "name": "capture_decision",
                     "arguments": {
+                        "binds": {"level": "something", "statement": "Later work builds on it"},
+                        "undo_cost": {"level": "cheap"},
                         "grounding": [{"kind": "bet"}],
                         "actor_id": "agent:test:tenant-a",
                         "title": "TenantA uses columnstore indexes",
@@ -861,6 +877,8 @@ fn mcp_m3_tools_are_tenant_isolated() {
                 "params": {
                     "name": "capture_decision",
                     "arguments": {
+                        "binds": {"level": "something", "statement": "Later work builds on it"},
+                        "undo_cost": {"level": "cheap"},
                         "grounding": [{"kind": "bet"}],
                         "actor_id": "agent:test:tenant-b",
                         "title": "TenantB uses row-oriented storage",

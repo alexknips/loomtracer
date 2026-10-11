@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::commands::{
-    Commands, DecisionProposalInput, DeterminedProject, Grounding, SupersedeInput,
+    Commands, DecisionProposalInput, DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
 use crate::events::{Event, EventSource, EventType};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
@@ -64,6 +64,7 @@ fn propose(
         question: None,
         delegated_by: None,
         project: project.map(DeterminedProject::stated),
+        floor: FloorInput::NotAsked,
     })?;
     Ok(decision_id)
 }
@@ -117,6 +118,7 @@ fn scenario() -> Result<Scenario> {
             project: Some(DeterminedProject::stated("auth")),
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })?
         .new_decision_id;
 

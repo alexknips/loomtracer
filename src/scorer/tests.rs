@@ -1,7 +1,7 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
 use super::*;
-use crate::commands::{DecisionProposalInput, Grounding};
+use crate::commands::{DecisionProposalInput, FloorInput, Grounding};
 use crate::events::{CaptureItem, ModelDimension, QualityLevel};
 use crate::ledger::InMemoryEventLedger;
 
@@ -269,6 +269,7 @@ fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             })
             .expect("propose decision");
 
@@ -395,6 +396,7 @@ fn a_malformed_v2_row_does_not_count_as_an_assessment_so_the_decision_is_still_p
                 evidence_ids: &[],
                 quote: None,
                 question: None,
+                floor: FloorInput::NotAsked,
             })
             .expect("propose decision");
         // A row a buggy producer or a hand edit left behind: schema version 2, bad shape. The

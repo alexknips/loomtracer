@@ -1,4 +1,4 @@
-use hivemind::commands::{CommandContext, Commands, DecisionProposalInput, Grounding};
+use hivemind::commands::{CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding};
 use hivemind::events::{EventProvenance, TenantId};
 use hivemind::ledger::EventLedger;
 use hivemind::projector::memory::MemoryGraph;
@@ -80,6 +80,7 @@ pub fn seed_tenant<L: EventLedger>(ledger: &L, name: &'static str) -> TestResult
             quote: None,
             question: None,
             project: None,
+            floor: FloorInput::NotAsked,
         })?;
         decision_ids.push(decision_id);
     }

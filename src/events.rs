@@ -5,6 +5,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::floor::{BindsAnswer, UndoCostAnswer};
+
 pub type EventId = u64;
 
 #[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -259,6 +261,15 @@ pub struct DecisionProposedPayload {
     /// otherwise) — `None` only ever appears on events written before this field existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_source: Option<ProjectSource>,
+    /// What the capturer said the decision binds beyond the edit in front of them
+    /// (hivemind-bbnw.10). `None` means "not asked": every event before this field, a raw
+    /// `emit decision.proposed`, classifier ingest, document import and Slack. The write layer
+    /// records both `binds` and `undo_cost` or neither (`validate` refuses one alone).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binds: Option<BindsAnswer>,
+    /// What the capturer said undoing the decision would cost. Always paired with `binds`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undo_cost: Option<UndoCostAnswer>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1624,6 +1635,14 @@ pub enum EventValidationError {
     #[error("{0} requires {1} — a verbatim quote with no stated question is unreadable once the source conversation is gone")]
     RequiresPairedField(&'static str, &'static str),
 
+    #[error(
+        "{0} requires {1}: the two decision-floor answers are recorded together or not at all"
+    )]
+    FloorAnswerUnpaired(&'static str, &'static str),
+
+    #[error("{field} is malformed: {reason}")]
+    InvalidFloorAnswer { field: &'static str, reason: String },
+
     #[error("payload.delegated_by must name a human actor (human:<name>), got {0:?}")]
     DelegatedByNotHuman(String),
 
@@ -1738,6 +1757,37 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
                 ));
             }
             require_optional_non_empty("payload.project", payload.project.as_deref())?;
+            // The two answers to the decision floor come together: a payload with one and not
+            // the other would read as half asked.
+            match (&payload.binds, &payload.undo_cost) {
+                (Some(binds), Some(undo_cost)) => {
+                    binds
+                        .check()
+                        .map_err(|reason| EventValidationError::InvalidFloorAnswer {
+                            field: "payload.binds",
+                            reason,
+                        })?;
+                    undo_cost.check().map_err(|reason| {
+                        EventValidationError::InvalidFloorAnswer {
+                            field: "payload.undo_cost",
+                            reason,
+                        }
+                    })?;
+                }
+                (Some(_), None) => {
+                    return Err(EventValidationError::FloorAnswerUnpaired(
+                        "payload.binds",
+                        "payload.undo_cost",
+                    ))
+                }
+                (None, Some(_)) => {
+                    return Err(EventValidationError::FloorAnswerUnpaired(
+                        "payload.undo_cost",
+                        "payload.binds",
+                    ))
+                }
+                (None, None) => {}
+            }
             Ok(EventPayload::DecisionProposed(payload))
         }
         EventType::DecisionRequested => {

@@ -102,6 +102,8 @@ fn get_req(uri: &str) -> Request<Body> {
 /// A capture that proposes and accepts, so the write is more than one event.
 fn capture_body(title: &str) -> Value {
     serde_json::json!({
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
         "grounding": [{"kind": "bet"}],
         "title": title,
         "rationale": "Timeout fixture: enough words to pass validation",

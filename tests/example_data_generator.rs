@@ -232,6 +232,8 @@ fn trailkeeper_sqlite_to_postgres(dir: &Path) -> TestResult<()> {
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--actor-id",
             "human:priya",
             "--source",
@@ -265,6 +267,8 @@ fn trailkeeper_sqlite_to_postgres(dir: &Path) -> TestResult<()> {
         "human:priya",
         &[
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &sqlite_decision,
             "--title",
@@ -300,6 +304,8 @@ fn ridewell_cache_and_retries(dir: &Path) -> TestResult<()> {
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--actor-id",
             "human:maya",
             "--source",
@@ -335,6 +341,8 @@ fn ridewell_cache_and_retries(dir: &Path) -> TestResult<()> {
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--actor-id",
             "agent:codex:ridewell-sync",
             "--source",
@@ -368,6 +376,8 @@ fn ridewell_cache_and_retries(dir: &Path) -> TestResult<()> {
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--actor-id",
             "agent:claude:ridewell-mobile-ci",
             "--source",
@@ -438,6 +448,8 @@ fn ridewell_cache_and_retries(dir: &Path) -> TestResult<()> {
         "human:maya",
         &[
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &cache_by_driver_id_id,
             "--title",
@@ -470,6 +482,8 @@ fn twelve_angry_men(dir: &Path) -> TestResult<()> {
         &[
             "emit",
             "decision.capture",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--actor-id",
             "human:juror-foreman",
             "--source",
@@ -561,6 +575,8 @@ fn twelve_angry_men(dir: &Path) -> TestResult<()> {
         "human:juror-foreman",
         &[
             "supersede",
+            "--binds-nothing",
+            "--cheap-to-undo",
             "--old",
             &guilty,
             "--title",

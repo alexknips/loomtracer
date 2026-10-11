@@ -11,7 +11,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::commands::{
-    CommandContext, Commands, DecisionProposalEventUuids, DecisionProposalInput, Grounding,
+    CommandContext, Commands, DecisionProposalEventUuids, DecisionProposalInput, FloorInput,
+    Grounding,
 };
 use crate::error::{CliError, CommandError};
 use crate::events::{
@@ -444,6 +445,7 @@ pub fn import_slack_thread<L: EventLedger>(
         evidence_ids: &[],
         quote: None,
         question: draft.ask.as_ref().map(|ask| ask.text.as_str()),
+        floor: FloorInput::NotAsked,
     };
 
     // Everything that can refuse the proposal is refused here, before the first write, so a
@@ -1920,6 +1922,7 @@ fn write_document_decision_events<L: EventLedger>(
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     };
 
     // Everything that can refuse the proposal is refused before the first write, so a refused

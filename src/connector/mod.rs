@@ -1811,6 +1811,8 @@ fn emit_decision_proposed<L: EventLedger>(
             // rule the write layer applies for any other no-handle-given proposal.
             project: None,
             project_source: Some(ProjectSource::PersonalFallback),
+            binds: None,
+            undo_cost: None,
         }),
     )
     .tenant_id(tenant_id.clone()) // ubs:ignore: EventBuilder::tenant_id() requires owned TenantId

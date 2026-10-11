@@ -354,6 +354,8 @@ fn serve_builds_the_graph_before_it_listens() {
         "agent:claude:warm-start",
         "emit",
         "decision.capture",
+        "--binds-nothing",
+        "--cheap-to-undo",
         "--bet",
         "--title",
         "Use SQLite for the prototype ledger",

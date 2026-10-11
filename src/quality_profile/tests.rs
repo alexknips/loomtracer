@@ -4,7 +4,7 @@ use std::path::Path;
 
 use uuid::Uuid;
 
-use crate::commands::{Commands, DecisionProposalInput, Grounding};
+use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use crate::events::{HypothesisKind, ModelDimension, ModelDimensions};
 use crate::ledger::InMemoryEventLedger;
 use crate::mcp::args::default_option_description;
@@ -1532,6 +1532,7 @@ fn a_directly_captured_decision_gets_a_profile() -> Result<()> {
         question: Some("Should every call go through a single gateway?"),
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     })?;
     let graph = MemoryGraph::default();
     rebuild_graph(&ledger, &graph)?;
@@ -1583,6 +1584,7 @@ fn a_captured_premise_bet_and_confidence_reach_the_profile() -> Result<()> {
         question: None,
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     })?;
     let bet = commands.record_hypothesis_with_kind(
         actor,
@@ -1614,6 +1616,7 @@ fn a_captured_premise_bet_and_confidence_reach_the_profile() -> Result<()> {
         question: None,
         delegated_by: None,
         project: None,
+        floor: FloorInput::NotAsked,
     })?;
     let graph = MemoryGraph::default();
     rebuild_graph(&ledger, &graph)?;

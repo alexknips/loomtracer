@@ -1,4 +1,5 @@
 mod ask;
+mod floor;
 mod ground;
 mod grounding;
 mod migrate;
@@ -14,7 +15,7 @@ use uuid::Uuid;
 
 use crate::commands::{
     CommandContext, Commands, DecisionPlacement, DecisionProposalInput, DeterminedProject,
-    Grounding, SupersedeInput,
+    FloorInput, Grounding, SupersedeInput,
 };
 use crate::error::CliError;
 use crate::events::{
@@ -895,6 +896,8 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                 &args.decision.evidence_ids,
                 &args.decision.hypothesis_ids,
             )?)?;
+            // Refused before anything resolves or is written, like the grounding above.
+            let floor_answers = floor::floor_answers_from_args(&args.floor)?;
             let resolved = grounding::resolve_declared_grounding(
                 &cli.hivemind_dir,
                 &ledger,
@@ -933,11 +936,14 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                     grounding: Grounding::NotAsked,
                     expressed_confidence: args.grounding.confidence.as_deref(),
                     project: determined_project(&project),
+                    floor: FloorInput::Stated(&floor_answers),
                 },
                 &resolved.plan,
             )?;
+            let floor_reply = floor_answers.reply();
             let reminder = project_reminder(&project, &proposal.placement);
             announce_placement(cli, &proposal.placement, reminder.as_deref(), notices);
+            floor::announce_below_floor(cli, &floor_reply, notices);
             announce_cited_not_linked(
                 cli,
                 &proposal.decision_id,
@@ -957,6 +963,9 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                     premise_stale: proposal.premise_stale,
                     cited_not_linked: proposal.cited_not_linked,
                     question_id: proposal.question.map(|question| question.question_id),
+                    below_floor: floor_reply.below_floor(),
+                    below_floor_note: floor_reply.note(),
+                    floor: floor_reply,
                 },
             );
         }
@@ -1539,6 +1548,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
         &args.evidence_ids,
         &args.hypothesis_ids,
     )?)?;
+    let floor_answers = floor::floor_answers_from_args(&args.floor)?;
 
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
@@ -1587,13 +1597,16 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
         evidence_ids: &[],
         grounding: Some(&resolved.plan),
         expressed_confidence: args.grounding.confidence.as_deref(),
+        floor: FloorInput::Stated(&floor_answers),
     })?;
+    let floor_reply = floor_answers.reply();
     let old_decision_status = decision_status_after_write(&ledger, &tenant_id, &old_decision_id)?;
     let new_decision_status =
         decision_status_after_write(&ledger, &tenant_id, &outcome.new_decision_id)?;
 
     let reminder = project_reminder(&project, &outcome.placement);
     announce_placement(cli, &outcome.placement, reminder.as_deref(), notices);
+    floor::announce_below_floor(cli, &floor_reply, notices);
     format_supersede_output(
         cli.json,
         &SupersedeCommandOutput {
@@ -1609,6 +1622,9 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
             placement: outcome.placement,
             rests_on: resolved.label(outcome.rests_on),
             premise_stale: outcome.premise_stale,
+            below_floor: floor_reply.below_floor(),
+            below_floor_note: floor_reply.note(),
+            floor: floor_reply,
         },
     )
 }
@@ -1775,6 +1791,7 @@ pub(crate) fn run_review_session<R: BufRead, W: IoWrite>(
                         evidence_ids: &item.evidence_ids,
                         grounding: None,
                         expressed_confidence: None,
+                        floor: FloorInput::NotAsked,
                     })?;
                     let old_status =
                         decision_status_after_write(&ledger, &tenant_id, &item.decision_id)?;
@@ -2158,6 +2175,7 @@ fn propose_decision_from_option_labels<L: EventLedger>(
         // goes through `propose_grounded_decision` instead (hivemind-gwhr.2).
         grounding: Grounding::NotAsked,
         expressed_confidence: None,
+        floor: FloorInput::NotAsked,
     })
 }
 

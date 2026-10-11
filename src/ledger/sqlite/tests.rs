@@ -10,7 +10,8 @@ use rusqlite::OptionalExtension;
 use uuid::Uuid;
 
 use crate::commands::{
-    CommandContext, Commands, DecisionProposalEventUuids, DecisionProposalInput, Grounding,
+    CommandContext, Commands, DecisionProposalEventUuids, DecisionProposalInput, FloorInput,
+    Grounding,
 };
 use crate::error::CommandError;
 use crate::events::{Event, EventProvenance, TenantId};
@@ -298,6 +299,7 @@ fn write_shared_decision(
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         },
         "decision-shared",
         DecisionProposalEventUuids {

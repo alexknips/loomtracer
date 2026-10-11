@@ -24,14 +24,15 @@ use std::fs;
 use std::path::PathBuf;
 
 use hivemind::commands::{
-    CommandContext, Commands, DecisionProposalInput, DeterminedProject, GroundInput, Grounding,
-    GroundingPlan, NewBet, NewEvidence, SupersedeInput,
+    CommandContext, Commands, DecisionProposalInput, DeterminedProject, FloorInput, GroundInput,
+    Grounding, GroundingPlan, NewBet, NewEvidence, SupersedeInput,
 };
 use hivemind::connector;
 use hivemind::events::{
     AckAction, CaptureItem, EventProvenance, EventType, IngestTurn, ProjectAnchorKind,
     ProjectLinkKind, TenantId,
 };
+use hivemind::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
 use hivemind::ledger::{EventLedger, InMemoryEventLedger};
 use serde_json::Value;
 
@@ -77,6 +78,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: std::slice::from_ref(&evidence_id),
             quote: Some("We'll go with option A"),
             question: Some("Which option should we use?"),
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision");
 
@@ -105,6 +107,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose delegated decision");
 
@@ -131,6 +134,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision to reject");
     commands
@@ -161,6 +165,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose old decision");
     commands
@@ -178,6 +183,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             grounding: None,
             expressed_confidence: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("supersede");
 
@@ -204,6 +210,13 @@ fn every_write_path_event_validates_against_its_schema() {
         }),
         ..GroundingPlan::default()
     };
+    // The decision floor's two answers (hivemind-bbnw.10): a capture and a supersede that state
+    // them put `binds` and `undo_cost` on `decision.proposed`, validated against the schema's
+    // `additionalProperties: false` rather than a hand-authored fixture.
+    let floor_answers = FloorAnswers {
+        binds: BindsAnswer::something("Everything that reads the conformance topic"),
+        undo_cost: UndoCostAnswer::costly("Re-running the contract test scenario"),
+    };
     let grounded = commands
         .propose_grounded_decision(
             DecisionProposalInput {
@@ -224,6 +237,7 @@ fn every_write_path_event_validates_against_its_schema() {
                 question: None,
                 delegated_by: None,
                 project: None,
+                floor: FloorInput::Stated(&floor_answers),
             },
             &grounding_plan,
         )
@@ -243,6 +257,10 @@ fn every_write_path_event_validates_against_its_schema() {
             grounding: Some(&grounding_plan),
             expressed_confidence: Some("low"),
             project: None,
+            floor: FloorInput::Stated(&FloorAnswers {
+                binds: BindsAnswer::nothing(),
+                undo_cost: UndoCostAnswer::cheap(),
+            }),
         })
         .expect("grounded supersede");
 
@@ -418,6 +436,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision to move");
     commands
@@ -456,6 +475,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose decision to retitle");
     commands
@@ -522,6 +542,7 @@ fn every_write_path_event_validates_against_its_schema() {
             evidence_ids: &[],
             quote: None,
             question: None,
+            floor: FloorInput::NotAsked,
         })
         .expect("propose grounded decision");
     commands

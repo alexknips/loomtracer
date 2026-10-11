@@ -176,10 +176,12 @@ pub enum Command {
     /// (`--rests-on-decision`), something observed and where (`--rests-on-evidence` with
     /// `--evidence-source`), something assumed (`--rests-on-assumption`), or, when there is
     /// nothing yet, a declared bet (`--bet`); an existing node's id also counts (`--evidence`,
-    /// `--hypotheses`). One that names nothing is refused and nothing is written. A description
-    /// that matches more than one decision lists the candidates and writes nothing; pick one with
-    /// --pick N, or name the decision with --old.
-    Supersede(SupersedeArgs),
+    /// `--hypotheses`). One that names nothing is refused and nothing is written. It also says
+    /// what it binds and what undoing it would cost (`--binds <what>` or `--binds-nothing`,
+    /// `--undo-cost <what>` or `--cheap-to-undo`); one that leaves either out is refused too. A
+    /// description that matches more than one decision lists the candidates and writes nothing;
+    /// pick one with --pick N, or name the decision with --old.
+    Supersede(Box<SupersedeArgs>),
     /// Move a decision to another project, found by describing it. A description that
     /// matches more than one decision lists the candidates and writes nothing; pick one with
     /// --pick N. One that matches nothing is a successful `not_found` answer. Recorded with
@@ -987,6 +989,9 @@ pub struct SupersedeArgs {
 
     #[command(flatten)]
     pub grounding: GroundingArgs,
+
+    #[command(flatten)]
+    pub floor: FloorArgs,
 }
 
 /// `hivemind ground`: give an existing decision what it rests on. Takes the grounding flags of
@@ -1273,6 +1278,11 @@ pub enum EmitCommand {
     /// of a node that already exists also counts (`--evidence`, `--hypotheses`). A capture that
     /// names none is refused and nothing is written. The decider's own words are not a
     /// grounding: they go in `--quote`.
+    ///
+    /// "What does it bind, and what would undoing it cost?" is asked at every capture too. Answer
+    /// both: `--binds <what>` or `--binds-nothing`, and `--undo-cost <what>` or `--cheap-to-undo`.
+    /// A capture that leaves either out is refused and nothing is written. One that binds nothing
+    /// and is cheap to undo is still recorded, and its reply says it is below the decision floor.
     #[command(name = "decision.capture")]
     DecisionCapture(Box<EmitDecisionCaptureArgs>),
     /// Propose a decision: title, rationale, topic keys, options and optionally the one chosen
@@ -1331,6 +1341,9 @@ pub struct EmitDecisionCaptureArgs {
 
     #[command(flatten)]
     pub grounding: GroundingArgs,
+
+    #[command(flatten)]
+    pub floor: FloorArgs,
 
     /// The id of an existing `hivemind ask` request this decision answers: resolves to that
     /// request's question and links this decision to it, exactly as `--question <text>` would,
@@ -1394,6 +1407,38 @@ pub struct GroundingArgs {
     /// `ground` refuses it, because it cannot be added to a decision that already exists.
     #[arg(long = "confidence", value_parser = ["low", "medium", "high"])]
     pub confidence: Option<String>,
+}
+
+// "What does this decision bind, and what would undoing it cost?" — asked at every capture
+// (`emit decision.capture`, `supersede`). Answer both: `--binds <what>` or `--binds-nothing`, and
+// `--undo-cost <what>` or `--cheap-to-undo`. A capture that leaves either out is refused and
+// nothing is written. A capture that binds nothing and is cheap to undo is still recorded; its
+// reply says it is below the decision floor.
+//
+// Deliberately not a doc comment, for the reason `GroundingArgs` is not: clap would take it as the
+// `about` of every command that flattens these flags.
+#[derive(Debug, Clone, Default, Args)]
+pub struct FloorArgs {
+    /// What this decision binds beyond the edit in front of you (other people, other code, a later
+    /// choice), in one sentence. Give this or `--binds-nothing`.
+    #[arg(long = "binds", value_name = "WHAT", conflicts_with = "binds_nothing")]
+    pub binds: Option<String>,
+
+    /// This decision binds nothing beyond the edit in front of you.
+    #[arg(long = "binds-nothing")]
+    pub binds_nothing: bool,
+
+    /// What undoing this decision would cost, in one sentence. Give this or `--cheap-to-undo`.
+    #[arg(
+        long = "undo-cost",
+        value_name = "WHAT",
+        conflicts_with = "cheap_to_undo"
+    )]
+    pub undo_cost: Option<String>,
+
+    /// Undoing this decision would be cheap: an ordinary edit.
+    #[arg(long = "cheap-to-undo")]
+    pub cheap_to_undo: bool,
 }
 
 #[derive(Debug, Clone, Args)]

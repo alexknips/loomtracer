@@ -12,7 +12,7 @@
 //! ledger, and read back through the real query layer — no hand-built graph rows. The Postgres
 //! parity of the same read path lives in `src/projector/postgres/tests.rs`.
 
-use hivemind::commands::{Commands, DecisionProposalInput, Grounding};
+use hivemind::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use hivemind::ledger::InMemoryEventLedger;
 use hivemind::projector::memory::MemoryGraph;
 use hivemind::projector::project_from_ledger;
@@ -65,6 +65,7 @@ fn capture(
         evidence_ids: &[],
         quote: None,
         question: None,
+        floor: FloorInput::NotAsked,
     })?)
 }
 

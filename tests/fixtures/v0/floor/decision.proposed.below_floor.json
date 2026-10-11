@@ -1,0 +1,27 @@
+{
+  "event_id": 4,
+  "event_uuid": "018f5d8a-03fb-7df0-8e36-64d7410cfe51",
+  "correlation_id": "session-1",
+  "causation_event_id": null,
+  "type": "decision.proposed",
+  "actor_id": "agent-a",
+  "source": "agent",
+  "source_ref": "agent:codex:session-1",
+  "payload": {
+    "decision_id": "dec-4",
+    "title": "Write Apple with a capital in the changelog line",
+    "rationale": "The changelog line named the company in lowercase once, and the capital reads right.",
+    "topic_keys": ["changelog"],
+    "option_ids": ["opt-capital", "opt-lower"],
+    "option_labels": ["Capital A", "Lowercase a"],
+    "option_descriptions": ["The company's own spelling", "What the line already said"],
+    "chosen_option_id": "opt-capital",
+    "hypothesis_ids": [],
+    "evidence_ids": [],
+    "project": "hivemind",
+    "project_source": "stated",
+    "binds": { "level": "nothing" },
+    "undo_cost": { "level": "cheap" }
+  },
+  "ts": "2026-05-17T20:40:43Z"
+}

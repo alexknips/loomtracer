@@ -5,7 +5,10 @@ usage() {
   cat >&2 <<'USAGE'
 Usage:
   .claude/scripts/capture-decision.sh --title "..." --rationale "..." \
-    --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"]
+    --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"] \
+    (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | \
+     --rests-on-assumption "..." | --bet ["..."]) \
+    (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo)
 
 Options:
   --source human|agent       Provenance source. Defaults to human.
@@ -13,6 +16,9 @@ Options:
   --source-ref REF           Override source_ref. Defaults to actor id.
   --agent-session SESSION    Claude session id for --source agent.
   --hivemind-dir DIR         Ledger directory. Defaults to $HIVEMIND_DIR or ./hivemind.
+
+A capture must say what it rests on, what it binds and what undoing it would cost; one
+that leaves any of the three out is refused and nothing is written.
 
 Additional decision.capture flags such as --decided-by, --still-proposed,
 --evidence, and --hypotheses are forwarded to the HiveMind CLI. --chose means
