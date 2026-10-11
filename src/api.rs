@@ -77,7 +77,8 @@
 //!   recently active first: batch count, oldest and newest submission time (no turn text),
 //!   `session_total`, `batch_total` and `truncated`
 //! - `GET  /v1/graph`                              — full decision graph (JSON)
-//! - `GET  /v1/health`                             — liveness probe
+//! - `GET  /v1/health`                             — liveness probe; the server opens its port only
+//!   after it has built every tenant's graph, so the first answer means reads are warm
 //! - `GET  /v1/version`                            — build version + commit sha
 //! - `GET  /v1/whoami`                             — the bearer credential's `actor_id` and
 //!   `tenant_id` (401 like every authenticated route); a shared `HIVEMIND_API_KEY` is
@@ -336,6 +337,22 @@ impl ApiBackend {
             #[cfg(feature = "shared-backend-postgres")]
             ApiBackend::Postgres { .. } => None,
         }
+    }
+
+    /// Every tenant registered on the selected backend, in id order.
+    fn known_tenant_ids(&self) -> ApiResult<Vec<TenantId>> {
+        let ids = match self {
+            ApiBackend::Sqlite(dir) => SqliteEventLedger::open(dir.as_ref())
+                .and_then(|ledger| ledger.tenant_ids())
+                .map_err(|e| ApiError::internal(e.to_string()))?,
+            #[cfg(feature = "shared-backend-postgres")]
+            ApiBackend::Postgres { tenant_store, .. } => tenant_store
+                .tenant_ids()
+                .map_err(|e| ApiError::internal(e.to_string()))?,
+        };
+        ids.into_iter()
+            .map(|id| TenantId::new(id).map_err(|e| ApiError::internal(e.to_string())))
+            .collect()
     }
 
     /// Open a tenant-scoped ledger for use within a blocking closure.
@@ -845,6 +862,18 @@ pub async fn serve_http(state: AppState, config: &ApiConfig) -> crate::Result<()
                 "--allow-unauthenticated-remote: serving WITHOUT authentication on a non-loopback address; anyone who can reach it can read and write the ledger"
             );
         }
+    }
+
+    // Project every tenant's graph before the socket opens. The first graph read after a start
+    // would otherwise replay the whole ledger inside the caller's request (13.4 s on the cell's
+    // ~115k events, against the 10 s a `why` must answer in), and a health check cannot pass
+    // while nothing is listening, so a roll reports healthy only once reads are warm.
+    let backend = Arc::clone(&state.backend);
+    let cache = Arc::clone(&state.graph_cache);
+    if let Err(e) =
+        tokio::task::spawn_blocking(move || graph::warm_graph_cache(&backend, &cache)).await
+    {
+        warn!(target: "hivemind::api", error = %e, "graph cache warm-up task failed; the first read of each tenant builds its graph");
     }
 
     crate::classifier::try_spawn(

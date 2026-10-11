@@ -297,6 +297,41 @@ pub(super) fn get_cached_graph(
     Ok(new_graph)
 }
 
+/// Project the graph of every registered tenant into `cache`, so the first read after a start
+/// finds it built instead of replaying the ledger.
+///
+/// A tenant whose graph cannot be built is logged and skipped: the server still starts, and that
+/// tenant's first read retries the build and reports the error the way it always did.
+pub(super) fn warm_graph_cache(backend: &ApiBackend, cache: &GraphCache) {
+    let started = std::time::Instant::now();
+    let tenants = match backend.known_tenant_ids() {
+        Ok(tenants) => tenants,
+        Err(e) => {
+            tracing::warn!(target: "hivemind::api", error = %e, "graph cache warm-up could not list tenants; the first read of each tenant builds its graph");
+            return;
+        }
+    };
+    let mut warmed = 0_usize;
+    for tenant_id in &tenants {
+        let result = backend
+            .open_ledger_for_tenant(tenant_id)
+            .and_then(|ledger| get_cached_graph(&ledger, tenant_id, cache));
+        match result {
+            Ok(_) => warmed += 1,
+            Err(e) => {
+                tracing::warn!(target: "hivemind::api", tenant = %tenant_id, error = %e, "graph cache warm-up failed for a tenant; its first read builds the graph");
+            }
+        }
+    }
+    tracing::info!(
+        target: "hivemind::api",
+        tenants = tenants.len(),
+        warmed,
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "graph cache warmed"
+    );
+}
+
 pub(super) fn open_graph_from_ledger(
     ledger: &ApiLedger,
     tenant_id: &TenantId,

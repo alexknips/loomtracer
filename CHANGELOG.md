@@ -507,6 +507,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   "colour" too, the others "stops", "someone" and "component"), as rare as "colour"; no count
   of words tells them from an unrelated question. `docs/AGENT_FLUENT_QUERYING.md` and the `recall_decisions` tool description state
   the rule. (hivemind-9wk9e)
+- **The first `why`, `verify` or `recall` after the server starts answers as fast as every later
+  one.** The server built its graph from the whole ledger inside the first request it got, so
+  the first question after a roll waited for that: 13.4 s on the city cell, whose ledger holds
+  about 115,000 ingest transcripts beside its 1,084 decisions, against the 10 s a `why` should
+  answer in. The server now builds the graph of every tenant before it opens its port, so
+  `/v1/health` and the container health check pass only once reads are warm, and the startup
+  log says `graph cache warmed` with the tenant count and the time it took. A tenant whose
+  graph cannot be built is logged and skipped, and its first read builds it as before. The
+  price is the same wait moved to startup: on a copy of the cell's decisions padded with
+  115,864 synthetic transcripts (SQLite on this host, not the cell's Postgres), a fresh start
+  of the previous build answered its first `why` in 19.6 s and 26.8 s (two runs) and the
+  new build in 0.42 s and 0.71 s, after warming for 21.8 s and 33.2 s before it listened.
+  (hivemind-7jon8)
 - **`why`, `verify` and `recall` by description, and a plain `search` with a status or time
   window, answer in a fraction of a second on a ledger of a thousand decisions instead of
   timing out.** On the city cell (1,084 decisions) they took 20-30 s and mostly ended in

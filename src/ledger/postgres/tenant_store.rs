@@ -450,6 +450,15 @@ impl TenantStore {
         Ok(exists)
     }
 
+    /// Every tenant with an `hm_tenants` row, in id order.
+    pub fn tenant_ids(&self) -> Result<Vec<String>> {
+        let mut client = self.pool.get().map_err(storage_error)?;
+        let rows = client
+            .query("SELECT tenant_id FROM hm_tenants ORDER BY tenant_id", &[])
+            .map_err(storage_error)?;
+        Ok(rows.into_iter().map(|row| row.get(0)).collect())
+    }
+
     /// Errors unless `tenant_id` has an `hm_tenants` row. Called once at
     /// ledger-open time (the CLI/stdio-MCP seam in
     /// [`crate::ledger::AnyLedger::open`] and the HTTP API's per-request

@@ -107,6 +107,14 @@ Returns HTTP 503 when the database cannot be opened:
 The Docker image configures this as the container HEALTHCHECK. Docker Compose
 waits for it before considering the service ready.
 
+The server builds the decision graph of every tenant before it opens its port,
+so `/v1/health` is not answered (the connection is refused) until the first
+read after a start is as fast as every later one. On a large ledger that is a
+few seconds to a few tens of seconds after the process starts; the startup log
+line `graph cache warmed` reports the tenants and the time it took. A tenant
+whose graph cannot be built is logged and skipped, and its first read builds it
+as before.
+
 ## Graceful shutdown
 
 The server handles `SIGINT` and `SIGTERM`. In-flight requests complete before

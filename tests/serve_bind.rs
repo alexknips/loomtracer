@@ -11,6 +11,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use clap::Parser as _;
 use hivemind::api::ApiConfig;
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -54,6 +55,12 @@ struct Serve {
 
 impl Serve {
     fn spawn(label: &str, args: &[&str], envs: &[(&str, &str)]) -> Self {
+        Self::spawn_in(unique_dir(label), args, envs)
+    }
+
+    /// [`Serve::spawn`] on a ledger directory the caller already holds, so a test can serve a
+    /// ledger it filled first.
+    fn spawn_in(dir: PathBuf, args: &[&str], envs: &[(&str, &str)]) -> Self {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_hivemind"));
         for var in [
             "HIVEMIND_API_KEY",
@@ -67,7 +74,7 @@ impl Serve {
         }
         let mut child = cmd
             .args(["-v", "--hivemind-dir"])
-            .arg(unique_dir(label))
+            .arg(dir)
             .args(["serve", "--port", "0"])
             .args(args)
             .envs(envs.iter().copied())
@@ -327,6 +334,56 @@ fn empty_admin_key_does_not_unlock_admin_routes() {
         !(200..300).contains(&status),
         "token-less admin call must not succeed, got {status}"
     ); // ubs:ignore: test-only
+}
+
+// ---------------------------------------------------------------------------
+// Startup: the graph is built before the socket opens (hivemind-7jon8)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn serve_builds_the_graph_before_it_listens() {
+    // The first graph read after a start replays the whole ledger. On the cell that took 13.4 s
+    // inside a caller's request. The server builds the graph first, so nothing answers
+    // `/v1/health` (the cell's readiness check) until reads are warm.
+    let dir = unique_dir("warm-start");
+    hivemind::cli::run(&hivemind::cli::Cli::parse_from([
+        "hivemind",
+        "--hivemind-dir",
+        &dir.display().to_string(),
+        "--actor",
+        "agent:claude:warm-start",
+        "emit",
+        "decision.capture",
+        "--bet",
+        "--title",
+        "Use SQLite for the prototype ledger",
+        "--rationale",
+        "Rationale text long enough for the readable floor",
+        "--topic-keys",
+        "storage",
+        "--options",
+        "sqlite,postgres",
+        "--chose",
+        "sqlite",
+    ]))
+    .expect("seed one decision"); // ubs:ignore: test-only
+
+    let serve = Serve::spawn_in(dir, &[], &[]);
+    let (lines, addr) = serve.wait_listening();
+    let warmed = lines
+        .iter()
+        .position(|l| l.contains("graph cache warmed"))
+        .unwrap_or_else(|| panic!("no warm-up line before listening: {lines:#?}")); // ubs:ignore: test-only
+    assert!(
+        warmed < lines.len() - 1,
+        "the graph must be warm before the server reports listening: {lines:#?}"
+    ); // ubs:ignore: test-only
+    assert!(
+        lines[warmed].contains("tenants=1") && lines[warmed].contains("warmed=1"),
+        "the local tenant's graph must be built: {}",
+        lines[warmed]
+    ); // ubs:ignore: test-only
+    assert_eq!(http_status(&addr, "GET", "/v1/health", &[], ""), 200); // ubs:ignore: test-only
 }
 
 // ---------------------------------------------------------------------------

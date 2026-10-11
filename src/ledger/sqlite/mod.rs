@@ -95,6 +95,20 @@ impl SqliteEventLedger {
         }
         Ok(())
     }
+
+    /// Every tenant in the local `tenants` registry, in id order.
+    pub fn tenant_ids(&self) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT tenant_id FROM tenants ORDER BY tenant_id")
+            .map_err(storage_error)?;
+        let ids = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(storage_error)?
+            .collect::<rusqlite::Result<Vec<String>>>()
+            .map_err(storage_error)?;
+        Ok(ids)
+    }
 }
 
 impl EventLedger for SqliteEventLedger {
