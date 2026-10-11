@@ -283,6 +283,19 @@ impl Scenario {
         title: &str,
         capture_actor_id: Option<&str>,
     ) -> Result<String> {
+        self.classified_decision_said_at(recorder, timestamp, title, capture_actor_id, None)
+    }
+
+    /// [`Self::classified_decision`] whose capture names the time of the turn it was said in
+    /// (`source_ts`), which can be days before the classification at `timestamp`.
+    pub(crate) fn classified_decision_said_at(
+        &self,
+        recorder: &str,
+        timestamp: &str,
+        title: &str,
+        capture_actor_id: Option<&str>,
+        said_at: Option<&str>,
+    ) -> Result<String> {
         let event_id = self.push(
             recorder,
             EventType::IngestBatchClassified,
@@ -300,6 +313,7 @@ impl Scenario {
                     "chosen_option": "A",
                     "extraction_confidence": 0.9,
                     "actor_id": capture_actor_id,
+                    "source_ts": said_at,
                     "accepted_by": [],
                     "rejected_by": []
                 }]

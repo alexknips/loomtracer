@@ -20,7 +20,12 @@ because `--actor` is already the global emitting actor flag.
   dimensions are ANDed together. Multiple values inside `statuses`,
   `actor_ids`, and `sources` are ORed; multiple `topic_keys` must all be
   present on the decision.
-- `since` and `until` are RFC3339 bounds over the decision proposal timestamp.
+- `since` and `until` are RFC3339 bounds, both inclusive, over the time the decision was
+  decided: the decision node's `occurred_at`, which `GET /v1/graph` reports as `decided_at`. That
+  is the proposal event's time, and for a decision a classifier drafted from a transcript
+  (`capture:<event>:<index>`) the time of the turn it was said in, which can be days before the
+  classification that recorded it. A decision the graph holds no time for is in no bounded
+  window.
 - `limit=0` means the default limit of 25. Larger limits are capped at 1000.
 - `cursor` is an opaque string today, encoded as a stable numeric offset. The
   response returns `next_cursor` and sets `truncated=true` when more rows exist.

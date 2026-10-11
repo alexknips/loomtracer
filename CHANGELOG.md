@@ -495,6 +495,27 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   new-button question lists the close decisions the same question lists without `I'm`. Not
   fixed: a question whose words the decision spells differently (synonyms) still finds nothing.
   (hivemind-e9340)
+- **A decision the classify queue drafted appears in every time window that covers the day it
+  was said.** `recent_decisions --since`, `digest --window`, `get_decisions_added_since`,
+  `search_decisions --since` / `--until` (CLI, MCP and `GET /v1/decisions/search?since=`),
+  windowed `recall` and `review --since` left every `capture:<event>:<index>` draft out,
+  although a topic lookup or a search with no window found it: they dated a decision from its
+  `decision.proposed` event, and a draft has none. On the city cell, "what did I and my agents
+  decide in the last 7 days" listed 20 of the 332 decisions `GET /v1/graph` dates in those
+  days, and the `recent_decisions --since 1h` that `docs/KEYLESS_CAPTURE.md` Step 5 tells you to
+  run right after classifying came back empty. A decision is now windowed by the time the
+  graph dates it, the `decided_at` of `GET /v1/graph`: its proposal's time, or for a draft the
+  time of the turn it was said in, which can be days before the classification that recorded
+  it. So a conversation from last week sits in last week's window however late it was
+  classified, and one the window does not cover stays out even if it was classified inside it.
+  `recent_decisions` and `get_decisions_added_since` list the drafts beside the proposals,
+  with their real status, topics and actors, and gain `decided_at` on each item (`creation` is
+  still the event that recorded it, which for a draft is the classification); a hand-recorded
+  decision keeps its place in each window. A draft is added in `get_decisions_added_since`
+  when its classification is inside the offset bounds and its `decided_at` inside the
+  timestamp bounds. `hivemind query recent_decisions`, `get_decisions_added_since` and `review`,
+  and the `recent_decisions` MCP tool, now read the graph as well as the ledger, so a local
+  `query` replays the ledger into a graph first, as the other queries do. (hivemind-23xw6)
 - **`recall`, `why` and `verify` find a decision from a question that adds everyday words to
   the one rare word the decision holds, when the decision holds a second rare word or spells
   two of the question's words as one.** "How far does the forecast's leftover tail reach?"

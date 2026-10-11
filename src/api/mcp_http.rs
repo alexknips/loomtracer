@@ -244,7 +244,7 @@ fn mcp_tools_call_blocking(
         "get_decision_neighborhood" => mcp_get_decision_neighborhood(backend, ctx, args),
         "recall_decisions" => mcp_recall_decisions(backend, ctx, args, cache),
         "search_decisions" => mcp_search_decisions(backend, ctx, args, cache),
-        "recent_decisions" => mcp_recent_decisions(backend, ctx, args),
+        "recent_decisions" => mcp_recent_decisions(backend, ctx, args, cache),
         "score_decision" => mcp_score_decision(backend, ctx, args, cache),
         "scan_decision_quality" => mcp_scan_decision_quality(backend, ctx, args, cache),
         "get_suggestions" => mcp_get_suggestions(backend, ctx, args, cache),
@@ -800,13 +800,15 @@ fn mcp_recent_decisions(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = RecentDecisionsArgs::from_json(&args)?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
     };
-    let output = crate::mcp::core::recent_decisions(&provider, core_args)?;
+    let graph = mcp_open_graph(backend, ctx, cache)?;
+    let output = crate::mcp::core::recent_decisions(&provider, &*graph, core_args)?;
     Ok(output.into_value())
 }
 

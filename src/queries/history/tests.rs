@@ -5,6 +5,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::ledger::InMemoryEventLedger;
+use crate::queries::test_fixtures::ts as test_ts;
 
 use super::*;
 
@@ -353,6 +354,7 @@ fn every_history_read_answers_the_same_with_a_malformed_assessment_row_in_the_le
                 serde_json::to_value(
                     get_recent_decisions(
                         ledger,
+                        &graph,
                         &RecentDecisionsRequest {
                             since_timestamp: Utc.with_ymd_and_hms(2026, 5, 19, 0, 0, 0).unwrap(),
                             until_timestamp: None,
@@ -511,6 +513,12 @@ fn event(sequence: u64, event_type: EventType, actor_id: &str, payload: Value) -
     }
 }
 
+fn graph_of(ledger: &InMemoryEventLedger) -> Result<crate::projector::memory::MemoryGraph> {
+    let graph = crate::projector::memory::MemoryGraph::default();
+    crate::projector::rebuild_graph(ledger, &graph)?;
+    Ok(graph)
+}
+
 fn ts(sequence: u64) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 5, 19, 12, 0, 0).unwrap()
         + chrono::Duration::seconds(i64::try_from(sequence).unwrap())
@@ -521,6 +529,7 @@ fn added_since_returns_empty_for_window_before_any_event() -> Result<()> {
     let ledger = fixture_ledger()?;
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_timestamp: Some(Utc.with_ymd_and_hms(2026, 5, 18, 0, 0, 0).unwrap()),
             until_timestamp: Some(Utc.with_ymd_and_hms(2026, 5, 19, 11, 0, 0).unwrap()),
@@ -542,6 +551,7 @@ fn added_since_separates_added_and_changed_with_deterministic_order() -> Result<
 
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 50,
@@ -590,6 +600,7 @@ fn added_since_classifies_changed_existing_when_creation_is_before_window() -> R
 
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(5),
             limit: 50,
@@ -625,6 +636,7 @@ fn added_since_resolves_timestamps_to_offsets_and_reports_boundaries() -> Result
 
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_timestamp: Some(ts(2)),
             until_timestamp: Some(ts(5)),
@@ -654,6 +666,7 @@ fn added_since_paginates_with_continuation_cursor() -> Result<()> {
 
     let first = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 1,
@@ -668,6 +681,7 @@ fn added_since_paginates_with_continuation_cursor() -> Result<()> {
 
     let second = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 1,
@@ -743,6 +757,7 @@ fn added_since_filters_by_import_run_id_extracted_from_source_ref() -> Result<()
 
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 10,
@@ -903,6 +918,7 @@ fn added_since_lists_each_move_in_the_decisions_changes_with_from_and_to() -> Re
 
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 50,
@@ -1115,6 +1131,7 @@ fn added_since_lists_each_retitle_in_the_decisions_changes_with_from_and_to() ->
 
     let response = get_decisions_added_since(
         &ledger,
+        &graph_of(&ledger)?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 50,
@@ -1329,6 +1346,7 @@ fn added_since_lists_the_stale_premise_on_the_derived_decision() -> Result<()> {
 
     let response = get_decisions_added_since(
         scenario.ledger(),
+        &graph_of(scenario.ledger())?,
         &DecisionsAddedSinceRequest {
             since_offset: Some(0),
             limit: 100,
@@ -1388,5 +1406,257 @@ fn a_decision_that_starts_following_a_premise_after_it_went_stale_is_not_reporte
         .flat_map(|row| row.decision_ids.iter())
         .collect();
     assert_eq!(stale_ids, vec![&"d:derived".to_owned()]);
+    Ok(())
+}
+
+// A decision a classifier drafted from a transcript (`capture:<event>:<index>`) has no
+// `decision.proposed`, so the windows below must find it in the graph, dated by the turn it was
+// said in and not by the classification that recorded it (hivemind-23xw6).
+
+const CLASSIFIER: &str = "agent:claude:classifier";
+
+/// A hand-recorded decision at 08:00, a draft said at 07:30 and classified at 09:00, and a draft
+/// from a conversation of the 2nd classified at 09:05, all recorded on 2026-10-11.
+fn drafts_scenario() -> Result<(Scenario, String, String)> {
+    let scenario = Scenario::new();
+    scenario.decision(
+        "decision-hand",
+        "Hand recorded",
+        "human:alex",
+        "2026-10-11T08:00:00Z",
+    )?;
+    let said_today = scenario.classified_decision_said_at(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        "Said this morning",
+        Some("human:alex"),
+        Some("2026-10-11T07:30:00Z"),
+    )?;
+    let said_earlier = scenario.classified_decision_said_at(
+        CLASSIFIER,
+        "2026-10-11T09:05:00Z",
+        "Said on the second",
+        None,
+        Some("2026-10-02T12:00:00Z"),
+    )?;
+    Ok((scenario, said_today, said_earlier))
+}
+
+fn recent_request(since: &str, until: Option<&str>) -> RecentDecisionsRequest {
+    RecentDecisionsRequest {
+        since_timestamp: test_ts(since),
+        until_timestamp: until.map(test_ts),
+        filters: RecentDecisionFilterRequest::default(),
+        limit: 25,
+        cursor: None,
+    }
+}
+
+fn recent_in(scenario: &Scenario, request: &RecentDecisionsRequest) -> Result<Vec<String>> {
+    let graph = scenario.graph()?;
+    let response = get_recent_decisions(scenario.ledger(), &graph, request)?;
+    Ok(response
+        .data
+        .items
+        .into_iter()
+        .map(|item| item.decision_id)
+        .collect())
+}
+
+#[test]
+fn recent_decisions_window_a_draft_by_when_it_was_said() -> Result<()> {
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+
+    // Newest record first. Both classifications fall in the window; only the draft said in it is
+    // listed beside the hand-recorded decision.
+    assert_eq!(
+        recent_in(&scenario, &recent_request("2026-10-11T07:00:00Z", None))?,
+        vec![said_today.clone(), "decision-hand".to_owned()]
+    );
+    assert_eq!(
+        recent_in(&scenario, &recent_request("2026-10-01T00:00:00Z", None))?,
+        vec![said_earlier.clone(), said_today, "decision-hand".to_owned()]
+    );
+    // The window of the earlier conversation holds its draft and nothing recorded since.
+    assert_eq!(
+        recent_in(
+            &scenario,
+            &recent_request("2026-10-01T00:00:00Z", Some("2026-10-05T00:00:00Z"))
+        )?,
+        vec![said_earlier]
+    );
+    // Both classifications come after this window opens, and neither draft was said in it.
+    assert!(recent_in(&scenario, &recent_request("2026-10-11T08:30:00Z", None))?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_recent_draft_says_when_it_was_said_and_what_recorded_it() -> Result<()> {
+    let (scenario, said_today, _) = drafts_scenario()?;
+    let graph = scenario.graph()?;
+
+    let response = get_recent_decisions(
+        scenario.ledger(),
+        &graph,
+        &recent_request("2026-10-11T07:00:00Z", None),
+    )?;
+
+    let draft = response
+        .data
+        .items
+        .iter()
+        .find(|item| item.decision_id == said_today)
+        .ok_or_else(|| query_error("the draft is listed"))?;
+    assert_eq!(draft.title, "Said this morning");
+    assert_eq!(draft.status, DecisionStatus::Proposed);
+    assert_eq!(draft.decided_at, Some(test_ts("2026-10-11T07:30:00Z")));
+    assert_eq!(draft.creation.ts, Some(test_ts("2026-10-11T09:00:00Z")));
+    assert_eq!(draft.creation.event_type, EventType::IngestBatchClassified);
+    assert_eq!(draft.creation.actor_id, CLASSIFIER);
+    assert_eq!(draft.project, personal_project_handle(CLASSIFIER));
+    assert_eq!(draft.topic_keys, vec!["capture".to_owned()]);
+    assert!(draft.actor_ids.contains(&"human:alex".to_owned()));
+    assert!(draft.actor_ids.contains(&CLASSIFIER.to_owned()));
+    let hand = response
+        .data
+        .items
+        .iter()
+        .find(|item| item.decision_id == "decision-hand")
+        .ok_or_else(|| query_error("the hand-recorded decision is listed"))?;
+    assert_eq!(hand.decided_at, hand.creation.ts);
+    Ok(())
+}
+
+#[test]
+fn recent_decisions_filter_a_draft_like_any_other() -> Result<()> {
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+    scenario.accept(&said_today, "human:alex", "2026-10-11T10:00:00Z")?;
+
+    let accepted = RecentDecisionsRequest {
+        filters: RecentDecisionFilterRequest {
+            statuses: vec![DecisionStatus::Accepted],
+            ..RecentDecisionFilterRequest::default()
+        },
+        ..recent_request("2026-10-01T00:00:00Z", None)
+    };
+    assert_eq!(recent_in(&scenario, &accepted)?, vec![said_today.clone()]);
+
+    let by_the_classifier = RecentDecisionsRequest {
+        filters: RecentDecisionFilterRequest {
+            actor_patterns: vec!["agent:claude:*".to_owned()],
+            ..RecentDecisionFilterRequest::default()
+        },
+        ..recent_request("2026-10-01T00:00:00Z", None)
+    };
+    assert_eq!(
+        recent_in(&scenario, &by_the_classifier)?,
+        vec![said_earlier, said_today]
+    );
+    Ok(())
+}
+
+fn added_in(
+    scenario: &Scenario,
+    request: &DecisionsAddedSinceRequest,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let graph = scenario.graph()?;
+    let response = get_decisions_added_since(scenario.ledger(), &graph, request)?;
+    Ok((
+        response
+            .data
+            .added_decisions
+            .into_iter()
+            .map(|entry| entry.decision_id)
+            .collect(),
+        response
+            .data
+            .changed_existing_decisions
+            .into_iter()
+            .map(|entry| entry.decision_id)
+            .collect(),
+    ))
+}
+
+#[test]
+fn added_since_lists_a_draft_in_the_windows_it_was_said_and_recorded_in() -> Result<()> {
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+    let since = |timestamp: &str| DecisionsAddedSinceRequest {
+        since_timestamp: Some(test_ts(timestamp)),
+        limit: 25,
+        ..DecisionsAddedSinceRequest::default()
+    };
+
+    let (added, changed) = added_in(&scenario, &since("2026-10-11T07:00:00Z"))?;
+    assert_eq!(added, vec!["decision-hand".to_owned(), said_today.clone()]);
+    assert!(changed.is_empty());
+
+    // Said on the 2nd, so a window opening on the 11th leaves it out although it was classified
+    // after the window opened; one opening on the 1st holds all three.
+    let (added, _) = added_in(&scenario, &since("2026-10-01T00:00:00Z"))?;
+    assert_eq!(
+        added,
+        vec![
+            "decision-hand".to_owned(),
+            said_today.clone(),
+            said_earlier.clone()
+        ]
+    );
+
+    // An offset bound is the ledger's: the classification of `said_today` is event 2.
+    let after_it = DecisionsAddedSinceRequest {
+        since_offset: Some(2),
+        ..since("2026-10-01T00:00:00Z")
+    };
+    assert_eq!(added_in(&scenario, &after_it)?.0, vec![said_earlier]);
+    Ok(())
+}
+
+#[test]
+fn an_added_draft_carries_the_changes_made_to_it_in_the_window() -> Result<()> {
+    let (scenario, said_today, _) = drafts_scenario()?;
+    scenario.accept(&said_today, "human:alex", "2026-10-11T10:00:00Z")?;
+    let graph = scenario.graph()?;
+
+    let response = get_decisions_added_since(
+        scenario.ledger(),
+        &graph,
+        &DecisionsAddedSinceRequest {
+            since_timestamp: Some(test_ts("2026-10-11T07:00:00Z")),
+            limit: 25,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?;
+
+    // Added once, with its acceptance, and not listed again as a changed decision.
+    assert!(response.data.changed_existing_decisions.is_empty());
+    let draft = response
+        .data
+        .added_decisions
+        .iter()
+        .find(|entry| entry.decision_id == said_today)
+        .ok_or_else(|| query_error("the draft is added"))?;
+    assert_eq!(draft.status, DecisionStatus::Accepted);
+    assert_eq!(draft.decided_at, Some(test_ts("2026-10-11T07:30:00Z")));
+    assert_eq!(draft.creation.event_type, EventType::IngestBatchClassified);
+    assert_eq!(draft.changes_in_window.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn a_draft_said_before_the_window_is_only_changed_by_an_acceptance_in_it() -> Result<()> {
+    let (scenario, said_today, _) = drafts_scenario()?;
+    scenario.accept(&said_today, "human:alex", "2026-10-11T10:00:00Z")?;
+
+    let (added, changed) = added_in(
+        &scenario,
+        &DecisionsAddedSinceRequest {
+            since_timestamp: Some(test_ts("2026-10-11T08:30:00Z")),
+            limit: 25,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?;
+
+    assert!(added.is_empty());
+    assert_eq!(changed, vec![said_today]);
     Ok(())
 }

@@ -2099,15 +2099,17 @@ impl RecentDecisionsArgs {
     }
 }
 
-/// The core for the `recent_decisions` MCP tool: one bounded page of the decisions recorded since
-/// `since`. It reads the ledger's events rather than a graph, so it takes the provider and no
-/// graph.
+/// The core for the `recent_decisions` MCP tool: one bounded page of the decisions decided in a
+/// window. The ledger's proposals are read as events; the decisions a classifier drafted from a
+/// transcript are known to the graph alone, so it takes both.
 pub(crate) fn recent_decisions<P: LedgerProvider>(
     provider: &P,
+    graph: &impl GraphView,
     args: RecentDecisionsArgs,
 ) -> Result<ToolOutput, CoreError> {
     let handle = provider.ledger()?;
-    let response = get_recent_decisions(&handle.ledger, &args.request).map_err(CoreError::from)?;
+    let response =
+        get_recent_decisions(&handle.ledger, graph, &args.request).map_err(CoreError::from)?;
     query_output(&response)
 }
 

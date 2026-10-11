@@ -292,6 +292,14 @@ event falls inside the window. Later acceptance, rejection, evidence, option,
 hypothesis, or supersession events are changes to an existing decision, not new
 decision nodes.
 
+A decision a classifier drafted from a transcript (`capture:<event>:<index>`) has no
+`decision.proposed`; its creation event is the `ingest.batch_classified` event that
+recorded it, and the graph alone holds its status and edges. It is added when that
+event's offset is inside the offset bounds and the time it was decided (`decided_at`, the
+time of the turn it was said in, the same value `GET /v1/graph` reports) is inside the
+timestamp bounds, because a classification can come days after the conversation. The same
+rule dates it in `recent_decisions`, `search_decisions`, `digest` and `review`.
+
 Offset bounds are canonical. Timestamp bounds are resolved to ledger offsets at
 query time and the response includes those offsets so the same diff can be
 replayed exactly.

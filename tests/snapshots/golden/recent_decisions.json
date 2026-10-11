@@ -32,6 +32,7 @@
           "source_ref": "seed-dataset-v1",
           "ts": "2026-01-01T00:00:11Z"
         },
+        "decided_at": "2026-01-01T00:00:11Z",
         "decision_id": "decision-001",
         "evidence_ids": [],
         "hypothesis_ids": [],

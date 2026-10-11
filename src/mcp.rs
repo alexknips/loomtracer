@@ -810,8 +810,8 @@ pub fn tool_definitions() -> Vec<Value> {
                     },
                     "actor_id": { "type": "array", "items": { "type": "string" } },
                     "source": { "type": "array", "items": { "type": "string" } },
-                    "since": { "type": "string", "description": "RFC3339 lower bound for decision proposal time." },
-                    "until": { "type": "string", "description": "RFC3339 upper bound for decision proposal time." },
+                    "since": { "type": "string", "description": "RFC3339 lower bound for the time the decision was decided: when it was proposed, or for a decision drafted from a transcript the time of the turn it was said in." },
+                    "until": { "type": "string", "description": "RFC3339 upper bound for the time the decision was decided: when it was proposed, or for a decision drafted from a transcript the time of the turn it was said in." },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
                     "cursor": { "type": "string" }
                 }
@@ -831,8 +831,8 @@ pub fn tool_definitions() -> Vec<Value> {
                     },
                     "actor_id": { "type": "array", "items": { "type": "string" } },
                     "source": { "type": "array", "items": { "type": "string" } },
-                    "since": { "type": "string", "description": "RFC3339 lower bound for decision proposal time." },
-                    "until": { "type": "string", "description": "RFC3339 upper bound for decision proposal time." },
+                    "since": { "type": "string", "description": "RFC3339 lower bound for the time the decision was decided: when it was proposed, or for a decision drafted from a transcript the time of the turn it was said in." },
+                    "until": { "type": "string", "description": "RFC3339 upper bound for the time the decision was decided: when it was proposed, or for a decision drafted from a transcript the time of the turn it was said in." },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Max results to return and summarize (default 5, max 10)." },
                     "cursor": { "type": "string" },
                     "project": { "type": "string", "description": "Ask from this project (a registered handle, or a personal address such as personal:human:alex). Decisions come from that project first, then the project it is part of (inherited constraints, labelled `from Platform; Billing is part of it`), then one hop over the projects it depends on (`from Auth; Billing depends on it`); each item in `ranked.items` carries `scope`, and `data.scope` lists the projects looked in and how many linked projects and part_of levels were not followed. Staleness (superseded, refuted) shows across the hop unchanged. An unregistered handle is refused with a hint. Omit to search the whole tenant." }
@@ -841,13 +841,13 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "recent_decisions",
-            "description": "List recently proposed decisions. Equivalent to `hivemind query recent_decisions`.",
+            "description": "List the decisions decided in a window, newest record first: those proposed in it and those a classifier drafted from a transcript (`capture:<event>:<index>`), a draft by the time of the turn it was said in, which can be days before the classification that recorded it. Each item has `decided_at` (the time the window used) and `creation` (the event that recorded it). Equivalent to `hivemind query recent_decisions`.",
             "inputSchema": {
                 "type": "object",
                 "required": ["since"],
                 "properties": {
-                    "since": { "type": "string", "description": "RFC3339 lower bound for decision proposal time." },
-                    "until": { "type": "string", "description": "RFC3339 upper bound for decision proposal time." },
+                    "since": { "type": "string", "description": "RFC3339 lower bound for the time the decision was decided." },
+                    "until": { "type": "string", "description": "RFC3339 upper bound for the time the decision was decided." },
                     "actor": { "type": "array", "items": { "type": "string" }, "description": "Actor id patterns, matching the CLI --actor filter." },
                     "topic": { "type": "array", "items": { "type": "string" } },
                     "status": {
@@ -1537,7 +1537,8 @@ fn tool_recent_decisions(args: Value, config: &McpConfig) -> std::result::Result
     let args = args.as_object().cloned().unwrap_or_default();
     let core_args = RecentDecisionsArgs::from_json(&args)?;
     let provider = StdioLedgerProvider { config };
-    let output = core::recent_decisions(&provider, core_args)?;
+    let graph = open_memory_graph(config)?;
+    let output = core::recent_decisions(&provider, &graph, core_args)?;
     Ok(output.into_value())
 }
 

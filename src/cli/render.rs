@@ -101,8 +101,7 @@ pub(crate) fn render_recent_decisions_summary(results: &RecentDecisionsResults) 
     let mut output = String::new();
     for item in &results.items {
         let timestamp = item
-            .creation
-            .ts
+            .decided_at
             .map(|ts| ts.to_rfc3339())
             .unwrap_or_else(|| "unknown-ts".to_owned());
         let _ = writeln!(

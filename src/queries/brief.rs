@@ -357,7 +357,7 @@ fn decision_capture_facts(graph: &impl GraphView, decision_id: &str) -> Result<C
 
 /// A classifier-drafted decision is a `capture:<offset>:<index>` node, the id the projector gives
 /// a capture of `ingest.batch_classified`.
-fn is_classified_capture(decision_id: &str) -> bool {
+pub(super) fn is_classified_capture(decision_id: &str) -> bool {
     decision_id.starts_with("capture:")
 }
 

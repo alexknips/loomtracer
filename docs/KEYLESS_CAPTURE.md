@@ -139,6 +139,12 @@ hivemind query get_relevant_decisions --topic infrastructure
 hivemind query search_decisions --q "postgres"
 ```
 
+A decision drafted this way is listed in a time window (`recent_decisions --since`, `digest`,
+`search_decisions --since`, `get_decisions_added_since`, `review --since`) by the time of the
+turn it was said in, not by when the classification ran. So `--since 1h` right after classifying
+a session lists its decisions when that conversation took place in the last hour, and a
+conversation from last week sits in last week's window however late it was classified.
+
 ---
 
 ## How the two classifiers relate

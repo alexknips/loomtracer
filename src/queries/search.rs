@@ -8,21 +8,19 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use crate::events::{self, EventPayload, EventType, ReadEvent};
 use crate::ledger::{AnyLedger, EventLedger, SqliteEventLedger, TenantScopedLedger};
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::decision::{DecisionView, HypothesisContext};
 use super::grounding::{hypothesis_facts_from_row, GroundingState};
-use super::history::LEDGER_READ_PAGE_SIZE;
 use super::project_label::ProjectLabels;
 use super::project_scope::{project_scope, MatchScope, ProjectScope, ScopeNote, ScopeRelation};
 use super::same_as::{fold_linked, RecordedCopy};
 use super::shared::{
     node_rows, normalized_filter_values, normalized_limit, normalized_query, normalized_statuses,
-    optional_int, optional_string, optional_string_list, parse_cursor, query_error, query_terms,
-    relation_edges_by_kind, relation_sources, relation_targets,
+    optional_datetime, optional_int, optional_string, optional_string_list, parse_cursor,
+    query_error, query_terms, relation_edges_by_kind, relation_sources, relation_targets,
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, DecisionStatus};
 use super::terms::{
@@ -348,12 +346,6 @@ fn search_with_ledger(
     let offset = parse_cursor(cursor.as_deref())?;
     let scope = resolve_scope(context, ledger, request.project.as_deref())?;
 
-    let proposed_at = if since.is_some() || until.is_some() {
-        Some(decision_proposed_at_by_id(context, ledger)?)
-    } else {
-        None
-    };
-
     let mut scored = collect_graph_search_results(
         graph,
         query.as_deref(),
@@ -364,9 +356,7 @@ fn search_with_ledger(
         &sources,
     )?;
 
-    if let Some(ref proposed_at_map) = proposed_at {
-        scored.retain(|doc| date_in_range(proposed_at_map.get(&doc.id).copied(), since, until));
-    }
+    scored.retain(|doc| date_in_range(doc.decided_at, since, until));
 
     let scope_note = match &scope {
         Some(scope) => Some(narrow_to_scope(&mut scored, scope, graph)?),
@@ -486,7 +476,6 @@ pub fn search_decisions_fts_with_context(
         collect_graph_search_results(graph, None, &SearchTerms::literal(&[]), &[], &[], &[], &[])?;
     rebuild_decision_search_fts(ledger, &documents)?;
     let fts_decision_ids = query_decision_search_fts(ledger, query.as_deref())?;
-    let proposed_at = decision_proposed_at_by_id(context, ledger)?;
 
     let mut documents_by_id = documents
         .into_iter()
@@ -494,12 +483,12 @@ pub fn search_decisions_fts_with_context(
         .collect::<BTreeMap<_, _>>();
     let mut scored = Vec::new();
     for decision_id in fts_decision_ids {
-        if !date_in_range(proposed_at.get(&decision_id).copied(), since, until) {
-            continue;
-        }
         let Some(mut document) = documents_by_id.remove(&decision_id) else {
             continue;
         };
+        if !date_in_range(document.decided_at, since, until) {
+            continue;
+        }
         if !document_matches_filters(&document, &topic_keys, &statuses, &actor_ids, &sources) {
             continue;
         }
@@ -915,60 +904,20 @@ fn open_decision_search_connection(ledger: &SqliteEventLedger) -> Result<Connect
         .map_err(|error| query_error(format!("open decision search index: {error}")))?)
 }
 
-fn decision_proposed_at_by_id(
-    context: &QueryContext,
-    ledger: &impl EventLedger,
-) -> Result<BTreeMap<String, DateTime<Utc>>> {
-    // Only the proposals leave the ledger: a time window must not cost a read of every ingest
-    // transcript a cell holds (hivemind-7jon8).
-    let mut proposed_at = BTreeMap::new();
-    let mut offset = 0;
-    loop {
-        let page = ledger.read_types_for_tenant(
-            &context.tenant_id,
-            &[EventType::DecisionProposed],
-            &[],
-            offset,
-            LEDGER_READ_PAGE_SIZE,
-        )?;
-        let Some(last) = page.last().and_then(|event| event.event_id) else {
-            break;
-        };
-        offset = last;
-        let full_page = page.len() >= LEDGER_READ_PAGE_SIZE;
-        for event in &page {
-            let ReadEvent::Payload(payload) =
-                events::validate_for_read(event).map_err(|error| {
-                    query_error(format!("invalid event during search replay: {error}"))
-                })?
-            else {
-                continue;
-            };
-            if let EventPayload::DecisionProposed(payload) = *payload {
-                if let Some(ts) = event.ts {
-                    proposed_at.insert(payload.decision_id, ts);
-                }
-            }
-        }
-        if !full_page {
-            break;
-        }
-    }
-    Ok(proposed_at)
-}
-
+/// Whether a decision decided at `decided_at` falls in `[since, until]`. With no bound every
+/// decision does; with one, a decision the graph has no time for does not.
 fn date_in_range(
-    proposed_at: Option<DateTime<Utc>>,
+    decided_at: Option<DateTime<Utc>>,
     since: Option<DateTime<Utc>>,
     until: Option<DateTime<Utc>>,
 ) -> bool {
     if since.is_none() && until.is_none() {
         return true;
     }
-    let Some(proposed_at) = proposed_at else {
+    let Some(decided_at) = decided_at else {
         return false;
     };
-    since.is_none_or(|since| proposed_at >= since) && until.is_none_or(|until| proposed_at <= until)
+    since.is_none_or(|since| decided_at >= since) && until.is_none_or(|until| decided_at <= until)
 }
 
 fn document_matches_filters(
@@ -1045,6 +994,11 @@ struct ScoredDecisionSearchResult {
     rank: u8,
     id: String,
     event_origin: i64,
+    /// When the decision was decided, as the graph dates it (the Decision node's `occurred_at`,
+    /// which `GET /v1/graph` reports as `decided_at`): a proposal's own time, a classifier
+    /// draft's turn time. What `since`/`until` window on; `None` for a decision the graph has no
+    /// time for.
+    decided_at: Option<DateTime<Utc>>,
     /// `SearchMatchInfo::polarity_mismatch`.
     polarity_mismatch: bool,
     /// `SearchMatchInfo::headline_terms`: for a close match, how many of the terms its title or
@@ -1121,6 +1075,7 @@ fn collect_graph_search_results(
         let question = optional_string(&row, "question");
         let delegated_by = optional_string(&row, "delegated_by");
         let event_origin = optional_int(&row, "event_origin").unwrap_or(0);
+        let decided_at = optional_datetime(&row, "occurred_at")?;
         let decision_topic_keys = optional_string_list(&row, "topic_keys");
         if !topic_keys.is_empty()
             && !topic_keys.iter().all(|topic| {
@@ -1353,6 +1308,7 @@ fn collect_graph_search_results(
             rank: match_info.rank,
             id,
             event_origin,
+            decided_at,
             polarity_mismatch: match_info.polarity_mismatch,
             headline_terms: match_info.headline_terms,
             headline_hits: if match_info.below_bar {

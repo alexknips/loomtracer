@@ -1247,9 +1247,10 @@ fn february_window_ids(ledger: &impl EventLedger, graph: &MemoryGraph) -> Result
 }
 
 #[test]
-fn a_time_window_dates_decisions_from_their_proposals_alone() -> Result<()> {
-    // The window needs only when each decision was proposed; reading every event of a cell's
-    // ledger to learn it kept a plain `search` with `since`/`until` from answering (hivemind-7jon8).
+fn a_time_window_dates_decisions_from_the_graph_alone() -> Result<()> {
+    // The window needs only when each decision was decided, which the graph holds; reading every
+    // event of a cell's ledger to learn it kept a plain `search` with `since`/`until` from
+    // answering (hivemind-7jon8).
     let scenario = Scenario::new();
     for (id, at) in [
         ("d:january", "2026-01-10T00:00:00Z"),
@@ -1267,6 +1268,81 @@ fn a_time_window_dates_decisions_from_their_proposals_alone() -> Result<()> {
     )?;
     assert_eq!(whole, vec!["d:february".to_owned()]);
     assert_eq!(typed, whole);
+    Ok(())
+}
+
+/// The ids a search from `since` through `until` finds, sorted.
+fn window_ids(
+    ledger: &impl EventLedger,
+    graph: &MemoryGraph,
+    since: &str,
+    until: &str,
+) -> Result<Vec<String>> {
+    let response = search_decisions_with_ledger(
+        &QueryContext::local(),
+        ledger,
+        graph,
+        &SearchDecisionRequest {
+            since: Some(since.parse().expect("time parses")),
+            until: Some(until.parse().expect("time parses")),
+            limit: 10,
+            ..SearchDecisionRequest::default()
+        },
+    )?;
+    let mut ids: Vec<String> = response
+        .data
+        .items
+        .into_iter()
+        .map(|item| item.decision.id)
+        .collect();
+    ids.sort();
+    Ok(ids)
+}
+
+#[test]
+fn a_time_window_finds_a_classifier_draft_by_when_it_was_said() -> Result<()> {
+    // A draft has no proposal to date it by; the graph dates it by the turn it was said in, as
+    // `GET /v1/graph` does, and a classification that comes later does not move it (hivemind-23xw6).
+    let scenario = Scenario::new();
+    scenario.decision(
+        "d:february",
+        "d:february",
+        "human:alice",
+        "2026-02-10T00:00:00Z",
+    )?;
+    let draft = scenario.classified_decision_said_at(
+        "agent:claude:classifier",
+        "2026-03-05T09:00:00Z",
+        "Said in February, classified in March",
+        None,
+        Some("2026-02-12T10:00:00Z"),
+    )?;
+    let undated = scenario.classified_decision(
+        "agent:claude:classifier",
+        "2026-02-20T09:00:00Z",
+        "Said when it was classified",
+        None,
+    )?;
+    let graph = scenario.graph()?;
+
+    let mut february = vec!["d:february".to_owned(), draft.clone(), undated.clone()];
+    february.sort();
+    assert_eq!(
+        window_ids(
+            scenario.ledger(),
+            &graph,
+            "2026-02-01T00:00:00Z",
+            "2026-02-28T00:00:00Z"
+        )?,
+        february
+    );
+    assert!(window_ids(
+        scenario.ledger(),
+        &graph,
+        "2026-03-01T00:00:00Z",
+        "2026-03-31T00:00:00Z"
+    )?
+    .is_empty());
     Ok(())
 }
 

@@ -17,12 +17,15 @@ use crate::events::{
     EventPayload, EventSource, EventType, RelationAddedPayload, RelationKind as EventRelationKind,
 };
 use crate::ledger::EventLedger;
-use crate::projector::NodeKind;
+use crate::projector::{GraphView, NodeKind};
 use crate::Result;
 
+use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
 use super::project_label::ProjectLabels;
 use super::shared::normalized_query;
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
+
+mod drafts;
 
 const DEFAULT_HISTORY_LIMIT: usize = 25;
 pub(super) const LEDGER_READ_PAGE_SIZE: usize = 1_000;
@@ -244,6 +247,11 @@ pub struct RecentDecisionEntry {
     pub project_label: String,
     pub topic_keys: Vec<String>,
     pub actor_ids: Vec<String>,
+    /// When it was decided, the time `since` / `until` window on: the proposal's own time, or for
+    /// a decision a classifier drafted from a transcript (`capture:<event>:<index>`) the time of
+    /// the turn it was said in, as `GET /v1/graph` dates it. `creation` is the event that
+    /// recorded it, which for a draft is the classification, possibly days later.
+    pub decided_at: Option<DateTime<Utc>>,
     pub creation: DecisionEventProvenance,
     pub chosen_option_id: Option<String>,
     pub option_ids: Vec<String>,
@@ -370,6 +378,9 @@ pub struct AddedDecisionEntry {
     pub decision_id: String,
     pub status: DecisionStatus,
     pub topic_keys: Vec<String>,
+    /// When it was decided (see `RecentDecisionEntry::decided_at`): what the timestamp bounds of
+    /// the request window on for a decision a classifier drafted.
+    pub decided_at: Option<DateTime<Utc>>,
     pub creation: DecisionEventProvenance,
     pub option_ids: Vec<String>,
     pub evidence_ids: Vec<String>,
@@ -478,8 +489,13 @@ pub fn get_recent_activity(
     })
 }
 
+/// The decisions decided in the window, newest record first: the ones a `decision.proposed`
+/// recorded, windowed by their ledger position, and the ones a classifier drafted from a
+/// transcript, which the graph holds and no proposal records, windowed by the time they were said
+/// (`RecentDecisionEntry::decided_at`).
 pub fn get_recent_decisions(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     request: &RecentDecisionsRequest,
 ) -> Result<QueryResponse<RecentDecisionsResults>> {
     let started = Instant::now();
@@ -567,6 +583,7 @@ pub fn get_recent_decisions(
                 project,
                 topic_keys,
                 actor_ids,
+                decided_at: event.ts,
                 creation: decision_event_provenance(event)?,
                 chosen_option_id: payload.chosen_option_id,
                 option_ids,
@@ -575,7 +592,25 @@ pub fn get_recent_decisions(
             });
         }
     }
-    items.sort_by_key(|item| Reverse(item.creation.event_origin));
+    for (decision_id, draft) in ClassifiedDrafts::load(graph, &events)? {
+        if !draft.decided_between(Some(request.since_timestamp), request.until_timestamp)
+            || !decision_matches_recent_filters(
+                &draft.topic_keys,
+                draft.status,
+                &draft.actor_ids,
+                draft.creation.source,
+                &filters,
+            )
+        {
+            continue;
+        }
+        items.push(recent_entry_of_draft(decision_id, draft, &labels));
+    }
+    items.sort_by(|left, right| {
+        Reverse(left.creation.event_origin)
+            .cmp(&Reverse(right.creation.event_origin))
+            .then_with(|| left.decision_id.cmp(&right.decision_id))
+    });
 
     let total_matches = items.len();
     let page: Vec<RecentDecisionEntry> = items.into_iter().skip(offset).take(limit).collect();
@@ -608,6 +643,31 @@ pub fn get_recent_decisions(
             items: page,
         },
     })
+}
+
+fn recent_entry_of_draft(
+    decision_id: String,
+    draft: ClassifiedDraft,
+    labels: &ProjectLabels,
+) -> RecentDecisionEntry {
+    RecentDecisionEntry {
+        decision_id,
+        title: draft.title,
+        rationale: draft.rationale,
+        quote: draft.quote,
+        question: draft.question,
+        status: draft.status,
+        project_label: labels.label(&draft.project),
+        project: draft.project,
+        topic_keys: draft.topic_keys,
+        actor_ids: draft.actor_ids,
+        decided_at: draft.decided_at,
+        creation: draft.creation,
+        chosen_option_id: draft.chosen_option_id,
+        option_ids: draft.option_ids,
+        evidence_ids: draft.evidence_ids,
+        hypothesis_ids: draft.hypothesis_ids,
+    }
 }
 
 pub fn get_decisions_changed_since(
@@ -681,8 +741,13 @@ pub fn get_decisions_changed_since(
     })
 }
 
+/// The decisions added in the window, and the ones it changed. A decision a classifier drafted
+/// from a transcript is added when the classification that recorded it falls inside the request's
+/// offset bounds and the turn time it was said at (`AddedDecisionEntry::decided_at`) inside its
+/// timestamp bounds; a proposal is windowed by its ledger position alone.
 pub fn get_decisions_added_since(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     request: &DecisionsAddedSinceRequest,
 ) -> Result<QueryResponse<DecisionsAddedSinceResults>> {
     let started = Instant::now();
@@ -690,6 +755,7 @@ pub fn get_decisions_added_since(
     let latest_offset = ledger.latest_offset()?;
     let window = resolve_added_since_window(&events, latest_offset, request);
     let index = DecisionIndex::from_events(&events)?;
+    let mut drafts = ClassifiedDrafts::load(graph, &events)?;
     let filters = normalized_added_since_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
@@ -732,37 +798,58 @@ pub fn get_decisions_added_since(
     let mut changed: Vec<ChangedDecisionEntry> = Vec::new();
 
     for (decision_id, change_events) in &per_decision_changes {
-        let entry = index.decisions.get(decision_id);
-        let topic_keys = entry
-            .map(|entry| entry.topic_keys.clone())
-            .unwrap_or_default();
-        let status = index
-            .status(decision_id)
-            .unwrap_or(DecisionStatus::Proposed);
-        let option_ids = entry
-            .map(|entry| entry.option_ids.iter().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
-        let evidence_ids = entry
-            .map(|entry| entry.evidence_ids.iter().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
-        let hypothesis_ids = entry
-            .map(|entry| entry.hypothesis_ids.iter().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        let creation_event = creation_events.get(decision_id).copied();
-        let creation_provenance = creation_event.map(decision_event_provenance).transpose()?;
-        let creation_in_window = creation_provenance
-            .as_ref()
-            .filter(|prov| {
-                prov.event_origin > window.since_offset && prov.event_origin <= window.until_offset
-            })
-            .cloned();
+        // A draft is known to the graph alone: the ledger's index holds nothing of it. It leaves
+        // the set here, so the drafts the ledger never touched are the ones the loop below meets.
+        let AddedFacts {
+            topic_keys,
+            status,
+            option_ids,
+            evidence_ids,
+            hypothesis_ids,
+            decided_at,
+            created_in_window,
+            creation,
+        } = match drafts.take(decision_id) {
+            Some(draft) => AddedFacts::of_draft(draft, request),
+            None => {
+                let entry = index.decisions.get(decision_id);
+                let creation = creation_events
+                    .get(decision_id)
+                    .copied()
+                    .map(decision_event_provenance)
+                    .transpose()?;
+                AddedFacts {
+                    topic_keys: entry
+                        .map(|entry| entry.topic_keys.clone())
+                        .unwrap_or_default(),
+                    status: index
+                        .status(decision_id)
+                        .unwrap_or(DecisionStatus::Proposed),
+                    option_ids: entry
+                        .map(|entry| entry.option_ids.iter().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                    evidence_ids: entry
+                        .map(|entry| entry.evidence_ids.iter().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                    hypothesis_ids: entry
+                        .map(|entry| entry.hypothesis_ids.iter().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default(),
+                    decided_at: creation.as_ref().and_then(|prov| prov.ts),
+                    created_in_window: creation.as_ref().is_some_and(|prov| {
+                        prov.event_origin > window.since_offset
+                            && prov.event_origin <= window.until_offset
+                    }),
+                    creation,
+                }
+            }
+        };
 
         let mut changes = Vec::with_capacity(change_events.len());
         for (event_id_value, event, change_kind) in change_events {
-            if creation_in_window
-                .as_ref()
-                .is_some_and(|prov| prov.event_origin == *event_id_value)
+            if created_in_window
+                && creation
+                    .as_ref()
+                    .is_some_and(|prov| prov.event_origin == *event_id_value)
             {
                 continue;
             }
@@ -783,15 +870,26 @@ pub fn get_decisions_added_since(
             &topic_keys,
             status,
             &filters,
-            creation_provenance.as_ref(),
+            creation.as_ref(),
             &changes,
         );
         if !decision_matches_filters {
             continue;
         }
 
-        if let Some(creation) = creation_in_window {
-            added.push(AddedDecisionEntry {
+        match creation {
+            Some(creation) if created_in_window => added.push(AddedDecisionEntry {
+                decision_id: decision_id.clone(),
+                status,
+                topic_keys,
+                decided_at,
+                creation,
+                option_ids,
+                evidence_ids,
+                hypothesis_ids,
+                changes_in_window: changes,
+            }),
+            creation => changed.push(ChangedDecisionEntry {
                 decision_id: decision_id.clone(),
                 status,
                 topic_keys,
@@ -800,19 +898,34 @@ pub fn get_decisions_added_since(
                 evidence_ids,
                 hypothesis_ids,
                 changes_in_window: changes,
-            });
-        } else {
-            changed.push(ChangedDecisionEntry {
-                decision_id: decision_id.clone(),
-                status,
-                topic_keys,
-                creation: creation_provenance,
-                option_ids,
-                evidence_ids,
-                hypothesis_ids,
-                changes_in_window: changes,
-            });
+            }),
         }
+    }
+
+    for (decision_id, draft) in drafts {
+        if !draft_added_in_window(&draft, request)
+            || !decision_matches_added_since_filters(
+                &decision_id,
+                &draft.topic_keys,
+                draft.status,
+                &filters,
+                Some(&draft.creation),
+                &[],
+            )
+        {
+            continue;
+        }
+        added.push(AddedDecisionEntry {
+            decision_id,
+            status: draft.status,
+            topic_keys: draft.topic_keys,
+            decided_at: draft.decided_at,
+            creation: draft.creation,
+            option_ids: draft.option_ids,
+            evidence_ids: draft.evidence_ids,
+            hypothesis_ids: draft.hypothesis_ids,
+            changes_in_window: Vec::new(),
+        });
     }
 
     added.sort_by(|left, right| {
@@ -879,6 +992,47 @@ pub fn get_decisions_added_since(
             changed_existing_decisions: changed_page,
         },
     })
+}
+
+/// What an added-since entry says of one decision, whether the ledger's proposal or the graph's
+/// draft is where it was read from.
+struct AddedFacts {
+    topic_keys: Vec<String>,
+    status: DecisionStatus,
+    option_ids: Vec<String>,
+    evidence_ids: Vec<String>,
+    hypothesis_ids: Vec<String>,
+    decided_at: Option<DateTime<Utc>>,
+    /// Whether the decision was added, not only changed, in the request's window.
+    created_in_window: bool,
+    creation: Option<DecisionEventProvenance>,
+}
+
+impl AddedFacts {
+    fn of_draft(draft: ClassifiedDraft, request: &DecisionsAddedSinceRequest) -> Self {
+        Self {
+            created_in_window: draft_added_in_window(&draft, request),
+            topic_keys: draft.topic_keys,
+            status: draft.status,
+            option_ids: draft.option_ids,
+            evidence_ids: draft.evidence_ids,
+            hypothesis_ids: draft.hypothesis_ids,
+            decided_at: draft.decided_at,
+            creation: Some(draft.creation),
+        }
+    }
+}
+
+/// Whether a classifier draft is added in the request's window: the classification that recorded
+/// it inside the offset bounds, as for any decision, and the time it was said inside the timestamp
+/// bounds, because the classification can come days after the conversation.
+fn draft_added_in_window(draft: &ClassifiedDraft, request: &DecisionsAddedSinceRequest) -> bool {
+    let recorded_at = draft.creation.event_origin;
+    recorded_at > request.since_offset.unwrap_or_default()
+        && request
+            .until_offset
+            .is_none_or(|until_offset| recorded_at <= until_offset)
+        && draft.decided_between(request.since_timestamp, request.until_timestamp)
 }
 
 enum DiffEntry {

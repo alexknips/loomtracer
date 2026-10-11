@@ -7176,6 +7176,206 @@ fn classify_queue_list_and_submit_round_trip() {
     assert_eq!(list2["pending_total"], serde_json::json!(0));
 }
 
+/// A decision drafted from the classify queue (the passive-capture path) is found in every time
+/// window that covers the day it was said, whenever the classification ran, by every command that
+/// takes a window; and a window that does not cover that day leaves it out (hivemind-23xw6).
+#[test]
+fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said() -> CliTestResult {
+    use crate::commands::{CommandContext, Commands};
+    use crate::events::{EventProvenance, IngestTurn, TenantId};
+    use crate::ledger::SqliteEventLedger;
+    use chrono::TimeZone;
+
+    let hivemind_dir = unique_test_dir("draft-windows");
+    let ledger = SqliteEventLedger::open(&hivemind_dir)?;
+    let commands = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(TenantId::local(), EventProvenance::cli()),
+    );
+    // Said on the 9th; classified now, which is long after.
+    let said_at = chrono::Utc
+        .with_ymd_and_hms(2026, 10, 9, 10, 0, 0)
+        .single()
+        .ok_or("said-at time")?;
+    commands.record_ingest_batch(
+        "agent:test",
+        "batch-window",
+        "claude-code",
+        "session-1",
+        vec![IngestTurn {
+            turn_id: "t1".to_owned(),
+            role: "user".to_owned(),
+            text: "Job queue lives in Postgres, not Redis".to_owned(),
+            truncated: false,
+            ts: Some(said_at),
+        }],
+    )?;
+    let dir = hivemind_dir.to_str().ok_or("utf-8 temp path")?;
+    let captures = serde_json::json!([{
+        "kind": "decision",
+        "title": "Job queue lives in Postgres, not Redis",
+        "rationale": "One less moving part to run, and the jobs share the transaction",
+        "topic_keys": ["infrastructure", "job-queue"],
+        "evidence_ids": [],
+        "options": null,
+        "chosen_option": null,
+        "extraction_confidence": 0.9
+    }])
+    .to_string();
+    run(&Cli::parse_from([
+        "hivemind",
+        "--json",
+        "--actor",
+        "agent:claude-code:session-1",
+        "--hivemind-dir",
+        dir,
+        "classify-queue",
+        "submit",
+        "--batch-id",
+        "batch-window",
+        "--captures",
+        &captures,
+    ]))?;
+
+    let ask =
+        |args: &[&str]| -> std::result::Result<serde_json::Value, Box<dyn std::error::Error>> {
+            let mut argv = vec!["hivemind", "--json", "--hivemind-dir", dir];
+            argv.extend_from_slice(args);
+            Ok(serde_json::from_str(&run(&Cli::parse_from(argv))?)?)
+        };
+    let ids_at = |answer: &serde_json::Value, pointer: &str, key: &str| -> Vec<String> {
+        answer
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.pointer(key).and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+            .collect()
+    };
+    let window = |since: &'static str, until: &'static str| {
+        [("--since", since), ("--until", until)]
+            .into_iter()
+            .flat_map(|(flag, value)| [flag, value])
+            .collect::<Vec<_>>()
+    };
+
+    // The draft is the only decision of the ledger; a search with no window names it.
+    let named = ask(&["query", "search_decisions", "--q", "Postgres"])?;
+    let draft_ids = ids_at(&named, "/data/items", "/decision/id");
+    ensure(
+        matches!(draft_ids.as_slice(), [id] if id.starts_with("capture:")),
+        "the classification drafted exactly one decision",
+    )?;
+    let draft_id = draft_ids.into_iter().next().ok_or("the draft's id")?;
+
+    for (since, until, covers) in [
+        ("2026-10-09T09:00:00Z", "2026-10-09T11:00:00Z", true),
+        ("2026-10-08T00:00:00Z", "2026-10-09T09:00:00Z", false),
+        ("2026-10-09T11:00:00Z", "2099-01-01T00:00:00Z", false),
+    ] {
+        let flags = window(since, until);
+        let with = |head: &[&'static str]| [head, flags.as_slice()].concat();
+
+        let recent = ask(&with(&["query", "recent_decisions"]))?;
+        let added = ask(&with(&["query", "get_decisions_added_since"]))?;
+        let searched = ask(&with(&["query", "search_decisions"]))?;
+        let digest = ask(&with(&["digest"]))?;
+        let found = [
+            ids_at(&recent, "/data/items", "/decision_id"),
+            ids_at(&added, "/data/added_decisions", "/decision_id"),
+            ids_at(&searched, "/data/items", "/decision/id"),
+            ids_at(&digest, "/data/entries", "/decision_id"),
+        ];
+        for (command, ids) in ["recent", "added since", "search", "digest"]
+            .iter()
+            .zip(&found)
+        {
+            ensure_eq(
+                ids.contains(&draft_id),
+                covers,
+                &format!("{command} over {since} .. {until}"),
+            )?;
+        }
+
+        let review_cli = Cli::parse_from(
+            [
+                vec!["hivemind", "--json", "--hivemind-dir", dir, "review"],
+                flags.clone(),
+            ]
+            .concat(),
+        );
+        let Command::Review(review_args) = &review_cli.command else {
+            return Err("expected review command".into());
+        };
+        let mut input = std::io::Cursor::new("n\n".as_bytes());
+        let mut prompts = Vec::new();
+        let reviewed: serde_json::Value = serde_json::from_str(&run_review_session(
+            &review_cli,
+            review_args,
+            &mut input,
+            &mut prompts,
+        )?)?;
+        ensure_json_eq(
+            json_at(&reviewed, "/matched_count")?,
+            serde_json::json!(u8::from(covers)),
+            &format!("review over {since} .. {until}"),
+        )?;
+        ensure_eq(
+            String::from_utf8(prompts)?.contains(&draft_id),
+            covers,
+            "review offers the draft",
+        )?;
+    }
+
+    // The review offers the draft for a verdict, and a verdict on it takes.
+    let review_cli = Cli::parse_from([
+        "hivemind",
+        "--json",
+        "--actor",
+        "human:alex",
+        "--hivemind-dir",
+        dir,
+        "review",
+        "--since",
+        "2026-10-09T09:00:00Z",
+        "--until",
+        "2026-10-09T11:00:00Z",
+    ]);
+    let Command::Review(review_args) = &review_cli.command else {
+        return Err("expected review command".into());
+    };
+    let mut input = std::io::Cursor::new("a\n".as_bytes());
+    let reviewed: serde_json::Value = serde_json::from_str(&run_review_session(
+        &review_cli,
+        review_args,
+        &mut input,
+        &mut Vec::new(),
+    )?)?;
+    ensure_json_eq(
+        json_at(&reviewed, "/reviewed_count")?,
+        serde_json::json!(1),
+        "the draft was approved",
+    )?;
+    let accepted = ask(&[
+        "query",
+        "recent_decisions",
+        "--since",
+        "2026-10-09T09:00:00Z",
+        "--until",
+        "2026-10-09T11:00:00Z",
+        "--status",
+        "accepted",
+    ])?;
+    ensure(
+        ids_at(&accepted, "/data/items", "/decision_id").contains(&draft_id),
+        "the approved draft is listed as accepted in its window",
+    )?;
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    Ok(())
+}
+
 fn project_registry_register_link_anchor_list_show_round_trip_body(
     backend: &TestBackend,
 ) -> CliTestResult {

@@ -463,6 +463,7 @@ fn a_moved_decision_is_named_by_the_project_it_moved_to() -> Result<()> {
     );
     let recent = get_recent_decisions(
         &ledger,
+        &graph,
         &RecentDecisionsRequest {
             since_timestamp: Utc
                 .with_ymd_and_hms(2000, 1, 1, 0, 0, 0)
@@ -495,6 +496,7 @@ fn recent_decisions_name_the_project_from_the_ledger() -> Result<()> {
 
     let recent = get_recent_decisions(
         &s.ledger,
+        &s.graph,
         &RecentDecisionsRequest {
             since_timestamp: Utc
                 .with_ymd_and_hms(2000, 1, 1, 0, 0, 0)

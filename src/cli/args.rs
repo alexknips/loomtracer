@@ -2031,8 +2031,10 @@ pub enum QueryCommand {
     /// fired and a dedupe key. An internal scheduler surface.
     #[command(name = "get_blocker_notification_candidates")]
     GetBlockerNotificationCandidates(QueryBlockerNotificationCandidatesArgs),
-    /// The decisions proposed in a time window (`--since 7d`, a date or a timestamp; `--until`),
-    /// narrowed by actor pattern, topic, status and source. Alias: `recent`.
+    /// The decisions decided in a time window (`--since 7d`, a date or a timestamp; `--until`),
+    /// narrowed by actor pattern, topic, status and source. A decision drafted from a transcript
+    /// is dated by the turn it was said in, not by the classification that recorded it. Alias:
+    /// `recent`.
     #[command(name = "recent_decisions", alias = "recent")]
     RecentDecisions(QueryRecentDecisionsArgs),
     /// The ledger's latest events as a timeline, newest first: each capture, acceptance,
@@ -2047,7 +2049,9 @@ pub enum QueryCommand {
     GetDecisionsChangedSince(QueryChangedSinceArgs),
     /// "What is new since last week?" — the decisions created in a window (`--since 7d`, a date,
     /// an offset or a timestamp) plus existing decisions that gained a status, evidence,
-    /// hypotheses, options or a supersession there, optionally only from given import runs.
+    /// hypotheses, options or a supersession there, optionally only from given import runs. A
+    /// decision drafted from a transcript is created when its classification falls inside the
+    /// offset bounds and the turn it was said in inside the timestamp bounds.
     #[command(name = "get_decisions_added_since")]
     GetDecisionsAddedSince(QueryAddedSinceArgs),
     /// A shareable read-only export of `get_recent_activity` or `get_decisions_changed_since`

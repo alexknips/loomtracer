@@ -1631,7 +1631,9 @@ pub(crate) fn run_review_session<R: BufRead, W: IoWrite>(
     let ledger = open_ledger(cli)?;
     let scoped_ledger = TenantScopedLedger::new(&ledger, tenant_id.clone());
     let request = review_recent_decisions_request(args)?;
-    let response = get_recent_decisions(&scoped_ledger, &request)?;
+    let graph = MemoryGraph::default();
+    rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
+    let response = get_recent_decisions(&scoped_ledger, &graph, &request)?;
     let events = read_ledger_events(&scoped_ledger)?;
     let context = ReviewLedgerContext::from_events(&events)?;
     let reviewed_decision_ids = reviewed_decision_ids_by_actor(&events, &cli.actor)?;
@@ -2439,10 +2441,8 @@ impl QueryCommand {
     fn is_ledger_history_query(&self) -> bool {
         matches!(
             self,
-            QueryCommand::RecentDecisions(_)
-                | QueryCommand::GetRecentActivity(_)
+            QueryCommand::GetRecentActivity(_)
                 | QueryCommand::GetDecisionsChangedSince(_)
-                | QueryCommand::GetDecisionsAddedSince(_)
                 | QueryCommand::ExportReadOnlySummary(_)
         )
     }
@@ -2450,15 +2450,6 @@ impl QueryCommand {
 
 fn run_query_with_ledger(ledger: &impl EventLedger, query: &QueryArgs) -> Result<String> {
     let output = match &query.command {
-        QueryCommand::RecentDecisions(args) => {
-            let response = get_recent_decisions(ledger, &recent_decisions_request(args)?)?;
-            format_query_response(
-                query.summary,
-                &response,
-                render_recent_decisions_summary,
-                response.data.next_cursor.as_deref(),
-            )?
-        }
         QueryCommand::GetRecentActivity(args) => {
             let response = get_recent_activity(ledger, &recent_activity_request(args)?)?;
             format_query_response(
@@ -2474,15 +2465,6 @@ fn run_query_with_ledger(ledger: &impl EventLedger, query: &QueryArgs) -> Result
                 query.summary,
                 &response,
                 render_changed_since_summary,
-                response.data.next_cursor.as_deref(),
-            )?
-        }
-        QueryCommand::GetDecisionsAddedSince(args) => {
-            let response = get_decisions_added_since(ledger, &added_since_request(args)?)?;
-            format_query_response(
-                query.summary,
-                &response,
-                render_added_since_summary,
                 response.data.next_cursor.as_deref(),
             )?
         }
@@ -2502,6 +2484,8 @@ fn run_query_with_ledger(ledger: &impl EventLedger, query: &QueryArgs) -> Result
         | QueryCommand::GetDecisionNeighborhood(_)
         | QueryCommand::GetCompactView(_)
         | QueryCommand::GetDecisionOutcome(_)
+        | QueryCommand::RecentDecisions(_)
+        | QueryCommand::GetDecisionsAddedSince(_)
         | QueryCommand::Search(_)
         | QueryCommand::SearchDecisions(_)
         | QueryCommand::Recall(_)
@@ -3452,10 +3436,30 @@ fn run_query_with_graph(
                 response.data.next_cursor.as_deref(),
             )?
         }
-        QueryCommand::RecentDecisions(_)
-        | QueryCommand::GetRecentActivity(_)
+        QueryCommand::RecentDecisions(args) => {
+            let scoped_ledger = TenantScopedLedger::new(ledger, context.tenant_id.clone());
+            let response =
+                get_recent_decisions(&scoped_ledger, graph, &recent_decisions_request(args)?)?;
+            format_query_response(
+                query.summary,
+                &response,
+                render_recent_decisions_summary,
+                response.data.next_cursor.as_deref(),
+            )?
+        }
+        QueryCommand::GetDecisionsAddedSince(args) => {
+            let scoped_ledger = TenantScopedLedger::new(ledger, context.tenant_id.clone());
+            let response =
+                get_decisions_added_since(&scoped_ledger, graph, &added_since_request(args)?)?;
+            format_query_response(
+                query.summary,
+                &response,
+                render_added_since_summary,
+                response.data.next_cursor.as_deref(),
+            )?
+        }
+        QueryCommand::GetRecentActivity(_)
         | QueryCommand::GetDecisionsChangedSince(_)
-        | QueryCommand::GetDecisionsAddedSince(_)
         | QueryCommand::ExportReadOnlySummary(_) => {
             return Err(
                 CliError::InvalidInput("query requires ledger-backed execution".to_owned()).into(),
