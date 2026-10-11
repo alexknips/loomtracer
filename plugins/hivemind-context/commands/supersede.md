@@ -1,7 +1,7 @@
 ---
 name: supersede
 description: Replace a decision with a new one, resolved by description, never by id.
-argument-hint: '"description of the old decision" --title "..." --rationale "..." --rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet'
+argument-hint: '"description of the old decision" --title "..." --rationale "..." (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo)'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/supersede.sh:*)
 disable-model-invocation: true
 ---
@@ -23,6 +23,15 @@ The replacement must say what it rests on: one of `--rests-on-decision "..."`
 `--rests-on-assumption "..."` (something assumed), or `--bet` (a declared bet).
 A supersede that names none of these is refused ("a captured decision must say
 what it rests on") and nothing is written.
+
+It must also say what the replacement binds and what undoing it would cost:
+`--binds "<what>"` or `--binds-nothing`, and `--undo-cost "<what>"` or
+`--cheap-to-undo`. A choice is a decision when it binds something beyond the edit
+in front of you or is costly to undo; typing "apple" for "Apple" is not one,
+merging tonight despite a failing check is. A supersede that leaves either answer
+out is refused and nothing is written; one that answers `--binds-nothing
+--cheap-to-undo` is recorded, marked below the decision floor. A request goes to
+your tracker.
 
 `--chose <option>` means the replacement was already decided: it is accepted
 from your actor right away. Add `--still-proposed` to keep an open

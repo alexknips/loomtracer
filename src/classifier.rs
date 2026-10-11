@@ -33,16 +33,21 @@ const MAX_TOKENS: u32 = 1200;
 const CLASSIFIER_PROMPT: &str = r#"You are the HiveMind capture classifier.
 
 HiveMind stores organizational decision memory: durable decisions, evidence,
-hypotheses, blockers, decision requests, and notifications with provenance. It
-does not store chat history, task tracking, private scratch notes, or raw tool
-logs.
+hypotheses, blockers, and notifications with provenance. It does not store chat
+history, task tracking, private scratch notes, or raw tool logs.
 
 Read the batch of recent agent activity. Return only JSON matching the capture
 schema. Most batches should return {"captures":[]}.
 
 Capture a decision only when the text shows a chosen path among plausible
-alternatives and gives or implies a reason. If a choice is requested but not yet
-made, use decision-request instead.
+alternatives, gives or implies a reason, and passes the decision test: the
+choice binds something beyond the edit in front of its author (other people,
+other code, a later choice), or undoing it would be costly. Choosing "apple"
+over "Apple" in one comment binds nothing and is cheap to undo, so it is not a
+decision. Merging tonight despite a failing check binds nothing later but is
+costly to undo, so it is. Text that asks for work to be done, or only asks
+someone to choose, is a request, not a decision: a request goes to your
+tracker, so capture nothing for it.
 
 Capture evidence only when there is an observation with a referent that could
 support or refute a later decision, such as a test result, production symptom,
@@ -61,8 +66,9 @@ state, or completed verification.
 
 Do not capture synthetic test data, fixture/demo content, gc/br plumbing,
 branch-name mechanics, routine gate chatter, raw command output, stack traces,
-file diffs, TODO lists, status narration, or generic plans. If the material is
-borderline, omit it.
+file diffs, TODO lists, status narration, generic plans, or requests for work.
+Settle a borderline choice with the decision test above: if it binds nothing and
+is cheap to undo, omit it.
 
 Keep titles short. Use 1 to 5 lowercase topic keys. Confidence is your
 self-estimate for offline tuning, not authoritative truth.
@@ -96,7 +102,7 @@ the input. Use their ID if present, otherwise null. Never infer a proposer from
 context; only record them when explicitly stated. Naming an actor here says
 nothing about who decided: it is not an acceptance.
 
-accepted_by / rejected_by: For decisions and decision-requests. Who DECIDED,
+accepted_by / rejected_by: For decisions. Who DECIDED,
 not who spoke. List an actor only when the text shows that actor deciding: a
 person stating the choice themselves ("we'll go with X", "I'm going with X"),
 or any actor approving, accepting or rejecting a choice ("approved", "yes, do
@@ -134,12 +140,10 @@ SOURCE TURN AND QUESTION — populate only from explicit text, never infer:
 Each turn in the batch starts with a header like `[user turn <id>]`.
 
 source_turn_id: The id from the header of the one turn this capture came from,
-copied exactly: for a decision, the turn in which the choice was made or stated;
-for a decision-request, the turn in which the request was made. null when you
-cannot tell which single turn.
+copied exactly: for a decision, the turn in which the choice was made or stated.
+null when you cannot tell which single turn.
 
-question: For a decision-request, the question being asked, in the words it was
-asked in. For a decision, the question it answers, only when the text states
+question: For a decision, the question it answers, only when the text states
 that question, in the words the asker used. null otherwise, and always null for
 every other kind. Never write a question the text does not contain."#;
 
@@ -164,7 +168,7 @@ pub fn capture_schema() -> serde_json::Value {
                     "properties": {
                         "kind": {
                             "type": "string",
-                            "enum": ["decision", "evidence", "hypothesis", "blocker", "decision-request", "notification"]
+                            "enum": ["decision", "evidence", "hypothesis", "blocker", "notification"]
                         },
                         "title": { "type": "string" },
                         "rationale": { "type": "string" },
@@ -911,7 +915,7 @@ fn conform_to_batch(captures: &mut [CaptureItem], turn_ids: &[String]) {
         {
             capture.source_turn_id = None;
         }
-        let takes_question = matches!(capture.kind.as_str(), "decision" | "decision-request");
+        let takes_question = capture.kind == "decision";
         if capture
             .question
             .as_ref()

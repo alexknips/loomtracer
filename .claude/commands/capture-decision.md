@@ -1,6 +1,6 @@
 ---
 allowed-tools: Bash(.claude/scripts/capture-decision.sh:*)
-argument-hint: --title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"] [--decided-by actor-id] [--still-proposed] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) [--source human|agent]
+argument-hint: --title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"] [--decided-by actor-id] [--still-proposed] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo) [--source human|agent]
 description: Capture a HiveMind decision in the local ledger
 ---
 
@@ -49,6 +49,16 @@ re-run, never drop the capture. The decider's own words are not a grounding; a
 Slack message or chat reply goes in `--quote` with `--question`, never in
 `--rests-on-evidence`. Pass `--confidence low|medium|high` only when the
 decider's own words state it.
+
+Then say what the decision binds and what undoing it would cost; both answers
+are required. `--binds "<what>"` (other people, other code or a later choice
+depend on it) or `--binds-nothing`, and `--undo-cost "<what>"` or
+`--cheap-to-undo`. A choice is a decision when it binds something or is costly
+to undo: typing "apple" for "Apple" in one comment is not one, merging tonight
+despite a failing check is. A capture that answers `--binds-nothing
+--cheap-to-undo` is still recorded, marked below the decision floor; a request
+goes to your tracker. A capture that leaves either answer out exits 2 and writes
+nothing.
 
 This command is a write-layer capture path only: it does not query, rank,
 summarize, or infer related decisions itself.

@@ -307,22 +307,18 @@ fn a_turn_the_batch_does_not_hold_is_dropped_before_submission() {
 fn a_question_the_write_path_would_refuse_is_dropped_before_submission() {
     let mut kept = parsed_capture(serde_json::json!({}));
     kept.question = Some("Which database should the hosted MVP use?".to_owned());
-    let mut request = parsed_capture(serde_json::json!({}));
-    request.kind = "decision-request".to_owned();
-    request.question = Some("Which database?".to_owned());
     let mut wordless = parsed_capture(serde_json::json!({}));
     wordless.question = Some(" ? ".to_owned());
     let mut on_evidence = parsed_capture(serde_json::json!({}));
     on_evidence.kind = "evidence".to_owned();
     on_evidence.question = Some("Which database?".to_owned());
-    let mut captures = vec![kept, request, wordless, on_evidence];
+    let mut captures = vec![kept, wordless, on_evidence];
 
     conform_to_batch(&mut captures, &[]);
 
     assert!(captures[0].question.is_some());
-    assert!(captures[1].question.is_some());
+    assert_eq!(captures[1].question, None);
     assert_eq!(captures[2].question, None);
-    assert_eq!(captures[3].question, None);
 }
 
 // --- who decided (hivemind-u70b) ---
@@ -353,6 +349,121 @@ fn both_classify_workers_carry_the_same_rule_for_who_decided() {
         for phrase in DECIDER_RULE {
             assert!(text.contains(phrase), "{worker} lost {phrase:?}");
         }
+    }
+}
+
+// --- the decision test and the retired decision-request (hivemind-bbnw.12) ---
+
+/// The paragraph that opens "Capture a decision only when", up to the next blank line, with
+/// whitespace and case flattened so the same words wrapped or indented differently compare equal.
+fn decision_test_paragraph(prompt: &str) -> String {
+    let mut lines = prompt
+        .lines()
+        .skip_while(|line| !line.contains("Capture a decision only when"));
+    let paragraph: Vec<&str> = lines
+        .by_ref()
+        .take_while(|line| !line.trim().is_empty())
+        .collect();
+    assert!(!paragraph.is_empty(), "no decision paragraph in the prompt");
+    one_line(&paragraph.join(" "))
+}
+
+/// What `scripts/e2e_smoke.sh` cuts out of SKILL.md with awk: from the line that ends the
+/// classifier's opening sentence to the line that ends its output rule.
+fn cut_by_the_e2e_sentinels(skill: &str) -> String {
+    let mut cut = Vec::new();
+    let mut inside = false;
+    for line in skill.lines() {
+        if line.ends_with("You are the HiveMind capture classifier.") {
+            inside = true;
+        }
+        if inside {
+            cut.push(line);
+        }
+        if line.ends_with("Return only the JSON array, no other text.") {
+            break;
+        }
+    }
+    cut.join("\n")
+}
+
+#[test]
+fn the_decision_test_reads_the_same_in_every_copy_of_the_prompt() {
+    let skill = include_str!("../../plugins/hivemind-capture/skills/hivemind-capture/SKILL.md");
+    let batch_capture = include_str!("../../plugins/hivemind-capture/commands/batch-capture.md");
+    let doc = include_str!("../../docs/CAPTURE_CLASSIFIER.md");
+    let e2e = include_str!("../../scripts/e2e_smoke.sh");
+    assert!(
+        e2e.contains("You are the HiveMind capture classifier\\.$")
+            && e2e.contains("Return only the JSON array, no other text\\.$"),
+        "scripts/e2e_smoke.sh cuts the prompt out of SKILL.md by these two sentinels"
+    );
+
+    let server = decision_test_paragraph(CLASSIFIER_PROMPT);
+    for needle in [
+        "binds something beyond the edit",
+        "\"apple\" over \"apple\"",
+        "merging tonight",
+        "a request goes to your tracker",
+    ] {
+        assert!(server.contains(needle), "the server prompt lost {needle:?}");
+    }
+    for (copy, text) in [
+        ("docs/CAPTURE_CLASSIFIER.md", doc.to_owned()),
+        (
+            "SKILL.md as the e2e smoke cuts it",
+            cut_by_the_e2e_sentinels(skill),
+        ),
+        ("commands/batch-capture.md", batch_capture.to_owned()),
+    ] {
+        assert_eq!(
+            decision_test_paragraph(&text),
+            server,
+            "{copy} drifted from the server-side prompt"
+        );
+    }
+}
+
+#[test]
+fn the_classifier_no_longer_produces_a_decision_request() {
+    let schema = capture_schema();
+    let kinds = schema["properties"]["captures"]["items"]["properties"]["kind"]["enum"]
+        .as_array()
+        .expect("kind enum");
+    assert!(kinds.iter().all(|kind| kind != "decision-request"));
+    assert_eq!(
+        kinds.len(),
+        5,
+        "decision, evidence, hypothesis, blocker, notification"
+    );
+
+    let prompt = one_line(CLASSIFIER_PROMPT);
+    assert!(!prompt.contains("decision-request") && !prompt.contains("decision request"));
+
+    // Every place that names the kinds an agent may submit agrees: the plugin copies, the
+    // helper's classifier enum and the keyless commands.
+    for (copy, text) in [
+        (
+            "SKILL.md",
+            include_str!("../../plugins/hivemind-capture/skills/hivemind-capture/SKILL.md"),
+        ),
+        (
+            "batch-capture.md",
+            include_str!("../../plugins/hivemind-capture/commands/batch-capture.md"),
+        ),
+        (
+            "classify-queue.md",
+            include_str!("../../plugins/hivemind-capture/commands/classify-queue.md"),
+        ),
+        (
+            "capture.sh",
+            include_str!("../../plugins/hivemind-capture/scripts/capture.sh"),
+        ),
+    ] {
+        assert!(
+            !text.contains("\"decision-request\"") && !text.contains("decision-request,"),
+            "{copy} still offers decision-request as a kind to produce"
+        );
     }
 }
 

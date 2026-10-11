@@ -48,8 +48,14 @@ field via the list command. Use the classification rules below.
 **Classification rules (same as the server-side classifier):**
 
 Capture an item ONLY when the conversation text shows:
-- **decision**: a chosen or rejected path among plausible alternatives, with a reason.
-  Use `decision-request` when the choice is requested but not yet made.
+- **decision**: a chosen or rejected path among plausible alternatives, with a reason,
+  that passes the decision test: the choice binds something beyond the edit in front
+  of its author (other people, other code, a later choice), or undoing it would be
+  costly. Choosing "apple" over "Apple" in one comment binds nothing and is cheap to
+  undo, so it is not a decision. Merging tonight despite a failing check binds nothing
+  later but is costly to undo, so it is. Text that asks for work to be done, or only
+  asks someone to choose, is a request, not a decision: a request goes to your
+  tracker, so capture nothing for it.
 - **evidence**: a real observation (test result, measurement, verified fact) that
   supports or refutes a decision or hypothesis.
 - **hypothesis**: an explicit assumption or prediction being relied on before verification.
@@ -59,8 +65,9 @@ Capture an item ONLY when the conversation text shows:
   needs after restart.
 
 **Do NOT capture:** synthetic test data, fixture/demo content, routing chatter (gc/br
-plumbing), stack traces, raw command output, status narration, todos, or private scratch
-notes. When in doubt, return an empty captures array.
+plumbing), stack traces, raw command output, status narration, todos, requests for work,
+or private scratch notes. Settle a borderline choice with the decision test: if it binds
+nothing and is cheap to undo, leave it out. When in doubt, return an empty captures array.
 
 **Who decided (`accepted_by` / `rejected_by`)**
 
@@ -113,7 +120,7 @@ hivemind classify-queue submit \
 A batch with no session (`session_id` empty in the list output) submits alone.
 
 Each CaptureItem JSON object must include:
-- `kind`: "decision" | "evidence" | "hypothesis" | "blocker" | "decision-request" | "notification"
+- `kind`: "decision" | "evidence" | "hypothesis" | "blocker" | "notification"
 - `title`: one plain sentence a stranger understands (required). If a tracker
   or ticket id (a bead, Jira, GitHub issue) appears in the source text, leave
   it out of the title — it is not part of the captured content.
@@ -136,17 +143,13 @@ Optional fields (omit rather than null unless needed):
   than this plugin: submit the same captures again without it.
 - `source_turn_id`: the id of the one turn this capture came from, copied exactly from that
   turn's header in `batch_text` (`[<role> turn <id>]`): for a decision the turn in which the
-  choice was made or stated, for a `decision-request` the turn in which the request was made.
-  Leave it out when you cannot tell which single turn. It must be a turn of the batches you
-  submit; submit refuses an unknown one, naming it. The decision is then recorded at that
-  turn's own time rather than at submit time, and a request turn writes the ask at its time.
-- `question`: only on a `decision-request` (the question being asked) or a `decision` (the
-  question it answers, when the text states it), in the words it was asked in. Never write a
-  question the text does not contain. A request and the decision that answers it must state the
-  question in the same words (case and trailing punctuation do not matter) to be linked. The ask
-  is by the `actor_id` you name on the request; with none named, a request in an `assistant`
-  turn is credited to the agent that submitted the batch, and a request in a `user` turn writes
-  no ask, so name the person in `actor_id` when the text says who asked. If
+  choice was made or stated. Leave it out when you cannot tell which single turn. It must be a
+  turn of the batches you submit; submit refuses an unknown one, naming it. The decision is
+  then recorded at that turn's own time rather than at submit time.
+- `question`: only on a `decision` (the question it answers, when the text states it), in the
+  words it was asked in. Never write a question the text does not contain. A decision that
+  states the same question as an ask already on the record (case and trailing punctuation do
+  not matter) is linked to it. If
   submit is refused because `source_turn_id`, `source_ts` or `question` is an unknown field,
   the cell runs an older hivemind than this plugin: submit the same captures again without them.
 - `actor_id`: who proposed, made or reported the item, only if named in the text. It does

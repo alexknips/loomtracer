@@ -191,16 +191,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
   > HiveMind ledger: before you act, call the `hivemind` MCP tool `recall_decisions` (q =
   > three or four key words about the task) and follow the earlier decisions that still
-  > hold. Call `capture_decision` (title, rationale = the why, options, grounding) for: a
-  > rule learned from something that failed or cost you (save it the first time, at once);
-  > a design or interface choice later work must follow; a reversal of an earlier decision
-  > (use `supersede_decision`). Not for routine status, session summaries, or plans that
-  > hold only for this session.
+  > hold. Call `capture_decision` (title, rationale = the why, options, grounding, binds,
+  > undo_cost) for: a rule learned from something that failed or cost you (save it the
+  > first time); a design or interface choice later work must follow; a reversal of an
+  > earlier decision (use `supersede_decision`). Not for routine status, session
+  > summaries, plans that hold only for this session, or a choice binding nothing and
+  > cheap to undo.
 
   The first version said only to record each durable decision, and benchmark agents read that
   as "summarise what I did": one capture per session of the month's routine, the rule that
   avoided a costly client saved late or never, and design choices made and never saved. The
-  text now names what is worth saving and what is not. It is a fixed text of about 540
+  text now names what is worth saving and what is not. It is a fixed text of about 595
   characters, held under a 150-token budget by a test (the shorter text before it measured
   143 input tokens on the wire: 19,310 against 19,167 with the hook on and off), reads no
   ledger, and fails open: with no `hivemind` binary it prints nothing and exits 0. Turn it off
@@ -482,6 +483,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The capture plugins, the skill, the Codex bundle and the classifier teach what makes a
+  choice a decision, and the classifier stops producing `decision-request`.** The capture flow
+  is "answer before you write": what does it rest on (looks back, unchanged and first), then
+  what does it bind and what would undoing it cost (looks forward). A choice is a decision when
+  it binds something beyond the edit in front of you or is costly to undo; "apple" for "Apple"
+  in one comment is not one, merging tonight despite a failing check is, and a request goes to
+  your tracker. The `hivemind-capture` skill, its `capture`, `capture-decision`,
+  `batch-capture` and `classify-queue` commands, both `active-capture` skill copies (kept
+  byte-identical), the Codex bundle (`openai.yaml`, manifest prompts), the plugin README, the
+  `hivemind-context` `supersede` text, `docs/AGENT_DECISION_CAPTURE.md` and
+  `docs/CAPTURE_CLASSIFIER.md` all say so, and the session directive now names `binds` and
+  `undo_cost` in its `capture_decision` call (still under its 150-token budget). The
+  classifier prompt's "if the material is borderline, omit it" becomes the same test, and its
+  three copies (`src/classifier.rs`, `docs/CAPTURE_CLASSIFIER.md`, and the copy in the plugin
+  skill and `batch-capture` that `scripts/e2e_smoke.sh` cuts out by sentinel) carry the same
+  decision paragraph; a test holds them equal. `decision-request` leaves the classifier's output
+  schema, the `classify-queue` and `batch-capture` kind lists and `capture.sh`'s kind list
+  (`--kind decision-request` now reads as an unsupported kind). The recorded type stays:
+  `ingest.batch_classified` and the graph still accept it, so a classification recorded earlier
+  replays unchanged. Text and prompts only: the classifier prompt change moves fidelity on the
+  classifier corpus, and a re-baseline needs a metered model key, so it is not run here.
+  (hivemind-bbnw.12)
 - **`scan_misfiled_decisions` says where each decision is filed and where it belongs.** Each
   candidate carries its `project`; `--project` limits the report to decisions filed exactly
   under one project (an unregistered handle is refused, never an empty report) and

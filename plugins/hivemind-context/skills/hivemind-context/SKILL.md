@@ -107,13 +107,23 @@ what it wants to ask.
     --rationale "why the new direction" \
     --topic-keys same,topics --options "The new direction,Keep the old direction" \
     --chose "The new direction" \
-    --rests-on-assumption "what you're assuming the new direction gets right"
+    --rests-on-assumption "what you're assuming the new direction gets right" \
+    --binds "what the new direction binds beyond the edit in front of you" \
+    --cheap-to-undo
   ```
 
   Like `hivemind-capture`, `supersede` refuses to write a decision that names
   nothing it rests on — the replacement needs one of `--rests-on-decision`,
   `--rests-on-evidence` (with `--evidence-source`), `--rests-on-assumption`,
-  or `--bet`, same as above.
+  or `--bet`, same as above. It also asks what the replacement binds and what
+  undoing it would cost, and refuses one that leaves either out:
+  `--binds "<what>"` or `--binds-nothing`, and `--undo-cost "<what>"` or
+  `--cheap-to-undo`. A choice that binds nothing and is cheap to undo (typing
+  "apple" for "Apple") is not a decision; merging tonight despite a failing check
+  is. A replacement that answers `--binds-nothing --cheap-to-undo` is still
+  recorded, marked below the decision floor. Superseding is also the fix for a
+  capture that left a leg out: replace it with the answer that was missing. A
+  request goes to your tracker.
 
 - **Say what it rests on** — a decision captured without saying reads
   `nothing declared`. If you know what it rests on, add it after the fact.

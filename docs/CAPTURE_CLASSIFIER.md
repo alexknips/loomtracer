@@ -106,9 +106,8 @@ submission time.
 
 Classification reads it through `source_turn_id` (see
 [Source turn and question](#source-turn-and-question)): a derived decision is
-recorded at the time of the turn it came from, and a decision-request turn
-writes `question.asked` at its own time. A turn with no `ts` is never given
-one.
+recorded at the time of the turn it came from. A turn with no `ts` is never
+given one.
 
 ## Batching Parameters
 
@@ -158,8 +157,13 @@ Allowed `kind` values:
 - `evidence`
 - `hypothesis`
 - `blocker`
-- `decision-request`
 - `notification`
+
+The classifier no longer produces `decision-request` (hivemind-bbnw.12): a
+request goes to your tracker, not into decision memory. The kind stays in the
+`ingest.batch_classified` schema and in the graph, so a classification recorded
+before this change replays exactly as it did (see
+[Recorded `decision-request` captures](#recorded-decision-request-captures)).
 
 Field rules:
 
@@ -184,11 +188,9 @@ Two more fields tie a capture to the transcript it came from. Both are
 
 - `source_turn_id`: the id of the one turn the capture came from, copied from
   that turn's header (`[user turn <id>]`, how the batch is rendered). For a
-  decision it is the turn in which the choice was made or stated; for a
-  decision-request, the turn in which the request was made.
-- `question`: on a `decision-request`, the question being asked, in the words
-  it was asked in; on a `decision`, the question it answers, when the text
-  states one. `null` on every other kind.
+  decision it is the turn in which the choice was made or stated.
+- `question`: on a `decision`, the question it answers, when the text states
+  one, in the words it was asked in. `null` on every other kind.
 
 The classifier only judges which turn and which words. The write path checks
 that the turn is one of the batches being classified (refusing the whole
@@ -201,28 +203,37 @@ time from the classifier.
   taken from the received batch when the graph is built, since the classifier
   can run days after the session. A batch whose turns carry no `ts` at all keeps
   the classification's own time.
+- A `decision` with a `question` links to the question with `ANSWERS`, matched
+  on the normalized text exactly as `capture --question` is: a decision that
+  states the same question as an ask already on the record (up to case, spacing
+  and trailing punctuation) shares its `Question` node, so the ask reads as
+  answered.
+- No ask is written for an agent deciding alone: a decision records its
+  question and nothing more. No "first raised" time is inferred from earlier
+  mentions. An ask comes from `hivemind ask` or the `AskUserQuestion` hook, at
+  the moment the question was put.
+
+A decision answering an ask from an earlier session links only if it states the
+question in the same words; the classifier is not shown earlier asks, so an
+answer in other words is recorded unlinked rather than guessed.
+
+### Recorded `decision-request` captures
+
+Classifications recorded before hivemind-bbnw.12 may hold `decision-request`
+captures, and `emit ingest.batch_classified` still accepts the kind, so they
+replay unchanged:
+
 - A `decision-request` with a `question` and a turn that has a `ts` writes one
   `question.asked` at that turn's time, by the actor named on the request. With
   no actor named, the turn's role decides: a request in an `assistant` turn is
   credited to whoever submitted the batch (that agent spoke it), and a request
   in a `user` turn (or any other role) writes no ask, because the batch does not
   record which human spoke and a human's question is never credited to an agent.
-  The decision that answers it is still recorded and linked. Name the asker's
-  `actor_id` on the request whenever the text says who asked. It is the only
-  home of an ask time.
-- A `decision` with a `question` links to the question with `ANSWERS`, matched
-  on the normalized text exactly as `capture --question` is: a request and a
-  decision that state the same question (up to case, spacing and trailing
-  punctuation) share one `Question` node, so the ask reads as answered.
-- No ask is written for an agent deciding alone: a decision with no request
-  turn before it records its question and nothing more. No "first raised" time
-  is inferred from earlier mentions; ask time is the turn where the request was
-  made. A request with no question, or whose turn has no `ts`, writes no ask.
+  A request with no question, or whose turn has no `ts`, writes no ask.
 - The same transcript ingested again writes the same ask once.
 
-A decision answering a request from an earlier session links only if it states
-the question in the same words; the classifier is not shown earlier asks, so an
-answer in other words is recorded unlinked rather than guessed.
+Nothing here teaches the kind: neither classify worker offers it, and the
+recorded type is not removed from the graph.
 
 ### Who decided
 
@@ -256,9 +267,26 @@ should be represented explicitly.
 ## Kind Guidelines
 
 Capture a `decision` when the batch contains a chosen path among plausible
-alternatives. It may be proposed rather than accepted, but it must have a
-selection and a reason. If the batch only asks someone to choose later, use
-`decision-request`.
+alternatives and the choice passes the decision test below. It may be proposed
+rather than accepted, but it must have a selection and a reason. If the batch
+only asks someone to choose later, or asks for work to be done, it is a request,
+not a decision: a request goes to your tracker, so capture nothing for it.
+
+The decision test has two legs, and a choice needs only one of them:
+
+1. **It binds something.** The choice reaches beyond the edit in front of its
+   author: other people, other code, or a later choice depend on it.
+2. **Undoing it is costly.** Reversing it is more than an ordinary edit.
+
+Choosing "apple" over "Apple" in one comment binds nothing and is cheap to undo:
+not a decision. Merging tonight despite a failing check binds nothing later but
+is costly to undo: a decision. A rename that users' scripts call binds them: a
+decision. The capture verbs ask the same two questions of every capture (what
+does it bind, what would undoing it cost; see
+[`AGENT_DECISION_CAPTURE.md`](AGENT_DECISION_CAPTURE.md#what-the-decision-binds-and-what-undoing-it-costs)),
+and record a choice that answers "nothing" and "cheap" marked below the decision
+floor. The classifier's own captures are not asked, so the test is in its
+prompt: it omits what fails both legs.
 
 Capture `evidence` when the batch contains an observation with a referent that
 can support or refute later choices: a test result, production symptom, external
@@ -274,9 +302,6 @@ permission issue, missing artifact, failing gate, unavailable service, or
 unresolved external decision. Routine "I am still working" status is not a
 blocker.
 
-Capture a `decision-request` when the durable value is that an actor needs a
-decision from another actor, and no chosen path is visible yet.
-
 Capture a `notification` only for durable announcements another actor would
 need after session restart: handoff state, merge-ready status, rejected
 integration with proof, or a completed verification result. Do not capture
@@ -291,8 +316,12 @@ Do not capture:
 - raw tool-result noise, stack traces, logs, or diffs without a summarized
   observation;
 - private scratch notes, plans, TODO lists, or task tracking;
+- requests for work, or asks for someone to choose: a request goes to your
+  tracker;
 - repeated statements already captured in the same batch;
-- borderline material. Omit it and tune later if humans identify a real miss.
+- a borderline choice that fails both legs of the decision test: it binds
+  nothing and is cheap to undo. Omit it and tune later if humans identify a real
+  miss.
 
 ## Classifier Prompt
 
@@ -304,16 +333,21 @@ available.
 You are the HiveMind capture classifier.
 
 HiveMind stores organizational decision memory: durable decisions, evidence,
-hypotheses, blockers, decision requests, and notifications with provenance. It
-does not store chat history, task tracking, private scratch notes, or raw tool
-logs.
+hypotheses, blockers, and notifications with provenance. It does not store chat
+history, task tracking, private scratch notes, or raw tool logs.
 
 Read the batch of recent agent activity. Return only JSON matching the capture
 schema. Most batches should return {"captures":[]}.
 
 Capture a decision only when the text shows a chosen path among plausible
-alternatives and gives or implies a reason. If a choice is requested but not yet
-made, use decision-request instead.
+alternatives, gives or implies a reason, and passes the decision test: the
+choice binds something beyond the edit in front of its author (other people,
+other code, a later choice), or undoing it would be costly. Choosing "apple"
+over "Apple" in one comment binds nothing and is cheap to undo, so it is not a
+decision. Merging tonight despite a failing check binds nothing later but is
+costly to undo, so it is. Text that asks for work to be done, or only asks
+someone to choose, is a request, not a decision: a request goes to your
+tracker, so capture nothing for it.
 
 Capture evidence only when there is an observation with a referent that could
 support or refute a later decision, such as a test result, production symptom,
@@ -332,8 +366,9 @@ state, or completed verification.
 
 Do not capture synthetic test data, fixture/demo content, gc/br plumbing,
 branch-name mechanics, routine gate chatter, raw command output, stack traces,
-file diffs, TODO lists, status narration, or generic plans. If the material is
-borderline, omit it.
+file diffs, TODO lists, status narration, generic plans, or requests for work.
+Settle a borderline choice with the decision test above: if it binds nothing and
+is cheap to undo, omit it.
 
 Never invent evidence ids. Use only ids present in the input. Keep titles short.
 Use 1 to 5 lowercase topic keys. Confidence is your self-estimate for offline

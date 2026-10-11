@@ -73,7 +73,9 @@ From Claude Code, call the `/capture` command during a live session:
   --topic-keys infrastructure,storage \
   --options "SQLite,Postgres" \
   --chose "Postgres" \
-  --rests-on-assumption "More than one agent writes to the shared ledger at once"
+  --rests-on-assumption "More than one agent writes to the shared ledger at once" \
+  --binds "Every agent and the shared ledger move to Postgres" \
+  --undo-cost "Moving back means exporting the ledger out of Postgres and replaying it"
 ```
 
 The command writes immediately to the local ledger (or the remote server if

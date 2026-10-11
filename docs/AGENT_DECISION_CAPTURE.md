@@ -19,7 +19,9 @@ cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
   --topic-keys agents,capture \
   --options "Direct CLI,MCP server,Git hook" \
   --chose "Direct CLI" \
-  --rests-on-assumption "Agents already have shell access to the local ledger"
+  --rests-on-assumption "Agents already have shell access to the local ledger" \
+  --binds "Plugins and docs teach the CLI path before MCP" \
+  --cheap-to-undo
 ```
 
 `--options` splits on every comma. A label that contains a comma goes on its own
@@ -72,7 +74,9 @@ not ask the question.
 The `hivemind-capture` skill, `/hivemind-capture:capture` and
 `/hivemind-capture:capture-decision`, the Claude `active-capture` skill, the
 repo-local `/capture-decision`, and the Codex bundle all teach the same thing:
-answer "what does this rest on?" before writing, and pass the answer as a flag.
+answer "what does this rest on?" before writing, and pass the answer as a flag;
+then answer the second pair ([what it binds and what undoing it
+costs](#what-the-decision-binds-and-what-undoing-it-costs)) the same way.
 
 | It rests on | Flag (MCP `grounding` kind) |
 |---|---|
@@ -286,6 +290,82 @@ reference: a number followed by `k`, `m`, `s`, `h`, `d`, `w`, `y` or `x`
 legitimately needs one of those tokens (e.g. quoting someone else's outline),
 pair `--quote`/`--question` rather than folding it into `--rationale`.
 
+## What the decision binds and what undoing it costs
+
+The capture flow is **answer before you write**. "What does it rest on?" looks
+back, at the ground the choice stands on, and stays first and unchanged. The
+second pair looks forward, at what the choice leaves behind. Every
+`decision.capture` and `supersede` also answers:
+
+- **What does it bind** beyond the edit in front of you (other people, other code,
+  a later choice)? `--binds <what, one sentence>` or `--binds-nothing`.
+- **What would undoing it cost?** `--undo-cost <what, one sentence>` or
+  `--cheap-to-undo`.
+
+MCP `capture_decision` / `supersede_decision` and REST `POST /v1/decisions` take
+`binds: {level: nothing|something, statement?}` and `undo_cost: {level:
+cheap|costly, statement?}`. Both are required: a call that leaves either out is
+refused as malformed (CLI exit 2, MCP tool error, HTTP 400) and nothing is written,
+the same as a capture that names nothing it rests on. The refusal names both
+questions and their `nothing` / `cheap` answers. A statement is required with
+`something` and `costly`, not allowed with the other level, and never blank. Raw
+`emit decision.proposed`, classifier ingest, document import and Slack capture do
+not ask: their decisions, and every decision recorded before the question
+existed, read "not asked". Nothing is backfilled.
+
+A choice **clears the decision floor** when it binds something **or** is costly to
+undo. How much it binds, and how costly, is not asked here.
+
+| Choice | Binds | Undoing it | Floor |
+|---|---|---|---|
+| Typing "apple" rather than "Apple" in one comment | nothing | cheap | below |
+| "Our docs always write the product name in lower case" | later docs | cheap | cleared (binds) |
+| Renaming a flag that users' scripts call | users and scripts | cheap or costly | cleared (binds) |
+| Merging tonight despite a failing check | nothing later | costly | cleared (costly to undo) |
+| "Make this a bead" / "please fix X" | not a choice | | not a decision: a request goes to your tracker |
+
+A capture whose own answers are `--binds-nothing --cheap-to-undo` is **not
+refused**: it lands, and the reply says so. Every reply carries `floor: {binds,
+undo_cost, cleared}`, and a below-floor one adds `below_floor: true` and a note
+(on the CLI, in text mode, a `below_floor:` line on stderr; stdout stays the bare
+id). The note says what to do with it: an observation belongs in evidence, a
+request in your tracker, and a real choice where a leg was left out is superseded
+with the answer that was missing. Refusing a below-floor capture is a later
+decision, to be taken once the recorded answers show where the line sits; it is
+one switch in the capture verbs, with no migration, because the answers are
+already on every record.
+
+This is the same trust as declaring a bet: the write path reads the level the
+capturer declared and cannot judge the sentence, so an agent can answer
+`something` reflexively. The sentence makes that visible later; the floor stops
+honest triviality, not gaming. What keeps requests and trivia out of the ledger is
+the teaching: the capture plugins, the `hivemind-capture` skill, the Codex bundle
+and the classifier prompt all carry the same test (below).
+
+### How the capture plugins teach it
+
+The `hivemind-capture` skill, `/hivemind-capture:capture` and
+`/hivemind-capture:capture-decision`, the Claude `active-capture` skill, the
+repo-local `/capture-decision`, `hivemind-context`'s `supersede`, and the Codex
+bundle (its `openai.yaml` and manifest prompts) teach the two-legged test with the
+two examples above (Apple against apple, merge tonight) and say **a request goes to
+your tracker**. `capture.sh` and `supersede.sh` forward `--binds`, `--binds-nothing`,
+`--undo-cost` and `--cheap-to-undo` and add none of their own, so a stranger on an
+older release is not broken. The session directive names the two answers in its
+`capture_decision` call.
+
+The classifier cannot be asked, so it carries the test in its prompt instead of
+"if the material is borderline, omit it": a choice that binds nothing and is cheap
+to undo is omitted, and a request is never a decision. The classifier no longer
+produces `decision-request` (the kind leaves its output schema, the `classify-queue`
+and `batch-capture` commands, and `capture.sh`'s kind list). The recorded type is
+unchanged: `ingest.batch_classified` still accepts it, so a classification recorded
+before the change replays as it did. The prompt lives in three copies kept
+word-for-word equal where the decision paragraph sits (`src/classifier.rs`, the
+prompt block in [`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md), and the copy in the
+plugin skill and `batch-capture` command that `scripts/e2e_smoke.sh` cuts out by
+sentinel); a test holds them equal.
+
 ## Which question a decision answers
 
 `--question "<one line>"` (MCP `question`) names the question the decision
@@ -329,15 +409,16 @@ plugin's Claude Code `SessionStart` hook adds this to every session's context:
 
 > HiveMind ledger: before you act, call the `hivemind` MCP tool `recall_decisions` (q =
 > three or four key words about the task) and follow the earlier decisions that still
-> hold. Call `capture_decision` (title, rationale = the why, options, grounding) for: a
-> rule learned from something that failed or cost you (save it the first time, at once);
-> a design or interface choice later work must follow; a reversal of an earlier decision
-> (use `supersede_decision`). Not for routine status, session summaries, or plans that
-> hold only for this session.
+> hold. Call `capture_decision` (title, rationale = the why, options, grounding, binds,
+> undo_cost) for: a rule learned from something that failed or cost you (save it the
+> first time); a design or interface choice later work must follow; a reversal of an
+> earlier decision (use `supersede_decision`). Not for routine status, session
+> summaries, plans that hold only for this session, or a choice binding nothing and
+> cheap to undo.
 
 It says what is worth saving, not only to save: told to record "decisions", benchmark agents
 saved a summary of each session and missed the rule that cost them something (hivemind-dd95).
-It is a fixed text of about 540 characters (held under a 150-token budget by a test), it reads
+It is a fixed text of about 595 characters (held under a 150-token budget by a test), it reads
 no ledger, and it fails open: no `hivemind` binary means it prints nothing and the session
 starts as usual. Turn it off with `HIVEMIND_DIRECTIVE_DISABLE=1` (in the environment, or under
 `env` in `.claude/settings.json`).
@@ -625,7 +706,9 @@ cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
   --topic-keys agents,capture \
   --options "Direct CLI,MCP server" \
   --chose "Direct CLI" \
-  --rests-on-assumption "The write path stays deterministic without query-time inference"
+  --rests-on-assumption "The write path stays deterministic without query-time inference" \
+  --binds "Every new write verb validates and appends without reading the graph" \
+  --undo-cost "Moving inference into the write path means reworking each verb and its tests"
 ```
 
 This repository also ships a project-local Claude Code command:
@@ -636,7 +719,9 @@ This repository also ships a project-local Claude Code command:
   --topic-keys agents,capture \
   --options "Direct CLI,MCP server" \
   --chose "Direct CLI" \
-  --rests-on-assumption "The write path stays deterministic without query-time inference"
+  --rests-on-assumption "The write path stays deterministic without query-time inference" \
+  --binds "Every new write verb validates and appends without reading the graph" \
+  --undo-cost "Moving inference into the write path means reworking each verb and its tests"
 ```
 
 The command calls `.claude/scripts/capture-decision.sh`. By default it records
@@ -677,7 +762,8 @@ install it. The plugin includes:
   [The session directive](#the-session-directive); off with
   `HIVEMIND_DIRECTIVE_DISABLE=1`).
 - The `hivemind-capture` skill for durable decision boundaries, provenance
-  rules, and the question every decision capture answers: what does it rest on.
+  rules, and the questions every decision capture answers: what does it rest on,
+  what does it bind, and what would undoing it cost.
 
 The default backend is the project-local `./hivemind/` directory. The bundled
 MCP descriptor pins that location for agents launched from this checkout. For
@@ -693,7 +779,9 @@ cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
   --topic-keys agents,capture \
   --options "Direct CLI,MCP server" \
   --chose "Direct CLI" \
-  --rests-on-assumption "Codex can run a local command in any checkout"
+  --rests-on-assumption "Codex can run a local command in any checkout" \
+  --binds "Codex sessions in this repository capture through the same CLI" \
+  --cheap-to-undo
 ```
 
 ### Codex Distribution Bundle
@@ -724,7 +812,8 @@ Codex exposes several extension surfaces relevant to HiveMind capture:
 This repository ships `plugins/hivemind-capture`, exposed through
 `.agents/plugins/marketplace.json`. The plugin bundles the
 `$hivemind-capture` skill, which keeps the direct CLI as the write path, asks the
-same "what does this rest on?" question as the Claude skill, and uses the same
+same "what does this rest on?" and "what does it bind, and what would undoing it
+cost?" questions as the Claude skill, and uses the same
 actor-id convention as Claude: `agent:codex:<name>` and `agent:claude:<name>` (a
 stable identity, not a raw session id).
 
@@ -795,7 +884,9 @@ HIVEMIND_AGENT_TOOL Override agent_tool field (default: claude)
 worker (`src/classifier.rs`) that reads `ingest.batch_received` events and
 annotates them with `ingest.batch_classified` events via Haiku 4.5. The
 worker exits immediately when `ANTHROPIC_API_KEY` is absent — the rest of
-the system stays correct without it. See
+the system stays correct without it. Its prompt carries the decision test (a
+choice binds something or is costly to undo; a request goes to your tracker) and it
+no longer produces `decision-request`. See
 [`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md) for the classifier design.
 
 **Who decided** (hivemind-u70b): both classify workers, this one and the agent-seat
@@ -833,20 +924,22 @@ no route that links every proposal: a wrong link cannot be undone for reads, so 
 named.
 
 **Source time and asks** (hivemind-bbnw.8): the classifier sees each turn's id and may name,
-on a capture, the turn it came from (`source_turn_id`) and, on a decision or a
-decision-request, the question in the words it was asked in (`question`). The write
+on a capture, the turn it came from (`source_turn_id`) and, on a decision, the
+question it answers in the words it was asked in (`question`). The write
 layer refuses a turn the classified batches do not hold, reads that turn's own `ts` into
 `source_ts` (never from the caller), and records a decision at that time instead of when it was
 classified. A decision whose capture names no turn, or a turn with no `ts`, reads at the newest
 turn time of its batch when the batch's turns carry times (hivemind-ohik; the graph reads it
 from the received batch, so a session classified days later still reads as when it was said),
-and at the classification's time only for a batch with no turn times at all. A
-decision-request with a question and a dated turn writes one `question.asked` at that turn's
-time, by the actor named on the request (with none named, an assistant's turn is credited to
-the batch's submitter and a user's turn writes no ask); a decision stating the
-same question (after the normalization `capture --question` uses) links to it with `ANSWERS`,
-so `why` shows both times. An agent deciding alone writes no ask, and no earlier "first
-raised" time is inferred. The same transcript ingested again writes its ask once.
+and at the classification's time only for a batch with no turn times at all. A decision
+stating the same question as an ask on the record (after the normalization `capture
+--question` uses) links to it with `ANSWERS`, so `why` shows both times. An agent deciding
+alone writes no ask, and no earlier "first raised" time is inferred. Classifications recorded
+before hivemind-bbnw.12 may hold `decision-request` captures; they replay unchanged, and one
+with a question and a dated turn still writes one `question.asked` at that turn's time, by the
+actor named on the request (with none named, an assistant's turn is credited to the batch's
+submitter and a user's turn writes no ask). The same transcript ingested again writes its ask
+once.
 
 **Agent-shaped tokens**: `POST /v1/users` (and `.../tokens`) always mint a
 `human:<email>` token, since agents aren't users with an email or role. An

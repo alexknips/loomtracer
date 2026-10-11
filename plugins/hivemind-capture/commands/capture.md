@@ -1,7 +1,7 @@
 ---
 name: capture
 description: Capture one HiveMind decision-memory item in the configured ledger
-argument-hint: '"<text>" [--kind decision|evidence|hypothesis|blocker|decision-request|notification] [decision flags, incl. what it rests on] [--source agent|human]'
+argument-hint: '"<text>" [--kind decision|evidence|hypothesis|blocker|notification] [decision flags, incl. what it rests on, what it binds and what undoing it costs] [--source agent|human]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh:*)
 disable-model-invocation: true
 ---
@@ -23,8 +23,11 @@ assumptions that may later be supported or refuted.
 For decisions, keep using structured decision fields:
 
 ```text
-/hivemind-capture:capture "selected direction" --kind decision --title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--option "Label"]... [--chose "Label"] [--decided-by actor-id] [--delegated-by human:name] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."])
+/hivemind-capture:capture "selected direction" --kind decision --title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--option "Label"]... [--chose "Label"] [--decided-by actor-id] [--delegated-by human:name] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo)
 ```
+
+Answer two questions before you write: what does this rest on (it looks back),
+then what does it bind and what would undoing it cost (it looks forward).
 
 Every decision must say what it rests on. Before writing, answer "what does
 this rest on?" with one or more of:
@@ -53,8 +56,26 @@ A question someone asked with `hivemind ask` waits until a decision answers it
 answer one, pass its request id as `--answers <request id>` in place of
 `--question`: the decision is linked to the request and the request stops waiting.
 
-A capture that names nothing exits 2 and writes nothing. After any refusal (no
-grounding, an ambiguous premise, no match), add the grounding and re-run: never
+Then say what the decision binds and what undoing it would cost. Both answers
+are required:
+
+- what it binds beyond the edit in front of you (other people, other code, a
+  later choice): `--binds "<one sentence saying what>"`, or `--binds-nothing`;
+- what undoing it would cost: `--undo-cost "<one sentence saying what>"`, or
+  `--cheap-to-undo` when undoing it is an ordinary edit.
+
+A choice is a decision when it binds something or is costly to undo. Typing
+"apple" rather than "Apple" in one comment binds nothing and is cheap to undo:
+not a decision, so do not capture it. Merging tonight despite a failing check
+binds nothing later but is costly to undo: a decision. A request ("make this a
+bead", "please fix X") is not a decision at all: a request goes to your tracker.
+A capture that answers `--binds-nothing --cheap-to-undo` is still recorded, and
+the reply says it is below the decision floor (`below_floor: true`); if it is a
+real choice and you left a leg out, supersede it with the missing answer.
+
+A capture that names nothing it rests on, or leaves either answer out, exits 2
+and writes nothing. After any refusal (no grounding, an ambiguous premise, no
+match, a missing binds or undo-cost answer), add the answer and re-run: never
 drop the capture. For an ambiguous premise, re-run with `--rests-on-decision
 '#N'` in place of the description.
 
@@ -80,9 +101,10 @@ agent deciding alone. It requires `--chose` and an agent actor.
 
 When `--kind` is omitted, the helper delegates classification to the configured
 `hivemind-classifier` subagent if it is installed; otherwise it emits nothing.
-The helper recognizes blocker, decision-request, and notification as schema
-kinds, but returns a clear unsupported-kind error until the command layer has
-canonical capture paths for those event shapes.
+The helper recognizes blocker and notification as schema kinds, but returns a
+clear unsupported-kind error until the command layer has canonical capture paths
+for those event shapes. There is no decision-request kind to capture: a request
+goes to your tracker.
 
 Default to `--source agent`, which records `actor_id=agent:claude:<name>`
 (a stable identity, preferring Gas City's `GC_AGENT`/`GC_ALIAS` over a raw

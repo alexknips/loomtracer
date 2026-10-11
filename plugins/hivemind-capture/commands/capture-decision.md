@@ -1,7 +1,7 @@
 ---
 name: capture-decision
 description: Capture one HiveMind decision in the configured ledger using the legacy kind-locked path
-argument-hint: '--title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"] [--decided-by actor-id] [--delegated-by human:name] [--still-proposed] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) [--project handle] [--source agent|human]'
+argument-hint: '--title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"] [--decided-by actor-id] [--delegated-by human:name] [--still-proposed] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo) [--project handle] [--source agent|human]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/capture-decision.sh:*)
 disable-model-invocation: true
 ---
@@ -56,6 +56,15 @@ A capture that names none exits 2 and writes nothing; add the grounding and
 re-run, never drop the capture. The decider's own words are not a grounding:
 they go in `--quote` with `--question`, and `--confidence` only when those words
 state it. `/hivemind-capture:capture` documents the four answers in full.
+
+It also asks what the decision binds and what undoing it would cost, and both
+answers are required: `--binds "<what>"` or `--binds-nothing`, and `--undo-cost
+"<what>"` or `--cheap-to-undo`. A choice is a decision when it binds something
+beyond the edit in front of you or is costly to undo: typing "apple" for "Apple"
+is not one, merging tonight despite a failing check is. A capture that answers
+`--binds-nothing --cheap-to-undo` is still recorded, marked below the decision
+floor; a request goes to your tracker. A capture that leaves either answer out
+exits 2 and writes nothing.
 
 This command is a write-layer path only: it does not query, rank, summarize, or
 infer related decisions itself.

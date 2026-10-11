@@ -27,7 +27,8 @@ This directory is both the Codex capture plugin and the Claude Code
 - The `hivemind-capture` skill for capture boundaries and provenance rules.
 - The Claude `active-capture` skill, which nudges `/capture <text>
   [--kind decision|evidence|hypothesis|blocker]` during live durable-decision
-  moments while avoiding synthetic test data and routing chatter.
+  moments while avoiding synthetic test data, routing chatter, choices that bind
+  nothing and are cheap to undo, and requests (a request goes to your tracker).
 - The `citation` skill, which guides the agent to pin URL versions (commit
   hash, revision ID, or access date) when a link appears in a capture context.
 
@@ -194,16 +195,17 @@ autonomous agent never calls. So the plugin's `SessionStart` hook
 
 > HiveMind ledger: before you act, call the `hivemind` MCP tool `recall_decisions` (q =
 > three or four key words about the task) and follow the earlier decisions that still
-> hold. Call `capture_decision` (title, rationale = the why, options, grounding) for: a
-> rule learned from something that failed or cost you (save it the first time, at once);
-> a design or interface choice later work must follow; a reversal of an earlier decision
-> (use `supersede_decision`). Not for routine status, session summaries, or plans that
-> hold only for this session.
+> hold. Call `capture_decision` (title, rationale = the why, options, grounding, binds,
+> undo_cost) for: a rule learned from something that failed or cost you (save it the
+> first time); a design or interface choice later work must follow; a reversal of an
+> earlier decision (use `supersede_decision`). Not for routine status, session
+> summaries, plans that hold only for this session, or a choice binding nothing and
+> cheap to undo.
 
 It says what is worth saving, because told only to record "decisions" the agents in the
 benchmarks saved a summary of each session and missed the rules that cost them something.
 
-- **It is a fixed text of about 540 characters**, which the tests hold under a 150-token
+- **It is a fixed text of about 595 characters**, which the tests hold under a 150-token
   budget (4 characters per token). The text it replaces measured 143 input tokens on the
   wire (19,310 against 19,167 on the same prompt with the hook on and off), so expect the
   wire cost to run above that estimate. The hook reads no ledger and decides nothing; recall
@@ -324,14 +326,31 @@ the asks.
 Capture one decision:
 
 ```text
-/hivemind-capture:capture "Use the Claude plugin for local capture" --kind decision --title "Use the Claude plugin for local capture" --rationale "The plugin installs commands, skill guidance, and MCP without project-local setup" --topic-keys agents,claude,distribution --options "Claude plugin,Manual MCP setup" --chose "Claude plugin" --rests-on-assumption "Contributors install Claude Code plugins from the repository marketplace"
+/hivemind-capture:capture "Use the Claude plugin for local capture" --kind decision --title "Use the Claude plugin for local capture" --rationale "The plugin installs commands, skill guidance, and MCP without project-local setup" --topic-keys agents,claude,distribution --options "Claude plugin,Manual MCP setup" --chose "Claude plugin" --rests-on-assumption "Contributors install Claude Code plugins from the repository marketplace" --binds "The README and the marketplace listing point contributors at the plugin" --cheap-to-undo
 ```
 
-Every decision capture says what it rests on: `--rests-on-decision` (a decision we
-already made), `--rests-on-evidence` with `--evidence-source` (something observed),
-`--rests-on-assumption`, or `--bet` (nothing yet). A capture that names none is
-refused and writes nothing. The decider's own words are not a grounding; they go
-in `--quote` with `--question`. See the `hivemind-capture` skill.
+Answer two questions before you write a decision. The first looks back:
+
+- **What does it rest on?** `--rests-on-decision` (a decision we already made),
+  `--rests-on-evidence` with `--evidence-source` (something observed),
+  `--rests-on-assumption`, or `--bet` (nothing yet). A capture that names none is
+  refused and writes nothing. The decider's own words are not a grounding; they go
+  in `--quote` with `--question`.
+
+The second looks forward, and both halves are required (a capture that leaves
+either out is refused and writes nothing):
+
+- **What does it bind, and what would undoing it cost?** `--binds "<what>"` (other
+  people, other code or a later choice depend on it) or `--binds-nothing`, and
+  `--undo-cost "<what>"` or `--cheap-to-undo`.
+
+A choice is a decision when it binds something or is costly to undo. Typing
+"apple" rather than "Apple" in one comment binds nothing and is cheap to undo:
+not a decision. Merging tonight despite a failing check binds nothing later but
+is costly to undo: a decision. A capture that answers `--binds-nothing
+--cheap-to-undo` is still recorded, and the reply says it is below the decision
+floor. A request ("make this a bead") is not a decision: a request goes to your
+tracker. See the `hivemind-capture` skill.
 
 `--options` splits on every comma. A label that holds a comma goes on its own
 `--option "Rename later, after the comparison"`: the flag takes one label whole,

@@ -20,7 +20,7 @@ Consider capture when the current context includes one of these durable
 organizational memory items:
 
 - `decision`: an actor chooses, rejects, accepts, supersedes, or contests a
-  direction, and later work may depend on that choice.
+  direction, and the choice passes the decision test below.
 - `evidence`: a real test result, production observation, user-provided fact,
   measurement, or external artifact supports or refutes a decision or
   hypothesis.
@@ -43,8 +43,9 @@ dependency context. Prefer `--kind decision` for selected or rejected options,
 may later be refuted, and `--kind blocker` for unresolved decision
 dependencies.
 
-A `decision` call carries its structured fields and the answer to "what does
-this rest on?" (next section). The other kinds take the statement alone.
+A `decision` call carries its structured fields and the answers to "what does
+this rest on?" and "what does it bind, and what would undoing it cost?" (next
+sections). The other kinds take the statement alone.
 
 Write the title as one plain sentence a stranger understands, and keep the
 rationale readable without the tracker. A tracker or ticket id (a bead, Jira,
@@ -54,7 +55,7 @@ evidence — never in the title, and not as the rationale's subject.
 Examples:
 
 ```text
-/capture "Use SQLite WAL for local concurrent writes" --kind decision --title "Use SQLite WAL for local concurrent writes" --rationale "It preserves single-process setup while allowing read concurrency" --topic-keys storage --options "SQLite WAL,Rollback journal" --chose "SQLite WAL" --rests-on-evidence "The WAL multiprocess test passed with two concurrent readers and one writer" --evidence-source "cargo test wal_multiprocess"
+/capture "Use SQLite WAL for local concurrent writes" --kind decision --title "Use SQLite WAL for local concurrent writes" --rationale "It preserves single-process setup while allowing read concurrency" --topic-keys storage --options "SQLite WAL,Rollback journal" --chose "SQLite WAL" --rests-on-evidence "The WAL multiprocess test passed with two concurrent readers and one writer" --evidence-source "cargo test wal_multiprocess" --binds "Every local reader and writer opens the ledger in WAL mode" --cheap-to-undo
 /capture The WAL multiprocess test passed against two concurrent readers and one writer. --kind evidence
 /capture Shared backend adoption assumes teams will accept service-managed identity instead of per-repo local actors. --kind hypothesis
 /capture Release packaging is blocked on choosing GitHub Actions retries versus local DSR fallback. --kind blocker
@@ -78,11 +79,33 @@ in `--quote` with `--question`, never in `--rests-on-evidence`. Pass
 the grounding and re-run; never drop the capture. The `hivemind-capture` skill
 has the full text.
 
+## The Decision Test: What Does It Bind, What Would Undoing It Cost?
+
+Answer these two before you nudge, after "what does this rest on?" (that one
+looks back; these look forward). A decision capture carries both or is refused
+and writes nothing:
+
+- what it binds beyond the edit in front of you (other people, other code, a
+  later choice): `--binds "<one sentence saying what>"`, or `--binds-nothing`;
+- what undoing it would cost: `--undo-cost "<one sentence saying what>"`, or
+  `--cheap-to-undo` when undoing it is an ordinary edit.
+
+A choice is a decision when it binds something **or** is costly to undo. Typing
+"apple" rather than "Apple" in one comment binds nothing and is cheap to undo:
+do not nudge a capture. Merging tonight despite a failing check binds nothing
+later but is costly to undo: a decision. A request ("make this a bead", "please
+fix X") is not a decision at all: a request goes to your tracker. If both
+answers come out `--binds-nothing --cheap-to-undo` the capture is still recorded
+but marked below the decision floor; that is the system telling you it was not a
+decision.
+
 ## Guardrails
 
 Do NOT call this for synthetic test data or routing chatter. Do not invoke
 `/capture` for:
 
+- A choice that binds nothing beyond the edit in front of you and is cheap to
+  undo, or a request for work (it goes to your tracker).
 - Synthetic test data, fixture-only assertions, seed prompts, demos, or examples
   that do not represent a real organizational decision.
 - Routing chatter such as `gc sling`, `br update`, merge-ready handoffs,

@@ -36,7 +36,9 @@ HIVEMIND_DIR="$(mktemp -d)" hivemind emit decision.capture \
   --topic-keys dogfood,smoke \
   --options "Shared ledger,Temporary ledger" \
   --chose "Temporary ledger" \
-  --bet
+  --bet \
+  --binds-nothing \
+  --cheap-to-undo
 ```
 
 Back up the shared ledger before moving or deleting it. For a live backup, use
@@ -162,7 +164,7 @@ If Claude Code prompts for the plugin, install it and reload plugins:
 Capture a smoke decision:
 
 ```text
-/hivemind-capture:capture-decision --title "Verify Claude dogfood capture" --rationale "The repo plugin should write to ./hivemind/ with Claude actor provenance" --topic-keys dogfood,claude --options "Repo plugin,Manual CLI" --chose "Repo plugin" --bet
+/hivemind-capture:capture-decision --title "Verify Claude dogfood capture" --rationale "The repo plugin should write to ./hivemind/ with Claude actor provenance" --topic-keys dogfood,claude --options "Repo plugin,Manual CLI" --chose "Repo plugin" --bet --binds-nothing --cheap-to-undo
 ```
 
 Query it back:
@@ -199,7 +201,10 @@ plugins/hivemind-capture/scripts/capture-decision.sh \
   --rationale "The Codex helper should write to ./hivemind/ with Codex actor provenance" \
   --topic-keys dogfood,codex \
   --options "Plugin helper,Manual CLI" \
-  --chose "Plugin helper"
+  --chose "Plugin helper" \
+  --bet \
+  --binds-nothing \
+  --cheap-to-undo
 ```
 
 Query it back:

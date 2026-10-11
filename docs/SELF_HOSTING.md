@@ -285,7 +285,9 @@ using your agent's subscription seat. No key, no extra configuration.
      --topic-keys infrastructure,storage \
      --options "SQLite,Postgres" \
      --chose "Postgres" \
-     --rests-on-assumption "More than one agent writes to the shared ledger at once"
+     --rests-on-assumption "More than one agent writes to the shared ledger at once" \
+     --binds "Every agent and the shared ledger move to Postgres" \
+     --undo-cost "Moving back means exporting the ledger out of Postgres and replaying it"
    ```
 
 4. **Drain the classification queue** after your session:

@@ -1,6 +1,6 @@
 ---
 name: hivemind-capture
-description: Capture durable organizational decisions from Claude Code or Codex into HiveMind with full provenance. Use when an agent session chooses between options, records architecture/integration/policy rationale, accepts or rejects a decision, supersedes prior direction, or needs to verify agent-captured decisions. Every decision capture must say what the decision rests on. Do not use for chat logs, task tracking, private scratch memory, or speculative notes.
+description: Capture durable organizational decisions from Claude Code or Codex into HiveMind with full provenance. Use when an agent session chooses between options, records architecture/integration/policy rationale, accepts or rejects a decision, supersedes prior direction, or needs to verify agent-captured decisions. Every decision capture must say what the decision rests on, what it binds, and what undoing it would cost. Do not use for chat logs, task tracking, requests for work, private scratch memory, or speculative notes.
 ---
 
 # HiveMind Capture
@@ -18,9 +18,15 @@ Capture these:
 - A supersession or acceptance of an existing decision.
 - What the decision rests on: a decision already made, something observed, an
   assumption, or a declared bet (see "What Does This Rest On?" below).
+- What the decision binds and what undoing it would cost (see "What Does It
+  Bind, And What Would Undoing It Cost?" below).
 
 Do not capture these:
 
+- A choice that binds nothing beyond the edit in front of you and is cheap to
+  undo: typing "apple" rather than "Apple" in one comment is not a decision.
+- A request. "Make this a bead", "please fix X" and "someone should decide Y" ask
+  for work: a request goes to your tracker, not into decision memory.
 - Ordinary progress updates, todos, or implementation queues.
 - Raw chat transcripts or brainstorming before a conclusion exists.
 - Private agent scratch memory.
@@ -133,7 +139,9 @@ plugins/hivemind-capture/scripts/capture.sh "Cap retry delay at 30 seconds" \
   --chose "Cap at 30 seconds" \
   --rests-on-decision "exponential backoff for retries" \
   --rests-on-evidence "Uncapped backoff reached 8 minutes in the June incident" \
-  --evidence-source "https://example.test/incidents/june"
+  --evidence-source "https://example.test/incidents/june" \
+  --binds "Every client's retry loop now waits at most 30 seconds" \
+  --cheap-to-undo
 ```
 
 ### Options are short human labels
@@ -193,7 +201,9 @@ plugins/hivemind-capture/scripts/capture.sh "Keep the retry budget at 3" \
   --quote "keep it at 3, more just hides outages" \
   --question "Should the worker retry budget go from 3 to 5 attempts?" \
   --rests-on-evidence "The 5-retry config stretched the June outage to 40 minutes" \
-  --evidence-source "https://example.test/incidents/june"
+  --evidence-source "https://example.test/incidents/june" \
+  --binds "Operators see an outage after three attempts, not five" \
+  --cheap-to-undo
 ```
 
 ### A decision you name is a link, not prose
@@ -242,7 +252,9 @@ plugins/hivemind-capture/scripts/capture.sh "Alex: drop the commercial licence l
   --decided-by human:alex \
   --quote "drop the commercial licence available line (AGPL only, self-host free)" \
   --question "Should the README keep the commercial licence line?" \
-  --rests-on-decision "packaging: nothing paywalled until after the own-use trial"
+  --rests-on-decision "packaging: nothing paywalled until after the own-use trial" \
+  --binds "The README and later packaging copy carry no commercial wording" \
+  --cheap-to-undo
 
 plugins/hivemind-capture/scripts/capture.sh "Rewrite the README licence section" \
   --kind decision \
@@ -251,7 +263,9 @@ plugins/hivemind-capture/scripts/capture.sh "Rewrite the README licence section"
   --topic-keys packaging \
   --options "One sentence,A licence section" \
   --chose "One sentence" \
-  --rests-on-decision "Drop the 'commercial licence available' README line"
+  --rests-on-decision "Drop the 'commercial licence available' README line" \
+  --binds "Later README edits keep the licence to one sentence" \
+  --cheap-to-undo
 ```
 
 Never `--rests-on-evidence "Alex ruled ..."`: that files a person's decision as
@@ -293,8 +307,10 @@ the same question reads as `also answered by`, or as a conflict.
 - The recorded answer's rationale is the note the person wrote on their pick, word
   for word (a note too short to read on its own is quoted instead). Only with
   neither a note nor words of their own does it say no reasons were given. It rests
-  on a bet with nothing declared, because nothing was stated. If the person then
-  says what it rests on
+  on a bet with nothing declared, because nothing was stated. It records that the
+  ruling binds the work that follows and is costly to reverse, because the work
+  was waiting on the choice, and nothing more: the hook cannot judge either. If
+  the person then says what it rests on
   (an observation, a decision it follows from, an assumption), record that with
   `hivemind ground "<decision>" ...`; do not file a duplicate.
 - A question you never put to the person (deciding alone, working from the
@@ -308,6 +324,9 @@ the same question reads as `also answered by`, or as a conflict.
 Add the grounding and re-run the same command. Never drop the capture.
 
 - **Nothing named.** The error lists the four ways to answer. Pick one.
+- **Binds or undo cost left out.** The error names both questions and their
+  "nothing" and "cheap" answers. Add `--binds` or `--binds-nothing`, and
+  `--undo-cost` or `--cheap-to-undo`, and re-run the same command.
 - **Ambiguous premise.** `'<text>' matches 2 decisions...` with numbered
   candidates and nothing written. Re-run right away with `--rests-on-decision
   '#N'` (or the `decision-...` id) in place of the description; `#N` refers to
@@ -324,6 +343,73 @@ superseded or rejected. The capture is recorded and reads as stale; check it
 with `verify` and consider whether you meant the decision that replaced it. For
 the same reason, do not name the decision you are superseding as the premise of
 its replacement.
+
+## What Does It Bind, And What Would Undoing It Cost?
+
+Answer this second, after "what does this rest on?" and before you write. The
+first question looks back, at the ground the choice stands on. This one looks
+forward, at what the choice leaves behind. Every decision capture answers both
+halves of it, or it is refused (exit 2, an MCP tool error, HTTP 400) and nothing
+is written, exactly as when "what does it rest on?" is left out.
+
+1. **What does it bind** beyond the edit in front of you: other people, other
+   code, a later choice? Say what in one sentence with `--binds "<what>"`, or say
+   it binds nothing with `--binds-nothing`.
+2. **What would undoing it cost?** Say what in one sentence with
+   `--undo-cost "<what>"`, or say undoing it is an ordinary edit with
+   `--cheap-to-undo`.
+
+A choice is a decision when it binds something **or** is costly to undo. Only
+the two "nothing" answers together mean it is a one-off choice, not a decision:
+
+| Choice | Binds | Undoing it | Result |
+|---|---|---|---|
+| Typing "apple" rather than "Apple" in one comment | nothing | cheap | below the floor: not a decision |
+| Merging tonight despite a failing check | nothing later | costly: the merge reaches everyone who pulls | a decision |
+| Renaming a flag that users' scripts call | users and their scripts | cheap or costly | a decision |
+| "Make this a bead" / "please fix X" | not a choice | | a request: your tracker |
+
+A request is never a decision, however it is worded. Put it in your tracker; if
+it also carries a real choice ("do X, and use Postgres for it"), capture the
+choice and leave the work to the tracker.
+
+```bash
+plugins/hivemind-capture/scripts/capture.sh "Rename the check command" \
+  --kind decision \
+  --title "Rename the check command to verify" \
+  --rationale "Users type it daily and the old name read as a lint" \
+  --topic-keys cli \
+  --options "Rename to verify,Keep the old name" \
+  --chose "Rename to verify" \
+  --rests-on-evidence "Three users asked what the old name checks" \
+  --evidence-source "https://example.test/feedback/cli-names" \
+  --binds "Users' scripts and the docs call the command by its new name" \
+  --cheap-to-undo
+
+plugins/hivemind-capture/scripts/capture.sh "Merge tonight" \
+  --kind decision \
+  --title "Merge the release branch tonight despite one failing check" \
+  --rationale "The check is a known flake and the freeze starts at midnight" \
+  --topic-keys release \
+  --options "Merge tonight,Wait for the fix" \
+  --chose "Merge tonight" \
+  --rests-on-assumption "The failing check is the known flake, not a regression" \
+  --binds-nothing \
+  --undo-cost "Reverting after the freeze means a second release for everyone who pulled it"
+```
+
+The write path reads the answers you declare; it cannot judge your sentences.
+Answer honestly: a reflexive `--binds` on a choice that binds nothing is visible
+later, and the sentence is the record of why.
+
+A capture that answers `--binds-nothing --cheap-to-undo` is still recorded, but
+the reply says so (`below_floor: true`, with `floor: {binds, undo_cost,
+cleared}` for every capture) and the decision reads as below the decision floor
+wherever it is shown. That mark is the system telling you this was not a
+decision: next time leave it out, and put an observation in evidence and a
+request in your tracker. If it is a real choice and you left a leg out, supersede
+it with the answer that was missing. Decisions recorded before the question
+existed read "not asked"; nothing is backfilled.
 
 ## Capture Workflow
 
@@ -350,7 +436,9 @@ ledger write must stay explicit and deterministic.
      --topic-keys agents,capture \
      --options "Direct CLI,MCP server,Git hook" \
      --chose "Direct CLI" \
-     --rests-on-assumption "Agents already have shell access to the ledger"
+     --rests-on-assumption "Agents already have shell access to the ledger" \
+     --binds "Plugins and docs teach the CLI path before MCP" \
+     --cheap-to-undo
    ```
 
    The helper records `source=agent` and derives `actor_id=agent:<tool>:<name>`.
@@ -391,7 +479,9 @@ ledger write must stay explicit and deterministic.
      --topic-keys agents,capture \
      --options "Direct CLI,MCP server,Git hook" \
      --chose "Direct CLI" \
-     --rests-on-assumption "Agents already have shell access to the ledger"
+     --rests-on-assumption "Agents already have shell access to the ledger" \
+     --binds "Plugins and docs teach the CLI path before MCP" \
+     --cheap-to-undo
    ```
 
    If the `hivemind` binary is not on `PATH`, run the same command from a
@@ -406,7 +496,7 @@ ledger write must stay explicit and deterministic.
    From the Claude Code plugin, prefer the installed slash command:
 
    ```text
-   /hivemind-capture:capture "Prefer direct CLI capture before MCP" --kind decision --title "Prefer direct CLI capture before MCP" --rationale "The write path is explicit, testable, and does not depend on hooks or MCP setup" --topic-keys agents,capture --options "Direct CLI,MCP server,Git hook" --chose "Direct CLI" --rests-on-assumption "Agents already have shell access to the ledger"
+   /hivemind-capture:capture "Prefer direct CLI capture before MCP" --kind decision --title "Prefer direct CLI capture before MCP" --rationale "The write path is explicit, testable, and does not depend on hooks or MCP setup" --topic-keys agents,capture --options "Direct CLI,MCP server,Git hook" --chose "Direct CLI" --rests-on-assumption "Agents already have shell access to the ledger" --binds "Plugins and docs teach the CLI path before MCP" --cheap-to-undo
    ```
 
 4. Attach existing evidence or hypotheses only when their ids are already known.
@@ -426,12 +516,15 @@ ledger write must stay explicit and deterministic.
      --options "Local ledger,Shared ledger" \
      --chose "Shared ledger" \
      --evidence evidence-001 \
-     --hypotheses hypothesis-001
+     --hypotheses hypothesis-001 \
+     --binds "Every agent in the demo reads and writes the one shared ledger" \
+     --undo-cost "Moving back means copying each captured decision out of the shared ledger"
    ```
 
 5. For acceptance, rejection, or supersession, use the lower-level event verbs
    with the same actor id (the replacement decision itself is a capture, so it
-   answers "what does this rest on?" like any other):
+   answers "what does this rest on?" and "what does it bind, what would undoing
+   it cost?" like any other):
 
    ```bash
    HIVEMIND_AGENT_TOOL="${HIVEMIND_AGENT_TOOL:-$([ -n "${CODEX_THREAD_ID:-}${CODEX_SESSION_ID:-}${CODEX_TASK_ID:-}" ] && echo codex || echo claude)}"
@@ -540,8 +633,11 @@ Use this path when:
 Explicit `emit decision.capture` remains the preferred path for single,
 deterministic decisions you make in the moment. Use the batch path for
 retrospective extraction over accumulated context. The batch path does not ask
-what a decision rests on: extracted decisions read `nothing declared` until
-someone grounds them (the `hivemind-context` plugin's `ground` verb).
+what a decision rests on, what it binds or what undoing it costs: extracted
+decisions read `nothing declared` until someone grounds them (the
+`hivemind-context` plugin's `ground` verb), and read "not asked" for the other
+two. The classifier prompt below carries the decision test instead, so it leaves
+out a choice that binds nothing and is cheap to undo.
 
 ### Batch Capture Workflow
 
@@ -565,15 +661,21 @@ someone grounds them (the `hivemind-context` plugin's `ground` verb).
    You are the HiveMind capture classifier.
 
    HiveMind stores organizational decision memory: durable decisions, evidence,
-   hypotheses, blockers, decision requests, and notifications with provenance.
-   It does not store chat history, task tracking, private scratch notes, or
-   raw tool logs.
+   hypotheses, blockers, and notifications with provenance. It does not store
+   chat history, task tracking, private scratch notes, or raw tool logs.
 
    Read the batch of recent agent activity. Return ONLY a JSON array of
    capture objects. Most batches should return [].
 
    Capture a decision only when the text shows a chosen path among plausible
-   alternatives and gives or implies a reason.
+   alternatives, gives or implies a reason, and passes the decision test: the
+   choice binds something beyond the edit in front of its author (other people,
+   other code, a later choice), or undoing it would be costly. Choosing "apple"
+   over "Apple" in one comment binds nothing and is cheap to undo, so it is not a
+   decision. Merging tonight despite a failing check binds nothing later but is
+   costly to undo, so it is. Text that asks for work to be done, or only asks
+   someone to choose, is a request, not a decision: a request goes to your
+   tracker, so capture nothing for it.
 
    Write `title` as one plain sentence a stranger understands, and keep
    `rationale` readable without the tracker. If a tracker or ticket id (a
@@ -582,7 +684,7 @@ someone grounds them (the `hivemind-context` plugin's `ground` verb).
 
    Each capture object must have exactly these fields:
    {
-     "kind": "decision" | "evidence" | "hypothesis" | "blocker" | "decision-request" | "notification",
+     "kind": "decision" | "evidence" | "hypothesis" | "blocker" | "notification",
      "title": string,
      "rationale": string,
      "topic_keys": [string, ...],
@@ -877,6 +979,9 @@ Do not invent a `capture_node_id`; a capture's target is derived from
 - Say what every decision rests on, and never file the decider's own words as
   evidence: they go in `--quote` with `--question`. Do not invent a grounding to
   get past the refusal; a bet is the honest answer when there is nothing yet.
+- Say what every decision binds and what undoing it would cost, and answer for
+  the choice as it is. A choice that binds nothing and is cheap to undo is not a
+  decision: leave it out. A request goes to your tracker, never into the ledger.
 - When your rationale names an earlier decision, record it with
   `--rests-on-decision` (look it up first if you only know the title). When what
   you rest on is a person's ruling, record the ruling as their decision
@@ -927,8 +1032,9 @@ When this is how `hivemind` is registered, call the `mcp__hivemind__*` tools
 instead of shelling out to `capture.sh` — the CLI transport above cannot
 reach this backend at all.
 
-`capture_decision` and `supersede_decision` ask the same question through a
-required `grounding` array (at least one item), one item per answer:
+`capture_decision` and `supersede_decision` ask the same questions through a
+required `grounding` array (at least one item), one item per answer, and two
+required answers, `binds` and `undo_cost`:
 
 ```json
 {
@@ -942,9 +1048,17 @@ required `grounding` array (at least one item), one item per answer:
     { "kind": "evidence", "content": "Uncapped backoff reached 8 minutes in the June incident", "source": "https://example.test/incidents/june" },
     { "kind": "assumption", "statement": "Clients retry from a single region" },
     { "kind": "bet", "statement": "30 seconds is long enough", "would_change_if": "retries still storm", "check_by": "2026-12-01" }
-  ]
+  ],
+  "binds": { "level": "something", "statement": "Every client's retry loop now waits at most 30 seconds" },
+  "undo_cost": { "level": "cheap" }
 }
 ```
+
+`binds.level` is `nothing` or `something`, `undo_cost.level` is `cheap` or
+`costly`. A statement is required with `something` and `costly` and not allowed
+with the other level; a call that leaves either answer out is a tool error and
+nothing is written. The reply carries `floor: {binds, undo_cost, cleared}`, and
+`below_floor: true` with a note when both answers are the "nothing" ones.
 
 The four kinds are the same four answers. An ambiguous or unmatched
 `description` comes back as a successful `{outcome: "ambiguous" | "not_found",

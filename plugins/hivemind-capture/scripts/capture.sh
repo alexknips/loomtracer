@@ -15,9 +15,10 @@ Usage:
   capture.sh "<text>"
 
 Options:
-  --kind KIND              decision, evidence, hypothesis, blocker,
-                           decision-request, or notification. When omitted,
-                           the configured classifier chooses a kind.
+  --kind KIND              decision, evidence, hypothesis, blocker, or
+                           notification. When omitted, the configured
+                           classifier chooses a kind. A request is not a
+                           kind: it goes to your tracker.
   --source human|agent     Provenance source. Defaults to agent.
   --actor-id ID            Override actor id.
   --source-ref REF         Override source_ref. Defaults to the raw per-run
@@ -263,7 +264,7 @@ provenance_args() {
 
 classifier_schema() {
   cat <<'JSON'
-{"type":"object","properties":{"kind":{"type":"string","enum":["decision","evidence","hypothesis","blocker","decision-request","notification","none"]}},"required":["kind"],"additionalProperties":true}
+{"type":"object","properties":{"kind":{"type":"string","enum":["decision","evidence","hypothesis","blocker","notification","none"]}},"required":["kind"],"additionalProperties":true}
 JSON
 }
 
@@ -282,7 +283,7 @@ run_classifier() {
 
   if command -v claude >/dev/null 2>&1; then
     local prompt
-    prompt="$(printf 'Classify this HiveMind capture text. Return JSON only, with kind set to one of decision, evidence, hypothesis, blocker, decision-request, notification, or none.\n\nText:\n%s\n' "$input")"
+    prompt="$(printf 'Classify this HiveMind capture text. Return JSON only, with kind set to one of decision, evidence, hypothesis, blocker, notification, or none. Use decision only for a choice that binds something beyond the edit in front of its author or is costly to undo; a request for work is none.\n\nText:\n%s\n' "$input")"
     local claude_cmd=(claude --print --no-session-persistence --model "${HIVEMIND_CLASSIFIER_MODEL:-haiku}" --json-schema "$(classifier_schema)")
     if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
       claude_cmd+=(--plugin-dir "$CLAUDE_PLUGIN_ROOT")
@@ -573,12 +574,12 @@ case "$KIND" in
   hypothesis)
     emit_hypothesis
     ;;
-  blocker|decision-request|notification)
+  blocker|notification)
     printf 'kind %s is known but does not yet have a canonical CLI capture path.\n' "$KIND" >&2
     exit 2
     ;;
   *)
-    printf 'unsupported --kind %s (expected decision, evidence, hypothesis, blocker, decision-request, or notification)\n' "$KIND" >&2
+    printf 'unsupported --kind %s (expected decision, evidence, hypothesis, blocker, or notification)\n' "$KIND" >&2
     exit 2
     ;;
 esac

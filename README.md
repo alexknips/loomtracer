@@ -283,7 +283,9 @@ hivemind --hivemind-dir ./hivemind/ emit decision.capture \
   --topic-keys agents,capture \
   --options "Direct CLI,MCP server" \
   --chose "Direct CLI" \
-  --rests-on-assumption "Agents already have shell access to the local ledger"
+  --rests-on-assumption "Agents already have shell access to the local ledger" \
+  --binds "Plugins and docs teach the CLI path before MCP" \
+  --cheap-to-undo
 ```
 
 Options are short human labels (`"Direct CLI"`), never slugs or letter codes:
@@ -291,9 +293,14 @@ Options are short human labels (`"Direct CLI"`), never slugs or letter codes:
 A slug that slips through still reads as words, with what was recorded beside it
 (`chose: Upheld (recorded as: name-a-upheld)`).
 
-Every capture says what it rests on (a decision we already made, something
-observed, something assumed, or a declared `--bet`); one that names nothing is
-refused and nothing is written.
+Every capture answers two questions before it is written. What does it rest on
+(a decision we already made, something observed, something assumed, or a declared
+`--bet`)? And what does it bind beyond the edit in front of you, and what would
+undoing it cost (`--binds` or `--binds-nothing`, `--undo-cost` or
+`--cheap-to-undo`)? A choice that binds nothing and is cheap to undo is not a
+decision: it is still recorded, marked below the decision floor, and a request
+goes to your tracker. A capture that leaves either question out is refused and
+nothing is written.
 
 Humans can review recent agent decisions in a guided terminal flow:
 
@@ -338,7 +345,7 @@ to install it. The plugin provides:
 - `/hivemind-capture:classify-queue` — drain the pending classification queue
   using your subscription seat (**no `ANTHROPIC_API_KEY` required**)
 - A `hivemind` MCP server wired to `hivemind mcp`
-- A session-start directive: every session is told (about 540 characters) to call
+- A session-start directive: every session is told (about 595 characters) to call
   `recall_decisions` before acting and `capture_decision` for a rule learned from a
   failure, a design choice later work must follow, or a reversal, not routine status,
   so an agent nobody briefed still checks and fills the ledger.

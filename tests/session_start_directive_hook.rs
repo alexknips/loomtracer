@@ -221,7 +221,14 @@ fn the_directive_names_tools_the_mcp_server_serves_and_the_arguments_it_tells_yo
     }
     // `q = ...` is recall's text query; the capture fields are the ones the directive lists.
     assert!(text.contains("q =") && recall.contains("q"), "{recall:?}");
-    for field in ["title", "rationale", "options", "grounding"] {
+    for field in [
+        "title",
+        "rationale",
+        "options",
+        "grounding",
+        "binds",
+        "undo_cost",
+    ] {
         assert!(
             text.contains(field),
             "the directive mentions {field}: {text}"
