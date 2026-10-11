@@ -4,7 +4,10 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::commands::{ClassifiedBatchRecorded, CommandContext, Commands};
+use crate::commands::{
+    personal_project_handle, ClassifiedBatchRecorded, CommandContext, Commands, GroundingPlan,
+    SupersedeInput,
+};
 use crate::events::{
     CaptureItem, Event, EventProvenance, EventType, IngestBatchReceivedPayload, TenantId,
 };
@@ -760,4 +763,219 @@ fn a_draft_of_an_unreceived_batch_names_no_session_and_nobody() {
     assert!(drafted.session_ids.is_empty());
     assert_eq!(drafted.initiated_by, None);
     assert!(drafted.participants.is_empty());
+}
+
+// --- a person decides a draft (hivemind-r7d73) ---
+//
+// A draft the classifier recorded has no `decision.proposed`: it is `capture:<event>:<index>`
+// in the batch that holds it. The person who made the call writes the same events a decision
+// recorded any other way takes, and the status read then says what they did.
+
+const ALEX: &str = "human:alex@example.com";
+const BOB: &str = "human:bob@example.com";
+
+/// A draft nobody has decided: its id and the ledger it is in.
+fn undecided_draft() -> (InMemoryEventLedger, String) {
+    let ledger = InMemoryEventLedger::new();
+    let recorded = record(&ledger, PROPOSED_ONLY);
+    let draft = draft_brief(&ledger, &recorded);
+    assert_eq!(draft.status, DecisionStatus::Proposed);
+    assert!(draft.decided_by.decider_ids.is_empty());
+    (ledger, draft.decision_id)
+}
+
+fn brief_of(ledger: &InMemoryEventLedger, decision_id: &str) -> DecisionBrief {
+    get_decision_brief(&graph_of(ledger), decision_id)
+        .expect("brief reads")
+        .data
+        .expect("decision is in the graph")
+}
+
+#[test]
+fn a_person_accepts_a_draft_and_verify_reads_it_accepted_by_them() {
+    let (ledger, id) = undecided_draft();
+
+    let event_id = commands(&ledger)
+        .accept_decision(&id, ALEX)
+        .expect("a person can accept a draft");
+
+    let accepted = &events_of(&ledger, EventType::DecisionAccepted)[0];
+    assert_eq!(accepted.event_id, Some(event_id));
+    assert_eq!(accepted.actor_id, ALEX);
+    let brief = brief_of(&ledger, &id);
+    assert_eq!(brief.status, DecisionStatus::Accepted);
+    assert_eq!(brief.decided_by.decider_ids, [ALEX]);
+}
+
+#[test]
+fn a_person_rejects_a_draft() {
+    let (ledger, id) = undecided_draft();
+
+    commands(&ledger)
+        .reject_decision(&id, ALEX)
+        .expect("a person can reject a draft");
+
+    let brief = brief_of(&ledger, &id);
+    assert_eq!(brief.status, DecisionStatus::Rejected);
+    assert_eq!(brief.decided_by.rejecter_ids, [ALEX]);
+}
+
+#[test]
+fn a_person_who_disagrees_with_an_accepted_draft_makes_it_contested() {
+    let (ledger, id) = undecided_draft();
+    let commands = commands(&ledger);
+    commands.accept_decision(&id, ALEX).expect("accepted");
+
+    commands
+        .disagree(BOB, &id, "the pinned clock is the real fix")
+        .expect("a person can disagree with a draft");
+
+    let rejected = &events_of(&ledger, EventType::DecisionRejected)[0];
+    assert_eq!(rejected.actor_id, BOB);
+    assert_eq!(
+        rejected.payload["reason"],
+        "the pinned clock is the real fix"
+    );
+    assert_eq!(brief_of(&ledger, &id).status, DecisionStatus::Contested);
+}
+
+/// A retitle starts from the title the draft carries and each later one from the last.
+#[test]
+fn a_person_retitles_a_draft_again_and_again() {
+    let (ledger, id) = undecided_draft();
+    let commands = commands(&ledger);
+
+    let first = commands
+        .retitle_decision_to(ALEX, &id, "Retry the gate once", None)
+        .expect("a person can retitle a draft");
+    let second = commands
+        .retitle_decision_to(ALEX, &id, "Retry the nightly gate a single time", None)
+        .expect("and again");
+
+    assert_eq!(first.from, "Retry the nightly gate once before failing it");
+    assert_eq!(second.from, "Retry the gate once");
+    assert_eq!(
+        brief_of(&ledger, &id).title,
+        "Retry the nightly gate a single time"
+    );
+}
+
+/// A draft is filed in the personal project of whoever recorded the classification; a person
+/// moves it to their own, and a second move starts from there.
+#[test]
+fn a_person_moves_a_draft_out_of_the_classifiers_personal_project() {
+    let (ledger, id) = undecided_draft();
+    let commands = commands(&ledger);
+    let mine = personal_project_handle(ALEX);
+
+    let moved = commands
+        .move_decision_to(ALEX, &id, &mine, Some("this one is mine"))
+        .expect("a person can move a draft");
+
+    assert_eq!(moved.from, personal_project_handle(RECORDER));
+    assert_eq!(moved.to, mine);
+    assert_eq!(
+        brief_of(&ledger, &id).project.as_deref(),
+        Some(mine.as_str())
+    );
+    let back = commands.move_decision_to(ALEX, &id, &personal_project_handle(RECORDER), None);
+    assert!(
+        back.is_err(),
+        "another actor's personal project is not one to move into"
+    );
+}
+
+#[test]
+fn a_person_says_what_a_draft_rests_on() {
+    let (ledger, id) = undecided_draft();
+    let commands = commands(&ledger);
+
+    let grounded = commands
+        .ground_and_answer(
+            ALEX,
+            &id,
+            &GroundingPlan {
+                new_assumptions: vec!["the flake is the test clock".to_owned()],
+                ..GroundingPlan::default()
+            },
+            None,
+        )
+        .expect("a person can ground a draft");
+    let evidence = commands
+        .record_evidence(ALEX, "the gate passed on every retry last week")
+        .expect("evidence");
+    commands
+        .attach_evidence(&id, &evidence, ALEX)
+        .expect("a person can attach evidence to a draft");
+
+    assert_eq!(grounded.rests_on.len(), 1);
+    let assumes = events_of(&ledger, EventType::RelationAdded)
+        .into_iter()
+        .find(|event| event.payload["relation"] == "ASSUMES")
+        .expect("the assumption is linked");
+    assert_eq!(assumes.payload["from_id"], id);
+    assert_eq!(assumes.actor_id, ALEX);
+    brief_of(&ledger, &id);
+}
+
+#[test]
+fn a_person_replaces_a_draft_and_the_draft_reads_superseded() {
+    let (ledger, id) = undecided_draft();
+
+    let replacement = commands(&ledger)
+        .supersede(SupersedeInput {
+            actor_id: ALEX,
+            old_decision_id: &id,
+            new_title: "Pin the nightly gate clock",
+            new_rationale: "A retry hides the flake; a pinned clock removes it.",
+            topic_keys: &[],
+            option_labels: &["Pin the clock".to_owned(), "Retry once".to_owned()],
+            chosen_option_label: Some("Pin the clock"),
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            project: None,
+            grounding: None,
+            expressed_confidence: None,
+        })
+        .expect("a person can replace a draft");
+
+    let proposed = events_of(&ledger, EventType::DecisionProposed)
+        .into_iter()
+        .find(|event| event.payload["decision_id"] == replacement.new_decision_id)
+        .expect("the replacement is proposed");
+    assert_eq!(proposed.actor_id, ALEX);
+    assert_eq!(
+        proposed.payload["topic_keys"],
+        json!(["ci"]),
+        "the replacement keeps the draft's topic"
+    );
+    assert_eq!(brief_of(&ledger, &id).status, DecisionStatus::Superseded);
+}
+
+/// An id that is not a decision of a classified batch of this ledger is still no decision.
+#[test]
+fn an_id_that_is_no_draft_is_still_refused_and_writes_nothing() {
+    let (ledger, id) = undecided_draft();
+    let batch = id
+        .strip_prefix("capture:")
+        .and_then(|rest| rest.split(':').next())
+        .expect("a capture id");
+    let before = ledger.latest_offset().expect("latest offset");
+
+    for missing in [
+        format!("capture:{batch}:9"), // past the end of the batch
+        "capture:1:0".to_owned(),     // event 1 is a received batch, not a classification
+        "capture:999:0".to_owned(),   // no such event
+        "capture:x:y".to_owned(),
+    ] {
+        let error = commands(&ledger)
+            .accept_decision(&missing, ALEX)
+            .expect_err("no draft there");
+        assert!(
+            error.to_string().contains("decision does not exist"),
+            "{missing}: {error}"
+        );
+    }
+    assert_eq!(ledger.latest_offset().expect("latest offset"), before);
 }

@@ -670,6 +670,69 @@ struct DecisionProposalSnapshot {
     expressed_confidence: Option<String>,
 }
 
+/// A decision a classifier drafted from a transcript: one decision capture of an
+/// `ingest.batch_classified` event, named `capture:<event>:<index>`. No `decision.proposed`
+/// records it, so the write layer reads what it needs from the capture, as raw payload fields
+/// for the reason `decision_proposal_snapshot_from_event` does.
+#[derive(Debug, Clone)]
+struct ClassifiedDecision {
+    batch_event_id: EventId,
+    /// Who recorded the classification: the owner of the personal project the draft is filed in.
+    recorder: String,
+    /// Who the capture says proposed or made the call, else the recorder.
+    proposer: String,
+    title: String,
+    rationale: String,
+    topic_keys: Vec<String>,
+    hypothesis_ids: Vec<String>,
+    evidence_ids: Vec<String>,
+    expressed_confidence: Option<String>,
+}
+
+impl ClassifiedDecision {
+    /// The draft at `index` of `batch`; `None` when there is no capture there or it is not a
+    /// decision.
+    fn from_batch(batch: &Event, index: usize) -> Option<Self> {
+        let capture = classified_decision_capture(batch, index)?;
+        let text = |key: &str| capture.get(key).and_then(|value| value.as_str());
+        Some(Self {
+            batch_event_id: batch.event_id?,
+            recorder: batch.actor_id.clone(),
+            proposer: text("actor_id")
+                .unwrap_or(batch.actor_id.as_str())
+                .to_owned(),
+            title: text("title")?.to_owned(),
+            rationale: text("rationale").unwrap_or_default().to_owned(),
+            topic_keys: json_string_list(capture, "topic_keys"),
+            hypothesis_ids: json_string_list(capture, "premised_on_ids"),
+            evidence_ids: json_string_list(capture, "evidence_ids"),
+            expressed_confidence: text("expressed_confidence").map(str::to_owned),
+        })
+    }
+
+    /// The draft as the one-proposal view a replacement or a grounding reads. It lists no
+    /// options and no chosen option: the Option nodes a draft projects are not ids a relation
+    /// can start from (`projector` routes an `ASSUMES` from `capture:...:opt:...` as a
+    /// decision-to-hypothesis edge), so a premise added later hangs off the decision itself.
+    fn into_snapshot(self, decision_id: &str) -> DecisionProposalSnapshot {
+        DecisionProposalSnapshot {
+            event_id: self.batch_event_id,
+            decision_id: decision_id.to_owned(),
+            actor_id: self.proposer,
+            title: self.title,
+            rationale: self.rationale,
+            topic_keys: self.topic_keys,
+            option_ids: Vec::new(),
+            chosen_option_id: None,
+            hypothesis_ids: self.hypothesis_ids,
+            evidence_ids: self.evidence_ids,
+            project: None,
+            project_source: Some(ProjectSource::PersonalFallback),
+            expressed_confidence: self.expressed_confidence,
+        }
+    }
+}
+
 /// Where a decision is filed right now, as the ledger resolves it (the same view the
 /// projector keeps on the Decision node): the proposal's own `project`, replaced by each later
 /// `decision.moved`.
@@ -3292,7 +3355,14 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             }))
     }
 
+    /// A decision is recorded by a `decision.proposed`, or is a draft a classifier made from a
+    /// transcript (`capture:<event>:<index>`), which has no such event: it lives in the
+    /// `ingest.batch_classified` event that holds it. A person who decides a draft writes the
+    /// same events any other decision takes, so both must resolve here.
     fn decision_exists(&self, decision_id: &str) -> Result<bool> {
+        if self.classified_decision(decision_id)?.is_some() {
+            return Ok(true);
+        }
         self.scan_events(|event| {
             // ubs:ignore: decision IDs are public ledger IDs, not timing-sensitive secrets.
             let has_matching_id = payload_value_matches(event, "decision_id", decision_id);
@@ -3322,7 +3392,14 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// below: a single stray event elsewhere in the ledger must never fail a whole streaming
     /// pass just because its shape doesn't match this decision's payload type.
     fn current_decision_filing(&self, decision_id: &str) -> Result<Option<DecisionFiling>> {
-        let mut current: Option<DecisionFiling> = None;
+        // A classifier's draft names no project: it is its recorder's personal one, the rule
+        // `projector::project_capture_decision` applies, so a move's `from` matches the node.
+        let mut current: Option<DecisionFiling> =
+            self.classified_decision(decision_id)?
+                .map(|draft| DecisionFiling {
+                    proposer: draft.recorder,
+                    project: None,
+                });
 
         self.ledger
             .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
@@ -3359,7 +3436,10 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// for `decision_id` has been seen; callers check `decision_exists` first, so this is a
     /// defensive fallback, not an expected path.
     fn current_decision_title(&self, decision_id: &str) -> Result<Option<String>> {
-        let mut current: Option<String> = None;
+        // A classifier's draft starts at the title its capture carries.
+        let mut current: Option<String> = self
+            .classified_decision(decision_id)?
+            .map(|draft| draft.title);
 
         self.ledger
             .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
@@ -3488,17 +3568,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// recorded. A classified capture (`capture:<event>:<index>`) is read from the batch event
     /// that produced it; anything else from its `decision.proposed` event.
     fn decision_recorded_text(&self, decision_id: &str) -> Result<Option<Vec<String>>> {
-        if let Some((batch_event_id, index)) = classified_capture_position(decision_id) {
-            let batch = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, batch_event_id - 1, 1)?
-                .into_iter()
-                .next()
-                .filter(|event| {
-                    event.event_id == Some(batch_event_id)
-                        && event.event_type == EventType::IngestBatchClassified
-                });
-            if let Some(text) = batch.and_then(|event| classified_capture_text(&event, index)) {
+        if let Some((batch, index)) = self.classified_batch_for(decision_id)? {
+            if let Some(text) = classified_capture_text(&batch, index) {
                 return Ok(Some(text));
             }
         }
@@ -3507,6 +3578,34 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             payload_value_matches(event, "decision_id", decision_id)
                 .then(|| proposed_decision_text(event))
         })
+    }
+
+    /// The `ingest.batch_classified` event a `capture:<event>:<index>` id points into, and the
+    /// index. `None` when `decision_id` is not shaped like one or names no classified batch of
+    /// this tenant; the capture at `index` may still be missing or not a decision.
+    fn classified_batch_for(&self, decision_id: &str) -> Result<Option<(Event, usize)>> {
+        let Some((batch_event_id, index)) = classified_capture_position(decision_id) else {
+            return Ok(None);
+        };
+        Ok(self
+            .ledger
+            .read_for_tenant(&self.context.tenant_id, batch_event_id - 1, 1)?
+            .into_iter()
+            .next()
+            .filter(|event| {
+                event.event_id == Some(batch_event_id)
+                    && event.event_type == EventType::IngestBatchClassified
+            })
+            .map(|event| (event, index)))
+    }
+
+    /// The draft a classifier recorded under `decision_id` (`capture:<event>:<index>`), read
+    /// from its batch the way the projector builds the Decision node. `None` for any id that is
+    /// not a decision capture of a classified batch of this tenant.
+    fn classified_decision(&self, decision_id: &str) -> Result<Option<ClassifiedDecision>> {
+        Ok(self
+            .classified_batch_for(decision_id)?
+            .and_then(|(batch, index)| ClassifiedDecision::from_batch(&batch, index)))
     }
 
     /// What `pick` returns for the first event of `event_type`, oldest first, that it accepts.
@@ -3542,6 +3641,10 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         &self,
         decision_id: &str,
     ) -> Result<Option<DecisionProposalSnapshot>> {
+        if let Some(draft) = self.classified_decision(decision_id)? {
+            return Ok(Some(draft.into_snapshot(decision_id)));
+        }
+
         let mut offset = 0;
         const PAGE_SIZE: usize = 1024;
 
@@ -3984,13 +4087,16 @@ fn classified_capture_position(decision_id: &str) -> Option<(EventId, usize)> {
     (batch_event_id > 0).then_some((batch_event_id, index))
 }
 
+/// The capture at `index` of a classified batch when it is a decision, as its raw payload.
+fn classified_decision_capture(batch: &Event, index: usize) -> Option<&serde_json::Value> {
+    let capture = batch.payload.get("captures")?.as_array()?.get(index)?;
+    (capture.get("kind").and_then(|kind| kind.as_str()) == Some("decision")).then_some(capture)
+}
+
 /// The words a classified capture recorded: its title, rationale, options and chosen option.
 /// `None` when the batch has no capture at `index` or that capture is not a decision.
 fn classified_capture_text(batch: &Event, index: usize) -> Option<Vec<String>> {
-    let capture = batch.payload.get("captures")?.as_array()?.get(index)?;
-    if capture.get("kind").and_then(|kind| kind.as_str()) != Some("decision") {
-        return None;
-    }
+    let capture = classified_decision_capture(batch, index)?;
     let mut text: Vec<String> = ["title", "rationale", "chosen_option"]
         .into_iter()
         .filter_map(|key| capture.get(key).and_then(|value| value.as_str()))
@@ -4021,8 +4127,11 @@ fn proposed_decision_text(event: &Event) -> Vec<String> {
 }
 
 fn payload_string_list(event: &Event, key: &str) -> Vec<String> {
-    event
-        .payload
+    json_string_list(&event.payload, key)
+}
+
+fn json_string_list(object: &serde_json::Value, key: &str) -> Vec<String> {
+    object
         .get(key)
         .and_then(|value| value.as_array())
         .map(|values| {
