@@ -5,6 +5,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::events::{Event, EventSource, EventType};
+use crate::floor::FloorVerdict;
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph};
 use crate::Result;
@@ -627,6 +628,98 @@ fn a_rejected_decision_and_the_decision_resting_on_it_both_read_as_not_holding()
         vec![OutcomeReason::PremiseRejected {
             decision_id: "d:mail".to_owned()
         }]
+    );
+    Ok(())
+}
+
+// ── The decision floor's answers in the brief (hivemind-bbnw.11) ──
+
+fn proposal_with_answers(sequence: u128, id: &str, answers: serde_json::Value) -> Event {
+    let mut payload = json!({
+        "decision_id": id,
+        "title": format!("Brief floor test {id}"),
+        "rationale": "A stated reason for the brief floor test",
+        "topic_keys": ["floor-brief"],
+        "option_ids": [],
+        "chosen_option_id": null,
+        "hypothesis_ids": [],
+        "evidence_ids": []
+    });
+    if let (Some(base), Some(answers)) = (payload.as_object_mut(), answers.as_object()) {
+        base.extend(answers.clone());
+    }
+    event(
+        sequence,
+        EventType::DecisionProposed,
+        "human:alice",
+        payload,
+    )
+}
+
+#[test]
+fn the_brief_carries_what_the_decision_binds_what_undoing_it_costs_and_the_floor() -> Result<()> {
+    let graph = graph_from_events([
+        proposal_with_answers(
+            1,
+            "d:rename",
+            json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "costly", "statement": "Renaming back breaks every script already moved"}
+            }),
+        ),
+        proposal_with_answers(
+            2,
+            "d:apple",
+            json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+        ),
+        proposal_with_answers(3, "d:legacy", json!({})),
+    ])?;
+    let brief = |id: &str| -> Result<DecisionBrief> {
+        get_decision_brief(&graph, id)?
+            .data
+            .ok_or_else(|| query_error(format!("{id} exists")).into())
+    };
+
+    let rename = brief("d:rename")?;
+    assert_eq!(rename.floor.verdict, FloorVerdict::Cleared);
+    assert_eq!(
+        rename.floor.binds_line(),
+        "binds: something (Users and scripts that call the old name)"
+    );
+    assert_eq!(
+        rename.floor.undo_cost_line(),
+        "undo cost: costly (Renaming back breaks every script already moved)"
+    );
+    assert_eq!(
+        serde_json::to_value(&rename)?["binds"],
+        json!({"level": "something", "statement": "Users and scripts that call the old name"}),
+        "the brief's JSON keeps the level and the statement"
+    );
+    assert_eq!(serde_json::to_value(&rename)?["floor"], json!("cleared"));
+
+    // Apple vs apple: the brief says it is below the floor, and still returns it.
+    let apple = brief("d:apple")?;
+    assert_eq!(apple.floor.verdict, FloorVerdict::Below);
+    assert_eq!(
+        apple.floor.below_floor_line().as_deref(),
+        Some("floor: below the decision floor")
+    );
+    assert_eq!(serde_json::to_value(&apple)?["floor"], json!("below"));
+    assert_eq!(
+        serde_json::to_value(&apple)?["undo_cost"],
+        json!({"level": "cheap"})
+    );
+
+    // A decision recorded before the answers existed says so, in words and in JSON.
+    let legacy = brief("d:legacy")?;
+    assert_eq!(legacy.floor.verdict, FloorVerdict::NotAsked);
+    assert_eq!(legacy.floor.binds_line(), "binds: not asked");
+    assert_eq!(legacy.floor.undo_cost_line(), "undo cost: not asked");
+    let legacy_json = serde_json::to_value(&legacy)?;
+    assert_eq!(legacy_json["floor"], json!("not_asked"));
+    assert!(
+        legacy_json.get("binds").is_none() && legacy_json.get("undo_cost").is_none(),
+        "a never-asked decision has no answer keys: {legacy_json}"
     );
     Ok(())
 }

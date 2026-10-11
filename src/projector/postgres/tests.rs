@@ -956,6 +956,130 @@ fn decision_floor_answers_match_memory() -> Result<()> {
     })
 }
 
+// ── Decision floor reads parity (hivemind-bbnw.11) ──────────────────────────────
+//
+// Every read of a decision carries the recorded answers and the floor they reach. The reads must
+// agree between memory and Postgres, and agree on the non-vacuous verdicts: a rename clears the
+// floor, Apple vs apple is below it, a proposal nobody asked reads "not asked", and a below-floor
+// decision is still returned by every read.
+
+#[test]
+fn decision_floor_reads_match_memory() -> Result<()> {
+    use crate::floor::FloorVerdict;
+
+    with_postgres_graph("floor-reads-parity", |pg| {
+        let memory = MemoryGraph::default();
+        let ledger = crate::projector::tests::floor_scenario()?;
+        project_from_ledger(&ledger, &memory, 0)?;
+        project_from_ledger(&ledger, pg, 0)?;
+
+        let verdicts = [
+            ("decision:rename", FloorVerdict::Cleared),
+            ("decision:apple", FloorVerdict::Below),
+            ("decision:unasked", FloorVerdict::NotAsked),
+        ];
+        for (decision_id, verdict) in verdicts {
+            // The view and the brief: equal, and the verdict is the expected one on Postgres.
+            let memory_view = get_decision(&memory, decision_id)?.data;
+            let pg_view = get_decision(pg, decision_id)?.data;
+            if memory_view != pg_view {
+                return Err(test_error(format!(
+                    "get_decision mismatch for {decision_id}: memory={memory_view:?} pg={pg_view:?}"
+                )));
+            }
+            let pg_floor = pg_view.map(|view| view.floor);
+            if pg_floor.as_ref().map(|floor| floor.verdict) != Some(verdict) {
+                return Err(test_error(format!(
+                    "{decision_id} floor on Postgres: {pg_floor:?}, expected {verdict:?}"
+                )));
+            }
+            let memory_brief = get_decision_brief(&memory, decision_id)?.data;
+            let pg_brief = get_decision_brief(pg, decision_id)?.data;
+            if memory_brief != pg_brief {
+                return Err(test_error(format!(
+                    "get_decision_brief mismatch for {decision_id}: memory={memory_brief:?} pg={pg_brief:?}"
+                )));
+            }
+            if pg_brief.map(|brief| brief.floor.verdict) != Some(verdict) {
+                return Err(test_error(format!(
+                    "{decision_id} brief floor on Postgres is not {verdict:?}"
+                )));
+            }
+        }
+
+        // The statements, not only the levels, come back from Postgres.
+        let rename = get_decision(pg, "decision:rename")?
+            .data
+            .ok_or_else(|| test_error("decision:rename exists on Postgres"))?;
+        if rename.floor.binds_line()
+            != "binds: something (Users and scripts that call the old name)"
+            || rename.floor.undo_cost_line()
+                != "undo cost: costly (Renaming back breaks every script already moved)"
+        {
+            return Err(test_error(format!(
+                "the rename's answers on Postgres: {:?}",
+                rename.floor
+            )));
+        }
+
+        // Search and the topic read list all three, the below-floor one included, with the
+        // same floors as memory.
+        let topic = crate::queries::get_relevant_decisions(&memory, "floor", None)?.data;
+        let pg_topic = crate::queries::get_relevant_decisions(pg, "floor", None)?.data;
+        if topic != pg_topic || pg_topic.len() != 3 {
+            return Err(test_error(format!(
+                "get_relevant_decisions: memory={topic:?} pg={pg_topic:?}"
+            )));
+        }
+        let request = SearchDecisionRequest {
+            limit: 10,
+            ..SearchDecisionRequest::default()
+        };
+        let memory_items = search_decisions(&memory, &request)?.data.items;
+        let pg_items = search_decisions(pg, &request)?.data.items;
+        if memory_items != pg_items || pg_items.len() != 3 {
+            return Err(test_error(format!(
+                "search_decisions: memory={} items, pg={} items",
+                memory_items.len(),
+                pg_items.len()
+            )));
+        }
+        if !pg_items
+            .iter()
+            .any(|item| item.decision.id == "decision:apple" && item.decision.floor.is_below())
+        {
+            return Err(test_error(
+                "search drops the below-floor decision or loses its floor on Postgres",
+            ));
+        }
+
+        // The export: the same tree, saying the same thing.
+        let request = DecisionLogRequest::default();
+        let (DecisionLogOutcome::Exported(memory_export), DecisionLogOutcome::Exported(pg_export)) = (
+            export_decision_log(&memory, &ledger, &request, None)?,
+            export_decision_log(pg, &ledger, &request, None)?,
+        ) else {
+            return Err(test_error("export did not produce files"));
+        };
+        if memory_export.files != pg_export.files {
+            return Err(test_error("the export differs between memory and Postgres"));
+        }
+        let exported_text: String = pg_export.files.values().cloned().collect();
+        for needle in [
+            "floor: \"cleared\"",
+            "floor: \"below\"",
+            "floor: \"not_asked\"",
+            "Floor: below the decision floor",
+            "Binds: not asked",
+        ] {
+            if !exported_text.contains(needle) {
+                return Err(test_error(format!("the export does not say {needle:?}")));
+            }
+        }
+        Ok(())
+    })
+}
+
 // ── Recorded option text parity (hivemind-hk5z) ─────────────────────────────────
 //
 // `recorded_label` rides on the Option node beside the readable `label`. It must land and read

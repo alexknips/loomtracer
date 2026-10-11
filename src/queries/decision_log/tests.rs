@@ -1285,3 +1285,113 @@ fn the_options_section_shows_what_was_recorded_beside_the_words_it_reads_as() ->
     assert!(!plain.contains("recorded as"), "{plain}");
     Ok(())
 }
+
+// ── The decision floor's answers in the export (hivemind-bbnw.11) ──
+
+fn floor_decision_event(
+    sequence: u128,
+    id: &str,
+    title: &str,
+    answers: serde_json::Value,
+) -> Event {
+    let mut payload = json!({
+        "decision_id": id,
+        "title": title,
+        "rationale": format!("Rationale for {title}"),
+        "topic_keys": ["floor-export"],
+        "option_ids": [],
+        "chosen_option_id": null,
+        "hypothesis_ids": [],
+        "evidence_ids": [],
+    });
+    if let (Some(base), Some(answers)) = (payload.as_object_mut(), answers.as_object()) {
+        base.extend(answers.clone());
+    }
+    event(
+        sequence,
+        EventType::DecisionProposed,
+        "human:alice",
+        payload,
+        &format!("2026-01-0{sequence}T00:00:00Z"),
+    )
+}
+
+#[test]
+fn the_export_states_what_each_decision_binds_and_what_undoing_it_costs() -> Result<()> {
+    let (ledger, graph) = graph_and_ledger([
+        floor_decision_event(
+            1,
+            "decision-rename",
+            "Rename beadline check to doctor",
+            json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "costly", "statement": "Renaming back breaks every script already moved"}
+            }),
+        ),
+        floor_decision_event(
+            2,
+            "decision-apple",
+            "Write Apple with a capital letter",
+            json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+        ),
+        floor_decision_event(
+            3,
+            "decision-legacy",
+            "Keep the previous export format",
+            json!({}),
+        ),
+    ])?;
+
+    let export = exported(&graph, &ledger, &DecisionLogRequest::default())?;
+    assert_eq!(export.files.len(), 5, "two indexes, three decision files");
+
+    // A decision that states both answers: front matter, the section and a plain index row.
+    let rename = decision_file(&export, "Rename beadline check to doctor");
+    assert!(rename.contains("\nfloor: \"cleared\"\n"), "{rename}");
+    assert!(
+        rename.contains(
+            "## Binds and undo cost\n\nBinds: something (Users and scripts that call the old name)\n\nUndo cost: costly (Renaming back breaks every script already moved)\n"
+        ),
+        "{rename}"
+    );
+    assert!(!rename.contains("below the decision floor"), "{rename}");
+
+    // Apple vs apple: the file and the index both say it is below the floor, and both list it.
+    let apple = decision_file(&export, "Write Apple with a capital letter");
+    assert!(apple.contains("\nfloor: \"below\"\n"), "{apple}");
+    assert!(
+        apple.contains(
+            "## Binds and undo cost\n\nBinds: nothing\n\nUndo cost: cheap\n\nFloor: below the decision floor\n"
+        ),
+        "{apple}"
+    );
+
+    // A decision recorded before the answers existed says "not asked", never a blank.
+    let legacy = decision_file(&export, "Keep the previous export format");
+    assert!(legacy.contains("\nfloor: \"not_asked\"\n"), "{legacy}");
+    assert!(
+        legacy.contains("## Binds and undo cost\n\nBinds: not asked\n\nUndo cost: not asked\n"),
+        "{legacy}"
+    );
+    assert!(!legacy.contains("below the decision floor"), "{legacy}");
+
+    for path in ["INDEX.md", "projects/personal/human-alice/INDEX.md"] {
+        let index = export.files.get(path).expect("index present");
+        assert!(
+            index_row(index, "Write Apple with a capital letter")
+                .contains(" | proposed, below the decision floor | "),
+            "{path}: the below-floor decision reads so in the index: {}",
+            index_row(index, "Write Apple with a capital letter")
+        );
+        for cleared in [
+            "Rename beadline check to doctor",
+            "Keep the previous export format",
+        ] {
+            assert!(
+                !index_row(index, cleared).contains("below the decision floor"),
+                "{path}: {cleared} is not below the floor"
+            );
+        }
+    }
+    Ok(())
+}

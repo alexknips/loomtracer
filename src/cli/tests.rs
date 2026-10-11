@@ -13558,3 +13558,398 @@ fn raw_emit_decision_proposed_asks_nothing_and_records_no_floor_answer() -> CliT
     let _ = std::fs::remove_dir_all(&hivemind_dir);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// The decision floor on the read side (hivemind-bbnw.11): show, brief, search, recall, digest and
+// export say what a decision binds and what undoing it costs, and say "not asked" for one
+// recorded before the answers existed
+// ---------------------------------------------------------------------------
+
+/// The id a JSON-mode capture of `title` returns, with the given floor answer flags.
+fn capture_with_floor_flags(
+    backend: &TestBackend,
+    title: &str,
+    floor: &[&str],
+) -> std::result::Result<String, Box<dyn std::error::Error>> {
+    let mut args = capture_args_without_floor(
+        title,
+        &["--rests-on-assumption", "Customers accept euro invoices"],
+    );
+    args.extend_from_slice(floor);
+    let reply = run_json_reply(backend, &args)?;
+    Ok(reply["value"]
+        .as_str()
+        .ok_or("the capture names its decision")?
+        .to_owned())
+}
+
+/// A query verb's output: JSON by default, the text summary with `--summary`.
+fn run_query(
+    backend: &TestBackend,
+    verb_and_args: &[&str],
+    summary: bool,
+) -> std::result::Result<String, Box<dyn std::error::Error>> {
+    let mut args = vec!["query"];
+    args.extend_from_slice(verb_and_args);
+    if summary {
+        args.push("--summary");
+    }
+    Ok(run(&Cli::parse_from(cli_args(backend, &args)))?)
+}
+
+/// Every file under `dir`, as (path relative to `dir`, text).
+fn read_tree_files(
+    dir: &std::path::Path,
+) -> std::result::Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
+    fn walk(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        out: &mut Vec<(String, String)>,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        for entry in std::fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                walk(root, &path, out)?;
+            } else {
+                let relative = path.strip_prefix(root)?.to_string_lossy().into_owned();
+                out.push((relative, std::fs::read_to_string(&path)?));
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(dir, dir, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn reads_show_the_floor_answers_body(backend: &TestBackend) -> CliTestResult {
+    // Four decisions, one per way the floor can read: a rename binds users and scripts, Apple vs
+    // apple binds nothing and is cheap to undo, merging tonight is costly to undo, and a raw
+    // emit asks nothing (as every decision recorded before the answers existed).
+    let rename = capture_with_floor_flags(
+        backend,
+        "Rename beadline check to doctor",
+        &[
+            "--binds",
+            "Users and scripts that call the old name",
+            "--cheap-to-undo",
+        ],
+    )?;
+    let apple = capture_with_floor_flags(
+        backend,
+        "Write Apple with a capital letter",
+        &["--binds-nothing", "--cheap-to-undo"],
+    )?;
+    let merge = capture_with_floor_flags(
+        backend,
+        "Merge tonight despite the flaky test",
+        &[
+            "--binds-nothing",
+            "--undo-cost",
+            "An audit will ask why we ignored it",
+        ],
+    )?;
+    let legacy = envelope_value(&run(&Cli::parse_from(cli_args(
+        backend,
+        &[
+            "--json",
+            "--actor",
+            "agent:claude:session-1",
+            "emit",
+            "decision.proposed",
+            "--title",
+            "Keep the previous export format",
+            "--rationale",
+            PROJECT_TEST_RATIONALE,
+            "--topic-keys",
+            "billing",
+            "--options",
+            "only",
+        ],
+    )))?);
+
+    // JSON keeps the two levels and statements, plus the floor they reach.
+    let expected = [
+        (
+            &rename,
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "cheap"},
+                "floor": "cleared"
+            }),
+        ),
+        (
+            &apple,
+            serde_json::json!({
+                "binds": {"level": "nothing"},
+                "undo_cost": {"level": "cheap"},
+                "floor": "below"
+            }),
+        ),
+        (
+            &merge,
+            serde_json::json!({
+                "binds": {"level": "nothing"},
+                "undo_cost": {"level": "costly", "statement": "An audit will ask why we ignored it"},
+                "floor": "cleared"
+            }),
+        ),
+        (&legacy, serde_json::json!({"floor": "not_asked"})),
+    ];
+    let floor_keys = |value: &serde_json::Value| -> serde_json::Value {
+        let mut picked = serde_json::Map::new();
+        for key in ["binds", "undo_cost", "floor"] {
+            if let Some(found) = value.get(key) {
+                picked.insert(key.to_owned(), found.clone());
+            }
+        }
+        serde_json::Value::Object(picked)
+    };
+    for (id, floor) in &expected {
+        let shown: serde_json::Value =
+            serde_json::from_str(&run_query(backend, &["get_decision", "--id", id], false)?)?;
+        ensure_json_eq(
+            &floor_keys(&shown["data"]),
+            floor.clone(),
+            "get_decision JSON",
+        )?;
+        let brief: serde_json::Value =
+            serde_json::from_str(&run_query(backend, &["verify", "--id", id], false)?)?;
+        ensure_json_eq(
+            &floor_keys(&brief["data"]),
+            floor.clone(),
+            "verify (brief) JSON",
+        )?;
+        let why: serde_json::Value =
+            serde_json::from_str(&run_query(backend, &["why", "--id", id], false)?)?;
+        ensure_json_eq(
+            &floor_keys(&why["data"]["root"]),
+            floor.clone(),
+            "why (neighborhood root) JSON",
+        )?;
+    }
+
+    // The text of show and brief: the two lines, or "not asked", and the below-floor line only
+    // for Apple vs apple.
+    let lines_of = |text: &str| -> Vec<String> { text.lines().map(str::to_owned).collect() };
+    for (verb, id, binds, undo_cost, below) in [
+        (
+            "get_decision",
+            &rename,
+            "  binds: something (Users and scripts that call the old name)",
+            "  undo cost: cheap",
+            false,
+        ),
+        (
+            "get_decision",
+            &apple,
+            "  binds: nothing",
+            "  undo cost: cheap",
+            true,
+        ),
+        (
+            "get_decision",
+            &merge,
+            "  binds: nothing",
+            "  undo cost: costly (An audit will ask why we ignored it)",
+            false,
+        ),
+        (
+            "get_decision",
+            &legacy,
+            "  binds: not asked",
+            "  undo cost: not asked",
+            false,
+        ),
+        (
+            "verify",
+            &apple,
+            "  binds: nothing",
+            "  undo cost: cheap",
+            true,
+        ),
+        (
+            "verify",
+            &legacy,
+            "  binds: not asked",
+            "  undo cost: not asked",
+            false,
+        ),
+        (
+            "why",
+            &apple,
+            "  binds: nothing",
+            "  undo cost: cheap",
+            true,
+        ),
+    ] {
+        let text = run_query(backend, &[verb, "--id", id], true)?;
+        let lines = lines_of(&text);
+        ensure(
+            lines.iter().any(|line| line == binds),
+            &format!("{verb} {id}: expected {binds:?} in\n{text}"),
+        )?;
+        ensure(
+            lines.iter().any(|line| line == undo_cost),
+            &format!("{verb} {id}: expected {undo_cost:?} in\n{text}"),
+        )?;
+        ensure_eq(
+            lines
+                .iter()
+                .any(|line| line == "  floor: below the decision floor"),
+            below,
+            &format!(
+                "{verb} {id}: the below-floor line appears only for a below-floor decision\n{text}"
+            ),
+        )?;
+    }
+
+    // Search and recall stay unfiltered: all four are listed, and only the below-floor row says
+    // so.
+    let searched = run_query(backend, &["search", "--topic", "billing"], true)?;
+    let rows: Vec<&str> = searched
+        .lines()
+        .filter(|line| line.starts_with("match\t"))
+        .collect();
+    ensure_eq(
+        rows.len(),
+        4,
+        &format!("search lists all four:\n{searched}"),
+    )?;
+    for id in [&rename, &apple, &merge, &legacy] {
+        ensure(
+            rows.iter().any(|row| row.contains(id.as_str())),
+            &format!("search lists {id}:\n{searched}"),
+        )?;
+    }
+    let below_rows: Vec<&&str> = rows
+        .iter()
+        .filter(|row| row.contains("floor=below"))
+        .collect();
+    ensure_eq(
+        below_rows.len(),
+        1,
+        &format!("exactly one search row is below the floor:\n{searched}"),
+    )?;
+    ensure(
+        below_rows[0].contains(apple.as_str()),
+        &format!("the below-floor row is Apple vs apple: {}", below_rows[0]),
+    )?;
+
+    let recalled: serde_json::Value = serde_json::from_str(&run_query(
+        backend,
+        &["recall", "Write Apple with a capital letter"],
+        false,
+    )?)?;
+    let items = recalled["data"]["ranked"]["items"]
+        .as_array()
+        .ok_or("recall lists items")?;
+    let apple_item = items
+        .iter()
+        .find(|item| item["decision"]["id"] == serde_json::json!(apple))
+        .ok_or("recall finds the below-floor decision")?;
+    ensure_eq(
+        apple_item["decision"]["floor"].clone(),
+        serde_json::json!("below"),
+        "recall carries the floor of what it finds",
+    )?;
+
+    // The digest names the answers of every decision in its window.
+    let digest: serde_json::Value = serde_json::from_str(&run(&Cli::parse_from(cli_args(
+        backend,
+        &["digest", "--window", "7d"],
+    )))?)?;
+    let entries = digest["data"]["entries"]
+        .as_array()
+        .ok_or("the digest lists entries")?;
+    ensure_eq(entries.len(), 4, "the digest lists all four, none hidden")?;
+    for (id, floor) in &expected {
+        let entry = entries
+            .iter()
+            .find(|entry| entry["decision_id"] == serde_json::json!(id))
+            .ok_or("the digest lists the decision")?;
+        ensure_json_eq(&floor_keys(entry), floor.clone(), "digest entry")?;
+    }
+    let digest_text = run(&Cli::parse_from(cli_args(
+        backend,
+        &["digest", "--window", "7d", "--summary"],
+    )))?;
+    ensure(
+        digest_text.contains("binds: not asked")
+            && digest_text.contains("floor: below the decision floor"),
+        &format!("the digest text states the answers and the below-floor line:\n{digest_text}"),
+    )?;
+
+    // The decision-log export carries them in the file and marks the index row.
+    let out_dir = unique_test_dir("floor-reads-export");
+    let out_str = out_dir.to_str().ok_or("utf-8 temp path")?.to_owned();
+    run(&Cli::parse_from(cli_args(
+        backend,
+        &[
+            "--json", "export", "--format", "markdown", "--out", &out_str,
+        ],
+    )))?;
+    let files = read_tree_files(&out_dir)?;
+    let file_titled = |title: &str| -> std::result::Result<&str, Box<dyn std::error::Error>> {
+        files
+            .iter()
+            .find(|(path, text)| {
+                path.contains("/decisions/") && text.contains(&format!("\n# {title}\n"))
+            })
+            .map(|(_, text)| text.as_str())
+            .ok_or_else(|| format!("no exported file for {title:?}").into())
+    };
+    let rename_file = file_titled("Rename beadline check to doctor")?;
+    ensure(
+        rename_file.contains("floor: \"cleared\"")
+            && rename_file.contains(
+                "## Binds and undo cost\n\nBinds: something (Users and scripts that call the old name)\n\nUndo cost: cheap\n",
+            ),
+        &format!("the export states the answers:\n{rename_file}"),
+    )?;
+    let apple_file = file_titled("Write Apple with a capital letter")?;
+    ensure(
+        apple_file.contains("floor: \"below\"")
+            && apple_file.contains("Floor: below the decision floor"),
+        &format!("the export marks the below-floor decision:\n{apple_file}"),
+    )?;
+    let legacy_file = file_titled("Keep the previous export format")?;
+    ensure(
+        legacy_file.contains("floor: \"not_asked\"")
+            && legacy_file.contains("Binds: not asked\n\nUndo cost: not asked\n"),
+        &format!(
+            "the export says not asked of a decision recorded without the answers:\n{legacy_file}"
+        ),
+    )?;
+    let root_index = files
+        .iter()
+        .find(|(path, _)| path == "INDEX.md")
+        .map(|(_, text)| text.as_str())
+        .ok_or("the export has a root index")?;
+    let below_index_rows = root_index
+        .lines()
+        .filter(|line| line.contains("below the decision floor"))
+        .count();
+    ensure_eq(
+        below_index_rows,
+        1,
+        &format!("exactly one index row is below the floor:\n{root_index}"),
+    )?;
+    let _ = std::fs::remove_dir_all(&out_dir);
+    Ok(())
+}
+
+#[test]
+fn reads_show_what_a_decision_binds_and_what_undoing_it_costs() -> CliTestResult {
+    reads_show_the_floor_answers_body(&TestBackend::sqlite("reads-floor-answers"))
+}
+
+#[test]
+fn reads_show_what_a_decision_binds_and_what_undoing_it_costs_postgres() -> CliTestResult {
+    let Some(backend) = TestBackend::postgres("reads-floor-answers-pg") else {
+        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        return Ok(());
+    };
+    reads_show_the_floor_answers_body(&backend)
+}

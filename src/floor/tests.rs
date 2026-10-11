@@ -227,3 +227,124 @@ fn an_answer_serializes_as_level_and_statement_and_drops_an_absent_statement() {
         "an unknown field is refused"
     );
 }
+
+// ── What a read says of a recorded decision (hivemind-bbnw.11) ──
+
+#[test]
+fn a_recorded_floor_carries_both_answers_and_the_verdict_they_reach() {
+    let rename = RecordedFloor::from_stored(
+        Some("something"),
+        Some("Users and scripts that call the old name"),
+        Some("cheap"),
+        None,
+    );
+    assert_eq!(rename.verdict, FloorVerdict::Cleared);
+    assert_eq!(
+        rename.binds,
+        Some(BindsAnswer::something(
+            "Users and scripts that call the old name"
+        ))
+    );
+    assert_eq!(rename.undo_cost, Some(UndoCostAnswer::cheap()));
+    assert!(!rename.is_below());
+    assert_eq!(rename.below_floor_line(), None);
+
+    let apple = RecordedFloor::from_stored(Some("nothing"), None, Some("cheap"), None);
+    assert_eq!(apple.verdict, FloorVerdict::Below);
+    assert!(apple.is_below());
+    assert_eq!(
+        apple.below_floor_line().as_deref(),
+        Some("floor: below the decision floor")
+    );
+
+    let merge_tonight = RecordedFloor::from_stored(
+        Some("nothing"),
+        None,
+        Some("costly"),
+        Some("An audit will ask why we ignored it"),
+    );
+    assert_eq!(merge_tonight.verdict, FloorVerdict::Cleared);
+}
+
+#[test]
+fn the_lines_a_read_prints_say_the_answers_and_not_asked_where_there_are_none() {
+    let rename = RecordedFloor::from_stored(
+        Some("something"),
+        Some("Users and scripts that call the old name"),
+        Some("costly"),
+        Some("Renaming back breaks every script already moved"),
+    );
+    assert_eq!(
+        rename.binds_line(),
+        "binds: something (Users and scripts that call the old name)"
+    );
+    assert_eq!(
+        rename.undo_cost_line(),
+        "undo cost: costly (Renaming back breaks every script already moved)"
+    );
+
+    let apple = RecordedFloor::from_stored(Some("nothing"), None, Some("cheap"), None);
+    assert_eq!(apple.binds_line(), "binds: nothing");
+    assert_eq!(apple.undo_cost_line(), "undo cost: cheap");
+
+    // Said, not left blank: a reader must not take silence for "nothing".
+    let old = RecordedFloor::not_asked();
+    assert_eq!(old.binds_line(), "binds: not asked");
+    assert_eq!(old.undo_cost_line(), "undo cost: not asked");
+    assert_eq!(old.below_floor_line(), None);
+    assert_eq!(
+        RecordedFloor::from_stored(None, None, None, None),
+        old,
+        "a node that stores no answer reads not asked"
+    );
+}
+
+#[test]
+fn a_level_the_reader_does_not_know_reads_as_that_answer_not_asked() {
+    // One good answer is not enough for a verdict: the floor needs both.
+    let half = RecordedFloor::from_stored(Some("nothing"), None, Some("enormous"), None);
+    assert_eq!(half.verdict, FloorVerdict::NotAsked);
+    assert_eq!(half.binds_line(), "binds: nothing");
+    assert_eq!(half.undo_cost_line(), "undo cost: not asked");
+    assert!(
+        !half.is_below(),
+        "a decision with one unreadable answer is not marked below"
+    );
+}
+
+#[test]
+fn a_recorded_floor_serializes_flat_with_the_verdict_and_no_key_for_an_answer_never_asked() {
+    let flat =
+        |floor: &RecordedFloor| serde_json::to_value(floor).expect("a recorded floor serializes");
+    assert_eq!(
+        flat(&RecordedFloor::from_stored(
+            Some("something"),
+            Some("Later docs"),
+            Some("cheap"),
+            None
+        )),
+        json!({
+            "binds": {"level": "something", "statement": "Later docs"},
+            "undo_cost": {"level": "cheap"},
+            "floor": "cleared"
+        })
+    );
+    assert_eq!(
+        flat(&RecordedFloor::from_stored(
+            Some("nothing"),
+            None,
+            Some("cheap"),
+            None
+        )),
+        json!({
+            "binds": {"level": "nothing"},
+            "undo_cost": {"level": "cheap"},
+            "floor": "below"
+        })
+    );
+    assert_eq!(
+        flat(&RecordedFloor::not_asked()),
+        json!({"floor": "not_asked"}),
+        "a decision recorded before the answers existed has no answer keys, only the verdict"
+    );
+}

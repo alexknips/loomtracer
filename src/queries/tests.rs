@@ -5476,4 +5476,218 @@ fn a_capture_naming_nobody_stays_proposed_and_is_not_called_human_authored() -> 
     Ok(())
 }
 
+// ── What a read says of the decision floor's answers (hivemind-bbnw.11) ──
+
+/// One decision per way the floor can read, all under the topic `floor-reads`:
+/// - `d:rename` binds something and is cheap to undo: cleared.
+/// - `d:apple` binds nothing and is cheap to undo: below the floor.
+/// - `d:merge` binds nothing and is costly to undo: cleared.
+/// - `d:legacy` was recorded with no answers (as before they existed): not asked.
+fn floor_reads_scenario() -> Result<Scenario> {
+    let scenario = Scenario::new();
+    let decisions = [
+        (
+            "d:rename",
+            "Rename beadline check to doctor",
+            json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "cheap"}
+            }),
+        ),
+        (
+            "d:apple",
+            "Write Apple with a capital letter",
+            json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}}),
+        ),
+        (
+            "d:merge",
+            "Merge tonight despite the flaky test",
+            json!({
+                "binds": {"level": "nothing"},
+                "undo_cost": {"level": "costly", "statement": "An audit will ask why we ignored it"}
+            }),
+        ),
+        ("d:legacy", "Keep the previous export format", json!({})),
+    ];
+    for (index, (id, title, answers)) in decisions.into_iter().enumerate() {
+        let mut payload = json!({
+            "decision_id": id,
+            "title": title,
+            "rationale": format!("The reasons for: {title}"),
+            "topic_keys": ["floor-reads"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        });
+        if let (Some(base), Some(answers)) = (payload.as_object_mut(), answers.as_object()) {
+            base.extend(answers.clone());
+        }
+        scenario.proposal(
+            "human:alice",
+            &format!("2026-01-01T00:00:0{index}Z"),
+            payload,
+        )?;
+    }
+    Ok(scenario)
+}
+
+/// The JSON a read of one decision carries for the floor: `binds`, `undo_cost`, `floor`.
+fn floor_json_of(decision: &impl serde::Serialize) -> Result<serde_json::Value> {
+    let value = serde_json::to_value(decision)?;
+    let pick = |key: &str| value.get(key).cloned().unwrap_or(serde_json::Value::Null);
+    Ok(json!({
+        "binds": pick("binds"),
+        "undo_cost": pick("undo_cost"),
+        "floor": pick("floor"),
+    }))
+}
+
+/// What each of the four decisions of `floor_reads_scenario` reads as, in the JSON a read carries.
+fn expected_floor_reads() -> [(&'static str, serde_json::Value); 4] {
+    [
+        (
+            "d:rename",
+            json!({
+                "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+                "undo_cost": {"level": "cheap"},
+                "floor": "cleared"
+            }),
+        ),
+        (
+            "d:apple",
+            json!({
+                "binds": {"level": "nothing"},
+                "undo_cost": {"level": "cheap"},
+                "floor": "below"
+            }),
+        ),
+        (
+            "d:merge",
+            json!({
+                "binds": {"level": "nothing"},
+                "undo_cost": {"level": "costly", "statement": "An audit will ask why we ignored it"},
+                "floor": "cleared"
+            }),
+        ),
+        (
+            "d:legacy",
+            json!({"binds": null, "undo_cost": null, "floor": "not_asked"}),
+        ),
+    ]
+}
+
+#[test]
+fn get_decision_carries_the_recorded_answers_and_the_floor_they_reach() -> Result<()> {
+    let graph = floor_reads_scenario()?.graph()?;
+    for (id, expected) in expected_floor_reads() {
+        let decision = get_decision(&graph, id)?
+            .data
+            .ok_or_else(|| query_error(format!("{id} exists")))?;
+        assert_eq!(floor_json_of(&decision)?, expected, "{id}");
+    }
+    let apple = get_decision(&graph, "d:apple")?
+        .data
+        .ok_or_else(|| query_error("d:apple exists"))?;
+    assert!(apple.floor.is_below());
+    assert_eq!(
+        apple.floor.below_floor_line().as_deref(),
+        Some("floor: below the decision floor")
+    );
+    let legacy = get_decision(&graph, "d:legacy")?
+        .data
+        .ok_or_else(|| query_error("d:legacy exists"))?;
+    assert_eq!(legacy.floor.binds_line(), "binds: not asked");
+    assert_eq!(legacy.floor.undo_cost_line(), "undo cost: not asked");
+    assert_eq!(legacy.floor.below_floor_line(), None);
+    Ok(())
+}
+
+#[test]
+fn a_decision_below_the_floor_is_still_found_by_search_recall_and_topic_reads() -> Result<()> {
+    let scenario = floor_reads_scenario()?;
+    let graph = scenario.graph()?;
+    let ids = |mut ids: Vec<String>| {
+        ids.sort();
+        ids
+    };
+    let everything = ["d:apple", "d:legacy", "d:merge", "d:rename"];
+
+    // The topic read lists all four, the below-floor one included, each with its floor.
+    let relevant = get_relevant_decisions(&graph, "floor-reads", None)?;
+    assert_eq!(
+        ids(relevant.data.iter().map(|d| d.id.clone()).collect()),
+        everything
+    );
+    for decision in &relevant.data {
+        let expected = expected_floor_reads()
+            .into_iter()
+            .find(|(id, _)| *id == decision.id)
+            .map(|(_, expected)| expected);
+        assert_eq!(Some(floor_json_of(decision)?), expected, "{}", decision.id);
+    }
+
+    // Graph search by topic: unfiltered, nothing hidden for being below the floor.
+    let searched = search_decisions(
+        &graph,
+        &SearchDecisionRequest {
+            topic_keys: vec!["floor-reads".to_owned()],
+            limit: 10,
+            ..SearchDecisionRequest::default()
+        },
+    )?;
+    assert!(!searched.truncated);
+    assert_eq!(
+        ids(searched
+            .data
+            .items
+            .iter()
+            .map(|r| r.decision.id.clone())
+            .collect()),
+        everything
+    );
+    for item in &searched.data.items {
+        let expected = expected_floor_reads()
+            .into_iter()
+            .find(|(id, _)| *id == item.decision.id)
+            .map(|(_, expected)| expected);
+        assert_eq!(
+            Some(floor_json_of(&item.decision)?),
+            expected,
+            "{}",
+            item.decision.id
+        );
+    }
+
+    // A search that names the below-floor decision finds it, floor and all.
+    let by_words = search_decisions(
+        &graph,
+        &SearchDecisionRequest {
+            query: Some("Apple capital".to_owned()),
+            limit: 10,
+            ..SearchDecisionRequest::default()
+        },
+    )?;
+    assert_eq!(by_words.data.items.len(), 1);
+    assert_eq!(by_words.data.items[0].decision.id, "d:apple");
+    assert!(by_words.data.items[0].decision.floor.is_below());
+
+    // Recall (the fluent search) answers the same decision from a question in own words.
+    let (items, results) = fluent_answer(&scenario, "write Apple with a capital letter", 10)?;
+    assert!(
+        items.iter().any(|(id, _)| id == "d:apple"),
+        "recall finds the below-floor decision: {items:?}"
+    );
+    let apple = results
+        .items
+        .iter()
+        .find(|item| item.decision.id == "d:apple")
+        .ok_or_else(|| query_error("recall lists d:apple"))?;
+    assert_eq!(
+        apple.decision.floor.verdict,
+        crate::floor::FloorVerdict::Below
+    );
+    Ok(())
+}
+
 mod project_naming;

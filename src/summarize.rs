@@ -896,6 +896,7 @@ mod tests {
     use super::*; // ubs:ignore: test-only glob import; standard Rust test module idiom
     use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding, SupersedeInput};
     use crate::events::TenantId;
+    use crate::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
     use crate::ledger::InMemoryEventLedger;
     use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 
@@ -976,6 +977,105 @@ mod tests {
         assert!(summary.contains("Simpler ops"), "must include rationale"); // ubs:ignore: test-only assertion
         assert_eq!(response.data.cited_decision_ids, vec![decision_id]); // ubs:ignore: test-only assertion
         assert_eq!(response.data.unit, SummarizeMode::Single); // ubs:ignore: test-only assertion
+    }
+
+    /// A decision that states its two floor answers, through the real write path.
+    fn seed_decision_with_floor<L: crate::ledger::EventLedger>(
+        commands: &Commands<'_, L>,
+        title: &str,
+        answers: &FloorAnswers,
+    ) -> String {
+        let topic_keys = ["floor".to_owned()];
+        commands
+            .propose_decision(DecisionProposalInput {
+                grounding: Grounding::NotAsked,
+                expressed_confidence: None,
+                project: None,
+                actor_id: "test-actor",
+                title,
+                rationale: "A stated reason for the summary floor test",
+                topic_keys: &topic_keys,
+                option_ids: &[],
+                option_labels: &[],
+                chosen_option_id: None,
+                decided_by: None,
+                delegated_by: None,
+                still_proposed: false,
+                hypothesis_ids: &[],
+                evidence_ids: &[],
+                quote: None,
+                question: None,
+                floor: FloorInput::Stated(answers),
+            })
+            .unwrap() // ubs:ignore: test-only helper; panicking is correct in tests
+    }
+
+    #[test]
+    fn single_and_cluster_summaries_state_the_answers_and_mark_a_decision_below_the_floor() {
+        let ledger = InMemoryEventLedger::new();
+        let commands = Commands::new(&ledger);
+        let rename = seed_decision_with_floor(
+            &commands,
+            "Rename beadline check to doctor",
+            &FloorAnswers {
+                binds: BindsAnswer::something("Users and scripts that call the old name"),
+                undo_cost: UndoCostAnswer::cheap(),
+            },
+        );
+        let apple = seed_decision_with_floor(
+            &commands,
+            "Write Apple with a capital letter",
+            &FloorAnswers {
+                binds: BindsAnswer::nothing(),
+                undo_cost: UndoCostAnswer::cheap(),
+            },
+        );
+        let legacy = seed_decision(
+            &commands,
+            "test-actor",
+            "Keep the previous export format",
+            "Nobody asked the floor questions of this one",
+            &["floor"],
+            &[],
+            None,
+        );
+        let graph = make_graph(&ledger);
+        let summarize = |ids: &[&String], mode| {
+            let request = SummarizeRequest {
+                decision_ids: ids.iter().map(|id| (*id).clone()).collect(),
+                mode,
+            };
+            summarize_decisions(&graph, &request).unwrap().data.summary // ubs:ignore: test-only; panicking is correct in tests
+        };
+
+        let single = summarize(&[&rename], SummarizeMode::Single);
+        assert!(single.contains("binds: something (Users and scripts that call the old name)")); // ubs:ignore: test-only assertion
+        assert!(single.contains("undo cost: cheap")); // ubs:ignore: test-only assertion
+        assert!(!single.contains("below the decision floor")); // ubs:ignore: test-only assertion
+
+        let single = summarize(&[&apple], SummarizeMode::Single);
+        assert!(single.contains("binds: nothing") && single.contains("undo cost: cheap")); // ubs:ignore: test-only assertion
+        assert!(
+            single.contains("floor: below the decision floor"),
+            "{single}"
+        ); // ubs:ignore: test-only assertion
+
+        let single = summarize(&[&legacy], SummarizeMode::Single);
+        assert!(single.contains("binds: not asked") && single.contains("undo cost: not asked")); // ubs:ignore: test-only assertion
+        assert!(!single.contains("below the decision floor")); // ubs:ignore: test-only assertion
+
+        // A cluster lists all three (nothing is hidden for being below the floor) and marks only
+        // the below-floor one.
+        let cluster = summarize(&[&rename, &apple, &legacy], SummarizeMode::Cluster);
+        for id in [&rename, &apple, &legacy] {
+            assert!(cluster.contains(id.as_str()), "{cluster}"); // ubs:ignore: test-only assertion
+        }
+        assert_eq!(
+            cluster.matches("below the decision floor").count(),
+            1,
+            "{cluster}"
+        ); // ubs:ignore: test-only assertion
+        assert!(cluster.contains("binds: not asked"), "{cluster}"); // ubs:ignore: test-only assertion
     }
 
     #[test]
