@@ -350,7 +350,10 @@ not a decision. Merging tonight despite a failing check binds nothing later but
 is costly to undo: a decision. A capture that answers `--binds-nothing
 --cheap-to-undo` is still recorded, and the reply says it is below the decision
 floor. A request ("make this a bead") is not a decision: a request goes to your
-tracker. See the `hivemind-capture` skill.
+tracker. The four answer flags need a `hivemind` newer than v0.7.0: on an older
+CLI the helper leaves them out and says so on stderr, a v0.7.0 MCP server ignores
+the `binds` and `undo_cost` arguments, and either way the answers are not
+recorded. See the `hivemind-capture` skill.
 
 `--options` splits on every comma. A label that holds a comma goes on its own
 `--option "Rename later, after the comparison"`: the flag takes one label whole,

@@ -493,6 +493,15 @@ ledger write must stay explicit and deterministic.
    move` fixes it later). The helper and the bundled MCP servers leave the flag
    out on their own when the CLI lacks it.
 
+   The two answers need a `hivemind` newer than v0.7.0 as well: `--binds`,
+   `--binds-nothing`, `--undo-cost` and `--cheap-to-undo`. If the CLI answers
+   `unexpected argument '--binds'` (or one of the other three), re-run without
+   those four flags: the capture is then filed without the answers, and they are
+   not recorded. The helper drops them on its own and says so on stderr. A v0.7.0
+   MCP server ignores the `binds` and `undo_cost` arguments rather than refusing
+   them, so nothing is recorded for them there either. Upgrade `hivemind` to
+   record them.
+
    From the Claude Code plugin, prefer the installed slash command:
 
    ```text

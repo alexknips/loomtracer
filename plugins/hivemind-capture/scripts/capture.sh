@@ -78,7 +78,9 @@ capture that leaves either out is refused (exit 2) and nothing is written. Answe
                               What undoing it would cost, in one sentence; or
                               that undoing it is cheap, an ordinary edit.
 A decision that binds nothing and is cheap to undo is still recorded; the
-confirmation says it is below the decision floor.
+confirmation says it is below the decision floor. These four flags need a
+hivemind newer than v0.7.0; on an older one this script leaves them out, says so
+on stderr, and the answers are not recorded.
 
 Every decision capture says which project it belongs to and how that was
 determined. Without --project the CLI works it out from where this runs (the
@@ -373,8 +375,30 @@ ERROR
   if cli_has_flag --project-from-context emit decision.capture; then
     context_flag=(--project-from-context)
   fi
+  # The two answers (--binds/--binds-nothing, --undo-cost/--cheap-to-undo) arrived after v0.7.0
+  # too. A CLI that lacks them would refuse the whole capture ("unexpected argument '--binds'",
+  # exit 2) and strangers run the release binary, so the capture goes in without them and the
+  # note says what was left out (hivemind-bbnw.12). A CLI that has them gets them as given.
+  local sent=("${FORWARDED[@]}")
+  if ! cli_has_flag --binds emit decision.capture; then
+    sent=()
+    local i=0 left_out=0
+    while [[ "$i" -lt "${#FORWARDED[@]}" ]]; do
+      case "${FORWARDED[$i]}" in
+        --binds|--undo-cost) left_out=1; i=$((i + 2)) ;;
+        --binds-nothing|--cheap-to-undo) left_out=1; i=$((i + 1)) ;;
+        *) sent+=("${FORWARDED[$i]}"); i=$((i + 1)) ;;
+      esac
+    done
+    if [[ "$left_out" == "1" ]]; then
+      cat >&2 <<'NOTE'
+this hivemind has no binds / undo-cost answers (they arrived after v0.7.0), so they were
+left out of this capture and are not recorded. Upgrade hivemind to record them.
+NOTE
+    fi
+  fi
   result="$("${BASE_CMD[@]}" --hivemind-dir "$HIVEMIND_DIR" emit decision.capture \
-    "${PROVENANCE[@]}" ${context_flag[@]+"${context_flag[@]}"} "${FORWARDED[@]}" 2>"$errfile")" || status=$?
+    "${PROVENANCE[@]}" ${context_flag[@]+"${context_flag[@]}"} ${sent[@]+"${sent[@]}"} 2>"$errfile")" || status=$?
   if [[ "$status" -ne 0 ]]; then
     cat "$errfile" >&2
     rm -f "$errfile"

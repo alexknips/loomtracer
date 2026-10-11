@@ -312,6 +312,19 @@ def check_capture_script(world: World, label: str, tool: str) -> Path:
     env = world.env(project, tool)
     done = run(["bash", script, *DECISION_FLAGS], cwd=project, env=env)
     check(f"capture.sh decision ({label})", done.returncode == 0 and "Captured HiveMind decision" in done.stdout, tail(done))
+    # The skill and the commands teach the two answers; a release CLI may lack the flags, and the
+    # helper then leaves them out rather than have the CLI refuse the whole capture.
+    answered = world.project(f"answers-{label}")
+    done = run(
+        ["bash", script, *DECISION_FLAGS, "--binds", "Operators see an outage after three attempts", "--cheap-to-undo"],
+        cwd=answered,
+        env=world.env(answered, tool),
+    )
+    check(
+        f"capture.sh decision with binds/undo answers ({label})",
+        done.returncode == 0 and "Captured HiveMind decision" in done.stdout and "unexpected argument" not in done.stderr,
+        tail(done),
+    )
     done = run(["bash", script, "Retry dashboards were green all week", "--kind", "evidence"], cwd=project, env=env)
     check(f"capture.sh evidence ({label})", done.returncode == 0 and "Captured HiveMind evidence" in done.stdout, tail(done))
     done = run(["bash", script, "Operators check the dashboard daily", "--kind", "hypothesis"], cwd=project, env=env)
@@ -339,15 +352,41 @@ def skill_direct_form() -> str:
     return "\n".join(line[3:] if line.startswith("   ") else line for line in form.splitlines()) + "\n"
 
 
+# Flags master's CLI has and a release may lack. The skill tells an agent that meets "unexpected
+# argument '<flag>'" for one of these to re-run without it, the four answers going together, so
+# the direct-form check does the same (hivemind-bbnw.12).
+NEWER_FLAG_GROUPS = [
+    ("--project-from-context",),
+    ("--binds", "--binds-nothing", "--undo-cost", "--cheap-to-undo"),
+]
+
+
+def without_flags(form: str, flags: Any) -> str:
+    """The direct form with the lines that start with one of `flags` removed."""
+    lines = [l for l in form.splitlines() if (l.split() or [""])[0] not in flags]
+    if lines and lines[-1].rstrip().endswith("\\"):
+        lines[-1] = lines[-1].rstrip()[:-1].rstrip()  # the last line no longer continues
+    return "\n".join(lines) + "\n"
+
+
 def check_skill_direct_form(world: World, label: str, tool: str) -> None:
     project = world.project(f"skill-{label}")
     form = skill_direct_form()
     env = world.env(project, tool, HIVEMIND_DIR=str(project / "hivemind"))
     done = run(["bash", "-c", form], cwd=project, env=env)
-    if done.returncode != 0 and "unexpected argument '--project-from-context'" in done.stderr:
-        # The skill says: on an older CLI, drop that one flag and re-run.
-        stripped = "\n".join(l for l in form.splitlines() if l.strip() != "--project-from-context \\")
-        done = run(["bash", "-c", stripped + "\n"], cwd=project, env=env)
+    for _ in NEWER_FLAG_GROUPS:
+        group = next(
+            (
+                g
+                for g in NEWER_FLAG_GROUPS
+                if done.returncode != 0 and any(f"unexpected argument '{f}'" in done.stderr for f in g)
+            ),
+            None,
+        )
+        if group is None:
+            break
+        form = without_flags(form, group)
+        done = run(["bash", "-c", form], cwd=project, env=env)
     check(f"skill direct form captures ({label})", done.returncode == 0, tail(done))
     actors = world.actors_for(project, "Prefer direct CLI capture before MCP")
     check(

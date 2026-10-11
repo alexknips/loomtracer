@@ -1524,6 +1524,134 @@ fn capture_script_refuses_option_on_a_cli_without_it_and_writes_nothing() -> Tes
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn capture_script_leaves_the_answers_out_on_a_cli_without_them_and_says_so() -> TestResult<()> {
+    // hivemind-bbnw.12: the v0.7.0 release binary has no `--binds` / `--binds-nothing` /
+    // `--undo-cost` / `--cheap-to-undo` and refuses the whole capture over the first one
+    // ("unexpected argument '--binds'"), while the marketplace serves this plugin from master. The
+    // script sends the capture without the four answers and says so on stderr; a CLI that lists
+    // them gets them as given. Stand-ins whose `--help` lists the flags (or not) record their argv.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = unique_temp_dir("hivemind-capture-script-answers-old-cli")?;
+    let argv_file = scratch.join("argv");
+    let stand_in = |name: &str, help: &str| -> TestResult<std::path::PathBuf> {
+        let path = scratch.join(name);
+        fs::write(
+            &path,
+            format!(
+                "#!/usr/bin/env bash\n\
+                 if [[ \" $* \" == *\" --help \"* ]]; then\n\
+                 echo '{help}'\n\
+                 exit 0\n\
+                 fi\n\
+                 printf '%s\\n' \"$@\" > '{}'\n",
+                argv_file.display()
+            ),
+        )?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        Ok(path)
+    };
+    let old_cli = stand_in(
+        "old-hivemind",
+        "      --options <LABELS>  Comma-separated labels",
+    )?;
+    let new_cli = stand_in(
+        "new-hivemind",
+        "      --binds <WHAT>  What it binds\n      --undo-cost <WHAT>  What undoing it costs",
+    )?;
+    let script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let run = |cli: &Path, answers: &[&str]| -> TestResult<(std::process::Output, Vec<String>)> {
+        let _ = fs::remove_file(&argv_file);
+        let output = Command::new(&script)
+            .current_dir(markerless_cwd())
+            .env("HIVEMIND_CAPTURE_BIN", cli)
+            .env("HIVEMIND_DIR", scratch.join("ledger"))
+            .env("CLAUDE_PROJECT_DIR", root)
+            .env("CLAUDE_SESSION_ID", "answers-old-cli-session")
+            .env_remove("GC_AGENT")
+            .env_remove("GC_ALIAS")
+            .env_remove("GC_RIG")
+            .args([
+                "Rename timing",
+                "--kind",
+                "decision",
+                "--title",
+                "Rename timing",
+                "--rationale",
+                "Why",
+                "--topic-keys",
+                "naming",
+                "--options",
+                "Rename now,Pause",
+                "--rests-on-assumption",
+                "Because",
+            ])
+            .args(answers)
+            .output()?;
+        let argv = fs::read_to_string(&argv_file)
+            .unwrap_or_default()
+            .lines()
+            .map(String::from)
+            .collect();
+        Ok((output, argv))
+    };
+    let answers: [&[&str]; 2] = [
+        &["--binds", "Users call the new name", "--cheap-to-undo"],
+        &["--binds-nothing", "--undo-cost", "A second release"],
+    ];
+
+    for given in answers {
+        let (output, argv) = run(&old_cli, given)?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        require(
+            output.status.success(),
+            format!("a capture with answers on an old CLI failed: {stderr}"),
+        )?;
+        require(
+            argv.iter().any(|a| a == "Rename timing"),
+            format!("the old CLI was asked to write the capture: {argv:?}"),
+        )?;
+        for sent in &argv {
+            require(
+                ![
+                    "--binds",
+                    "--binds-nothing",
+                    "--undo-cost",
+                    "--cheap-to-undo",
+                ]
+                .contains(&sent.as_str())
+                    && !["Users call the new name", "A second release"].contains(&sent.as_str()),
+                format!("an answer reached the old CLI: {argv:?}"),
+            )?;
+        }
+        require_contains(
+            &stderr,
+            "left out",
+            "the helper says the answers were left out",
+        )?;
+    }
+
+    for given in answers {
+        let (output, argv) = run(&new_cli, given)?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        require(output.status.success(), format!("capture failed: {stderr}"))?;
+        for answer in given {
+            require(
+                argv.iter().any(|a| a == *answer),
+                format!("{answer} reaches a CLI that lists it: {argv:?}"),
+            )?;
+        }
+        require(
+            !stderr.contains("left out"),
+            "nothing is left out when the CLI lists the flags",
+        )?;
+    }
+
+    let _ = fs::remove_dir_all(scratch);
+    Ok(())
+}
+
 /// hivemind-s15q.15: the capture scripts ask the CLI to work a decision's project out from the
 /// folder they run in (the nearest `.hivemind-project` walking up). Tests that are not about
 /// projects run from here instead of the repository root, where this rig's own marker sits: the

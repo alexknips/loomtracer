@@ -73,6 +73,9 @@ A capture that answers `--binds-nothing --cheap-to-undo` is still recorded, and
 the reply says it is below the decision floor (`below_floor: true`); if it is a
 real choice and you left a leg out, supersede it with the missing answer.
 
+The four answer flags need a `hivemind` newer than v0.7.0: on an older CLI the
+helper leaves them out, says so on stderr, and the answers are not recorded.
+
 A capture that names nothing it rests on, or leaves either answer out, exits 2
 and writes nothing. After any refusal (no grounding, an ambiguous premise, no
 match, a missing binds or undo-cost answer), add the answer and re-run: never

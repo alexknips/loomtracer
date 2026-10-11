@@ -502,9 +502,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   schema, the `classify-queue` and `batch-capture` kind lists and `capture.sh`'s kind list
   (`--kind decision-request` now reads as an unsupported kind). The recorded type stays:
   `ingest.batch_classified` and the graph still accept it, so a classification recorded earlier
-  replays unchanged. Text and prompts only: the classifier prompt change moves fidelity on the
-  classifier corpus, and a re-baseline needs a metered model key, so it is not run here.
-  (hivemind-bbnw.12)
+  replays unchanged. The prompt change moves fidelity on the classifier corpus, and a
+  re-baseline needs a metered model key, so it is not run here. The four answer flags
+  (`--binds`, `--binds-nothing`, `--undo-cost`, `--cheap-to-undo`) are newer than the latest
+  release, whose CLI refuses a capture that carries any of them, so `capture.sh` leaves them
+  out on a CLI that does not list them and says so on stderr, the skill and README say the same
+  for the direct CLI form, and a v0.7.0 MCP server ignores the extra `binds` and `undo_cost`
+  arguments instead of refusing. The "Plugins against the latest release" check follows the
+  same fallback. (hivemind-bbnw.12)
 - **`scan_misfiled_decisions` says where each decision is filed and where it belongs.** Each
   candidate carries its `project`; `--project` limits the report to decisions filed exactly
   under one project (an unregistered handle is refused, never an empty report) and
