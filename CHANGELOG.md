@@ -479,6 +479,23 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`why`, `verify` and `recall` by description, and a plain `search` with a status or time
+  window, answer in a fraction of a second on a ledger of a thousand decisions instead of
+  timing out.** On the city cell (1,084 decisions) they took 20-30 s and mostly ended in
+  HTTP 408 at the server's 30 s limit, while a lookup by id answered in 1.4 s. Two causes. The
+  in-memory graph copied every node and edge on each read, and a search read a decision's
+  status with three such reads per decision, so one question cost thousands of full copies; a
+  read now looks at the graph where it is, and a search reads every status and every premise's
+  standing once. And `why` read every event of the ledger to date one decision, and a
+  `since`/`until` window read every event to date the proposals, ingest transcripts and all
+  (about 115,000 on the cell); each now reads only the seven decision event types, or only the
+  proposals. Nothing about an answer changes: through the real binary on a copy of the cell's
+  2,493 non-transcript events, the checker's 17 questions on `why`, `verify` and `recall`
+  (51 answers) are identical to the previous build's, and the server answers all 51 with HTTP
+  200 (median 0.14 s, the first, which builds the graph, 3.7 s) where the previous build gave
+  408 at 30 s. Not measured here: the Postgres read of the full ledger itself, which the copy
+  does not carry. A time-window search no longer fails on a malformed event of a type it does
+  not read. (hivemind-7jon8)
 - **`why`, `verify`, `chain` and `compact_view` list the decisions instead of naming one when
   four or more hold every word of a short question and none of them is told apart by a word
   of its own.** "What order is the decision list in?" answered the decision on the order of
