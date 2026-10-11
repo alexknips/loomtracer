@@ -801,7 +801,7 @@ curl_json_tenant_b() {
 }
 
 tb_resp=$(curl_json_tenant_b POST /v1/decisions \
-  '{"title": "e2e-smoke tenant-B only decision", "rationale": "should not appear in tenant A", "topic_keys":["e2e"], "options":[{"label":"opt-b"}], "grounding":[{"kind":"bet"}]}')
+  '{"title": "e2e-smoke tenant-B only decision", "rationale": "should not appear in tenant A", "topic_keys":["e2e"], "options":[{"label":"opt-b"}], "grounding":[{"kind":"bet"}], "binds":{"level":"nothing"}, "undo_cost":{"level":"cheap"}}')
 if echo "$tb_resp" | jq -e '.decision_id' > /dev/null 2>&1; then
   TB_DECISION_ID=$(echo "$tb_resp" | jq -r '.decision_id')
   # Verify it's invisible from tenant A's graph
