@@ -1046,9 +1046,7 @@ fn human_cli_emit_defaults_actor_and_source_from_git_email() -> TestResult<()> {
         ["config", "user.email", "Ada.Example+Decisions@Example.COM"],
     )?;
 
-    let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .current_dir(&repo)
-        .env_remove("HIVEMIND_ACTOR")
+    let output = without_agent_env(Command::new(env!("CARGO_BIN_EXE_hivemind")).current_dir(&repo))
         .arg("--json")
         .arg("--hivemind-dir")
         .arg(&hivemind_dir)
@@ -1779,6 +1777,30 @@ fn human_cli_capture_is_recorded_as_the_human_and_an_agent_stays_an_agent() -> T
 
     let _ = fs::remove_dir_all(scratch);
     Ok(())
+}
+
+/// A spawned CLI that sees no agent session: every variable `identity` reads to name an agent
+/// (hivemind-jglb7) is removed, so a person-at-a-terminal assertion holds when `cargo test` runs
+/// inside a Claude Code, Codex or Gas City session too (hivemind-2qg60).
+fn without_agent_env(command: &mut Command) -> &mut Command {
+    for key in [
+        "HIVEMIND_ACTOR",
+        "HIVEMIND_AGENT_TOOL",
+        "HIVEMIND_TOOL",
+        "HIVEMIND_AGENT_SESSION",
+        "HIVEMIND_CODEX_SESSION",
+        "HIVEMIND_CLAUDE_SESSION",
+        "CLAUDE_SESSION_ID",
+        "CLAUDE_CODE_SESSION_ID",
+        "CODEX_SESSION_ID",
+        "CODEX_TASK_ID",
+        "GC_AGENT",
+        "GC_ALIAS",
+        "GC_RIG",
+    ] {
+        command.env_remove(key);
+    }
+    command
 }
 
 fn unique_temp_dir(label: &str) -> TestResult<std::path::PathBuf> {
