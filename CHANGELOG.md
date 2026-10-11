@@ -124,6 +124,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Every read of a decision shows what it binds and what undoing it costs.** `get_decision`,
+  search and recall results, `get_decision_brief`, the digest and the decision-log export carry
+  `binds`, `undo_cost` (each `{level, statement?}`, absent when the decision was never asked) and
+  `floor`: `cleared`, `below` (it binds nothing and is cheap to undo, by the capturer's own
+  answers) or `not_asked` (a decision recorded before the questions existed, or captured by a
+  path that does not ask). The text forms print `binds:` and `undo cost:` lines, `not asked` where
+  there is no answer, and a below-floor decision reads `floor: below the decision floor`; a
+  list row ends in `floor=below`. In the export the front matter gains `floor`, each decision
+  file a "Binds and undo cost" section, and a below-floor decision's index status reads
+  `<status>, below the decision floor`. Nothing is hidden: search and recall return a
+  below-floor decision like any other. The background scorer now sends both answers to its model
+  as `Recorded answer` lines to cite as the basis of any reach or irreversibility explanation,
+  and says they are not quotable text; its prompt version is now `assessment-v2`. No score
+  changes and no new weights. (hivemind-bbnw.11)
 - **A capture whose rationale names an earlier decision by id, but does not rest on it, says so
   in its reply.** When the rationale holds a `decision-...` id (the full id, or its first eight
   hex digits when exactly one decision starts with them) that exists and is not among what the

@@ -10,7 +10,7 @@ use crate::commands::{
 };
 use crate::error::{CliError, CommandError};
 use crate::events::{EventId, EventType, ModelDimension};
-use crate::floor::FloorReply;
+use crate::floor::{FloorReply, RecordedFloor};
 use crate::importance::{Importance, ImportanceReport};
 use crate::ingest::{DocumentImportReport, DocumentPreparationReport};
 use crate::projector::{
@@ -55,6 +55,7 @@ pub(crate) fn render_compact_view_summary(view: &Option<CompactView>) -> String 
     if let Some(quote) = &v.decision.quote {
         out.push_str(&format!("  quote: \"{quote}\"\n"));
     }
+    write_floor_lines(&mut out, &v.decision.floor);
     if let Some(chain) = &v.supersession_chain {
         out.push_str(&format!(
             "  superseded {} earlier decision(s); oldest: {}\n",
@@ -394,7 +395,8 @@ pub(crate) fn render_decision_summary(decision: &Option<DecisionView>) -> String
     };
 
     let mut output = String::new();
-    write_decision_summary_row(&mut output, "decision", decision);
+    write_decision_summary_row(&mut output, "decision", decision, false);
+    write_floor_lines(&mut output, &decision.floor);
     output.trim_end().to_owned()
 }
 
@@ -405,7 +407,7 @@ pub(crate) fn render_decision_list_summary(decisions: &[DecisionView]) -> String
 
     let mut output = String::new();
     for decision in decisions {
-        write_decision_summary_row(&mut output, "decision", decision);
+        write_decision_summary_row(&mut output, "decision", decision, true);
     }
     output.trim_end().to_owned()
 }
@@ -417,7 +419,7 @@ pub(crate) fn render_search_summary(results: &DecisionSearchResults) -> String {
 
     let mut output = String::new();
     for item in &results.items {
-        let _ = writeln!(
+        let _ = write!(
             output,
             "match\trank={}\t{}\t{}\t{}\ttopics={}\tproject={}\tmatched={}",
             item.rank,
@@ -428,6 +430,8 @@ pub(crate) fn render_search_summary(results: &DecisionSearchResults) -> String {
             summary_cell(&item.decision.project_label),
             item.matched_fields.join(",")
         );
+        write_floor_field(&mut output, &item.decision.floor);
+        output.push('\n');
     }
     output.trim_end().to_owned()
 }
@@ -479,6 +483,9 @@ pub(crate) fn render_situational_summary(results: &SituationalResults) -> String
             changed,
             summary_cell(&item.decision.project_label),
         );
+        if item.decision.floor.is_below() {
+            output.push_str("floor=below\t");
+        }
         // Only a project-scoped answer says how each decision reached it.
         if let Some(scope) = &item.scope {
             let _ = write!(output, "scope={}\t", summary_cell(&scope.label));
@@ -924,6 +931,7 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief) {
         let _ = writeln!(output, "  answered_at: {}", occurred_at.to_rfc3339());
     }
     write_rests_on(output, brief);
+    write_floor_lines(output, &brief.floor);
     if brief.still_holds.held_up {
         let _ = writeln!(output, "  still holds: yes");
     } else {
@@ -1620,8 +1628,16 @@ pub(crate) fn render_blocker_notifications_summary(
     output.trim_end().to_owned()
 }
 
-fn write_decision_summary_row(output: &mut String, prefix: &str, decision: &DecisionView) {
-    let _ = writeln!(
+/// One tab-separated row for a decision. A row in a list ends with `floor=below` when the
+/// decision's own answers put it below the decision floor, so a list never shows it as if it
+/// cleared; a single decision (`mark_floor` false) says it in its answer lines instead.
+fn write_decision_summary_row(
+    output: &mut String,
+    prefix: &str,
+    decision: &DecisionView,
+    mark_floor: bool,
+) {
+    let _ = write!(
         output,
         "{}\t{}\t{}\t{}\ttopics={}\tproject={}",
         prefix,
@@ -1631,6 +1647,28 @@ fn write_decision_summary_row(output: &mut String, prefix: &str, decision: &Deci
         decision.topic_keys.join(","),
         summary_cell(&decision.project_label)
     );
+    if mark_floor {
+        write_floor_field(output, &decision.floor);
+    }
+    output.push('\n');
+}
+
+/// A trailing `floor=below` field on a tab-separated row, only for a decision below the floor.
+fn write_floor_field(output: &mut String, floor: &RecordedFloor) {
+    if floor.is_below() {
+        output.push_str("\tfloor=below");
+    }
+}
+
+/// The two answer lines of a decision (`binds:`, `undo cost:`), and the floor line when its
+/// answers put it below the decision floor. A decision recorded before the answers existed reads
+/// "not asked" on both.
+fn write_floor_lines(output: &mut String, floor: &RecordedFloor) {
+    let _ = writeln!(output, "  {}", floor.binds_line());
+    let _ = writeln!(output, "  {}", floor.undo_cost_line());
+    if let Some(line) = floor.below_floor_line() {
+        let _ = writeln!(output, "  {line}");
+    }
 }
 
 /// A trailing `project=<label>` field on a tab-separated row; nothing when the row's node has no

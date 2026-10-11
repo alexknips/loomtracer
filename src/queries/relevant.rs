@@ -8,8 +8,8 @@ use crate::Result;
 use super::decision::DecisionView;
 use super::project_label::ProjectLabels;
 use super::shared::{
-    optional_string, optional_string_list, query_error, read_count, required_string,
-    MAX_QUERY_RESULTS,
+    optional_string, optional_string_list, query_error, read_count, recorded_floor_of,
+    required_string, MAX_QUERY_RESULTS,
 };
 use super::status::{derive_decision_status, DecisionStatus};
 use super::QueryResponse;
@@ -37,7 +37,7 @@ pub fn get_relevant_decisions(
     let truncated = total_count > MAX_QUERY_RESULTS;
 
     let decision_rows = graph.query(
-        "MATCH (d:`Decision`) WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project ORDER BY d.id LIMIT 1000;",
+        "MATCH (d:`Decision`) WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.binds_level AS binds_level, d.binds AS binds, d.undo_cost_level AS undo_cost_level, d.undo_cost AS undo_cost ORDER BY d.id LIMIT 1000;",
         &GraphParams::from([("topic".to_owned(), GraphValue::String(normalized_topic))]),
     )?;
 
@@ -70,6 +70,9 @@ pub fn get_relevant_decisions(
             quote: None,
             question: None,
             question_id: None,
+            // The floor answers ride in the same row, so a shallow view still says where the
+            // decision stands against the floor: it is not a "not asked" by omission.
+            floor: recorded_floor_of(&row),
         });
     }
 

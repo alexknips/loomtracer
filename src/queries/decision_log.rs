@@ -40,6 +40,7 @@ use crate::commands::{
     normalize_topic_key, personal_project_handle, PERSONAL_PROJECT_HANDLE_PREFIX,
 };
 use crate::events::EventId;
+use crate::floor::{FloorVerdict, RecordedFloor, BELOW_FLOOR_LABEL};
 use crate::ledger::EventLedger;
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
@@ -254,6 +255,8 @@ struct DecisionEntry {
     rationale: String,
     quote: Option<String>,
     question: Option<String>,
+    /// What the capturer said it binds and what undoing it costs, and the floor those reach.
+    floor: RecordedFloor,
     status: DecisionStatus,
     occurred_at: Option<DateTime<Utc>>,
     event_origin: Option<i64>,
@@ -412,6 +415,7 @@ fn build_entry(
         rationale: decision.rationale,
         quote: decision.quote,
         question: decision.question,
+        floor: decision.floor,
         status: decision.status,
         occurred_at: brief.occurred_at,
         event_origin,
@@ -763,6 +767,8 @@ fn render_decision_file(
     body.push_str(&render_options_section(entry));
     body.push_str("\n\n## Decision\n\n");
     body.push_str(&render_decision_section(entry));
+    body.push_str("\n\n## Binds and undo cost\n\n");
+    body.push_str(&render_floor_section(entry));
     body.push_str("\n\n## Rests on\n\n");
     body.push_str(&render_rests_on_section(entry, paths, titles, from_dir));
     body.push_str("\n\n## Evidence\n\n");
@@ -814,6 +820,7 @@ fn render_front_matter(entry: &DecisionEntry) -> String {
         format!("id: {}", yaml_scalar(&entry.id)),
         format!("title: {}", yaml_scalar(&entry.title)),
         format!("status: {}", yaml_scalar(status_word(entry.status))),
+        format!("floor: {}", yaml_scalar(entry.floor.verdict.as_str())),
         format!("project: {}", yaml_scalar(&entry.project)),
         format!("project_label: {}", yaml_scalar(&entry.project_label)),
         format!("occurred_at: {occurred_at}"),
@@ -937,6 +944,29 @@ fn render_decision_section(entry: &DecisionEntry) -> String {
         }
         (Some(question), None) => format!("{base}\n\n**Answers:** {question}"),
         _ => base,
+    }
+}
+
+/// What the capturer said the decision binds and what undoing it costs, each as stated or
+/// "not asked" for a decision recorded before the answers existed, and a line saying so when the
+/// answers put it below the decision floor.
+fn render_floor_section(entry: &DecisionEntry) -> String {
+    let mut out = format!(
+        "{}\n\n{}",
+        capitalize_first(&entry.floor.binds_line()),
+        capitalize_first(&entry.floor.undo_cost_line())
+    );
+    if let Some(line) = entry.floor.below_floor_line() {
+        let _ = write!(out, "\n\n{}", capitalize_first(&line));
+    }
+    out
+}
+
+fn capitalize_first(line: &str) -> String {
+    let mut chars = line.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 
@@ -1325,6 +1355,9 @@ fn render_index_table(
             }
             DecisionStatus::Superseded => out.push_str("superseded"),
             other => out.push_str(status_word(other)),
+        }
+        if entry.floor.verdict == FloorVerdict::Below {
+            let _ = write!(out, ", {}", BELOW_FLOOR_LABEL);
         }
         out.push_str(" | ");
         write_joined(out, entry.topic_keys.iter(), ", ");

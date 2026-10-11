@@ -993,6 +993,12 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchApp) {
             lines.push(Line::from(format!("quote: \"{quote}\"")));
         }
         lines.push(Line::from(""));
+        lines.push(Line::from(detail.floor.binds_line()));
+        lines.push(Line::from(detail.floor.undo_cost_line()));
+        if let Some(line) = detail.floor.below_floor_line() {
+            lines.push(Line::from(line));
+        }
+        lines.push(Line::from(""));
         lines.push(Line::from(format!(
             "chosen option: {}",
             detail.chosen_option_id.as_deref().unwrap_or("none")

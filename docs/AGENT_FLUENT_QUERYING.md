@@ -883,6 +883,9 @@ pub struct DecisionBrief {
     pub rationale: String,
     pub question: Option<String>,             // the question it answers, in the capturer's words (a decision linked later reads the question node's words)
     pub question_id: Option<String>,          // the shared Question node it answers (ANSWERS); absent when it names none
+    pub binds: Option<BindsAnswer>,           // what the capturer said it binds: {level: nothing|something, statement?}; absent when never asked
+    pub undo_cost: Option<UndoCostAnswer>,    // what undoing it costs: {level: cheap|costly, statement?}; absent when never asked
+    pub floor: FloorVerdict,                  // cleared | below | not_asked, derived from the two levels (always present)
     pub other_answers: Vec<QuestionAnswer>,   // other decisions answering the same question, in event order, each with status + chosen option
     pub chosen_option: Option<OptionLabel>,
     pub rejected_options: Vec<OptionLabel>,   // label-resolved, rationale shared not per-option; empty while no option is chosen
@@ -905,6 +908,18 @@ pub struct StillHolds { pub held_up: bool, pub reasons: Vec<OutcomeReason>, pub 
 `get_decision_brief` composes the three existing query calls plus the new
 option-label lookup — it does not duplicate their logic, and it stays
 `Layer 2`: three deterministic graph reads, no write, no LLM.
+
+**What it binds and what undoing it costs** (hivemind-bbnw.11). Every capture answers
+both questions (`binds`, `undo_cost`), and the brief prints them as `binds:` and `undo cost:`
+lines, each as stated (`nothing`, `something (users and scripts)`, `cheap`, `costly (a
+release cannot be unpublished)`) or `not asked` for a decision recorded before the questions
+existed. `floor` is derived from the two levels and never stored: `cleared` when the decision
+binds something or is costly to undo, `below` when it does neither, `not_asked` otherwise. A
+`below` decision also reads `floor: below the decision floor` wherever it is shown (the
+brief, `get_decision`, the decision-log export's front matter and index, the digest, the
+TUI), and `floor=below` ends its row in a list. `get_decision`, search results and the digest
+entries carry the same `binds`, `undo_cost` and `floor` fields as the brief. Search and
+recall are not filtered by it: a below-floor decision is returned like any other.
 
 **Which question it answers** (hivemind-zdsh.16). Decisions whose question is
 the same after lowercasing, collapsing spaces and dropping trailing punctuation

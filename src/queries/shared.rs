@@ -6,6 +6,7 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 
 use crate::error::QueryError;
+use crate::floor::RecordedFloor;
 use crate::projector::{GraphParams, GraphRow, GraphValue, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
@@ -344,6 +345,18 @@ pub(crate) fn optional_string(row: &GraphRow, key: &str) -> Option<String> {
         Some(GraphValue::String(value)) => Some(value.clone()),
         _ => None,
     }
+}
+
+/// The floor answers of a decision row: `binds_level`, `binds`, `undo_cost_level` and
+/// `undo_cost` as the node stores them. A row without them (a decision recorded before the
+/// answers existed, a bare stub node) reads as never asked.
+pub(crate) fn recorded_floor_of(row: &GraphRow) -> RecordedFloor {
+    RecordedFloor::from_stored(
+        optional_string(row, "binds_level").as_deref(),
+        optional_string(row, "binds").as_deref(),
+        optional_string(row, "undo_cost_level").as_deref(),
+        optional_string(row, "undo_cost").as_deref(),
+    )
 }
 
 /// A number stored as a float. A backend that keeps whole numbers as integers still reads.

@@ -18,8 +18,10 @@
 //! * **Actionability** is the decision's standing: one that is superseded or rejected is not in
 //!   force and leaves the default list. It is counted in `left_out`, never dropped silently, and
 //!   `include_not_in_force` brings it back.
-//! * **Irreversibility** has no recorded source. The decision record does not say what undoing a
-//!   decision would cost, so it is never guessed from the text.
+//! * **Irreversibility** does not move the rank. A decision captured with its undo-cost answer
+//!   states what undoing it would cost, and the rank does not weigh that answer; a decision
+//!   recorded before the question was asked reads `not_asked`, and nothing is guessed from its
+//!   text.
 //! * A **model's** numbers (`decision.scored` with an `importance` object) are shown on the row as
 //!   `model_judged` and **never move the rank**: the list comes out the same on a ledger with no
 //!   model and no API key, and every position is explained by something a reader can open.

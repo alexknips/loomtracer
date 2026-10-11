@@ -691,8 +691,10 @@ today:
 - **Actionability** is the decision's standing. A superseded or rejected decision is not in
   force and leaves the default list; `left_out` counts what was left out and
   `include_not_in_force` brings it back, so nothing disappears silently.
-- **Irreversibility** has no recorded source: the decision record does not state what undoing
-  a decision would cost, so it is not read from the text and not guessed.
+- **Irreversibility** does not move the rank. A decision captured with its undo-cost answer
+  states what undoing it would cost (see "Binds and undo cost" below), and the ranking does not
+  weigh that answer; a decision recorded before the question was asked reads `not_asked`, and
+  nothing is read from its text or guessed.
 - **A model's judgement** of stakes, irreversibility and actionability (the `importance`
   object of a model's assessment, above) is shown on the row as `model_judged`, with the
   model, the prompt version and the ledger offset of the assessment, where its explanations
@@ -702,6 +704,20 @@ today:
 A decision with no basis reads **`not_assessed`**. That is not a score of zero: nothing
 following from a decision says nothing about the decision (a new one has had no time to be
 built on), so it is listed without a rank, never as the least important.
+
+**Binds and undo cost.** Every capture answers two questions, and the answers are the
+write-time inputs to reach and irreversibility: what the decision binds beyond the edit in
+front of the capturer (`binds`: `nothing`, or `something` with one sentence saying what) and
+what undoing it would cost (`undo_cost`: `cheap`, or `costly` with one sentence). They are
+recorded on the decision and shown with it everywhere it is read, as `binds`, `undo_cost` and
+the derived `floor` (`cleared` when it binds something or is costly to undo, `below` when it
+does neither, `not_asked` for a decision recorded before the questions existed). They are
+facts, not a score: the ranking still reads only what follows from a decision. They enter
+Importance in one place, the background scorer's model input (`src/scorer.rs`): both answers
+ride in as `Recorded answer` lines for the model to cite as the basis of any explanation of how
+far a decision reaches or how hard it is to undo. The prompt says they are not part of the
+decision's quotable text, and the write path checks quotes against that text only. A decision
+that was never asked sends neither line.
 
 ### The order
 

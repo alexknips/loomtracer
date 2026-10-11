@@ -277,7 +277,7 @@ impl GraphView for MemoryGraph {
             return Ok(rows);
         }
 
-        if cypher.contains("RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.quote AS quote, d.question AS question LIMIT 1;") {
+        if cypher.contains("RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.binds_level AS binds_level, d.binds AS binds, d.undo_cost_level AS undo_cost_level, d.undo_cost AS undo_cost, d.quote AS quote, d.question AS question LIMIT 1;") {
             let decision_id = required_param_string(params, "id")?;
             let nodes = self.nodes_lock()?;
             if let Some(properties) = nodes.get(&(NodeKind::Decision, decision_id.to_owned())) {
@@ -298,6 +298,22 @@ impl GraphView for MemoryGraph {
                     (
                         "project".to_owned(),
                         graph_property_or_default(properties, "project"),
+                    ),
+                    (
+                        "binds_level".to_owned(),
+                        graph_property_or_default(properties, "binds_level"),
+                    ),
+                    (
+                        "binds".to_owned(),
+                        graph_property_or_default(properties, "binds"),
+                    ),
+                    (
+                        "undo_cost_level".to_owned(),
+                        graph_property_or_default(properties, "undo_cost_level"),
+                    ),
+                    (
+                        "undo_cost".to_owned(),
+                        graph_property_or_default(properties, "undo_cost"),
                     ),
                     (
                         "quote".to_owned(),
@@ -394,7 +410,7 @@ impl GraphView for MemoryGraph {
             )])]);
         }
 
-        if cypher.contains("WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project ORDER BY d.id LIMIT 1000;") {
+        if cypher.contains("WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.binds_level AS binds_level, d.binds AS binds, d.undo_cost_level AS undo_cost_level, d.undo_cost AS undo_cost ORDER BY d.id LIMIT 1000;") {
             let topic = required_param_string(params, "topic")?;
             let nodes = self.nodes_lock()?;
             let mut decisions = nodes
@@ -422,6 +438,22 @@ impl GraphView for MemoryGraph {
                         (
                             "project".to_owned(),
                             graph_property_or_default(properties, "project"),
+                        ),
+                        (
+                            "binds_level".to_owned(),
+                            graph_property_or_default(properties, "binds_level"),
+                        ),
+                        (
+                            "binds".to_owned(),
+                            graph_property_or_default(properties, "binds"),
+                        ),
+                        (
+                            "undo_cost_level".to_owned(),
+                            graph_property_or_default(properties, "undo_cost_level"),
+                        ),
+                        (
+                            "undo_cost".to_owned(),
+                            graph_property_or_default(properties, "undo_cost"),
                         ),
                     ]))
                 })

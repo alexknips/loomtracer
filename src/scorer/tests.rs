@@ -3,6 +3,7 @@
 use super::*;
 use crate::commands::{DecisionProposalInput, FloorInput, Grounding};
 use crate::events::{CaptureItem, ModelDimension, QualityLevel};
+use crate::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
 use crate::ledger::InMemoryEventLedger;
 
 fn unique_test_dir(name: &str) -> PathBuf {
@@ -129,6 +130,147 @@ fn render_proposed_decision_text_option_without_description_omits_description_li
     let text = render_proposed_decision_text(&payload);
     assert!(text.contains("Option: sync\n"));
     assert!(!text.contains("Option description"));
+}
+
+// --- the decision floor's answers as input facts (hivemind-bbnw.11) ---
+
+#[test]
+fn render_proposed_decision_text_carries_both_recorded_answers_as_input_facts() {
+    let payload = serde_json::json!({
+        "title": "Rename the checker",
+        "rationale": "The old name misleads",
+        "binds": {"level": "something", "statement": "Users and scripts that call the old name"},
+        "undo_cost": {"level": "costly", "statement": "A release cannot be unpublished"}
+    });
+    let text = render_proposed_decision_text(&payload);
+    assert!(
+        text.contains(
+            "Recorded answer, binds: something (Users and scripts that call the old name)\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("Recorded answer, undo cost: costly (A release cannot be unpublished)\n"),
+        "{text}"
+    );
+
+    let apple = serde_json::json!({
+        "title": "Type apple",
+        "rationale": "Either spelling works",
+        "binds": {"level": "nothing"},
+        "undo_cost": {"level": "cheap"}
+    });
+    let text = render_proposed_decision_text(&apple);
+    assert!(text.contains("Recorded answer, binds: nothing\n"), "{text}");
+    assert!(
+        text.contains("Recorded answer, undo cost: cheap\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn render_proposed_decision_text_adds_no_answer_line_for_a_decision_never_asked() {
+    let payload = serde_json::json!({
+        "title": "Pick queue",
+        "rationale": "Durable ingestion under load"
+    });
+    let text = render_proposed_decision_text(&payload);
+    assert!(!text.contains("Recorded answer"), "{text}");
+}
+
+#[test]
+fn the_prompt_says_the_recorded_answers_are_input_facts_and_not_quotable() {
+    assert!(ASSESSOR_PROMPT.contains("Lines labeled \"Recorded answer\" are not part of that text"));
+    assert!(ASSESSOR_PROMPT.contains("never quote from these lines"));
+    assert!(ASSESSOR_PROMPT.contains("When they are absent the capturer was not asked"));
+    assert_eq!(ASSESSOR_PROMPT_VERSION, "assessment-v2");
+}
+
+#[test]
+fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_from_them_is_refused(
+) {
+    let hivemind_dir = unique_test_dir("floor-answers-in-scorer-input");
+    let tenant_id = TenantId::local();
+    {
+        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let commands = Commands::new(&ledger);
+        let option = commands
+            .record_option("actor:test", "Rename", "Rename the command")
+            .expect("option");
+        let answers = FloorAnswers {
+            binds: BindsAnswer::something("Users and scripts that call the old name"),
+            undo_cost: UndoCostAnswer::cheap(),
+        };
+        commands
+            .propose_decision(DecisionProposalInput {
+                grounding: Grounding::NotAsked,
+                expressed_confidence: None,
+                project: None,
+                actor_id: "actor:test",
+                title: "Rename the checker command",
+                rationale: "The old name misleads",
+                topic_keys: &["cli".to_owned()],
+                option_ids: std::slice::from_ref(&option),
+                option_labels: &["Rename".to_owned()],
+                chosen_option_id: Some(option.as_str()),
+                decided_by: None,
+                delegated_by: None,
+                still_proposed: false,
+                hypothesis_ids: &[],
+                evidence_ids: &[],
+                quote: None,
+                question: None,
+                floor: FloorInput::Stated(&answers),
+            })
+            .expect("propose decision");
+    }
+
+    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    assert_eq!(pending.len(), 1);
+    let text = &pending[0].decision_text;
+    assert!(
+        text.contains(
+            "Recorded answer, binds: something (Users and scripts that call the old name)\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("Recorded answer, undo cost: cheap\n"),
+        "{text}"
+    );
+
+    // The prompt tells the model not to quote these lines, and the write path agrees: the quote
+    // check reads the decision's own text, not the recorded answers.
+    let mut dims = all_not_assessed_dimensions_json();
+    dims["framing"] = serde_json::json!({
+        "status": "assessed",
+        "level": "partial",
+        "explanation": "The answers name who is bound",
+        "quote": "Users and scripts that call the old name"
+    });
+    let output: AssessmentOutput =
+        serde_json::from_value(serde_json::json!({ "dimensions": dims })).expect("output");
+    {
+        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let commands = Commands::new(&ledger);
+        let payload = build_assessed_payload(
+            &pending[0].decision_id,
+            "test-model",
+            ASSESSOR_PROMPT_VERSION,
+            output,
+        );
+        let refusal = commands
+            .record_decision_assessed(ACTOR_ID, payload, None)
+            .expect_err("a quote from a recorded answer is not in the decision's text");
+        assert!(
+            refusal
+                .to_string()
+                .contains("does not occur in the recorded text"),
+            "{refusal}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
 }
 
 // --- build_assessed_payload ---

@@ -22,11 +22,15 @@ use crate::events::{
     DecisionAssessedPayload, EventId, EventProvenance, EventType, ImportanceFactors,
     ModelDimensions, TenantId, DECISION_ASSESSED_SCHEMA_VERSION,
 };
+use crate::floor::{BindsAnswer, UndoCostAnswer};
 use crate::ledger::{EventLedger, SqliteEventLedger};
 
 const SCORER_MODEL: &str = "claude-haiku-4-5-20251001";
 const SCORER_MODEL_ENV: &str = "HIVEMIND_SCORER_MODEL";
-const ASSESSOR_PROMPT_VERSION: &str = "assessment-v1";
+/// Names the wording of [`ASSESSOR_PROMPT`] on every assessment it produces, so an assessment
+/// traces back to it. `assessment-v2` added the decision floor's two recorded answers as input
+/// facts (hivemind-bbnw.11).
+const ASSESSOR_PROMPT_VERSION: &str = "assessment-v2";
 const ACTOR_ID: &str = "agent:hivemind:scorer";
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 const API_TIMEOUT: Duration = Duration::from_secs(15);
@@ -67,6 +71,13 @@ honest answer, never a guess dressed up as a score.
 
 The decision's recorded text follows, one field per labeled line. Quote only
 from within a single field's value, not its label.
+
+Lines labeled "Recorded answer" are not part of that text. They are the
+capturer's own answers to what the decision binds beyond the edit in front of
+them and what undoing it would cost. They are input facts: where an explanation
+speaks to how far the decision reaches or how hard it is to undo, cite the
+answer as its basis rather than guessing, and never quote from these lines.
+When they are absent the capturer was not asked; do not assume either answer.
 
 Return only JSON matching the schema."#;
 
@@ -376,6 +387,23 @@ fn render_proposed_decision_text(payload: &serde_json::Value) -> String {
                 let _ = writeln!(out, "Option description: {description}");
             }
         }
+    }
+
+    // The decision floor's two answers (hivemind-bbnw.11), as the capturer stated them. They are
+    // input facts for a reach or irreversibility explanation to cite, not decision text: the
+    // quote check does not read them, and the prompt says so. A decision that was never asked
+    // gets neither line.
+    if let Some(binds) = payload
+        .get("binds")
+        .and_then(|value| serde_json::from_value::<BindsAnswer>(value.clone()).ok())
+    {
+        let _ = writeln!(out, "Recorded answer, binds: {}", binds.describe());
+    }
+    if let Some(undo_cost) = payload
+        .get("undo_cost")
+        .and_then(|value| serde_json::from_value::<UndoCostAnswer>(value.clone()).ok())
+    {
+        let _ = writeln!(out, "Recorded answer, undo cost: {}", undo_cost.describe());
     }
 
     out

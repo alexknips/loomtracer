@@ -20,6 +20,7 @@ use std::borrow::Cow;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+use crate::floor::RecordedFloor;
 use crate::projector::{GraphView, NodeKind};
 use crate::Result;
 
@@ -140,6 +141,10 @@ pub struct DecisionBrief {
     /// The `Question` node the decision answers (see `DecisionView::question_id`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question_id: Option<String>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach (see `DecisionView::floor`). Serialized as `binds`, `undo_cost` and `floor`.
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     /// Other decisions that answer the same question, in the order they were recorded, each with
     /// where it stands. A superseded answer is listed too: it is part of the question's history.
     /// Never resolved for the reader: two accepted answers that choose differently also appear
@@ -278,6 +283,7 @@ pub(crate) fn get_decision_brief_with_labels(
         quote: decision.quote,
         question: decision.question,
         question_id: decision.question_id,
+        floor: decision.floor,
         other_answers,
         occurred_at,
         asked_at,

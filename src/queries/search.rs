@@ -20,7 +20,8 @@ use super::same_as::{fold_linked, RecordedCopy};
 use super::shared::{
     node_rows, normalized_filter_values, normalized_limit, normalized_query, normalized_statuses,
     optional_datetime, optional_int, optional_string, optional_string_list, parse_cursor,
-    query_error, query_terms, relation_edges_by_kind, relation_sources, relation_targets,
+    query_error, query_terms, recorded_floor_of, relation_edges_by_kind, relation_sources,
+    relation_targets,
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, DecisionStatus};
 use super::terms::{
@@ -1300,6 +1301,7 @@ fn collect_graph_search_results(
             quote: quote.clone(), // ubs:ignore: clone necessary — building owned DecisionView
             question,
             question_id,
+            floor: recorded_floor_of(&row),
         };
         let grounding_state = decision.grounding_state();
 

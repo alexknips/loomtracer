@@ -330,6 +330,130 @@ pub fn floor_verdict_from_stored(
     )
 }
 
+/// What a read says where a decision was recorded before the answers existed, or by a path that
+/// never asks (raw emit, classifier ingest, import, Slack). Said, not left blank: a reader must
+/// not take silence for "nothing".
+pub const NOT_ASKED: &str = "not asked";
+
+/// How a read says a decision is below the floor, wherever the decision is shown.
+pub const BELOW_FLOOR_LABEL: &str = "below the decision floor";
+
+impl BindsAnswer {
+    /// The answer as a reader sees it: `nothing`, or `something (<what>)`.
+    pub fn describe(&self) -> String {
+        describe_answer(
+            self.level.as_str(),
+            self.level == BindsLevel::Something,
+            self.statement.as_deref(),
+        )
+    }
+}
+
+impl UndoCostAnswer {
+    /// The answer as a reader sees it: `cheap`, or `costly (<what>)`.
+    pub fn describe(&self) -> String {
+        describe_answer(
+            self.level.as_str(),
+            self.level == UndoCostLevel::Costly,
+            self.statement.as_deref(),
+        )
+    }
+}
+
+fn describe_answer(level: &str, above_zero: bool, statement: Option<&str>) -> String {
+    match statement {
+        Some(statement) if above_zero => format!("{level} ({})", statement.trim()),
+        _ => level.to_owned(),
+    }
+}
+
+/// The two answers of one decision as the record states them, with the floor they reach: what
+/// every read of a decision carries (hivemind-bbnw.11). Flattened into the read's JSON as
+/// `binds`, `undo_cost` and `floor`. A decision that was never asked has neither answer and reads
+/// `not_asked`; the verdict is derived here from the two levels, never stored, and a below-floor
+/// decision is still returned by every read: nothing is hidden.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RecordedFloor {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binds: Option<BindsAnswer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undo_cost: Option<UndoCostAnswer>,
+    #[serde(rename = "floor")]
+    pub verdict: FloorVerdict,
+}
+
+impl RecordedFloor {
+    /// A decision that was never asked.
+    pub const fn not_asked() -> Self {
+        Self {
+            binds: None,
+            undo_cost: None,
+            verdict: FloorVerdict::NotAsked,
+        }
+    }
+
+    /// From the four properties of a decision node (`binds_level`, `binds`, `undo_cost_level`,
+    /// `undo_cost`). An absent or unrecognized level reads as that answer not asked.
+    pub fn from_stored(
+        binds_level: Option<&str>,
+        binds: Option<&str>,
+        undo_cost_level: Option<&str>,
+        undo_cost: Option<&str>,
+    ) -> Self {
+        let binds = binds_level
+            .and_then(BindsLevel::parse)
+            .map(|level| BindsAnswer {
+                level,
+                statement: binds.map(str::to_owned),
+            });
+        let undo_cost =
+            undo_cost_level
+                .and_then(UndoCostLevel::parse)
+                .map(|level| UndoCostAnswer {
+                    level,
+                    statement: undo_cost.map(str::to_owned),
+                });
+        let verdict = floor_verdict(
+            binds.as_ref().map(|answer| answer.level),
+            undo_cost.as_ref().map(|answer| answer.level),
+        );
+        Self {
+            binds,
+            undo_cost,
+            verdict,
+        }
+    }
+
+    /// True when the decision's own answers put it below the floor.
+    pub fn is_below(&self) -> bool {
+        self.verdict == FloorVerdict::Below
+    }
+
+    /// `binds: nothing`, `binds: something (users and scripts)` or `binds: not asked`.
+    pub fn binds_line(&self) -> String {
+        match &self.binds {
+            Some(answer) => format!("binds: {}", answer.describe()),
+            None => format!("binds: {NOT_ASKED}"),
+        }
+    }
+
+    /// `undo cost: cheap`, `undo cost: costly (a merge cannot be unmerged)` or
+    /// `undo cost: not asked`.
+    pub fn undo_cost_line(&self) -> String {
+        match &self.undo_cost {
+            Some(answer) => format!("undo cost: {}", answer.describe()),
+            None => format!("undo cost: {NOT_ASKED}"),
+        }
+    }
+
+    /// `floor: below the decision floor`, only for a decision whose answers put it there. A
+    /// cleared or never-asked decision adds nothing beyond its two lines.
+    pub fn below_floor_line(&self) -> Option<String> {
+        self.is_below()
+            .then(|| format!("floor: {BELOW_FLOOR_LABEL}"))
+    }
+}
+
 /// The `floor` object every capture reply carries: both levels and whether the floor was cleared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct FloorReply {

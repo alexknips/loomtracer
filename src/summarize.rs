@@ -15,6 +15,7 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+use crate::floor::RecordedFloor;
 use crate::ledger::AnyLedger;
 use crate::projector::{GraphParams, GraphValue, GraphView};
 use crate::queries::{
@@ -221,6 +222,11 @@ fn render_single(view: &DecisionView, option_labels: &[(String, String)]) -> Str
         parts.push(format!("Chose: {chosen}"));
     }
     parts.push(view.rests_on_clause());
+    parts.push(view.floor.binds_line());
+    parts.push(view.floor.undo_cost_line());
+    if let Some(line) = view.floor.below_floor_line() {
+        parts.push(line);
+    }
     if !view.hypotheses.is_empty() {
         let hyp_summary: Vec<String> = view
             .hypotheses
@@ -237,7 +243,7 @@ fn render_digest(view: &DecisionView, option_labels: &[(String, String)]) -> Str
         .map(|c| format!("; chose: {c}"))
         .unwrap_or_default();
     let rationale_short = trim_rationale(&view.rationale, RATIONALE_TRIM_CHARS);
-    format!(
+    let mut out = format!(
         "- {} ({:?}): {} — {}{}\n  Project: {}\n  {}",
         view.id,
         view.status,
@@ -246,7 +252,22 @@ fn render_digest(view: &DecisionView, option_labels: &[(String, String)]) -> Str
         chosen,
         view.project_label,
         view.rests_on_clause()
-    )
+    );
+    let mut floor_lines = String::new();
+    write_floor_lines(&mut floor_lines, &view.floor, "  ");
+    out.push('\n');
+    out.push_str(floor_lines.trim_end());
+    out
+}
+
+/// The two floor-answer lines of a decision, and the below-floor line when its answers put it
+/// there, each indented by `indent` and ended by a newline.
+fn write_floor_lines(out: &mut String, floor: &RecordedFloor, indent: &str) {
+    let _ = writeln!(out, "{indent}{}", floor.binds_line());
+    let _ = writeln!(out, "{indent}{}", floor.undo_cost_line());
+    if let Some(line) = floor.below_floor_line() {
+        let _ = writeln!(out, "{indent}{line}");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +336,7 @@ fn chain_step_line(i: usize, view: &DecisionView, option_labels: &[(String, Stri
     let chosen = chosen_label(option_labels, view.chosen_option_id.as_deref());
     let rationale_short = trim_rationale(&view.rationale, RATIONALE_TRIM_CHARS);
     let chosen_part = chosen.map(|c| format!("; chose: {c}")).unwrap_or_default(); // ubs:ignore: unwrap_or_default — returns empty string
-    format!(
+    let mut line = format!(
         "{}. {} ({:?}): {} — {}{}\n   Project: {}",
         i + 1,
         view.id,
@@ -324,7 +345,11 @@ fn chain_step_line(i: usize, view: &DecisionView, option_labels: &[(String, Stri
         rationale_short,
         chosen_part,
         view.project_label,
-    )
+    );
+    if let Some(below) = view.floor.below_floor_line() {
+        let _ = write!(line, "\n   {below}");
+    }
+    line
 }
 
 fn trim_rationale(rationale: &str, max_chars: usize) -> String {
@@ -570,6 +595,10 @@ pub struct DigestEntry {
     pub grounding_state: GroundingState,
     /// The digest clause: `rests on: decision x1, evidence x2, bet (check by 2026-10-15)`.
     pub rests_on: String,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor`.
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -718,6 +747,7 @@ fn build_digest_entry(
         premise_decision_ids: d.premise_decision_ids.clone(), // ubs:ignore: clone necessary — building owned DigestEntry
         grounding_state: ctx.grounding_state,
         rests_on: d.rests_on_clause(),
+        floor: d.floor.clone(), // ubs:ignore: clone necessary — building owned DigestEntry
     }
 }
 
@@ -805,6 +835,7 @@ fn render_digest_text(
             }
 
             let _ = writeln!(out, "  {}", entry.rests_on);
+            write_floor_lines(&mut out, &entry.floor, "  ");
 
             if !entry.actor_ids.is_empty() {
                 let _ = writeln!(out, "  By: {}", entry.actor_ids.join(", "));

@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::events::HypothesisKind;
+use crate::floor::RecordedFloor;
 use crate::projector::{GraphParams, GraphValue, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
@@ -16,7 +17,7 @@ use super::project_label::ProjectLabels;
 use super::question::{question_id_of, question_text};
 use super::shared::{
     neighbor_ids, optional_string, optional_string_list, premised_on_hypothesis_ids,
-    required_string,
+    recorded_floor_of, required_string,
 };
 use super::status::{
     derive_decision_status, derive_hypothesis_status, DecisionStatus, HypothesisStatus,
@@ -72,11 +73,16 @@ pub struct DecisionView {
     /// recorded before question nodes existed (its `question` text stays, with no node).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question_id: Option<String>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach (`cleared`, `below` or `not_asked`). Serialized as `binds`, `undo_cost` and
+    /// `floor`. A below-floor decision is returned like any other (hivemind-bbnw.11).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
 }
 
 /// The single-decision row shape every backend's `query` recognizes (memory.rs matches this
 /// text verbatim), shared so `get_decision_title` rides the same supported shape.
-const DECISION_ROW_QUERY: &str = "MATCH (d:`Decision` {id: $id}) RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.quote AS quote, d.question AS question LIMIT 1;";
+const DECISION_ROW_QUERY: &str = "MATCH (d:`Decision` {id: $id}) RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.binds_level AS binds_level, d.binds AS binds, d.undo_cost_level AS undo_cost_level, d.undo_cost AS undo_cost, d.quote AS quote, d.question AS question LIMIT 1;";
 
 impl DecisionView {
     /// Grounded, a declared bet, or nothing declared, from the premise, evidence and hypothesis
@@ -142,6 +148,7 @@ pub(crate) fn get_decision_with_labels(
         let project_label = labels.label_of(project.as_deref());
         let quote = optional_string(row, "quote");
         let question = optional_string(row, "question");
+        let floor = recorded_floor_of(row);
         let status = derive_decision_status(graph, &id)?;
         let option_ids = neighbor_ids(
             graph,
@@ -198,6 +205,7 @@ pub(crate) fn get_decision_with_labels(
             quote,
             question,
             question_id,
+            floor,
         })
     } else {
         None
