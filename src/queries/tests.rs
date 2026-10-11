@@ -1175,6 +1175,56 @@ fn search_decisions_paginates_in_deterministic_order() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn a_search_reports_every_status_as_the_one_by_one_derivation_does() -> Result<()> {
+    // A search reads the statuses of the whole ledger in bulk (hivemind-7jon8). Every decision
+    // reads superseded, rejected, contested, accepted or proposed, and every premise refuted,
+    // supported or open, exactly as `derive_decision_status` and `derive_hypothesis_status` give.
+    let graph = super::test_fixtures::attention_scenario()?.graph()?;
+    let response = search_decisions(
+        &graph,
+        &SearchDecisionRequest {
+            limit: 200,
+            ..SearchDecisionRequest::default()
+        },
+    )?;
+    assert!(!response.truncated);
+    assert_eq!(response.data.items.len(), response.data.total_matches);
+
+    let mut decision_statuses = BTreeSet::new();
+    let mut premise_statuses = Vec::new();
+    for item in &response.data.items {
+        let status = derive_decision_status(&graph, &item.decision.id)?;
+        assert_eq!(item.decision.status, status, "{}", item.decision.id);
+        decision_statuses.insert(status);
+        for hypothesis in &item.graph_context.hypotheses {
+            let status = derive_hypothesis_status(&graph, &hypothesis.id)?;
+            assert_eq!(hypothesis.status, status, "{}", hypothesis.id);
+            premise_statuses.push(status);
+        }
+    }
+
+    for status in [
+        DecisionStatus::Proposed,
+        DecisionStatus::Rejected,
+        DecisionStatus::Contested,
+        DecisionStatus::Superseded,
+    ] {
+        assert!(
+            decision_statuses.contains(&status),
+            "no {status:?} decision"
+        );
+    }
+    for status in [
+        HypothesisStatus::Open,
+        HypothesisStatus::Supported,
+        HypothesisStatus::Refuted,
+    ] {
+        assert!(premise_statuses.contains(&status), "no {status:?} premise");
+    }
+    Ok(())
+}
+
 /// One decision per `(id, title, rationale)`, filed by a human with no options or evidence.
 fn titled_decisions(decisions: &[(&str, &str, &str)]) -> Result<Scenario> {
     let scenario = Scenario::new();

@@ -28,8 +28,16 @@ pub struct MemoryGraph {
 impl Clone for MemoryGraph {
     fn clone(&self) -> Self {
         MemoryGraph {
-            nodes: Mutex::new(self.nodes_snapshot().unwrap_or_default()),
-            edges: Mutex::new(self.edges_snapshot().unwrap_or_default()),
+            nodes: Mutex::new(
+                self.nodes_lock()
+                    .map(|nodes| nodes.clone())
+                    .unwrap_or_default(),
+            ),
+            edges: Mutex::new(
+                self.edges_lock()
+                    .map(|edges| edges.clone())
+                    .unwrap_or_default(),
+            ),
             unreadable_annotations: Mutex::new(self.unreadable_annotations()),
         }
     }
@@ -107,7 +115,7 @@ impl GraphView for MemoryGraph {
             let relation = query_relation(cypher)?;
             let id = required_param_string(params, "id")?;
             let incoming = cypher.contains("<-[rel:");
-            let edges = self.edges_snapshot()?;
+            let edges = self.edges_lock()?;
             let count = edges
                 .iter()
                 .filter(|edge| {
@@ -132,7 +140,7 @@ impl GraphView for MemoryGraph {
         if cypher.contains("RETURN node.id AS id LIMIT 1;") {
             let kind = query_node_kind(cypher)?;
             let id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if nodes.contains_key(&(kind, id.to_owned())) {
                 return Ok(vec![GraphRow::from([(
                     "id".to_owned(),
@@ -151,7 +159,7 @@ impl GraphView for MemoryGraph {
             } else {
                 None
             };
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             let mut rows = nodes
                 .iter()
                 .filter_map(|((node_kind, id), properties)| {
@@ -176,9 +184,10 @@ impl GraphView for MemoryGraph {
             let relation = query_relation(cypher)?;
             let id = required_param_string(params, "id")?;
             let mut edges: Vec<MemoryEdge> = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == relation && edge.from_id == id)
+                .cloned()
                 .collect();
             edges.sort_by(|left, right| {
                 (&left.to_id, left._event_origin).cmp(&(&right.to_id, right._event_origin))
@@ -211,14 +220,14 @@ impl GraphView for MemoryGraph {
         }
 
         if cypher.contains("UNION") && cypher.contains("from_id") && cypher.contains("to_id") {
-            let edges = self.edges_snapshot()?;
+            let edges = self.edges_lock()?;
             let mut pairs: std::collections::BTreeSet<(String, String)> =
                 std::collections::BTreeSet::new();
-            for edge in &edges {
+            for edge in edges.iter() {
                 if edge.relation == RelationKind::Chose {
                     let opt_id = &edge.to_id;
                     let decision_id = &edge.from_id;
-                    for hop2 in &edges {
+                    for hop2 in edges.iter() {
                         if hop2.relation == RelationKind::PremisedOn && hop2.from_id == *opt_id {
                             let pair = (decision_id.clone(), hop2.to_id.clone()); // ubs:ignore:
                             pairs.insert(pair);
@@ -248,13 +257,16 @@ impl GraphView for MemoryGraph {
         if cypher.contains("RETURN from.id AS from_id, to.id AS to_id") {
             let relation = query_relation(cypher)?;
             let mut rows = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == relation)
                 .map(|edge| {
                     GraphRow::from([
-                        ("from_id".to_owned(), GraphValue::String(edge.from_id)),
-                        ("to_id".to_owned(), GraphValue::String(edge.to_id)),
+                        (
+                            "from_id".to_owned(),
+                            GraphValue::String(edge.from_id.clone()),
+                        ),
+                        ("to_id".to_owned(), GraphValue::String(edge.to_id.clone())),
                     ])
                 })
                 .collect::<Vec<_>>();
@@ -267,7 +279,7 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.quote AS quote, d.question AS question LIMIT 1;") {
             let decision_id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if let Some(properties) = nodes.get(&(NodeKind::Decision, decision_id.to_owned())) {
                 return Ok(vec![GraphRow::from([
                     ("id".to_owned(), GraphValue::String(decision_id.to_owned())),
@@ -304,7 +316,7 @@ impl GraphView for MemoryGraph {
             .contains("MATCH (h:`Hypothesis` {id: $id}) RETURN h.statement AS statement LIMIT 1;")
         {
             let id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if let Some(properties) = nodes.get(&(NodeKind::Hypothesis, id.to_owned())) {
                 return Ok(vec![GraphRow::from([(
                     "statement".to_owned(),
@@ -321,7 +333,7 @@ impl GraphView for MemoryGraph {
             "RETURN node.kind AS kind, node.check_by AS check_by, node.would_change_if AS would_change_if;",
         ) {
             let id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if let Some(properties) = nodes.get(&(NodeKind::Hypothesis, id.to_owned())) {
                 return Ok(vec![GraphRow::from([
                     ("kind".to_owned(), graph_property_or_default(properties, "kind")),
@@ -340,7 +352,7 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("MATCH (e:`Evidence` {id: $id}) RETURN e.content AS content LIMIT 1;") {
             let id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if let Some(properties) = nodes.get(&(NodeKind::Evidence, id.to_owned())) {
                 return Ok(vec![GraphRow::from([(
                     "content".to_owned(),
@@ -352,7 +364,7 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("MATCH (d:`Decision` {id: $id}) RETURN d.id AS id LIMIT 1;") {
             let decision_id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if nodes.contains_key(&(NodeKind::Decision, decision_id.to_owned())) {
                 return Ok(vec![GraphRow::from([(
                     "id".to_owned(),
@@ -364,7 +376,7 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("RETURN count(d) AS count;") {
             let topic = required_param_string(params, "topic")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             let count = nodes
                 .iter()
                 .filter(|((kind, _), properties)| {
@@ -384,7 +396,7 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project ORDER BY d.id LIMIT 1000;") {
             let topic = required_param_string(params, "topic")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             let mut decisions = nodes
                 .iter()
                 .filter_map(|((kind, id), properties)| {
@@ -424,7 +436,7 @@ impl GraphView for MemoryGraph {
         // but needs the REFUTES filter applied, so it must win the match first.
         if cypher.contains("REFUTES") && cypher.contains("hypothesis_id") {
             let decision_id = required_param_string(params, "id")?;
-            let edges = self.edges_snapshot()?;
+            let edges = self.edges_lock()?;
             let refuted_hypotheses: BTreeSet<String> = edges
                 .iter()
                 .filter(|edge| edge.relation == RelationKind::Refutes)
@@ -464,7 +476,7 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("UNION") && cypher.contains("hypothesis_id") && cypher.contains("$id") {
             let decision_id = required_param_string(params, "id")?;
-            let edges = self.edges_snapshot()?;
+            let edges = self.edges_lock()?;
             let mut ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
             let chosen_options: Vec<String> = edges
                 .iter()
@@ -510,10 +522,10 @@ impl GraphView for MemoryGraph {
                 );
             };
             let ids: BTreeSet<String> = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == relation && edge.from_id == decision_id)
-                .map(|edge| edge.to_id)
+                .map(|edge| edge.to_id.clone())
                 .collect();
             return Ok(ids
                 .into_iter()
@@ -526,8 +538,8 @@ impl GraphView for MemoryGraph {
             let id = required_param_string(params, "id")?;
             let incoming = cypher.contains("<-[r:`");
             let mut ids = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| {
                     edge.relation == relation
                         && if incoming {
@@ -536,7 +548,13 @@ impl GraphView for MemoryGraph {
                             edge.from_id == id
                         }
                 })
-                .map(|edge| if incoming { edge.from_id } else { edge.to_id })
+                .map(|edge| {
+                    if incoming {
+                        edge.from_id.clone()
+                    } else {
+                        edge.to_id.clone()
+                    }
+                })
                 .collect::<Vec<_>>();
             ids.sort();
             return Ok(ids
@@ -553,10 +571,10 @@ impl GraphView for MemoryGraph {
         if cypher.contains("MATCH (d:`Decision` {id: $id})-[:`SUPERSEDES`]->(other:`Decision`)") {
             let id = required_param_string(params, "id")?;
             let mut older = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == RelationKind::Supersedes && edge.from_id == id)
-                .map(|edge| edge.to_id)
+                .map(|edge| edge.to_id.clone())
                 .collect::<Vec<_>>();
             older.sort();
             return Ok(older
@@ -568,10 +586,10 @@ impl GraphView for MemoryGraph {
         if cypher.contains("MATCH (other:`Decision`)-[:`SUPERSEDES`]->(d:`Decision` {id: $id})") {
             let id = required_param_string(params, "id")?;
             let mut newer = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == RelationKind::Supersedes && edge.to_id == id)
-                .map(|edge| edge.from_id)
+                .map(|edge| edge.from_id.clone())
                 .collect::<Vec<_>>();
             newer.sort();
             return Ok(newer
@@ -594,7 +612,7 @@ impl GraphView for MemoryGraph {
         // "hypothesis_id" UNION handler above, under the "hid" alias it actually uses.
         if cypher.contains("UNION") && cypher.contains(" AS hid") {
             let decision_id = required_param_string(params, "id")?;
-            let edges = self.edges_snapshot()?;
+            let edges = self.edges_lock()?;
             let mut ids: BTreeSet<String> = BTreeSet::new();
             let chosen_options: Vec<String> = edges
                 .iter()
@@ -633,7 +651,7 @@ impl GraphView for MemoryGraph {
         if cypher.contains("MATCH (d:`Decision` {id: $id})") && cypher.contains("RETURN d.id AS id")
         {
             let decision_id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             if let Some(properties) = nodes.get(&(NodeKind::Decision, decision_id.to_owned())) {
                 let mut row =
                     GraphRow::from([("id".to_owned(), GraphValue::String(decision_id.to_owned()))]);
@@ -651,7 +669,7 @@ impl GraphView for MemoryGraph {
                 Some(GraphValue::Int(value)) => Some(*value),
                 _ => None,
             };
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             let mut rows: Vec<GraphRow> = nodes
                 .iter()
                 .filter_map(|((kind, id), properties)| {
@@ -689,10 +707,10 @@ impl GraphView for MemoryGraph {
         if cypher.contains("RETURN a.id AS actor_id, a.kind AS kind") {
             let relation = query_relation(cypher)?;
             let decision_id = required_param_string(params, "id")?;
-            let nodes = self.nodes_snapshot()?;
+            let nodes = self.nodes_lock()?;
             let mut rows: Vec<GraphRow> = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == relation && edge.from_id == decision_id)
                 .map(|edge| {
                     let kind = nodes
@@ -700,7 +718,10 @@ impl GraphView for MemoryGraph {
                         .and_then(|properties| properties.get("kind").cloned())
                         .unwrap_or(GraphValue::Null);
                     GraphRow::from([
-                        ("actor_id".to_owned(), GraphValue::String(edge.to_id)),
+                        (
+                            "actor_id".to_owned(),
+                            GraphValue::String(edge.to_id.clone()),
+                        ),
                         ("kind".to_owned(), kind),
                     ])
                 })
@@ -721,8 +742,8 @@ impl GraphView for MemoryGraph {
             let relation = query_relation(cypher)?;
             let decision_id = required_param_string(params, "id")?;
             let count = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| edge.relation == relation && edge.from_id == decision_id)
                 .count();
             let count = i64::try_from(count)
@@ -737,7 +758,7 @@ impl GraphView for MemoryGraph {
         // edges in one call.
         if cypher.contains("AS accepted_count") {
             let decision_id = required_param_string(params, "id")?;
-            let edges = self.edges_snapshot()?;
+            let edges = self.edges_lock()?;
             let count_of = |relation: RelationKind| {
                 edges
                     .iter()
@@ -758,12 +779,12 @@ impl GraphView for MemoryGraph {
         if cypher.contains("RETURN newer.id AS superseder_id, r.event_origin AS edge_origin") {
             let decision_id = required_param_string(params, "id")?;
             let mut matches: Vec<(String, Option<i64>)> = self
-                .edges_snapshot()?
-                .into_iter()
+                .edges_lock()?
+                .iter()
                 .filter(|edge| {
                     edge.relation == RelationKind::Supersedes && edge.to_id == decision_id
                 })
-                .map(|edge| (edge.from_id, edge._event_origin))
+                .map(|edge| (edge.from_id.clone(), edge._event_origin))
                 .collect();
             matches.sort_by_key(|(_, edge_origin)| std::cmp::Reverse(*edge_origin));
             return Ok(matches
@@ -797,11 +818,11 @@ impl GraphView for MemoryGraph {
 impl MemoryGraph {
     /// Return all nodes and edges as plain tuples, for evaluation use.
     pub fn nodes_and_edges(&self) -> Result<NodesAndEdges> {
-        let nodes = self.nodes_snapshot()?;
+        let nodes = self.nodes_lock()?.clone();
         let edges = self
-            .edges_snapshot()?
-            .into_iter()
-            .map(|e| (e.relation, e.from_id, e.to_id))
+            .edges_lock()?
+            .iter()
+            .map(|e| (e.relation, e.from_id.clone(), e.to_id.clone()))
             .collect();
         Ok((nodes, edges))
     }
@@ -816,14 +837,6 @@ impl MemoryGraph {
         self.edges
             .lock()
             .map_err(|error| memory_error(format!("edge lock poisoned: {error}")).into())
-    }
-
-    fn nodes_snapshot(&self) -> Result<BTreeMap<(NodeKind, String), GraphProperties>> {
-        Ok(self.nodes_lock()?.clone())
-    }
-
-    fn edges_snapshot(&self) -> Result<BTreeSet<MemoryEdge>> {
-        Ok(self.edges_lock()?.clone())
     }
 }
 

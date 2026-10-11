@@ -23,7 +23,7 @@ use super::shared::{
     optional_int, optional_string, optional_string_list, parse_cursor, query_error, query_terms,
     relation_edges_by_kind, relation_sources, relation_targets,
 };
-use super::status::{derive_decision_status, derive_hypothesis_status, DecisionStatus};
+use super::status::{hypothesis_status_from_evidence, DecisionStandings, DecisionStatus};
 use super::terms::{
     content_query, outside_negation, resolver_question, stem, word_stems, RelatedWord, WordMatch,
 };
@@ -1070,6 +1070,19 @@ fn collect_graph_search_results(
     let question_rows = node_rows(graph, NodeKind::Question)?;
     let edges = relation_edges_by_kind(graph)?;
     let labels = ProjectLabels::from_graph(graph)?;
+    // What stands for or against a decision is read once for the whole ledger, never asked per
+    // decision: a lookup each walks the graph once for every decision searched (hivemind-7jon8).
+    let standings = DecisionStandings::load(graph)?;
+    let targets_of = |relation: RelationKind| -> BTreeSet<&str> {
+        edges
+            .get(&relation)
+            .into_iter()
+            .flatten()
+            .map(|(_, to)| to.as_str())
+            .collect()
+    };
+    let refuted_hypotheses = targets_of(RelationKind::Refutes);
+    let supported_hypotheses = targets_of(RelationKind::Supports);
 
     let mut scored = Vec::new();
     // What `admit_below_bar` needs of each decision in `scored`, in the same order.
@@ -1096,7 +1109,7 @@ fn collect_graph_search_results(
             continue;
         }
 
-        let status = derive_decision_status(graph, &id)?;
+        let status = standings.status_of(&id);
         if !statuses.is_empty() && !statuses.contains(&status) {
             continue;
         }
@@ -1157,7 +1170,10 @@ fn collect_graph_search_results(
             };
             hypotheses.push(HypothesisContext {
                 id: hypothesis_id.clone(),
-                status: derive_hypothesis_status(graph, hypothesis_id)?,
+                status: hypothesis_status_from_evidence(
+                    refuted_hypotheses.contains(hypothesis_id.as_str()),
+                    supported_hypotheses.contains(hypothesis_id.as_str()),
+                ),
                 kind: facts.kind,
                 check_by: facts.check_by,
                 would_change_if: facts.would_change_if,

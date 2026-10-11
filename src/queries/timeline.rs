@@ -35,7 +35,7 @@ use crate::ledger::EventLedger;
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
-use super::history::read_all_events;
+use super::history::LEDGER_READ_PAGE_SIZE;
 use super::project_label::ProjectLabels;
 use super::question::{asks_for_question, earliest_ask, question_id_of};
 use super::shared::{
@@ -172,7 +172,7 @@ pub fn get_decision_timeline(
         });
     }
 
-    let events = read_all_events(ledger)?;
+    let events = read_fact_events(ledger)?;
     let mut entries: Vec<TimelineEntry> = ledger_facts(&events)?
         .into_iter()
         .filter(|fact| fact.decision_id == decision_id)
@@ -293,19 +293,52 @@ impl Premises {
     }
 }
 
-/// The event types `ledger_facts` reads; every other payload is skipped unparsed, so a ledger full
-/// of ingest batches costs no more than one without.
+/// The event types `ledger_facts` reads. Only these leave the ledger (`read_fact_events`), so a
+/// ledger full of ingest batches costs no more than one without.
+const FACT_EVENT_TYPES: &[EventType] = &[
+    EventType::DecisionProposed,
+    EventType::DecisionAccepted,
+    EventType::DecisionRejected,
+    EventType::DecisionSuperseded,
+    EventType::DecisionRetitled,
+    EventType::DecisionMoved,
+    EventType::RelationAdded,
+];
+
 fn reads_payload(event_type: EventType) -> bool {
-    matches!(
-        event_type,
-        EventType::DecisionProposed
-            | EventType::DecisionAccepted
-            | EventType::DecisionRejected
-            | EventType::DecisionSuperseded
-            | EventType::DecisionRetitled
-            | EventType::DecisionMoved
-            | EventType::RelationAdded
-    )
+    FACT_EVENT_TYPES.contains(&event_type)
+}
+
+/// Every event `ledger_facts` reads, in ledger order, a page at a time. The SQL ledgers filter by
+/// type in the query, so the ingest transcripts a cell holds by the hundred thousand are never
+/// fetched to be skipped (hivemind-7jon8). An annotation row nobody can parse is skipped, as
+/// `read_all_events` skips it.
+fn read_fact_events(ledger: &impl EventLedger) -> Result<Vec<Event>> {
+    let tenant = ledger.bound_tenant();
+    let mut events = Vec::new();
+    let mut offset = 0;
+    loop {
+        let page = ledger.read_types_for_tenant(
+            &tenant,
+            FACT_EVENT_TYPES,
+            &[],
+            offset,
+            LEDGER_READ_PAGE_SIZE,
+        )?;
+        let Some(last) = page.last().and_then(|event| event.event_id) else {
+            break;
+        };
+        offset = last;
+        let full_page = page.len() >= LEDGER_READ_PAGE_SIZE;
+        events.extend(
+            page.into_iter()
+                .filter(|event| !events::is_unreadable_annotation(event)),
+        );
+        if !full_page {
+            break;
+        }
+    }
+    Ok(events)
 }
 
 /// Every dated fact the decision events of the ledger hold, in ledger order.
@@ -531,7 +564,7 @@ pub fn get_changed_decisions(
     let cursor = normalized_query(request.cursor.as_deref());
     let after = cursor.as_deref().map(parse_changed_cursor).transpose()?;
 
-    let events = read_all_events(ledger)?;
+    let events = read_fact_events(ledger)?;
     let mut changes: BTreeMap<String, Vec<TimelineEntry>> = BTreeMap::new();
     for fact in ledger_facts(&events)? {
         if !fact.entry.fact.is_revision() || !in_window(fact.entry.ts, request) {

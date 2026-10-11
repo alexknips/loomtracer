@@ -3,8 +3,8 @@
 use chrono::{Duration, Utc};
 
 use crate::commands::{Commands, DecisionProposalInput, GroundInput, Grounding};
-use crate::events::{RelationKind, TenantId};
-use crate::ledger::InMemoryEventLedger;
+use crate::events::{Event, EventId, EventType, RelationKind, TenantId};
+use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::DecisionStatus;
 use crate::Result;
@@ -561,5 +561,76 @@ fn an_empty_ledger_has_no_changes() -> Result<()> {
     let response = changed(&ledger, &ChangedDecisionsRequest::default())?;
     assert!(response.data.items.is_empty());
     assert!(!response.truncated);
+    Ok(())
+}
+
+/// A ledger that refuses to be read whole, as a cell's is too big to be: only a read of named
+/// event types gets through.
+struct TypedReadsOnly<'a>(&'a InMemoryEventLedger);
+
+impl EventLedger for TypedReadsOnly<'_> {
+    fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> Result<EventId> {
+        self.0.append_for_tenant(tenant_id, event)
+    }
+
+    fn read_for_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        _offset: EventId,
+        _limit: usize,
+    ) -> Result<Vec<Event>> {
+        Err(crate::queries::shared::query_error("read the whole ledger").into())
+    }
+
+    fn replay_from_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.0.replay_from_for_tenant(tenant_id, offset, callback)
+    }
+
+    fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
+        self.0.latest_offset_for_tenant(tenant_id)
+    }
+
+    fn read_types_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        types: &[EventType],
+        omit_payload_keys: &[&str],
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
+        self.0
+            .read_types_for_tenant(tenant_id, types, omit_payload_keys, offset, limit)
+    }
+}
+
+#[test]
+fn the_timeline_and_the_changed_list_never_read_the_whole_ledger() -> Result<()> {
+    // `why` read every event of a cell's ledger, ingest transcripts and all, to find the few
+    // dozen decision events it dates (hivemind-7jon8).
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let superseded = capture(&commands, "Use tabs", "tabs", None)?;
+    let replacement = capture(&commands, "Use spaces", "spaces", None)?;
+    commands.supersede_decision(&superseded, &replacement, ACTOR)?;
+    let graph = graph(&ledger)?;
+    let guarded = TypedReadsOnly(&ledger);
+
+    let read_whole = get_decision_timeline(&graph, &ledger, &superseded)?;
+    let read_typed = get_decision_timeline(&graph, &guarded, &superseded)?;
+    assert_eq!(read_typed.data, read_whole.data);
+    assert!(
+        kinds(&read_typed.data.expect("the decision exists")).contains(&"superseded".to_owned())
+    );
+
+    let request = ChangedDecisionsRequest::default();
+    let read_whole = get_changed_decisions(&graph, &ledger, &request)?;
+    let read_typed = get_changed_decisions(&graph, &guarded, &request)?;
+    assert_eq!(read_typed.data, read_whole.data);
+    assert_eq!(read_typed.data.total_matches, 1);
     Ok(())
 }

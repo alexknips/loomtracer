@@ -2375,3 +2375,36 @@ fn a_word_another_headline_says_in_any_form_is_not_the_leaders_alone() {
         "term 2 sits in the leader's headline and in no other"
     );
 }
+
+#[test]
+fn a_description_costs_the_same_reads_whatever_else_the_ledger_holds() -> Result<()> {
+    // Asking about three decisions must not ask the graph about every other decision of the
+    // ledger: a status lookup each made `why`, `verify` and `recall` take over 30 s on a ledger of
+    // a thousand decisions (hivemind-7jon8).
+    let reads = |others: u128| -> Result<usize> {
+        let asked = (1..=3).map(|n| {
+            decision_proposed(
+                n,
+                &format!("d:queue-{n}"),
+                &format!("Adopt async queue {n}"),
+                &["queues"],
+            )
+        });
+        let rest = (0..others).map(|n| {
+            decision_proposed(
+                10 + n,
+                &format!("d:colour-{n}"),
+                &format!("Pick colour {n}"),
+                &["ui"],
+            )
+        });
+        let graph = graph_from_events(asked.chain(rest))?;
+        let counting = crate::queries::test_fixtures::CountingGraph::new(&graph);
+        let response = resolve_decision_for_reading(&counting, "async queue", None)?;
+        assert_eq!(response.result_count, 3);
+        Ok(counting.queries())
+    };
+
+    assert_eq!(reads(2)?, reads(200)?);
+    Ok(())
+}

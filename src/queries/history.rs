@@ -25,7 +25,7 @@ use super::shared::normalized_query;
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
 const DEFAULT_HISTORY_LIMIT: usize = 25;
-const LEDGER_READ_PAGE_SIZE: usize = 1_000;
+pub(super) const LEDGER_READ_PAGE_SIZE: usize = 1_000;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HistoryFilterRequest {
