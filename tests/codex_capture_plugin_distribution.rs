@@ -1715,8 +1715,6 @@ fn capture_through_binary(
             "nightly",
             "--rests-on-assumption",
             "Testers tolerate occasional breakage",
-            "--binds-nothing",
-            "--cheap-to-undo",
         ])
         .output()?;
     assert!(

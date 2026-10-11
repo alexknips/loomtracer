@@ -301,6 +301,9 @@ fn run_capture_script(
             "--chose",
             "folder-marker",
             "--bet",
+            "--binds",
+            "Later captures from this folder are filed under the same project",
+            "--cheap-to-undo",
         ])
         .args(extra)
         .output()?;
