@@ -4132,6 +4132,42 @@ fn recall_finds_a_decision_from_a_plain_question_that_shares_most_of_its_words()
         "`why isn't...` never reports `isn't` as a word the decision lacks",
     )?;
 
+    // A task question that opens with "I'm", "we've", "let's"... is the asker talking: it recalls
+    // exactly what the same question without the contraction recalls, and the contraction is
+    // never a word the decision lacks (hivemind-e9340).
+    let bare = recall("workos when the login metadata is unreadable")?;
+    let bare_top = top_three(&bare);
+    ensure(
+        bare_top.contains(&login),
+        &format!("the question without a contraction finds the login decision, got {bare_top:?}"),
+    )?;
+    for opener in [
+        "I'm on",
+        "I've settled on",
+        "I'd go with",
+        "we're on",
+        "we've settled on",
+        "we'd go with",
+        "you're on",
+        "you've settled on",
+        "they're on",
+        "they've settled on",
+        "let's go with",
+        "I\u{2019}m on",
+    ] {
+        let question = format!("{opener} workos when the login metadata is unreadable");
+        let answer = recall(&question)?;
+        ensure_json_eq(
+            &answer["data"]["ranked"],
+            bare["data"]["ranked"].clone(),
+            &format!("`{question}` ranks as the question without its contraction"),
+        )?;
+        ensure(
+            missing_terms_for(&answer, &login).is_empty(),
+            &format!("`{question}` reports no word the login decision lacks"),
+        )?;
+    }
+
     let _ = std::fs::remove_dir_all(&hivemind_dir);
     Ok(())
 }

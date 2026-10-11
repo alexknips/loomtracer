@@ -2603,6 +2603,73 @@ fn resolver_terms_drop_every_negation_spelling() {
 }
 
 #[test]
+fn resolver_terms_drop_every_contraction_a_task_question_opens_with() {
+    // An agent opens a question with "I'm changing ...", "we're editing ..." or "let's add ...".
+    // The contraction is the asker talking, not a word a decision holds: the question has the
+    // terms it has without it (hivemind-e9340). "I", "we", "you" and "they" are already dropped.
+    let bare = resolver_terms("editing the public demo data");
+    assert_eq!(bare, vec!["editing", "public", "demo", "data"]);
+    for contraction in [
+        "I'm", "I've", "I'd", "I'll", "we're", "we've", "we'd", "we'll", "you're", "you've",
+        "you'd", "you'll", "they're", "they've", "they'd", "they'll", "let's",
+    ] {
+        for opener in [
+            contraction.to_owned(),
+            contraction.to_uppercase(),
+            contraction.replace('\'', "\u{2019}"),
+        ] {
+            let question = format!("{opener} editing the public demo data");
+            assert_eq!(resolver_terms(&question), bare, "{question:?}");
+            let asked = resolver_question(&question);
+            assert!(!asked.negated, "{question:?}");
+
+            let content = content_query(&question);
+            assert_eq!(
+                content.query.as_deref(),
+                Some("editing public demo data"),
+                "{question:?}"
+            );
+            assert!(
+                content
+                    .ignored
+                    .contains(&opener.to_lowercase().replace('\u{2019}', "'")),
+                "{question:?} reports its opener as dropped: {:?}",
+                content.ignored
+            );
+        }
+    }
+}
+
+#[test]
+fn a_contraction_mid_question_is_dropped_and_a_plain_let_is_still_asked_about() {
+    // Anywhere in the question, not only first.
+    assert_eq!(
+        resolver_terms("the frontend turns the graph, and we're changing it; what did we settle?"),
+        vec!["frontend", "turns", "graph", "changing", "settle"]
+    );
+    // "let's" is "let us", never the possessive of "let"; the word "let" is a real word to look
+    // for ("why do we let agents write").
+    assert_eq!(
+        resolver_terms("let's go with workos"),
+        vec!["workos"],
+        "`let's` does not become the term `let`"
+    );
+    assert_eq!(
+        resolver_terms("why do we let agents write directly"),
+        vec!["let", "agents", "write", "directly"]
+    );
+    // The other possessives still belong to their word.
+    assert_eq!(
+        resolver_terms("the website's footer"),
+        vec!["website", "footer"]
+    );
+    // A question of nothing but the contraction is searched as written, like any bare framing.
+    let bare = resolver_question("I'm");
+    assert_eq!(bare.terms, vec!["i'm"]);
+    assert!(!bare.negated);
+}
+
+#[test]
 fn a_question_of_only_framing_and_negations_is_searched_as_written() {
     // Nothing is left to ask about, so the words are searched as written -- as "why did we" is --
     // rather than matching every decision; there is no polarity to apply to nothing.

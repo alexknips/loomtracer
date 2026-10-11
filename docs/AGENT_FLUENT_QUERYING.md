@@ -128,7 +128,13 @@ shadcn for the design system" resolves in one step instead of listing the
 decision as a close candidate missing "pick". The list is fixed and literal —
 no stemming, no synonyms — and applies to the question only: a decision titled
 "Pick the cheapest vendor" still matches on "pick". A two-word verb is dropped
-only as a pair ("go" alone stays a term: it is a language). Each remaining term
+only as a pair ("go" alone stays a term: it is a language). The contractions a task
+question opens with are question words like the pronoun in them: `I'm`, `I've`, `I'd`,
+`I'll`, the same four for `we`, `you` and `they`, and `let's` (it is "let us", not a
+possessive of "let", which stays a term when it stands alone), with a straight or a
+typographic apostrophe. "I'm changing how the frontend turns the graph response into
+edges" asks about the frontend, the graph response and the edges, and never reports
+`i'm` as a word a decision lacks. Each remaining term
 still has to match somewhere (AND), either as a substring, as before, or as a
 field word with the same stem (`move`/`moves`/`moved`/`moving`; compared by
 whole-word equality, never by prefix, so `string` does not match `strategy`),

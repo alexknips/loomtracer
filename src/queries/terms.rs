@@ -78,6 +78,10 @@ pub fn overlap_score(query_terms: &[String], candidate_terms: &[String]) -> f64 
 /// dropped from the question only, never from a decision's text, so a decision titled "Pick the
 /// cheapest vendor" still matches on "pick".
 ///
+/// The contractions of the pronouns listed here (`I'm`, `we're`, `they've`, `you'd`, ...) and
+/// `let's` are as much framing as the pronoun: an agent opens a task question with them ("I'm
+/// changing how the frontend ... what did we settle?"), and a decision's text never holds them.
+///
 /// Negations (`not`, `doesn't`, ...) are not here: they are not framing but polarity, and have one
 /// rule of their own (see `is_negation`).
 const QUESTION_STOPWORDS: &[&str] = &[
@@ -119,12 +123,17 @@ const QUESTION_STOPWORDS: &[&str] = &[
     "have",
     "how",
     "i",
+    "i'd",
+    "i'll",
+    "i'm",
+    "i've",
     "if",
     "in",
     "into",
     "is",
     "it",
     "its",
+    "let's",
     "me",
     "my",
     "now",
@@ -147,12 +156,20 @@ const QUESTION_STOPWORDS: &[&str] = &[
     "then",
     "these",
     "they",
+    "they'd",
+    "they'll",
+    "they're",
+    "they've",
     "this",
     "those",
     "to",
     "us",
     "was",
     "we",
+    "we'd",
+    "we'll",
+    "we're",
+    "we've",
     "were",
     "what",
     "when",
@@ -165,6 +182,10 @@ const QUESTION_STOPWORDS: &[&str] = &[
     "with",
     "would",
     "you",
+    "you'd",
+    "you'll",
+    "you're",
+    "you've",
     "your",
 ];
 
@@ -222,7 +243,8 @@ pub(crate) fn outside_negation(text: &str) -> String {
 /// typographic apostrophe (`don’t`) written straight. Inner punctuation is kept (`per-host`,
 /// `gc-ox429`); a token that is all punctuation keeps its raw form so it still matches literally.
 /// A possessive is the word it belongs to (`website's` is `website`): a decision's text says
-/// "the website", not "the website's".
+/// "the website", not "the website's". `let's` is "let us", not a possessive of "let", so it is
+/// kept as asked.
 fn description_tokens(description: &str) -> Vec<String> {
     description
         .split_whitespace()
@@ -235,7 +257,7 @@ fn description_tokens(description: &str) -> Vec<String> {
                 raw.to_ascii_lowercase()
             } else {
                 match token.strip_suffix("'s") {
-                    Some(owner) if !owner.is_empty() => owner.to_owned(),
+                    Some(owner) if !owner.is_empty() && token != "let's" => owner.to_owned(),
                     _ => token,
                 }
             }

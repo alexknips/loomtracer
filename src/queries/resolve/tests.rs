@@ -440,6 +440,77 @@ fn a_negated_question_never_resolves_to_the_opposite_decision() -> Result<()> {
     Ok(())
 }
 
+/// A contraction an agent opens a task question with, and the words it asks with after it.
+const OPENING_CONTRACTIONS: &[(&str, &str)] = &[
+    ("I'm", "on"),
+    ("I've", "settled on"),
+    ("I'd", "go with"),
+    ("I'll", "go with"),
+    ("we're", "on"),
+    ("we've", "settled on"),
+    ("we'd", "go with"),
+    ("we'll", "go with"),
+    ("you're", "on"),
+    ("you've", "settled on"),
+    ("you'd", "go with"),
+    ("you'll", "go with"),
+    ("they're", "on"),
+    ("they've", "settled on"),
+    ("they'd", "go with"),
+    ("they'll", "go with"),
+    ("let's", "go with"),
+    ("I\u{2019}m", "on"),
+    ("Let\u{2019}s", "go with"),
+];
+
+#[test]
+fn a_question_opening_with_a_contraction_resolves_as_it_does_without_it() -> Result<()> {
+    // hivemind-e9340: "I'm", "we're", "let's" ... are the asker talking, not words the decision
+    // lacks. The question answers exactly as the same question without them, for a verb that
+    // writes and for one that reads.
+    let graph = graph_from_events([
+        decision_proposed(1, "d:kafka", "Adopt Kafka for events", &[]),
+        decision_proposed(2, "d:queue", "Adopt async queue for billing", &["billing"]),
+    ])?;
+    for (suffix, bare) in [
+        ("kafka", "kafka"),
+        ("kafka for billing", "kafka for billing"),
+    ] {
+        let without = both_askers(&graph, bare)?;
+        for (contraction, verb) in OPENING_CONTRACTIONS {
+            let question = format!("{contraction} {verb} {suffix}");
+            let asked = both_askers(&graph, &question)?;
+            assert_eq!(asked, without, "{question:?} answers as {bare:?} does");
+            for outcome in asked {
+                let candidates = match outcome {
+                    ResolveOutcome::Resolved { candidate } => vec![candidate],
+                    ResolveOutcome::Ambiguous { candidates } => candidates,
+                    ResolveOutcome::NotFound => Vec::new(),
+                };
+                for candidate in candidates {
+                    assert!(
+                        !candidate
+                            .missing_terms
+                            .iter()
+                            .any(|term| term.contains('\'') || term.contains('\u{2019}')),
+                        "{question:?} must not lack its own contraction: {:?}",
+                        candidate.missing_terms
+                    );
+                }
+            }
+        }
+    }
+    // The plain one still finds the decision it names, with nothing missing.
+    match reading(&graph, "I'm on kafka")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:kafka");
+            assert!(candidate.missing_terms.is_empty());
+        }
+        other => panic!("`I'm on kafka` must answer with the Kafka decision, got {other:?}"),
+    }
+    Ok(())
+}
+
 #[test]
 fn a_negated_question_resolves_to_the_decision_that_is_negated_too() -> Result<()> {
     let graph = graph_from_events([

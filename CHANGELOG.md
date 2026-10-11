@@ -479,6 +479,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`recall`, `why` and `verify` answer a question that opens with `I'm`, `we're`, `let's` or
+  a like contraction exactly as they answer it without.** `I'm`, `I've`, `I'd`, `I'll`, the same
+  four for `we`, `you` and `they`, and `let's` (with a straight or a typographic apostrophe)
+  counted as words a decision had to hold: `recall "I'm changing how the frontend turns the graph
+  API response into edges; what did we settle?"` found nothing although the same question
+  without `I'm` finds the decision page's brief, and `why "I'm editing the public demo data"`
+  answered as a close match that "lacks i'm" where `why "editing the public demo data"` was a
+  full one. They are question words now, like the `I` and `we` inside them; `let's` is read as
+  "let us", not as a possessive of `let`, and a bare `let` stays a word to look for. On a copy of
+  the crew ledger (534 events, 69 decisions), the checker's 223 questions: 220 answer
+  byte for byte as before, no right answer is lost in the recall top three (187 before and
+  after), and the three that open with `I'm` change: the frontend question goes from nothing to
+  the brief decision, `why` for the forecaster question no longer lacks `i'm`, and the
+  new-button question lists the close decisions the same question lists without `I'm`. Not
+  fixed: a question whose words the decision spells differently (synonyms) still finds nothing.
+  (hivemind-e9340)
 - **`recall`, `why` and `verify` find a decision from a question that adds everyday words to
   the one rare word the decision holds, when the decision holds a second rare word or spells
   two of the question's words as one.** "How far does the forecast's leftover tail reach?"
