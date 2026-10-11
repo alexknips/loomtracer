@@ -9571,9 +9571,18 @@ fn run_supersede_text(
     Ok((stdout, String::from_utf8(notices)?))
 }
 
+/// A capture that clears the floor, so the text-mode project tests see only the project lines on
+/// stderr (a below-floor capture adds its own `below_floor:` line there).
 fn capture_args_for<'a>(title: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
     let mut args = capture_args_without_floor(title, extra);
-    args.splice(2..2, ["--binds-nothing", "--cheap-to-undo"]);
+    args.splice(
+        2..2,
+        [
+            "--binds",
+            "Later billing work builds on this choice",
+            "--cheap-to-undo",
+        ],
+    );
     args
 }
 
@@ -9985,7 +9994,8 @@ fn supersede_names_its_project_body(backend: &TestBackend) -> CliTestResult {
             "--actor",
             "agent:claude:session-1",
             "supersede",
-            "--binds-nothing",
+            "--binds",
+            "Later billing work builds on this choice",
             "--cheap-to-undo",
             "--old",
             &new_id,
@@ -11544,7 +11554,8 @@ fn supersede_of_a_moved_decision_is_filed_where_it_was_moved_body(
             "--actor",
             "human:alice",
             "supersede",
-            "--binds-nothing",
+            "--binds",
+            "Later UI work builds on this choice",
             "--cheap-to-undo",
             "--old",
             &old,
@@ -11595,7 +11606,8 @@ fn supersede_of_a_moved_decision_is_filed_where_it_was_moved_body(
             "--actor",
             "human:alice",
             "supersede",
-            "--binds-nothing",
+            "--binds",
+            "Later UI work builds on this choice",
             "--cheap-to-undo",
             "--old",
             &new_id,
