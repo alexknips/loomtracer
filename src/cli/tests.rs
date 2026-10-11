@@ -1300,6 +1300,177 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
     let _ = std::fs::remove_dir_all(&hivemind_dir);
 }
 
+// hivemind-09j6r: an actor that accepted a decision (a capture accepts itself) and later wants to
+// reject it is still refused, with exit 3, but the refusal now says it was this actor that
+// accepted it and names `supersede`, instead of reading like an internal error.
+#[test]
+fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
+    let hivemind_dir = unique_test_dir("disagree-own-accepted");
+    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let actor = "agent:claude:gastown.dog-1";
+    let decision_id = run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        actor,
+        "--hivemind-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "Adopt async billing queue",
+        "--rationale",
+        "Durability beats latency here",
+        "--topic-keys",
+        "billing",
+        "--options",
+        "async",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        actor,
+        "--hivemind-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("the actor accepts its own decision");
+
+    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+
+    let by_id = run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        actor,
+        "--hivemind-dir",
+        dir,
+        "disagree",
+        "--decision",
+        &decision_id,
+        "--reason",
+        "changed my mind",
+    ]))
+    .expect_err("disagreeing with your own accepted decision is refused");
+    let by_description = run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        actor,
+        "--hivemind-dir",
+        dir,
+        "disagree",
+        "async billing queue",
+        "--reason",
+        "changed my mind",
+    ]))
+    .expect_err("the same refusal by description");
+    let by_emit = run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        actor,
+        "--hivemind-dir",
+        dir,
+        "emit",
+        "decision.rejected",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect_err("the same refusal from emit decision.rejected");
+
+    for error in [&by_id, &by_description, &by_emit] {
+        let printed = format_error(false, error);
+        assert!(
+            printed.contains(&format!(
+                "{actor} already accepted decision {decision_id}, so it cannot also reject it."
+            )),
+            "names who accepted what: {printed}"
+        );
+        assert!(
+            printed.contains(&format!("hivemind supersede --old {decision_id} --title")),
+            "names supersede: {printed}"
+        );
+        assert!(
+            printed.contains("hivemind retitle") && printed.contains("hivemind move"),
+            "names the wording and project fixes: {printed}"
+        );
+        assert!(
+            !printed.contains("cannot accept and reject"),
+            "the old wording is gone: {printed}"
+        );
+        assert_eq!(exit_code_for_error(error).code(), 3, "{printed}");
+    }
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused disagree writes nothing"
+    );
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}
+
+// The other direction: an actor that rejected a decision cannot also accept it, and says so.
+#[test]
+fn accepting_a_decision_you_rejected_says_so() {
+    let hivemind_dir = unique_test_dir("accept-own-rejected");
+    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let decision_id = run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        "actor:alice",
+        "--hivemind-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "Keep current auth",
+        "--rationale",
+        "Lowest immediate migration cost",
+        "--topic-keys",
+        "auth",
+        "--options",
+        "keep",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        "actor:bob",
+        "--hivemind-dir",
+        dir,
+        "emit",
+        "decision.rejected",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("bob rejects");
+
+    let error = run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        "actor:bob",
+        "--hivemind-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect_err("accepting a decision you rejected is refused");
+    let printed = format_error(false, &error);
+    assert!(
+        printed.contains(&format!(
+            "actor:bob already rejected decision {decision_id}, so it cannot also accept it."
+        )),
+        "{printed}"
+    );
+    assert_eq!(exit_code_for_error(&error).code(), 3, "{printed}");
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}
+
 #[test]
 fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
     let hivemind_dir = unique_test_dir("supersede-cli");

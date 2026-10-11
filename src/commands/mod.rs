@@ -2266,10 +2266,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
 
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionRejected)? {
-            return Err(CommandError::Invariant(format!(
-                "actor {actor_id} cannot accept and reject decision {decision_id}"
-            ))
-            .into());
+            return Err(already_rejected_refusal(actor_id, decision_id).into());
         }
 
         let event = self.event_with_uuid(
@@ -2317,10 +2314,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
 
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionAccepted)? {
-            return Err(CommandError::Invariant(format!(
-                "actor {actor_id} cannot accept and reject decision {decision_id}"
-            ))
-            .into());
+            return Err(already_accepted_refusal(actor_id, decision_id).into());
         }
 
         let event = self.event_with_uuid(
@@ -2352,10 +2346,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
 
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionAccepted)? {
-            return Err(CommandError::Invariant(format!(
-                "actor {actor_id} cannot accept and reject decision {decision_id}"
-            ))
-            .into());
+            return Err(already_accepted_refusal(actor_id, decision_id).into());
         }
 
         let event = self.event_with_uuid(
@@ -4391,6 +4382,26 @@ fn require_not_own_premise(decision_id: &str, premise_id: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// The refusal for an actor that already accepted a decision (a capture accepts itself) and now
+/// rejects it. It stays a refusal; the message says why and names what changes a decision the
+/// actor itself made. One text for every surface: CLI, MCP, HTTP and the plugin scripts all
+/// reach it through `disagree` and `reject_decision`.
+fn already_accepted_refusal(actor_id: &str, decision_id: &str) -> CommandError {
+    CommandError::Invariant(format!(
+        "{actor_id} already accepted decision {decision_id}, so it cannot also reject it. \
+         To change your own decision, record the replacement with `hivemind supersede --old {decision_id} \
+         --title ... --rationale ... --chose ...`. If only the wording or the project is wrong, \
+         use `hivemind retitle` or `hivemind move`."
+    ))
+}
+
+/// The other direction: an actor that already rejected a decision and now accepts it.
+fn already_rejected_refusal(actor_id: &str, decision_id: &str) -> CommandError {
+    CommandError::Invariant(format!(
+        "{actor_id} already rejected decision {decision_id}, so it cannot also accept it."
+    ))
 }
 
 const fn relation_kind_name(relation_kind: RelationKind) -> &'static str {

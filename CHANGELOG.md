@@ -479,6 +479,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Disagreeing with a decision you accepted yourself says so and points to `supersede`.**
+  An agent that captured a decision (a capture accepts itself) and then ran `disagree`,
+  `emit decision.rejected` or the `disagree_decision` tool was refused with "invariant violated:
+  actor ... cannot accept and reject decision ...", which read like a bug. The refusal and its
+  exit code (3, and the same HTTP status) are unchanged. The message now reads "<actor> already
+  accepted decision <id>, so it cannot also reject it", then names `hivemind supersede --old <id>
+  --title ... --rationale ... --chose ...` to record a changed choice, and `hivemind retitle` or
+  `hivemind move` to fix only the wording or the project. Accepting a decision the same actor
+  rejected reads "already rejected ..., so it cannot also accept it". (hivemind-09j6r)
 - **`recall`, `why` and `verify` answer a question that opens with `I'm`, `we're`, `let's` or
   a like contraction exactly as they answer it without.** `I'm`, `I've`, `I'd`, `I'll`, the same
   four for `we`, `you` and `they`, and `let's` (with a straight or a typographic apostrophe)

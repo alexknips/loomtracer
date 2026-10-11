@@ -1296,6 +1296,84 @@ fn disagree_decision_tool_contests_and_defaults_actor() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// hivemind-09j6r: the same refusal text as the CLI, so an agent that wants to change its own call
+// is told it accepted the decision itself and is pointed at supersede.
+#[test]
+fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede() {
+    let dir = unique_dir("disagree-own-accepted");
+    let config = McpConfig::new(&dir).with_session_id("disagree-own-session");
+
+    let capture = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "capture_decision",
+            "arguments": {
+                "grounding": [{"kind": "bet"}],
+                "actor_id": "agent:test:1",
+                "title": "Keep auth as-is",
+                "rationale": "Avoids migration work and keeps the schema stable",
+                "topic_keys": ["auth"],
+                "options": [{"label": "keep"}]
+            }
+        }
+    })
+    .to_string();
+    let responses = drive(&config, &[capture.as_str()]);
+    let decision_id = responses[0]["result"]["structuredContent"]["decision_id"]
+        .as_str()
+        .expect("decision id")
+        .to_owned();
+
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    Commands::new(&ledger)
+        .accept_decision(&decision_id, "agent:test:1")
+        .expect("the actor accepts its own decision");
+    let offset_before = ledger.latest_offset().expect("offset before");
+
+    let disagree = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "disagree_decision",
+            "arguments": {
+                "actor_id": "agent:test:1",
+                "decision_id": decision_id,
+                "reason": "changed my mind"
+            }
+        }
+    })
+    .to_string();
+    let responses = drive(&config, &[disagree.as_str()]);
+    let result = &responses[0]["result"];
+    assert_eq!(result["isError"], true, "{result:?}");
+    let text = result["content"][0]["text"].as_str().expect("error text");
+    assert!(
+        text.contains(&format!(
+            "agent:test:1 already accepted decision {decision_id}, so it cannot also reject it."
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("hivemind supersede --old {decision_id} --title")),
+        "{text}"
+    );
+    assert!(
+        text.contains("hivemind retitle") && text.contains("hivemind move"),
+        "{text}"
+    );
+    assert!(!text.contains("cannot accept and reject"), "{text}");
+    assert_eq!(
+        ledger.latest_offset().expect("offset after"),
+        offset_before,
+        "a refused disagree writes nothing"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn disagree_decision_tool_ambiguous_description_does_not_write() {
     let dir = unique_dir("disagree-ambiguous");
