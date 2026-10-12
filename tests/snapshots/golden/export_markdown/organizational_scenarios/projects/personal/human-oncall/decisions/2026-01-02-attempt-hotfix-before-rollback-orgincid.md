@@ -2,6 +2,7 @@
 id: "org:incident:decision:hotfix"
 title: "Attempt hotfix before rollback"
 status: "superseded"
+floor: "not_asked"
 project: "personal:human:oncall"
 project_label: "oncall's personal project"
 occurred_at: "2026-01-02T00:10:10+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:incident:option:hotfix**
 
 A targeted patch might preserve the feature launch.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

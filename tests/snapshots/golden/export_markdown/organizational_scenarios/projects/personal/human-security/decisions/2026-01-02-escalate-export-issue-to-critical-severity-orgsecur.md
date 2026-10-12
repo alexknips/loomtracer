@@ -2,6 +2,7 @@
 id: "org:security:decision:severity-critical"
 title: "Escalate export issue to critical severity"
 status: "accepted"
+floor: "not_asked"
 project: "personal:human:security"
 project_label: "security's personal project"
 occurred_at: "2026-01-02T00:40:11+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:security:option:critical**
 
 Exploit reproduction refutes the low-severity assumption.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

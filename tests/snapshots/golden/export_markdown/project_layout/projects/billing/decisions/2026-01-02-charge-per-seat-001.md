@@ -2,6 +2,7 @@
 id: "decision-001"
 title: "Charge per seat"
 status: "superseded"
+floor: "not_asked"
 project: "billing"
 project_label: "billing"
 occurred_at: "2026-01-02T00:00:04+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-001-b**
 
 Rationale for Charge per seat
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

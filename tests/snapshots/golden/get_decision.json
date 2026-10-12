@@ -4,6 +4,7 @@
     "evidence_ids": [
       "evidence-001"
     ],
+    "floor": "not_asked",
     "hypotheses": [
       {
         "id": "hypothesis-001",

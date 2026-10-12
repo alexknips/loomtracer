@@ -2,6 +2,7 @@
 id: "org:capacity:decision:onboarding-plan"
 title: "Pair new hire with regulated workflow owner"
 status: "accepted"
+floor: "not_asked"
 project: "personal:agent:team-lead"
 project_label: "team-lead agents' personal project"
 occurred_at: "2026-01-02T00:50:15+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:capacity:option:paired-onboarding**
 
 The onboarding plan addresses the capacity risk without losing domain context.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

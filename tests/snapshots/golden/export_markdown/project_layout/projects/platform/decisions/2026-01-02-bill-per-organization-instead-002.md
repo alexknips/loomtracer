@@ -2,6 +2,7 @@
 id: "decision-002"
 title: "Bill per organization instead"
 status: "proposed"
+floor: "not_asked"
 project: "platform"
 project_label: "Platform"
 occurred_at: "2026-01-02T00:00:05+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-002-b**
 
 Rationale for Bill per organization instead
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

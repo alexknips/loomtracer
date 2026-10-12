@@ -2,6 +2,7 @@
 id: "org:launch:decision:readiness"
 title: "Treat launch readiness as green"
 status: "contested"
+floor: "not_asked"
 project: "personal:human:pm"
 project_label: "pm's personal project"
 occurred_at: "2026-01-02T00:30:08+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:launch:option:ready**
 
 The core workflow works for the beta cohort.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

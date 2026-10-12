@@ -2,6 +2,7 @@
 id: "org:remote-db:decision:service-owned-writes"
 title: "Move writes behind a shared remote service"
 status: "accepted"
+floor: "not_asked"
 project: "personal:human:architect"
 project_label: "architect's personal project"
 occurred_at: "2026-01-02T00:20:10+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:remote-db:option:service-owned-writes**
 
 Shared state and security review both require service ownership.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

@@ -2,6 +2,7 @@
 id: "org:incident:decision:declare"
 title: "Declare pricing-flag incident"
 status: "accepted"
+floor: "not_asked"
 project: "personal:agent:monitoring"
 project_label: "monitoring agents' personal project"
 occurred_at: "2026-01-02T00:10:08+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:incident:option:declare**
 
 Automated monitoring saw a sustained checkout failure spike.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

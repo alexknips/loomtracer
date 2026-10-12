@@ -2,6 +2,7 @@
 id: "decision-005"
 title: "Second agent note"
 status: "proposed"
+floor: "not_asked"
 project: "personal:agent:claude"
 project_label: "claude agents' personal project"
 occurred_at: "2026-01-02T00:00:09+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-005-b**
 
 Rationale for Second agent note
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

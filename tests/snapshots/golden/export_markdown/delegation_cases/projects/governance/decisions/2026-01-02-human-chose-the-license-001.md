@@ -2,6 +2,7 @@
 id: "decision-001"
 title: "Human chose the license"
 status: "accepted"
+floor: "not_asked"
 project: "governance"
 project_label: "Governance"
 occurred_at: "2026-01-02T00:00:02+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-001-b**
 
 Rationale for Human chose the license
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

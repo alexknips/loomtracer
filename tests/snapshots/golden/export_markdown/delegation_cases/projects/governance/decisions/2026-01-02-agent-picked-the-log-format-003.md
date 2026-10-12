@@ -2,6 +2,7 @@
 id: "decision-003"
 title: "Agent picked the log format"
 status: "accepted"
+floor: "not_asked"
 project: "governance"
 project_label: "Governance"
 occurred_at: "2026-01-02T00:00:06+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-003-b**
 
 Rationale for Agent picked the log format
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

@@ -2,6 +2,7 @@
 id: "org:remote-db:decision:embedded-prototype"
 title: "Keep prototype storage embedded"
 status: "superseded"
+floor: "not_asked"
 project: "personal:agent:coding"
 project_label: "coding agents' personal project"
 occurred_at: "2026-01-02T00:20:08+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:remote-db:option:embedded**
 
 The local store is simplest while the data model is still moving.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

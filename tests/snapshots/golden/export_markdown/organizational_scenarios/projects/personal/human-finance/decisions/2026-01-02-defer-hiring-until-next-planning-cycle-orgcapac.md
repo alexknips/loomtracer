@@ -2,6 +2,7 @@
 id: "org:capacity:decision:defer-hire"
 title: "Defer hiring until next planning cycle"
 status: "rejected"
+floor: "not_asked"
 project: "personal:human:finance"
 project_label: "finance's personal project"
 occurred_at: "2026-01-02T00:50:08+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:capacity:option:defer**
 
 Budget timing is tight and headcount can wait if scope shrinks.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

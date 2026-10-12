@@ -16,6 +16,7 @@
         "decision": {
           "chosen_option_id": "option-004-b",
           "evidence_ids": [],
+          "floor": "not_asked",
           "hypotheses": [],
           "id": "decision-004",
           "option_ids": [

@@ -2,6 +2,7 @@
 id: "org:capacity:decision:fulltime-hire"
 title: "Open one full-time backend role with a focused loop"
 status: "accepted"
+floor: "not_asked"
 project: "personal:agent:planning"
 project_label: "planning agents' personal project"
 occurred_at: "2026-01-02T00:50:13+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:capacity:option:fulltime**
 
 Roadmap pressure and budget evidence favor durable capacity.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

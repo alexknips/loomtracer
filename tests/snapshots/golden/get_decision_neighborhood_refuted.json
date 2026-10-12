@@ -111,6 +111,7 @@
       },
       "decision_id": "decision-005",
       "dependents_count": 0,
+      "floor": "not_asked",
       "grounding_state": "grounded",
       "id": "decision-005",
       "kind": "decision",

@@ -2,6 +2,7 @@
 id: "decision-002"
 title: "Agent bumped the dependency"
 status: "accepted"
+floor: "not_asked"
 project: "governance"
 project_label: "Governance"
 occurred_at: "2026-01-02T00:00:04+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-002-b**
 
 Rationale for Agent bumped the dependency
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

@@ -2,6 +2,7 @@
 id: "org:launch:decision:phased-rollout"
 title: "Ship phased beta with scoped messaging"
 status: "accepted"
+floor: "not_asked"
 project: "personal:agent:analytics"
 project_label: "analytics agents' personal project"
 occurred_at: "2026-01-02T00:30:13+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:launch:option:phased-beta**
 
 Cutting bulk import and adding the caveat preserves value without hiding risk.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

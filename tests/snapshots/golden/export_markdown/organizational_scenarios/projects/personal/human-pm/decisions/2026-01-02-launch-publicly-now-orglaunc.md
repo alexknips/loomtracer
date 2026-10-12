@@ -2,6 +2,7 @@
 id: "org:launch:decision:launch-now"
 title: "Launch publicly now"
 status: "rejected"
+floor: "not_asked"
 project: "personal:human:pm"
 project_label: "pm's personal project"
 occurred_at: "2026-01-02T00:30:11+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:launch:option:public-now**
 
 The launch window is available but quality and caveat evidence are still unresolved.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

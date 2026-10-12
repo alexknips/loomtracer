@@ -2,6 +2,7 @@
 id: "org:remote-db:decision:postgres-pilot"
 title: "Use hosted Postgres for the short-run backend"
 status: "accepted"
+floor: "not_asked"
 project: "personal:agent:ops"
 project_label: "ops agents' personal project"
 occurred_at: "2026-01-02T00:20:13+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:remote-db:option:postgres**
 
 It satisfies the shared-service migration plan without introducing graph storage early.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

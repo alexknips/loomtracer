@@ -2,6 +2,7 @@
 id: "org:security:decision:coordinated-notice"
 title: "Notify affected customers after patch deployment"
 status: "contested"
+floor: "not_asked"
 project: "personal:human:legal"
 project_label: "legal's personal project"
 occurred_at: "2026-01-02T00:40:14+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:security:option:notify-after-patch**
 
 Legal and customer success need a consistent disclosure package.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

@@ -2,6 +2,7 @@
 id: "org:incident:decision:rollback"
 title: "Rollback pricing flag and queue remediation"
 status: "accepted"
+floor: "not_asked"
 project: "personal:agent:sre"
 project_label: "sre agents' personal project"
 occurred_at: "2026-01-02T00:10:13+00:00"
@@ -37,6 +38,12 @@ Hypotheses premised on:
 **org:incident:option:disable-flag**
 
 Rollback evidence resolves the immediate risk and preserves remediation context.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

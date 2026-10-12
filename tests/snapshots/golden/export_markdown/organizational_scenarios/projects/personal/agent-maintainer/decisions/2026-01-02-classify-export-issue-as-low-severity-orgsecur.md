@@ -2,6 +2,7 @@
 id: "org:security:decision:severity-low"
 title: "Classify export issue as low severity"
 status: "superseded"
+floor: "not_asked"
 project: "personal:agent:maintainer"
 project_label: "maintainer agents' personal project"
 occurred_at: "2026-01-02T00:40:09+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:security:option:low**
 
 The first read assumed authentication was still enforced.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

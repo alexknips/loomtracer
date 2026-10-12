@@ -2,6 +2,7 @@
 id: "org:capacity:decision:contractor"
 title: "Use a contractor for backend capacity"
 status: "contested"
+floor: "not_asked"
 project: "personal:human:manager"
 project_label: "manager's personal project"
 occurred_at: "2026-01-02T00:50:10+00:00"
@@ -36,6 +37,12 @@ Hypotheses premised on:
 **org:capacity:option:contractor**
 
 Contracting keeps the team flexible while recruiting starts.
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 

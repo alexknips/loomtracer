@@ -2,6 +2,7 @@
 id: "decision-003"
 title: "Try a scratch idea"
 status: "proposed"
+floor: "not_asked"
 project: "personal:human:alice"
 project_label: "alice's personal project"
 occurred_at: "2026-01-02T00:00:07+00:00"
@@ -35,6 +36,12 @@ Hypotheses premised on: None recorded.
 **decision-003-b**
 
 Rationale for Try a scratch idea
+
+## Binds and undo cost
+
+Binds: not asked
+
+Undo cost: not asked
 
 ## Rests on
 
