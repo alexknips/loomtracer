@@ -58,15 +58,17 @@ use crate::queries::{
     get_decision_brief as query_get_decision_brief,
     get_decision_context as query_get_decision_context, get_decision_context_candidates,
     get_decision_neighborhood as query_get_decision_neighborhood, get_decision_quality_candidates,
-    get_decision_timeline as query_get_decision_timeline, get_recent_decisions,
+    get_decision_timeline as query_get_decision_timeline,
+    get_open_why_decisions as query_get_open_why_decisions, get_recent_decisions,
     get_supersession_chain as query_get_supersession_chain,
     get_waiting_requests as query_get_waiting_requests, misfiled_next_cursor, outcome_next_cursor,
     require_registered_project, resolve_decision_by_description, resolve_decision_for_reading,
     scan_misfiled_decisions as query_scan_misfiled_decisions, ChangedDecisionsRequest,
     ContestedDecisionsRequest, DecisionContextRequest, DecisionQualityCandidatesRequest,
     DecisionStatus, FailureAttributionRequest, MisfiledScanRequest, NeighborhoodRequest,
-    QueryContext, QueryResponse, RecentDecisionFilterRequest, RecentDecisionsRequest,
-    ResolveOutcome, ResolvedCandidate, SituationalRequest, WaitingRequestsRequest,
+    OpenWhyRequest, QueryContext, QueryResponse, RecentDecisionFilterRequest,
+    RecentDecisionsRequest, ResolveOutcome, ResolvedCandidate, SituationalRequest,
+    WaitingRequestsRequest,
 };
 use crate::summarize::{RecallRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT};
 
@@ -217,6 +219,7 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("classify_queue_list", ToolKind::ReadOther),
     ("get_waiting_requests", ToolKind::ReadDecisions),
     ("get_contested_decisions", ToolKind::ReadDecisions),
+    ("get_open_why_decisions", ToolKind::ReadDecisions),
     ("get_changed_decisions", ToolKind::ReadDecisions),
     ("get_decision", ToolKind::ReadDecisions),
     ("get_decision_outcome", ToolKind::ReadDecisions),
@@ -1035,6 +1038,33 @@ pub(crate) fn get_contested_decisions(
     args: GetContestedDecisionsArgs,
 ) -> Result<ToolOutput, CoreError> {
     let response = query_get_contested_decisions(graph, &args.request).map_err(CoreError::from)?;
+    query_output(&response)
+}
+
+/// Parsed, validated arguments for the `get_open_why_decisions` tool.
+pub(crate) struct GetOpenWhyDecisionsArgs {
+    pub(crate) request: OpenWhyRequest,
+}
+
+impl GetOpenWhyDecisionsArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        Ok(Self {
+            request: OpenWhyRequest {
+                limit: optional_usize(args, "limit")?.unwrap_or(25),
+                cursor: optional_string(args, "cursor")?,
+            },
+        })
+    }
+}
+
+/// The core for the `get_open_why_decisions` MCP tool (the CLI's `query
+/// get_open_why_decisions`): binding decisions whose why is still to answer, oldest first, one
+/// page at a time (hivemind-lapcm).
+pub(crate) fn get_open_why_decisions(
+    graph: &impl GraphView,
+    args: GetOpenWhyDecisionsArgs,
+) -> Result<ToolOutput, CoreError> {
+    let response = query_get_open_why_decisions(graph, &args.request).map_err(CoreError::from)?;
     query_output(&response)
 }
 

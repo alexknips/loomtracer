@@ -47,19 +47,19 @@ use crate::queries::{
     get_active_decision_blockers, get_blocker_notification_candidates, get_changed_decisions,
     get_compact_view, get_contested_decisions, get_decision, get_decision_brief,
     get_decision_neighborhood, get_decision_timeline, get_decisions_added_since,
-    get_decisions_changed_since, get_project, get_recent_activity, get_recent_decisions,
-    get_relevant_decisions, get_situational_decisions, get_supersession_chain,
-    get_waiting_requests, list_projects, misfiled_next_cursor, require_registered_project,
-    resolve_decision_by_description, resolve_decision_for_reading, scan_misfiled_decisions,
-    search_decisions, search_decisions_any, ActiveDecisionBlockersRequest,
+    get_decisions_changed_since, get_open_why_decisions, get_project, get_recent_activity,
+    get_recent_decisions, get_relevant_decisions, get_situational_decisions,
+    get_supersession_chain, get_waiting_requests, list_projects, misfiled_next_cursor,
+    require_registered_project, resolve_decision_by_description, resolve_decision_for_reading,
+    scan_misfiled_decisions, search_decisions, search_decisions_any, ActiveDecisionBlockersRequest,
     BlockerNotificationCandidatesRequest, ChangedDecisionsRequest, ChangedSinceRequest,
     ContestedDecisionsRequest, DecisionBlockerFilters, DecisionLogExport, DecisionLogOutcome,
     DecisionLogRequest, DecisionStatus, DecisionsAddedSinceFilterRequest,
     DecisionsAddedSinceRequest, HistoryFilterRequest, MisfiledScanRequest, NeighborhoodRequest,
-    ProjectDecisionsRequest, ProjectListRequest, ProjectOutcome, QueryContext, ReadOnlyExportQuery,
-    ReadOnlyExportRequest, RecentActivityRequest, RecentDecisionEntry, RecentDecisionFilterRequest,
-    RecentDecisionsRequest, ResolveOutcome, ResolvedCandidate, SearchDecisionRequest,
-    SituationalRequest, WaitingRequestsRequest,
+    OpenWhyRequest, ProjectDecisionsRequest, ProjectListRequest, ProjectOutcome, QueryContext,
+    ReadOnlyExportQuery, ReadOnlyExportRequest, RecentActivityRequest, RecentDecisionEntry,
+    RecentDecisionFilterRequest, RecentDecisionsRequest, ResolveOutcome, ResolvedCandidate,
+    SearchDecisionRequest, SituationalRequest, WaitingRequestsRequest,
 };
 use crate::slack_app::{
     handle_slack_command, slack_app_manifest, slack_oauth_install_url, SlackAppStore,
@@ -107,14 +107,14 @@ use super::render::{
     render_changed_since_summary, render_compact_view_summary, render_contested_decisions_summary,
     render_decision_brief_summary, render_decision_list_summary, render_decision_summary,
     render_dot, render_importance_summary, render_misfiled_scan_summary,
-    render_neighborhood_summary, render_placement_line, render_read_only_export_summary,
-    render_recall_summary, render_recent_activity_summary, render_recent_decisions_summary,
-    render_resolve_outcome_summary, render_restatement_proposals, render_scan_report_summary,
-    render_score_report_summary, render_search_summary, render_situational_summary,
-    render_supersession_summary, render_waiting_requests_summary, CaptureCommandOutput,
-    CurrentProjectOutput, DisagreeCommandOutput, ExportReport, OutputEnvelope, ProjectAnchorOutput,
-    ProjectDeclareTopicOutput, ProjectLinkOutput, ProjectRegisterOutput, ReviewActionOutput,
-    ReviewCommandOutput, SupersedeCommandOutput,
+    render_neighborhood_summary, render_open_why_summary, render_placement_line,
+    render_read_only_export_summary, render_recall_summary, render_recent_activity_summary,
+    render_recent_decisions_summary, render_resolve_outcome_summary, render_restatement_proposals,
+    render_scan_report_summary, render_score_report_summary, render_search_summary,
+    render_situational_summary, render_supersession_summary, render_waiting_requests_summary,
+    CaptureCommandOutput, CurrentProjectOutput, DisagreeCommandOutput, ExportReport,
+    OutputEnvelope, ProjectAnchorOutput, ProjectDeclareTopicOutput, ProjectLinkOutput,
+    ProjectRegisterOutput, ReviewActionOutput, ReviewCommandOutput, SupersedeCommandOutput,
 };
 
 pub fn run(cli: &Cli) -> Result<String> {
@@ -2581,6 +2581,7 @@ fn run_query_with_ledger(ledger: &impl EventLedger, query: &QueryArgs) -> Result
         | QueryCommand::GetActiveDecisionBlockers(_)
         | QueryCommand::GetWaitingRequests(_)
         | QueryCommand::GetContestedDecisions(_)
+        | QueryCommand::GetOpenWhyDecisions(_)
         | QueryCommand::GetChangedDecisions(_)
         | QueryCommand::GetBlockerNotificationCandidates(_)
         | QueryCommand::ScoreDecision(_)
@@ -3417,6 +3418,19 @@ fn run_query_with_graph(
                 query.summary,
                 &response,
                 render_contested_decisions_summary,
+                response.data.next_cursor.as_deref(),
+            )?
+        }
+        QueryCommand::GetOpenWhyDecisions(args) => {
+            let request = OpenWhyRequest {
+                limit: args.limit,
+                cursor: args.cursor.clone(),
+            };
+            let response = get_open_why_decisions(graph, &request)?;
+            format_query_response(
+                query.summary,
+                &response,
+                render_open_why_summary,
                 response.data.next_cursor.as_deref(),
             )?
         }

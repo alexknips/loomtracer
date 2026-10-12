@@ -124,6 +124,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A list of binding decisions whose why is still to answer.** `hivemind query
+  get_open_why_decisions`, the MCP tool `get_open_why_decisions` and `GET
+  /v1/attention/open-why` list, oldest first, the decisions in force that clear the decision floor
+  (they bind something or are costly to undo) and rest on nothing but what their own capture
+  brought: they follow from no earlier decision and replace none, no person accepted them and they
+  record no person's delegation, and every observation, assumption and bet they rest on was
+  recorded with them and is rested on by no other decision. Each item names its `deciders`, its
+  `recorded_by`, `captured_at`, both floor answers and `rests_on`. It is an open state, never a
+  refusal: every listed decision was written, and nothing is suggested or linked. `left_out`
+  counts the in-force decisions left off because they are below the floor or were never asked.
+  `truncated` and `data.next_cursor` page through it by position. See `docs/ATTENTION_LISTS.md`.
+  (hivemind-lapcm)
 - **Every read of a decision shows what it binds and what undoing it costs.** `get_decision`,
   search and recall results, `get_decision_brief`, the digest and the decision-log export carry
   `binds`, `undo_cost` (each `{level, statement?}`, absent when the decision was never asked) and

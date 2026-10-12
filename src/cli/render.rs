@@ -25,13 +25,13 @@ use crate::queries::{
     DecisionSearchResults, DecisionStatus, DecisionTimeline, DecisionView,
     DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom, GroundingAdded,
     GroundingItem, GroundingItemState, GroundingKind, GroundingState, HistoryChangeKind,
-    HypothesisStatus, MatchReason, MisfiledDecisionCandidate, NeighborhoodView, OptionLabel,
-    OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage, ProjectListResults, ProjectMove,
-    ProjectOutcome, ProjectTopicFact, QueryResponse, QuestionAnswer, ReadOnlyExport,
-    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind,
-    RecentActivityResults, RecentDecisionsResults, ResolveOutcome, ResolvedCandidate, ReviewShape,
-    SituationalResults, SupersessionChain, TimelineEntry, TimelineFact, TitleChange,
-    WaitingRequestsResults, POLARITY_REASON,
+    HypothesisStatus, MatchReason, MisfiledDecisionCandidate, NeighborhoodView, OpenWhyResults,
+    OpenWhyView, OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage,
+    ProjectListResults, ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse,
+    QuestionAnswer, ReadOnlyExport, ReadOnlyExportFormat as QueryReadOnlyExportFormat,
+    ReadOnlyExportQueryKind, RecentActivityResults, RecentDecisionsResults, ResolveOutcome,
+    ResolvedCandidate, ReviewShape, SituationalResults, SupersessionChain, TimelineEntry,
+    TimelineFact, TitleChange, WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
 use crate::{HivemindError, Result};
@@ -1230,13 +1230,17 @@ fn write_rests_on(output: &mut String, brief: &DecisionBrief) {
     }
 }
 
-fn grounding_line(item: &GroundingItem) -> String {
-    let kind = match item.kind {
+fn grounding_kind_label(kind: GroundingKind) -> &'static str {
+    match kind {
         GroundingKind::Decision => "decision",
         GroundingKind::Evidence => "evidence",
         GroundingKind::Assumption => "assumption",
         GroundingKind::Bet => "bet",
-    };
+    }
+}
+
+fn grounding_line(item: &GroundingItem) -> String {
+    let kind = grounding_kind_label(item.kind);
     let mut line = format!("{kind:<10} \"{}\"", summary_cell(&item.label));
     if let GroundingItemState::Recorded {
         source: Some(source),
@@ -1479,6 +1483,73 @@ pub(crate) fn render_contested_decisions_summary(results: &ContestedDecisionsRes
         output.push('\n');
     }
     output.trim_end().to_owned()
+}
+
+/// The `get_open_why_decisions` reply: binding decisions whose why is still to answer, oldest
+/// first, each with who decided it and what it rests on (hivemind-lapcm). The decisions the list
+/// did not consider because of their floor are counted on a last line, never left unsaid.
+pub(crate) fn render_open_why_summary(results: &OpenWhyResults) -> String {
+    let mut output = String::new();
+    if results.items.is_empty() {
+        output.push_str("No binding decisions with an open why found\n");
+    }
+    for item in &results.items {
+        let _ = write!(
+            output,
+            "open_why\t{}\tstatus={}\t{}\tcaptured_at={}\tdecided_by={}\trecorded_by={}\t{}\t{}\trests_on={}",
+            item.decision_id,
+            decision_status_label(item.status),
+            summary_cell(&item.title),
+            item.captured_at
+                .map_or_else(|| "undated".to_owned(), |ts| ts.to_rfc3339()),
+            open_why_deciders_cell(item),
+            item.recorded_by.as_deref().unwrap_or("none recorded"),
+            summary_cell(&item.floor.binds_line()),
+            summary_cell(&item.floor.undo_cost_line()),
+            open_why_rests_on_cell(item),
+        );
+        write_project_field(&mut output, Some(&item.project_label));
+        output.push('\n');
+    }
+    let left_out = &results.left_out;
+    if left_out.below_floor > 0 || left_out.floor_not_asked > 0 {
+        let _ = writeln!(
+            output,
+            "left_out\tbelow_floor={}\tfloor_not_asked={}",
+            left_out.below_floor, left_out.floor_not_asked
+        );
+    }
+    output.trim_end().to_owned()
+}
+
+/// Who decided an open-why row, or `none recorded` for a proposal nobody accepted.
+fn open_why_deciders_cell(item: &OpenWhyView) -> String {
+    if item.deciders.is_empty() {
+        return "none recorded".to_owned();
+    }
+    item.deciders
+        .iter()
+        .map(|decider| decider.id.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// What an open-why row rests on, or `nothing declared` for a decision that declared nothing.
+fn open_why_rests_on_cell(item: &OpenWhyView) -> String {
+    if item.rests_on.is_empty() {
+        return "nothing declared".to_owned();
+    }
+    item.rests_on
+        .iter()
+        .map(|own| {
+            format!(
+                "{}: {}",
+                grounding_kind_label(own.kind),
+                summary_cell(&own.label)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// The `get_changed_decisions` reply: decisions revised, superseded or left without a premise

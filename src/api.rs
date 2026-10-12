@@ -64,6 +64,8 @@
 //!   oldest first
 //! - `GET  /v1/attention/contested[?limit=][?cursor=]` — decisions in contest (disagreement or
 //!   conflicting answers), oldest first
+//! - `GET  /v1/attention/open-why[?limit=][?cursor=]` — binding decisions whose why is still to
+//!   answer (they rest only on what their own capture brought), oldest first
 //! - `GET  /v1/attention/changed[?since=][?until=][?limit=][?cursor=]` — decisions revised or
 //!   superseded in a window (RFC3339; `since` defaults to seven days back), newest first
 //! - `GET  /v1/restatements/proposals[?project=][?limit=][?cursor=]` — the links
@@ -671,6 +673,7 @@ fn build_router(state: AppState) -> Router {
         // Attention lists (hivemind-bbnw.7): what is waiting, contested, or recently changed
         .route("/v1/attention/waiting", get(handlers::waiting_handler))
         .route("/v1/attention/contested", get(handlers::contested_handler))
+        .route("/v1/attention/open-why", get(handlers::open_why_handler))
         .route("/v1/attention/changed", get(handlers::changed_handler))
         // Decision resource routes
         .route("/v1/decisions", post(handlers::post_decisions_handler))

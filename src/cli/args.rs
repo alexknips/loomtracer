@@ -2065,6 +2065,13 @@ pub enum QueryCommand {
     /// other). Derived from the graph, nothing ranked, picked or resolved (hivemind-bbnw.7).
     #[command(name = "get_contested_decisions")]
     GetContestedDecisions(QueryContestedDecisionsArgs),
+    /// Binding decisions whose why is still to answer, oldest first: decisions in force that
+    /// clear the decision floor and rest only on what their own capture brought (no earlier
+    /// decision, no person who decided it, no observation, assumption or bet another decision
+    /// shares), each with what it rests on. An open state, not a refusal: every one was written.
+    /// Nothing is suggested or linked (hivemind-lapcm).
+    #[command(name = "get_open_why_decisions")]
+    GetOpenWhyDecisions(QueryOpenWhyDecisionsArgs),
     /// Decisions that were revised or superseded, or whose premise stopped standing, in a window
     /// (`--since`, default the last 7 days), most recently changed first: what changed, when, by
     /// whom and by what. Facts from the ledger, cited by event offset; no verdict on the change
@@ -2283,6 +2290,17 @@ pub struct QueryContestedDecisionsArgs {
     #[arg(long = "limit", default_value_t = 25)]
     pub limit: usize,
 
+    #[arg(long = "cursor")]
+    pub cursor: Option<String>,
+}
+
+/// `hivemind query get_open_why_decisions` (hivemind-lapcm).
+#[derive(Debug, Clone, Args)]
+pub struct QueryOpenWhyDecisionsArgs {
+    #[arg(long = "limit", default_value_t = 25)]
+    pub limit: usize,
+
+    /// The `next_cursor` of the previous page.
     #[arg(long = "cursor")]
     pub cursor: Option<String>,
 }

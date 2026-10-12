@@ -46,11 +46,12 @@ use core::{
     AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CompactViewArgs,
     CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
     GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionContextArgs,
-    GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetSituationalDecisionsArgs,
-    GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs,
-    LedgerHandle, LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs,
-    RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs,
-    ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SupersedeDecisionArgs,
+    GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
+    GetSituationalDecisionsArgs, GetSuggestionsArgs, GetSupersessionChainArgs,
+    GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle, LedgerProvider, MoveDecisionArgs,
+    RankDecisionsByImportanceArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
+    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
+    SupersedeDecisionArgs,
 };
 
 /// MCP protocol revision this server speaks. Aligns with the modelcontextprotocol.io
@@ -385,6 +386,7 @@ fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, R
         "request_decision" => tool_request_decision(arguments, config),
         "get_waiting_requests" => tool_get_waiting_requests(arguments, config),
         "get_contested_decisions" => tool_get_contested_decisions(arguments, config),
+        "get_open_why_decisions" => tool_get_open_why_decisions(arguments, config),
         "get_changed_decisions" => tool_get_changed_decisions(arguments, config),
         "get_decision" => tool_get_decision(arguments, config),
         "get_decision_outcome" => tool_get_decision_outcome(arguments, config),
@@ -746,6 +748,17 @@ pub fn tool_definitions() -> Vec<Value> {
         json!({
             "name": "get_contested_decisions",
             "description": "Decisions in contest, oldest first: where actors disagree, so nobody has to go looking. `contest.kind` is `disagreement` (at least one actor accepted the decision and one rejected it, and nobody superseded it: `accepted_by` and `rejected_by` name the sides) or `conflicting_answers` (the decision is accepted and current, and another accepted, current decision answers the same question with a different chosen option: `conflicts_with` lists them). Each item also has `asked_at` (when its question was first explicitly asked, if ever) and `decided_at` (when it was recorded). Nothing is ranked, picked or resolved for you; a supersession takes a decision off the list. Equivalent to `hivemind query get_contested_decisions`. `data.truncated` / `data.next_cursor` continue a long list.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+                    "cursor": { "type": "string", "description": "The `data.next_cursor` of the previous page." }
+                }
+            }
+        }),
+        json!({
+            "name": "get_open_why_decisions",
+            "description": "Binding decisions whose why is still to answer, oldest first: decisions in force that clear the decision floor (they bind something or are costly to undo, by their capturer's own answers) and rest only on what their own capture brought, so nobody has tied them to anything outside the call that recorded them. A decision is listed only when it follows from no earlier decision and replaces none, no person accepted it and it records no person's delegation, and every observation, assumption and bet it rests on is its own (recorded with it, and rested on by no other decision). Each item has `deciders` (who accepted it; empty while nobody has), `recorded_by`, `captured_at`, the two floor answers (`binds`, `undo_cost`) and `rests_on`, what it rests on. This is an open state, not a refusal: every listed decision was written. Nothing is suggested or linked for you. `left_out` counts the in-force decisions the list did not consider because they are below the floor or were never asked. A decision leaves the list when it follows from another decision, a person decides it, a second decision shares its evidence or it is superseded. Equivalent to `hivemind query get_open_why_decisions`. `data.truncated` / `data.next_cursor` continue a long list.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1456,6 +1469,17 @@ fn tool_get_contested_decisions(
     let core_args = GetContestedDecisionsArgs::from_json(&args)?;
     let graph = open_memory_graph(config)?;
     let output = core::get_contested_decisions(&graph, core_args)?;
+    Ok(output.into_value())
+}
+
+fn tool_get_open_why_decisions(
+    args: Value,
+    config: &McpConfig,
+) -> std::result::Result<Value, RpcError> {
+    let args = args.as_object().cloned().unwrap_or_default();
+    let core_args = GetOpenWhyDecisionsArgs::from_json(&args)?;
+    let graph = open_memory_graph(config)?;
+    let output = core::get_open_why_decisions(&graph, core_args)?;
     Ok(output.into_value())
 }
 

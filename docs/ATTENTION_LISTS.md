@@ -1,6 +1,6 @@
 # Attention lists and the decision timeline
 
-Three lists say what needs a person's attention without anyone having to go looking, and a
+Four lists say what needs a person's attention without anyone having to go looking, and a
 per-decision timeline says when each thing happened. Everything on this page is read from the
 ledger and the graph at read time, so a decision that gets answered, replaced or resolved leaves
 the list on the next call. Nothing is ranked, scored or inferred, and nothing is written.
@@ -23,6 +23,7 @@ the list on the next call. Nothing is ranked, scored or inferred, and nothing is
 |---|---|---|---|
 | Waiting | `hivemind query get_waiting_requests` | `get_waiting_requests` | `GET /v1/attention/waiting` |
 | Contested | `hivemind query get_contested_decisions` | `get_contested_decisions` | `GET /v1/attention/contested` |
+| Open why | `hivemind query get_open_why_decisions` | `get_open_why_decisions` | `GET /v1/attention/open-why` |
 | Changed | `hivemind query get_changed_decisions` | `get_changed_decisions` | `GET /v1/attention/changed` |
 | Timeline of one decision | `hivemind why` (JSON `data.timeline`, text `timeline:` block) | `get_decision_neighborhood` (`data.timeline`) | `GET /v1/decisions/{id}/timeline`, and `GET /v1/decisions/why` (`data.timeline`) |
 | Status events of one decision | not yet | not yet | `GET /v1/decisions/{id}/status-events` |
@@ -57,6 +58,50 @@ Decisions in contest, oldest first, each with why it is listed:
 Each item also carries `asked_at` (when the question the decision answers was first explicitly
 asked, absent when nobody asked) and `decided_at` (when the decision was recorded). Nothing picks a
 side or closes the disagreement. Superseding a decision takes it off the list.
+
+## Open why
+
+Binding decisions whose why is still to answer, oldest first: decisions in force that clear the
+decision floor and rest on nothing but what their own capture brought, so nobody has tied them to
+anything outside the call that recorded them. It is an open state, never a refusal: every listed
+decision was written, and nothing here suggests or links a parent (finding one is the analysis
+layer's work, not the write path's and not this read's).
+
+A decision is listed when all of these hold:
+
+- **In force.** Not superseded and not rejected. A contested or merely proposed decision is listed.
+- **Binding.** Its floor verdict is `cleared`: its capturer said it binds something or is costly
+  to undo. A decision below the floor is not a decision that needs a parent, and a decision whose
+  answers were never asked (it predates the floor, or came by a path that never asks) has no
+  verdict. Neither is listed; `left_out.below_floor` and `left_out.floor_not_asked` count the
+  in-force decisions left off for that reason, so the list is never mistaken for every decision.
+- **No earlier decision.** It follows from no other decision and replaces none. Naming the
+  decision it overturns is the reference a pivot has.
+- **No person-declared root.** No person accepted it (`human:` actor) and it records no
+  delegation from a person. A ruling a person made is the root of its own why. An agent that
+  scribed it is the recorder (`recorded_by`), never the decider (`deciders`).
+- **Only its own capture's grounding.** Every observation, assumption and bet it rests on is its
+  own: recorded before the decision's proposal, as part of the call that made it, and rested on by
+  no other decision. A node a second decision rests on is reused, which is a link between
+  decisions. A node recorded after the proposal was attributed later by someone else. A decision
+  that declares nothing at all passes this vacuously and is listed with an empty `rests_on`.
+
+Each item has the decision's `title`, `project`, `status`, `captured_at`, `deciders` (empty while
+nobody has accepted it), `recorded_by`, the two floor answers (`binds`, `undo_cost`, and
+`floor: cleared`) and `rests_on`: the observations, assumptions and bets it rests on, each with
+its `kind`, `id`, `label` and, for an observation, its `source`.
+
+A decision leaves the list the moment it follows from another decision (`hivemind ground`), a
+person decides it, a second decision shares its evidence, someone attributes more grounding to it,
+or it is superseded. `next_cursor` is a position in the order (the ledger offset and id of the last
+item shown), so a decision recorded or answered between two pages never makes the next page skip or
+repeat one. `total_matches` counts every listed decision, all pages together.
+
+What it cannot see: the graph does not record which call recorded an observation. "Its own" is read
+from what the graph holds, one decision resting on it and recorded before the proposal. An
+observation recorded on its own earlier and cited by id by exactly one decision therefore reads as
+that decision's own, and so does one attributed later by an edge alone (`ground` naming an existing
+node). Both err toward listing the decision: a gap shown that a reader can close, never one hidden.
 
 ## Changed
 

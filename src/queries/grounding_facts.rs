@@ -164,7 +164,10 @@ fn decision_anchor(
 
 /// Every `(from, to)` pair of one relation, sorted and distinct. The same pair asserted by more
 /// than one event is one link.
-fn distinct_links(graph: &impl GraphView, relation: RelationKind) -> Result<Vec<(String, String)>> {
+pub(super) fn distinct_links(
+    graph: &impl GraphView,
+    relation: RelationKind,
+) -> Result<Vec<(String, String)>> {
     let mut links = relation_edges(graph, relation)?;
     links.dedup();
     Ok(links)
@@ -173,7 +176,7 @@ fn distinct_links(graph: &impl GraphView, relation: RelationKind) -> Result<Vec<
 /// `(decision, hypothesis)` for every assumption or bet a decision rests on. One hangs off the
 /// decision (`PREMISED_ON_DIRECT`) when grounded later and off the option the decision chose
 /// (`CHOSE` then `PREMISED_ON`) when named at capture; either way it is the decision's.
-fn hypothesis_links(graph: &impl GraphView) -> Result<Vec<(String, String)>> {
+pub(super) fn hypothesis_links(graph: &impl GraphView) -> Result<Vec<(String, String)>> {
     let mut links: BTreeSet<(String, String)> =
         relation_edges(graph, RelationKind::PremisedOnDirect)?
             .into_iter()

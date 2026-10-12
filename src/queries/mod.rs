@@ -17,6 +17,7 @@ mod history;
 mod importance_facts;
 mod misfiled;
 mod neighborhood;
+mod open_why;
 mod outcome;
 mod project_label;
 mod project_scope;
@@ -101,6 +102,10 @@ pub use misfiled::{
 pub use neighborhood::{
     get_decision_neighborhood, NeighborEdge, NeighborNode, NeighborhoodRequest, NeighborhoodRoot,
     NeighborhoodView,
+};
+pub use open_why::{
+    get_open_why_decisions, OpenWhyLeftOut, OpenWhyRequest, OpenWhyResults, OpenWhyView,
+    OwnGrounding,
 };
 pub use outcome::{
     get_decision_outcome, get_decision_outcome_at, get_decision_quality_candidates,

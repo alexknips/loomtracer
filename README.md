@@ -421,6 +421,7 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `recent_decisions` | read | `query recent_decisions` |
 | `get_waiting_requests` | read | `query get_waiting_requests` |
 | `get_contested_decisions` | read | `query get_contested_decisions` |
+| `get_open_why_decisions` | read | `query get_open_why_decisions` |
 | `get_changed_decisions` | read | `query get_changed_decisions` |
 | `dump_graph` | read | `dump --format dot` |
 | `recall_decisions` | layer-3 | search + ranked digest |
