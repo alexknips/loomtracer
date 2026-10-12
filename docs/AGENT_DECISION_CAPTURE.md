@@ -1012,7 +1012,12 @@ above) — the agent never needs a direct database credential on a shared cell.
 same: they use a local ledger, refuse (exit 2, nothing created, nothing recorded) when
 `--hivemind-dir` holds none and `HIVEMIND_API_URL` is set, and otherwise say which ledger they
 used. Record to a cell over `POST /v1/decisions` (and `/v1/evidence`, `/v1/hypotheses`) or its
-MCP tools.
+MCP tools. So do `disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`, `import` (not
+`import prepare-documents`, which opens no ledger), `restatements`, `map` and `quality-scan`. The
+cell takes a disagreement at `POST /v1/decisions/{id}/disagreements`, a supersession at
+`POST /v1/decisions/{id}/supersessions`, a restatement link at
+`POST /v1/decisions/{id}/restatements`, and the rest through its MCP tools (`move_decision`,
+`retitle_decision`, `ground_decision`, `request_decision`, `scan_decision_quality`).
 `classify-queue submit --batch-id id1,id2` accepts more than one batch id to
 submit a single classification covering several batches from the same session
 in one write, matching Worker A's cadence: classify each session once at

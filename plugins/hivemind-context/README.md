@@ -74,6 +74,12 @@ The default ledger is the project-local `./hivemind/` directory. To use
 another ledger, set the plugin option `hivemind_dir`, export `HIVEMIND_DIR`,
 or pass `--hivemind-dir` to the underlying scripts.
 
+Every script uses that local ledger and never contacts a server. With
+`HIVEMIND_API_URL` set, a script run where no ledger exists refuses (exit 2,
+nothing created, nothing recorded) and names the cell's own route for the same
+thing; where one exists it works and says which ledger it used, so the cell does
+not appear to have a disagreement or a replacement it never received.
+
 ## Provenance Defaults
 
 Read verbs (`situational`, `recall`, `why`, `verify`) run under the CLI's

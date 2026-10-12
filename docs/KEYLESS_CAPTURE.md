@@ -194,7 +194,10 @@ with no ledger it refuses and creates nothing; from a folder that holds one it a
 ledger and adds a `notice` saying the answer is the local ledger's, not the server's. Unset
 `HIVEMIND_API_URL` to read a local ledger without the notice. `hivemind digest`, `review`,
 `export` and `dump` follow the same rule (`dump` and `emit` say it on stderr, so their stdout stays
-a plain DOT graph or id).
+a plain DOT graph or id). So do the verbs that act on a decision (`disagree`, `supersede`, `move`,
+`retitle`, `ground`), `ask`, `import`, `restatements`, `map` and `quality-scan`: each one refuses
+from a folder with no ledger, and from a folder that holds one says which ledger it used. The
+refusal names the cell's route for the same thing.
 
 A decision drafted this way is listed in a time window (`recent_decisions --since`, `digest`,
 `search_decisions --since`, `get_decisions_added_since`, `review --since`) by the time of the

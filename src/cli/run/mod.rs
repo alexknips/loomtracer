@@ -150,7 +150,7 @@ fn with_read_notices<W: IoWrite>(
     let mut notices = Vec::new();
     if let Some(cell) = cell {
         let notice = cell.used_locally_notice();
-        if cell.verb.stdout_is_data() && !is_json_object(&output) {
+        if notice_goes_to_stderr(cell.verb, &output) {
             // Best effort: the command has already run, so a closed stderr must not fail it.
             let _ = writeln!(stderr, "notice: {notice}");
         } else {
@@ -170,8 +170,14 @@ fn with_read_notices<W: IoWrite>(
     })
 }
 
-fn is_json_object(output: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(output).is_ok_and(|value| value.is_object())
+/// A JSON object carries the notice as a `notice` key and text as a final `notice:` line. What is
+/// neither (a bare id, DOT, a JSON array such as `map --alpha` twice prints) would be broken by
+/// either, so its notice goes to stderr.
+fn notice_goes_to_stderr(verb: CellBesideVerb, output: &str) -> bool {
+    match serde_json::from_str::<serde_json::Value>(output) {
+        Ok(value) => !value.is_object(),
+        Err(_) => verb.stdout_is_data(),
+    }
 }
 
 /// The verbs that open the ledger under `--hivemind-dir` and are not told about the server in
@@ -182,8 +188,19 @@ enum CellBesideVerb {
     Digest,
     Export,
     Dump,
+    Map,
+    RestatementsPropose,
     Review,
     Emit,
+    Disagree,
+    Supersede,
+    Move,
+    Retitle,
+    Ground,
+    Ask,
+    Import,
+    RestatementsApply,
+    QualityScan,
 }
 
 impl CellBesideVerb {
@@ -193,8 +210,25 @@ impl CellBesideVerb {
             Command::Digest(_) => Self::Digest,
             Command::Export(_) => Self::Export,
             Command::Dump(_) => Self::Dump,
+            Command::Map(_) => Self::Map,
+            Command::Restatements(args) => match args.command {
+                RestatementsCommand::Propose(_) => Self::RestatementsPropose,
+                RestatementsCommand::Apply(_) => Self::RestatementsApply,
+            },
             Command::Review(_) => Self::Review,
             Command::Emit(_) => Self::Emit,
+            Command::Disagree(_) => Self::Disagree,
+            Command::Supersede(_) => Self::Supersede,
+            Command::Move(_) => Self::Move,
+            Command::Retitle(_) => Self::Retitle,
+            Command::Ground(_) => Self::Ground,
+            Command::Ask(_) => Self::Ask,
+            // `import prepare-documents` turns files into text files and opens no ledger.
+            Command::Import(args) => match args.command {
+                ImportCommand::PrepareDocuments(_) => return None,
+                ImportCommand::Documents(_) | ImportCommand::Connector(_) => Self::Import,
+            },
+            Command::QualityScan(_) => Self::QualityScan,
             _ => return None,
         })
     }
@@ -205,22 +239,53 @@ impl CellBesideVerb {
             Self::Digest => "digest",
             Self::Export => "export",
             Self::Dump => "dump",
+            Self::Map => "map",
+            Self::RestatementsPropose => "restatements propose",
             Self::Review => "review",
             Self::Emit => "emit",
+            Self::Disagree => "disagree",
+            Self::Supersede => "supersede",
+            Self::Move => "move",
+            Self::Retitle => "retitle",
+            Self::Ground => "ground",
+            Self::Ask => "ask",
+            Self::Import => "import",
+            Self::RestatementsApply => "restatements apply",
+            Self::QualityScan => "quality-scan",
         }
     }
 
     /// What the verb does to the local ledger, for "`hivemind X` ___ a local ledger".
     fn uses(self) -> &'static str {
         match self {
-            Self::Query | Self::Digest | Self::Export | Self::Dump => "reads",
-            Self::Review => "reads and writes",
-            Self::Emit => "writes to",
+            Self::Query
+            | Self::Digest
+            | Self::Export
+            | Self::Dump
+            | Self::Map
+            | Self::RestatementsPropose => "reads",
+            Self::Review | Self::QualityScan => "reads and writes",
+            Self::Emit | Self::Ask | Self::Import => "writes to",
+            // These find the decision they act on in the ledger, then write to it.
+            Self::Disagree
+            | Self::Supersede
+            | Self::Move
+            | Self::Retitle
+            | Self::Ground
+            | Self::RestatementsApply => "reads and writes",
         }
     }
 
     fn records(self) -> bool {
-        matches!(self, Self::Review | Self::Emit)
+        !matches!(
+            self,
+            Self::Query
+                | Self::Digest
+                | Self::Export
+                | Self::Dump
+                | Self::Map
+                | Self::RestatementsPropose
+        )
     }
 
     /// `emit` prints the new id and `dump` prints DOT: a line added to stdout would break the
@@ -272,15 +337,33 @@ impl LocalLedgerBesideCell {
             ""
         };
         let local_instead = match self.verb {
-            CellBesideVerb::Emit => format!(
+            CellBesideVerb::Emit | CellBesideVerb::Ask | CellBesideVerb::Import => format!(
                 "To record to a local ledger instead, unset HIVEMIND_API_URL (the ledger is then \
                  created under {dir}) or point --hivemind-dir at an existing one"
             ),
             CellBesideVerb::Review => "To review a local ledger, unset HIVEMIND_API_URL and point \
                  --hivemind-dir at it"
                 .to_owned(),
-            _ => "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
-                .to_owned(),
+            // These act on decisions a ledger already holds, so a ledger made empty would not help.
+            CellBesideVerb::Disagree
+            | CellBesideVerb::Supersede
+            | CellBesideVerb::Move
+            | CellBesideVerb::Retitle
+            | CellBesideVerb::Ground
+            | CellBesideVerb::RestatementsApply
+            | CellBesideVerb::QualityScan => {
+                "To use a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
+                    .to_owned()
+            }
+            CellBesideVerb::Query
+            | CellBesideVerb::Digest
+            | CellBesideVerb::Export
+            | CellBesideVerb::Dump
+            | CellBesideVerb::Map
+            | CellBesideVerb::RestatementsPropose => {
+                "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
+                    .to_owned()
+            }
         };
         Err(CliError::InvalidInput(format!(
             "HIVEMIND_API_URL is set ({url}), but `hivemind {verb}` {uses} a local ledger and \
@@ -302,9 +385,11 @@ impl LocalLedgerBesideCell {
                 "this was recorded in the local ledger under {dir}: `hivemind emit` does not \
                  write to that server, so the cell does not have it"
             ),
-            CellBesideVerb::Review => format!(
-                "this review used the local ledger under {dir}, and anything it recorded went \
-                 there: `hivemind review` does not use that server, so the cell does not have it"
+            // A verb that can find nothing to act on, or ends in a dry run or a list of
+            // candidates, writes nothing: say where a write would have gone, not that one did.
+            _ if self.verb.records() => format!(
+                "this used the local ledger under {dir}, and anything it recorded went there: \
+                 `hivemind {verb}` does not use that server, so the cell does not have it"
             ),
             _ => format!(
                 "this answer is from the local ledger under {dir}: `hivemind {verb}` does not \
@@ -337,6 +422,49 @@ impl LocalLedgerBesideCell {
             CellBesideVerb::Query | CellBesideVerb::Digest | CellBesideVerb::Export => format!(
                 "To read the cell, call its HTTP API (GET {url}/v1/decisions/search, /recall or \
                  /relevant; docs/KEYLESS_CAPTURE.md Step 5)"
+            ),
+            CellBesideVerb::Map => format!(
+                "To read the cell's decision map, call its HTTP API (GET {url}/v1/decisions/map)"
+            ),
+            CellBesideVerb::RestatementsPropose => format!(
+                "To read the cell's proposals, call its HTTP API (GET \
+                 {url}/v1/restatements/proposals)"
+            ),
+            CellBesideVerb::RestatementsApply => format!(
+                "To link a restatement in the cell, call its HTTP API (POST \
+                 {url}/v1/decisions/{{id}}/restatements, one link per call)"
+            ),
+            CellBesideVerb::Disagree => format!(
+                "To disagree in the cell, call its HTTP API (POST \
+                 {url}/v1/decisions/{{id}}/disagreements) or its MCP tool disagree_decision (POST \
+                 {url}/mcp)"
+            ),
+            CellBesideVerb::Supersede => format!(
+                "To supersede in the cell, call its HTTP API (POST \
+                 {url}/v1/decisions/{{id}}/supersessions) or its MCP tool supersede_decision \
+                 (POST {url}/mcp)"
+            ),
+            CellBesideVerb::Move => format!(
+                "To move a decision in the cell, call its MCP tool move_decision (POST {url}/mcp)"
+            ),
+            CellBesideVerb::Retitle => format!(
+                "To retitle a decision in the cell, call its MCP tool retitle_decision (POST \
+                 {url}/mcp)"
+            ),
+            CellBesideVerb::Ground => format!(
+                "To ground a decision in the cell, call its MCP tool ground_decision (POST \
+                 {url}/mcp)"
+            ),
+            CellBesideVerb::Ask => {
+                format!("To ask in the cell, call its MCP tool request_decision (POST {url}/mcp)")
+            }
+            CellBesideVerb::Import => format!(
+                "The cell has no document import; to record a decision in it, call its HTTP API \
+                 (POST {url}/v1/decisions) or its MCP tools (POST {url}/mcp)"
+            ),
+            CellBesideVerb::QualityScan => format!(
+                "To scan the cell's decisions, call its MCP tool scan_decision_quality (POST \
+                 {url}/mcp)"
             ),
         }
     }

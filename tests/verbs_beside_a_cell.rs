@@ -1,9 +1,12 @@
-//! Regression test for hivemind-3wism: with `HIVEMIND_API_URL` set, `emit`, `digest`, `review`,
-//! `export` and `dump` must not use a local ledger silently. Only `classify-queue` honours the
-//! variable. `emit` recorded the decision into a `./hivemind` ledger it created and exited 0 with
-//! no word that the cell never got it, and the four reads created an empty ledger and answered
-//! from it. Same rule as `query` (hivemind-rmdi1, tests/query_beside_a_cell.rs): with no local
-//! ledger the verb refuses and makes none; with one it works and names the ledger it used.
+//! Regression test for hivemind-3wism and hivemind-nrk9f: with `HIVEMIND_API_URL` set, the verbs
+//! that open the ledger under `--hivemind-dir` must not use a local ledger silently. Only
+//! `classify-queue` honours the variable. 3wism covered `emit`, `digest`, `review`, `export` and
+//! `dump`; nrk9f covers `disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`, `import`,
+//! `restatements`, `map` and `quality-scan`. `emit` recorded the decision into a `./hivemind`
+//! ledger it created and exited 0 with no word that the cell never got it, and the reads created
+//! an empty ledger and answered from it. Same rule as `query` (hivemind-rmdi1,
+//! tests/query_beside_a_cell.rs): with no local ledger the verb refuses and makes none; with one
+//! it works and names the ledger it used.
 //! This spawns the real binary, as the person does.
 
 use std::path::{Path, PathBuf};
@@ -352,4 +355,463 @@ fn a_shared_database_url_is_left_alone() {
         "a configured database is not the cell refusal: {}",
         stderr(&output)
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// hivemind-nrk9f: the ten verbs the section above left out
+// ---------------------------------------------------------------------------------------------
+
+/// What `disagree`, `retitle` and `ground` find by description, and `supersede` replaces.
+const SEED_TITLE: &str = "Retry budget for the flaky upstream";
+
+/// The verbs hivemind-3wism did not cover, named as the refusal names them. `restatements` is two
+/// entries because `propose` reads and `apply` writes.
+const OTHER_VERBS: [&str; 11] = [
+    "disagree",
+    "supersede",
+    "move",
+    "retitle",
+    "ground",
+    "ask",
+    "import",
+    "restatements propose",
+    "restatements apply",
+    "map",
+    "quality-scan",
+];
+
+/// Whether the verb writes to a ledger, so its refusal also says nothing was recorded.
+fn writes(verb: &str) -> bool {
+    !matches!(verb, "map" | "restatements propose")
+}
+
+/// A ledger under `dir` that holds one decision about a retry budget, made the way a person makes
+/// one: a local capture with no cell URL.
+fn make_ledger_with_decision(dir: &Path) {
+    let made = hivemind(
+        dir,
+        None,
+        &[
+            "--actor",
+            "human:seed-author",
+            "emit",
+            "decision.capture",
+            "--title",
+            SEED_TITLE,
+            "--rationale",
+            "Three attempts is what the upstream tolerates today",
+            "--topic-keys",
+            "retries",
+            "--options",
+            "Keep 3,Raise to 5",
+            "--chose",
+            "Keep 3",
+            "--rests-on-assumption",
+            "The upstream stays flaky",
+            "--binds-nothing",
+            "--cheap-to-undo",
+        ],
+    );
+    assert!(made.status.success(), "{}", stderr(&made));
+    assert!(dir.join("ledger.sqlite").is_file());
+}
+
+/// A Markdown note with one `Decision:` block, for `import documents`. Lives beside, not inside,
+/// the ledger folder, which a refused verb must leave without a trace.
+fn write_decision_note(label: &str) -> PathBuf {
+    let dir = unique_dir(label);
+    std::fs::create_dir_all(&dir).expect("create the note folder"); // ubs:ignore: test-only; panicking is correct in tests
+    let note = dir.join("notes.md");
+    std::fs::write(
+        &note,
+        "Decision:\n  id: nrk9f-import\n  title: Import a note under a cell url\n  status: proposed\n  \
+         actor: actor:alice\n  topic_keys: imports\n  rationale: The note is only here to be imported by the test.\n  \
+         options:\n    - one\n    - two\n  chose: one\n",
+    )
+    .expect("write the decision note"); // ubs:ignore: test-only; panicking is correct in tests
+    note
+}
+
+/// One invocation of `verb` that parses and, against `make_ledger_with_decision`, succeeds. The
+/// acting actor is not the one that captured the decision: nobody can disagree with their own.
+fn other_verb_args(verb: &str, note: &Path) -> Vec<String> {
+    let note = note.display().to_string();
+    let args: Vec<&str> = match verb {
+        "disagree" => vec![
+            "disagree",
+            "retry budget",
+            "--reason",
+            "Three attempts is too few",
+        ],
+        "supersede" => vec![
+            "supersede",
+            "retry budget",
+            "--title",
+            "Raise the retry budget to five attempts",
+            "--rationale",
+            "The flaky upstream needs more attempts than three to succeed reliably",
+            "--topic-keys",
+            "retries",
+            "--options",
+            "Keep 3 attempts,Raise to 5 attempts",
+            "--chose",
+            "Raise to 5 attempts",
+            "--rests-on-assumption",
+            "The upstream stays flaky",
+            "--binds-nothing",
+            "--cheap-to-undo",
+        ],
+        // A successful `not_found`: a move needs a project that exists, and the point here is that
+        // the verb ran and said whose ledger it ran against.
+        "move" => vec!["move", "no-such-decision-needle", "--to", "pricing"],
+        "retitle" => vec!["retitle", "retry budget", "--to", "Retry budget is five"],
+        "ground" => vec![
+            "ground",
+            "retry budget",
+            "--rests-on-assumption",
+            "The upstream stays flaky",
+        ],
+        "ask" => vec!["ask", "How many retries does the upstream need?"],
+        "import" => vec!["import", "documents", &note],
+        "restatements propose" => vec!["restatements", "propose"],
+        "restatements apply" => vec!["restatements", "apply", "--all"],
+        "map" => vec!["map"],
+        "quality-scan" => vec!["quality-scan", "--dry-run"],
+        other => panic!("no invocation for {other}"), // ubs:ignore: test-only; panicking is correct in tests
+    };
+    ["--actor", "human:reviewer", "--json"]
+        .into_iter()
+        .chain(args)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The notice an answer carries: a `notice` key on a JSON object, else a `notice:` line on stdout
+/// or stderr (a JSON array has no room for either, so its notice is on stderr).
+fn notice_of(output: &Output) -> String {
+    let answer = stdout(output);
+    if let Some(notice) = serde_json::from_str::<serde_json::Value>(&answer)
+        .ok()
+        .and_then(|value| value["notice"].as_str().map(str::to_owned))
+    {
+        return notice;
+    }
+    let errors = stderr(output);
+    let line = answer
+        .lines()
+        .chain(errors.lines())
+        .find_map(|line| line.strip_prefix("notice: ").map(str::to_owned));
+    line.unwrap_or_default()
+}
+
+#[test]
+fn a_cell_url_with_no_local_ledger_refuses_the_ten_other_verbs_and_creates_nothing() {
+    let note = write_decision_note("refuse-note");
+    for verb in OTHER_VERBS {
+        let dir = unique_dir(&format!("other-fresh-{}", verb.replace(' ', "-")));
+        let args = other_verb_args(verb, &note);
+
+        let output = hivemind(&dir, Some(CELL), &as_strs(&args));
+
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{verb} must refuse with exit 2; stdout: {} stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        let message = stderr(&output);
+        assert!(message.contains(CELL), "{verb} names the cell: {message}");
+        assert!(
+            message.contains(&format!("`hivemind {verb}`"))
+                && message.contains("never contacts that server")
+                && message.contains("none was created"),
+            "{verb} says what it uses and that nothing was made: {message}"
+        );
+        assert_eq!(
+            message.contains("nothing was recorded"),
+            writes(verb),
+            "{verb} says the write did not happen exactly when it writes: {message}"
+        );
+        assert!(
+            message.contains(&dir.display().to_string()),
+            "{verb} names the folder it did not use: {message}"
+        );
+        assert!(
+            message.contains(&format!("{CELL}/")),
+            "{verb} points at the cell's own route for the same thing: {message}"
+        );
+        assert!(
+            stdout(&output).is_empty(),
+            "{verb} printed an answer: {}",
+            stdout(&output)
+        );
+        assert!(
+            !dir.exists(),
+            "{verb} left a ledger directory behind under {}",
+            dir.display()
+        );
+    }
+}
+
+#[test]
+fn a_refusal_names_the_cells_route_for_what_the_verb_does() {
+    let note = write_decision_note("route-note");
+    for (verb, route) in [
+        ("disagree", "/v1/decisions/{id}/disagreements"),
+        ("supersede", "/v1/decisions/{id}/supersessions"),
+        ("move", "move_decision"),
+        ("retitle", "retitle_decision"),
+        ("ground", "ground_decision"),
+        ("ask", "request_decision"),
+        ("restatements propose", "/v1/restatements/proposals"),
+        ("restatements apply", "/v1/decisions/{id}/restatements"),
+        ("map", "/v1/decisions/map"),
+        ("quality-scan", "scan_decision_quality"),
+    ] {
+        let dir = unique_dir("route");
+        let args = other_verb_args(verb, &note);
+
+        let output = hivemind(&dir, Some(CELL), &as_strs(&args));
+
+        assert!(
+            stderr(&output).contains(route),
+            "{verb} names {route}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn the_ten_other_verbs_with_a_local_ledger_work_and_say_which_ledger_they_used() {
+    let note = write_decision_note("works-note");
+    for verb in OTHER_VERBS {
+        let dir = unique_dir(&format!("other-existing-{}", verb.replace(' ', "-")));
+        make_ledger_with_decision(&dir);
+        let args = other_verb_args(verb, &note);
+
+        let output = hivemind(&dir, Some(CELL), &as_strs(&args));
+
+        assert!(
+            output.status.success(),
+            "{verb}: stdout: {} stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        let notice = notice_of(&output);
+        assert!(
+            notice.contains(CELL) && notice.contains(&format!("`hivemind {verb}`")),
+            "{verb} names the cell and itself: {notice:?} in {}",
+            stdout(&output)
+        );
+        assert!(
+            notice.contains(&dir.display().to_string()),
+            "{verb} names the ledger it used: {notice}"
+        );
+        assert!(
+            notice.contains("does not use that server")
+                || notice.contains("does not read that server"),
+            "{verb} says the cell was not involved: {notice}"
+        );
+    }
+}
+
+#[test]
+fn a_write_with_a_local_ledger_really_lands_in_that_ledger() {
+    // The notice says anything recorded went to the local ledger. Prove it did, for the verbs that
+    // change a decision, by reading the title and status back without the cell URL.
+    let dir = unique_dir("lands-locally");
+    make_ledger_with_decision(&dir);
+    let retitled = hivemind(
+        &dir,
+        Some(CELL),
+        &[
+            "--actor",
+            "human:reviewer",
+            "--json",
+            "retitle",
+            "retry budget",
+            "--to",
+            "Retry budget is five",
+        ],
+    );
+    assert!(retitled.status.success(), "{}", stderr(&retitled));
+    let disagreed = hivemind(
+        &dir,
+        Some(CELL),
+        &[
+            "--actor",
+            "human:reviewer",
+            "--json",
+            "disagree",
+            "retry budget",
+            "--reason",
+            "Three attempts is too few",
+        ],
+    );
+    assert!(disagreed.status.success(), "{}", stderr(&disagreed));
+
+    let read = hivemind(
+        &dir,
+        None,
+        &["query", "search_decisions", "--q", "retry budget"],
+    );
+
+    let read = stdout(&read);
+    assert!(
+        read.contains("Retry budget is five") && read.contains("contested"),
+        "the retitle and the disagreement are in the local ledger: {read}"
+    );
+}
+
+#[test]
+fn a_text_answer_ends_with_the_notice_line_and_is_otherwise_unchanged() {
+    let dir = unique_dir("text-ask");
+    make_ledger_with_decision(&dir);
+
+    let with_cell = hivemind(
+        &dir,
+        Some(CELL),
+        &["--actor", "human:reviewer", "ask", "How many retries?"],
+    );
+    let without_cell = hivemind(
+        &dir,
+        None,
+        &["--actor", "human:reviewer", "ask", "How many retries?"],
+    );
+
+    assert!(with_cell.status.success(), "{}", stderr(&with_cell));
+    let with_cell = stdout(&with_cell);
+    let (answer, notice) = with_cell
+        .trim_end()
+        .rsplit_once('\n')
+        .expect("an answer line and a notice line"); // ubs:ignore: test-only; panicking is correct in tests
+    assert!(
+        notice.starts_with("notice: HIVEMIND_API_URL is set") && notice.contains(CELL),
+        "the last line is the notice: {with_cell}"
+    );
+    assert!(
+        answer.starts_with("asked \"How many retries?\""),
+        "the answer comes first and is the one the verb always gives: {answer}"
+    );
+    // The same call without the URL asks the same question again: still a request of its own.
+    assert!(
+        stdout(&without_cell).starts_with("asked \"How many retries?\"")
+            && !stdout(&without_cell).contains("notice:"),
+        "{}",
+        stdout(&without_cell)
+    );
+}
+
+#[test]
+fn map_with_several_alphas_keeps_stdout_a_json_array_and_puts_the_notice_on_stderr() {
+    let dir = unique_dir("map-alphas");
+    make_ledger_with_decision(&dir);
+
+    let output = hivemind(
+        &dir,
+        Some(CELL),
+        &["map", "--alpha", "0.2", "--alpha", "0.8"],
+    );
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let maps: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("map with several --alpha prints a JSON array"); // ubs:ignore: test-only; panicking is correct in tests
+    assert_eq!(maps.as_array().map(Vec::len), Some(2), "{maps}");
+    assert!(
+        stderr(&output).contains("notice: HIVEMIND_API_URL is set")
+            && stderr(&output).contains("`hivemind map`"),
+        "stderr says the maps are the local ledger's: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn import_prepare_documents_opens_no_ledger_so_it_is_not_refused() {
+    let note = write_decision_note("prepare-note");
+    let dir = unique_dir("prepare-ledger");
+    let out = unique_dir("prepare-out");
+
+    let output = hivemind(
+        &dir,
+        Some(CELL),
+        &[
+            "import",
+            "prepare-documents",
+            "--format",
+            "text",
+            "--output-dir",
+            &out.display().to_string(),
+            &note.display().to_string(),
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "stdout: {} stderr: {}",
+        stdout(&output),
+        stderr(&output)
+    );
+    assert!(
+        !stderr(&output).contains("HIVEMIND_API_URL") && !stdout(&output).contains("notice"),
+        "a verb that never opens a ledger has nothing to say about one"
+    );
+    assert!(!dir.exists(), "prepare-documents made a ledger");
+}
+
+#[test]
+fn without_a_cell_url_the_ten_other_verbs_are_unchanged() {
+    let note = write_decision_note("unchanged-note");
+    for verb in OTHER_VERBS {
+        let dir = unique_dir(&format!("other-local-{}", verb.replace(' ', "-")));
+        make_ledger_with_decision(&dir);
+        let args = other_verb_args(verb, &note);
+
+        let output = hivemind(&dir, None, &as_strs(&args));
+
+        assert!(
+            output.status.success(),
+            "{verb}: stdout: {} stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert!(
+            !stdout(&output).contains("HIVEMIND_API_URL")
+                && !stderr(&output).contains("HIVEMIND_API_URL"),
+            "{verb} mentions a cell nobody set: {} {}",
+            stdout(&output),
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn a_shared_database_url_leaves_the_ten_other_verbs_alone() {
+    let note = write_decision_note("database-note");
+    for verb in OTHER_VERBS {
+        let dir = unique_dir("other-database-url");
+        let args = other_verb_args(verb, &note);
+
+        // The URL points nowhere, so the verb fails on the connection; the point is that it is
+        // not the cell refusal and made no local ledger.
+        let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
+            .env("HIVEMIND_API_URL", CELL)
+            .env(
+                "HIVEMIND_DATABASE_URL",
+                "postgres://nobody@127.0.0.1:9/none",
+            )
+            .arg("--hivemind-dir")
+            .arg(&dir)
+            .args(&args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
+
+        assert!(
+            !stderr(&output).contains("never contacts that server"),
+            "{verb}: a configured database is not the cell refusal: {}",
+            stderr(&output)
+        );
+        assert!(!dir.exists(), "{verb} made a local ledger");
+    }
 }

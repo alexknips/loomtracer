@@ -172,6 +172,11 @@ pub enum Command {
     /// agent session and the git user at a plain terminal; `hivemind --help` names it). A
     /// description that matches more than one decision lists the candidates and writes nothing;
     /// pick one with --pick N, or name the decision with --decision.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Disagree(DisagreeArgs),
     /// Replace a decision with a new one, found by describing it: the replacement is captured
     /// with its own title, rationale and options, and the old decision is marked superseded by
@@ -186,16 +191,31 @@ pub enum Command {
     /// `--undo-cost <what>` or `--cheap-to-undo`); one that leaves either out is refused too. A
     /// description that matches more than one decision lists the candidates and writes nothing;
     /// pick one with --pick N, or name the decision with --old.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Supersede(Box<SupersedeArgs>),
     /// Move a decision to another project, found by describing it. A description that
     /// matches more than one decision lists the candidates and writes nothing; pick one with
     /// --pick N. One that matches nothing is a successful `not_found` answer. Recorded with
     /// who, when, from, to and why; reversed by moving it back.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Move(MoveArgs),
     /// Rename a decision, found by describing it. A description that matches more than one
     /// decision lists the candidates and writes nothing; pick one with --pick N. The old title
     /// is kept on the node (`former_title`) and in the untouched `decision.proposed` event;
     /// nothing is lost. Recorded with who, when, from, to and why; reversed by retitling it back.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Retitle(RetitleArgs),
     /// Say what an existing decision rests on, after the fact: a decision it follows from,
     /// something observed, something assumed, or a declared bet. Append-only and attributed to
@@ -204,6 +224,11 @@ pub enum Command {
     /// pretending the grounding was there at capture. Resolves the decision by description with
     /// the same ambiguity gate as `supersede`; nothing is written when the description is
     /// ambiguous, a premise cannot be pinned to one decision, or a premise would close a loop.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Ground(GroundArgs),
     /// Record that you are explicitly asking a question, before any decision answers it: writes
     /// a request that is "waiting" until a decision (`emit decision.capture --answers`) links to
@@ -211,6 +236,11 @@ pub enum Command {
     /// text is reused, otherwise `question.recorded` creates it. Unlike answering, asking is
     /// never suppressed as a duplicate — the same question can be asked more than once, each its
     /// own outstanding request.
+    ///
+    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
+    /// server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Ask(AskArgs),
     /// Go through recent decisions one at a time in the terminal and accept, disagree with or
     /// supersede each: a guided review of what agents (or anyone) decided lately.
@@ -232,6 +262,12 @@ pub enum Command {
     /// Imported decisions land as proposed, not accepted, and flow into `hivemind review
     /// --unreviewed-only`. Re-importing identical input is a no-op; conflicts with existing
     /// decisions are reported unless `--on-conflict` says how to resolve them.
+    ///
+    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
+    /// server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// `import prepare-documents` opens no ledger and is not affected.
     Import(ImportArgs),
     /// Run deterministic read queries. JSON is the default; pass --summary for compact text.
     ///
@@ -283,6 +319,11 @@ pub enum Command {
     /// Outputs a JSON point-set to stdout. Use --alpha to blend semantic and
     /// structural (supersession) similarity. Outputs JSON unless --summary is
     /// passed.
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger, and otherwise says that the map is that local ledger's: a `notice` key, or a
+    /// `notice:` line under --summary, or on stderr when several --alpha make stdout a JSON array.
     Map(MapArgs),
     /// Generate a textual decision digest for a time window.
     /// Answers "what did the team decide this week and why?" using graph data.
@@ -301,6 +342,12 @@ pub enum Command {
     /// the decisions whose titles look like a decision already recorded, with the words that make
     /// them look alike; `restatements apply` records the links you approve. A link is never a
     /// merge: both records stay as recorded, and `recall` and `why` show them as one decision.
+    ///
+    /// Reads (`propose`) and writes (`apply`) the ledger under --hivemind-dir (or --database-url)
+    /// and never contacts the server in HIVEMIND_API_URL. With that variable set it refuses, exit
+    /// 2 and nothing recorded, when --hivemind-dir holds no ledger, and otherwise says in its
+    /// output (a `notice` key under --json, on stderr for `apply --json`, which prints an array)
+    /// that it used that local ledger.
     Restatements(RestatementsArgs),
     /// Manage connector authentication (e.g., Google Docs OAuth).
     /// Set HIVEMIND_GOOGLE_CLIENT_ID and HIVEMIND_GOOGLE_CLIENT_SECRET before running.
@@ -311,6 +358,11 @@ pub enum Command {
     /// (action acted, channel linear, by --actor), so running it again files only what is new.
     /// Set HIVEMIND_LINEAR_API_KEY and HIVEMIND_LINEAR_TEAM_ID before running.
     /// Pass --dry-run to preview what would be filed without calling Linear or acknowledging.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key) that the findings are that local ledger's.
     #[command(name = "quality-scan")]
     QualityScan(QualityScanArgs),
     /// Export the decision log as a tree of Markdown files grouped per

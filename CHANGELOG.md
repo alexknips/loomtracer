@@ -594,6 +594,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   and on stderr for `emit`'s bare id and `dump`'s DOT, so `$(hivemind emit ...)` and `| dot` keep
   reading a clean stdout. `--help` for these verbs and for `query` says the same. A configured
   `--database-url` is a direct use of the shared data and is unchanged. (hivemind-3wism)
+- **`hivemind disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`, `import`,
+  `restatements`, `map` and `quality-scan` no longer use a ledger silently when
+  `HIVEMIND_API_URL` points at a cell.** The ten verbs the entry above left out. With the variable
+  set, `ask` recorded the question and `disagree`, `supersede`, `ground`, `move` and `retitle`
+  wrote their event into a `./hivemind/ledger.sqlite` they created, and `map`, `restatements
+  propose` and `quality-scan` answered from an empty one, exiting 0 with no word that the cell
+  never saw any of it. They now follow the `query` rule: with `HIVEMIND_API_URL` set and no
+  `--database-url`, a fresh folder is refused (exit 2, nothing created, nothing recorded, and the
+  message names the cell's HTTP route or MCP tool that does the same), and a folder that holds a
+  ledger works and says which ledger it used, as a `notice` key under `--json` or a `notice:` line
+  after a text answer (on stderr where the answer is a JSON array, as for `map` with several
+  `--alpha` and `restatements apply --json`). `import prepare-documents` opens no ledger and is
+  unchanged. `--help` for these verbs says the same. A
+  configured `--database-url` is a direct use of the shared data and is unchanged.
+  (hivemind-nrk9f)
 - **The capture skill and command no longer offer `--kind blocker` or `--kind notification`.**
   `capture.sh` refuses both (exit 2, nothing recorded: "kind blocker is known but does not yet
   have a canonical CLI capture path"), yet the active-capture skill taught `/capture ... --kind
