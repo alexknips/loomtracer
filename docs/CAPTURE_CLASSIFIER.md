@@ -2,15 +2,28 @@
 
 Status: design for bead `hivemind-m1-5-hidden-capture-jtkmje.3`.
 
-This document specifies the tiny classifier subagent used by the unified
-`/capture` flow. The classifier reads a small text-only batch of recent agent
-activity and returns capture candidates, or an empty result. It is a layer-3
-suggestion component: it does not write ledger events, query the graph, rank
-existing decisions, deduplicate, or resolve disagreement.
+This document specifies the batch capture classifier. It reads a small
+text-only batch of recent agent activity and returns capture candidates, or an
+empty result. It is a layer-3 suggestion component: it does not write ledger
+events, query the graph, rank existing decisions, deduplicate, or resolve
+disagreement.
 
-The canonical write path remains the commands layer. The unified `/capture`
-implementation may call this classifier when `--kind` is omitted, then dispatch
-the selected capture to the existing explicit HiveMind emit command.
+Three workers run it today: the optional server-side worker
+(`src/classifier.rs`, which needs `ANTHROPIC_API_KEY`), the agent-seat
+`/hivemind-capture:classify-queue` command, and the keyless
+`/hivemind-capture:batch-capture` command (a Haiku subagent inside the agent's
+own session). The canonical write path remains the commands layer: each worker
+hands its result to it.
+
+**This is not the classifier behind `/capture` with `--kind` omitted.**
+`/hivemind-capture:capture` does not call this classifier, and no
+`hivemind-classifier` subagent ships. `capture.sh` classifies the one text it was
+given with its own, smaller prompt into four kinds (`decision`, `evidence`,
+`hypothesis` or `none`; it has no capture path for blocker or notification). Which
+classifier it runs, the environment variables that replace it, and what it does
+when none is available are in
+[`plugins/hivemind-capture/commands/capture.md`](../plugins/hivemind-capture/commands/capture.md).
+The five kinds in this document are the batch classifier's.
 
 ## Model Choice
 
@@ -325,9 +338,13 @@ Do not capture:
 
 ## Classifier Prompt
 
-Drop this prompt into `.claude/agents/hivemind-classifier.md` for the first
-implementation, with the output schema enforced by structured outputs where
-available.
+This is the design baseline of the prompt the batch classifier runs, with the
+output schema enforced by structured outputs where available. No
+`.claude/agents/hivemind-classifier.md` ships. The shipped prompts live in
+`CLASSIFIER_PROMPT` in `src/classifier.rs`, in `SKILL.md` and in
+`commands/batch-capture.md`; a test holds their decision-test paragraph identical
+to the one below, and they add fields this baseline leaves out (who decided; the
+server-side prompt also has the relational ids).
 
 ```markdown
 You are the HiveMind capture classifier.

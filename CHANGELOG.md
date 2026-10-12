@@ -546,6 +546,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   agents in any field, not only engineering, and say plainly that a developer's setup (a local
   ledger or a self-hosted cell, the MCP server, the Claude Code and Codex plugins) is what runs
   it today. No capability changed. (hivemind-48zc)
+- **Docs.** The capture command no longer says an omitted `--kind` goes to a `hivemind-classifier`
+  subagent: none ships. It now says what `capture.sh` runs (`$HIVEMIND_CAPTURE_CLASSIFIER_JSON`,
+  else `$HIVEMIND_CAPTURE_CLASSIFIER_CMD`, else `claude --print` on `$HIVEMIND_CLASSIFIER_MODEL`,
+  default `haiku`), that it answers `decision`, `evidence`, `hypothesis` or `none`, and what
+  happens when no classifier is available. `docs/CAPTURE_CLASSIFIER.md` now says it specifies the
+  batch classifier (server-side worker, `classify-queue`, `batch-capture`), not the one behind
+  `/capture`. No capability changed. (hivemind-ptqk7)
 
 ### Fixed
 

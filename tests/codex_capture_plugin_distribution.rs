@@ -243,11 +243,23 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
         "--kind evidence",
         "unified capture command documents evidence kind",
     )?;
-    require_contains(
-        &capture_command,
-        "hivemind-classifier",
-        "unified capture command documents classifier delegation",
-    )?;
+    // With --kind omitted capture.sh classifies the text itself (see run_classifier); no
+    // hivemind-classifier subagent ships, so the command must name what runs, not that.
+    for needle in [
+        "HIVEMIND_CAPTURE_CLASSIFIER_JSON",
+        "HIVEMIND_CAPTURE_CLASSIFIER_CMD",
+        "claude --print",
+        "No HiveMind capture emitted: --kind was omitted",
+    ] {
+        require_contains(
+            &capture_command,
+            needle,
+            "unified capture command documents the classifier capture.sh runs",
+        )?;
+    }
+    if capture_command.contains("`hivemind-classifier` subagent if") {
+        return Err("unified capture command claims a hivemind-classifier subagent ships".into());
+    }
     // capture.sh refuses blocker and notification (exit 2, nothing recorded), so the
     // hint must not offer a kind that records nothing.
     let argument_hint = capture_command

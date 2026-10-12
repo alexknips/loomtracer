@@ -107,13 +107,24 @@ When you decided within a scope a human explicitly delegated to you, add
 `--delegated-by <human:name>` so the record shows the delegation rather than an
 agent deciding alone. It requires `--chose` and an agent actor.
 
-When `--kind` is omitted, the helper delegates classification to the configured
-`hivemind-classifier` subagent if it is installed; otherwise it emits nothing.
+When `--kind` is omitted, the helper classifies the text itself. It uses the
+first of these that is set up: `$HIVEMIND_CAPTURE_CLASSIFIER_JSON` (a ready
+answer, taken as given), `$HIVEMIND_CAPTURE_CLASSIFIER_CMD` (a shell command that
+gets the text on stdin and prints the answer), or a one-shot `claude --print`
+call on the model in `$HIVEMIND_CLASSIFIER_MODEL` (default `haiku`) when `claude`
+is on the PATH. No `hivemind-classifier` subagent ships. The answer is a JSON
+object whose `kind` is `decision`, `evidence`, `hypothesis` or `none`. Evidence
+and hypothesis are recorded from the text alone; a `decision` still needs the
+structured decision fields above, and without them the helper exits 2 and writes
+nothing.
 Blocker and notification are schema kinds with no canonical capture path yet
 (planned): `--kind blocker` and `--kind notification` exit 2 and record nothing.
-The classifier is not offered them: an omitted `--kind` that the classifier
-answers with anything but decision, evidence or hypothesis records nothing and
-exits 0, naming the kind it answered.
+The classifier is not offered them. An omitted `--kind` records nothing and
+exits 0 when the classifier answers `none`, answers any other kind (the line
+names it), or returns output that is not a JSON object with a `kind`. It does the
+same, with "No HiveMind capture emitted: --kind was omitted and the classifier is
+unavailable." on stderr, when no classifier can run: none of the three is set up,
+or the one that is fails.
 There is no decision-request kind to capture either: a request goes to your
 tracker.
 
