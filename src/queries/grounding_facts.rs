@@ -21,14 +21,17 @@ use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::grounding::hypothesis_facts_from_row;
-use super::shared::{node_row, node_rows, optional_datetime, optional_string, relation_edges};
+use super::shared::{
+    node_row, node_rows, optional_datetime, optional_int, optional_string, relation_edges,
+    relation_edges_with_origin, required_string,
+};
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, HypothesisStatus};
 
 /// Bulk reads [`get_grounding_facts`] issues, whatever the size of the graph: three for who
 /// superseded, accepted or rejected what, five for the grounding links (`FOLLOWS_FROM`,
 /// `BASED_ON`, `PREMISED_ON_DIRECT`, `PREMISED_ON`, `CHOSE`), two for the hypothesis and evidence
-/// rows, and two for what refutes or supports a hypothesis.
-pub const GROUNDING_FACT_READS: usize = 12;
+/// rows, two for what refutes or supports a hypothesis, and one for the reaffirmations.
+pub const GROUNDING_FACT_READS: usize = 13;
 
 /// One assumption or declared bet, as its node states it and as the graph has judged it so far.
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +44,23 @@ pub struct HypothesisRecord {
     pub status: HypothesisStatus,
     /// Every evidence item that refutes it, sorted by id.
     pub refuted_by: Vec<String>,
+    /// The ledger offset of the earliest refutation, when the refuting edge states one.
+    pub refuted_at: Option<i64>,
+}
+
+/// One `decision.reaffirmed` event: a decision said it still holds after a premise changed.
+/// The facts of the node, unread: whether it closes anything is the re-examine reader's call.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReaffirmationRecord {
+    /// The event's own uuid.
+    pub id: String,
+    pub decision_id: String,
+    pub premise_id: String,
+    pub reason: String,
+    pub reaffirmed_by: String,
+    pub reaffirmed_at: Option<DateTime<Utc>>,
+    /// The ledger offset of the event; what orders it against a change to the premise.
+    pub event_origin: Option<i64>,
 }
 
 /// The grounding of every decision at once. Every list is sorted and distinct.
@@ -59,6 +79,9 @@ pub struct GroundingFacts {
     pub evidence_recorded_at: BTreeMap<String, DateTime<Utc>>,
     /// Who superseded, accepted or rejected which decision.
     pub standings: DecisionStandings,
+    /// Every reaffirmation, in ledger order (offset, then id). Several can name one pair; each is
+    /// kept.
+    pub reaffirmations: Vec<ReaffirmationRecord>,
 }
 
 /// The grounding of every decision in the graph. See the module docs for what it costs.
@@ -72,9 +95,18 @@ pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
     // Edges run evidence -> hypothesis and arrive sorted by (evidence, hypothesis), so each
     // hypothesis's refuting evidence is sorted by id.
     // The same refutation asserted twice is one.
-    let mut refuted_by: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (evidence_id, hypothesis_id) in relation_edges(graph, RelationKind::Refutes)? {
-        let refuters = refuted_by.entry(hypothesis_id).or_default();
+    // Per hypothesis: its refuting evidence, and the earliest offset any refutation states.
+    let mut refutations: BTreeMap<String, (Vec<String>, Option<i64>)> = BTreeMap::new();
+    for (evidence_id, hypothesis_id, origin) in
+        relation_edges_with_origin(graph, RelationKind::Refutes)?
+    {
+        let (refuters, first) = refutations
+            .entry(hypothesis_id)
+            .or_insert_with(|| (Vec::new(), origin));
+        *first = match (*first, origin) {
+            (Some(known), Some(other)) => Some(known.min(other)),
+            (known, other) => known.or(other),
+        };
         if refuters.last() != Some(&evidence_id) {
             refuters.push(evidence_id);
         }
@@ -87,7 +119,7 @@ pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
     let mut hypotheses = BTreeMap::new();
     for (hypothesis_id, row) in node_rows(graph, NodeKind::Hypothesis)? {
         let facts = hypothesis_facts_from_row(&row)?;
-        let refuted_by = refuted_by.remove(&hypothesis_id).unwrap_or_default();
+        let (refuted_by, refuted_at) = refutations.remove(&hypothesis_id).unwrap_or_default();
         let status = hypothesis_status_from_evidence(
             !refuted_by.is_empty(),
             supported.contains(&hypothesis_id),
@@ -99,6 +131,7 @@ pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
                 check_by: facts.check_by,
                 status,
                 refuted_by,
+                refuted_at,
             },
         );
     }
@@ -110,6 +143,8 @@ pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
         }
     }
 
+    let reaffirmations = reaffirmation_records(graph)?;
+
     Ok(GroundingFacts {
         premise_links,
         evidence_links,
@@ -117,7 +152,31 @@ pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
         hypotheses,
         evidence_recorded_at,
         standings,
+        reaffirmations,
     })
+}
+
+/// Every `Reaffirmation` node, in ledger order (offset, then id). One bulk node read: the nodes
+/// have no edges, so the dependent and the premise are matched on their properties by whoever
+/// reads them.
+pub(super) fn reaffirmation_records(graph: &impl GraphView) -> Result<Vec<ReaffirmationRecord>> {
+    let mut records = Vec::new();
+    for (id, row) in node_rows(graph, NodeKind::Reaffirmation)? {
+        records.push(ReaffirmationRecord {
+            decision_id: required_string(&row, "decision_id")?,
+            premise_id: required_string(&row, "premise_id")?,
+            reason: optional_string(&row, "reason").unwrap_or_default(),
+            reaffirmed_by: optional_string(&row, "reaffirmed_by").unwrap_or_default(),
+            reaffirmed_at: optional_datetime(&row, "reaffirmed_at")?,
+            event_origin: optional_int(&row, "event_origin"),
+            id,
+        });
+    }
+    records.sort_by(|left, right| {
+        (left.event_origin.unwrap_or(i64::MAX), &left.id)
+            .cmp(&(right.event_origin.unwrap_or(i64::MAX), &right.id))
+    });
+    Ok(records)
 }
 
 /// What a decision's own record states, read anchored: its title (for naming it in words) and

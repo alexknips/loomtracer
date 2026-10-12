@@ -2718,3 +2718,54 @@ fn attention_findings_match_memory() -> Result<()> {
         crate::quality_profile::findings::tests::assert_attention_scenario(pg)
     })
 }
+
+// ── re-examine items parity (hivemind-ottw.2) ───────────────────────────────────────
+//
+// Items are derived from the position edges with their ledger offsets (the first write of an edge
+// is what Postgres keeps and memory's lowest offset is) and from the `Reaffirmation` nodes. The
+// grounding facts carry those offsets now, so they are compared field for field, then the whole
+// item list, then the shared per-premise and per-project assertions run on Postgres.
+
+#[test]
+fn reexamine_items_match_memory() -> Result<()> {
+    use crate::queries::test_fixtures::{
+        assert_reexamine_scenario, reexamine_scenario, ts, REEXAMINE_NOW,
+    };
+    use crate::queries::{get_reexamine_items_at, ReexamineRequest};
+
+    with_postgres_graph("reexamine-parity", |pg| {
+        let scenario = reexamine_scenario()?;
+        let memory = scenario.graph()?;
+        project_from_ledger(scenario.ledger(), pg, 0)?;
+
+        let memory_facts = format!("{:?}", crate::queries::get_grounding_facts(&memory)?);
+        let pg_facts = format!("{:?}", crate::queries::get_grounding_facts(pg)?);
+        if memory_facts != pg_facts {
+            return Err(test_error(format!(
+                "get_grounding_facts mismatch: memory={memory_facts} pg={pg_facts}"
+            )));
+        }
+
+        let context = crate::queries::QueryContext::local();
+        let request = ReexamineRequest {
+            include_closed: true,
+            limit: 100,
+            ..ReexamineRequest::default()
+        };
+        let now = ts(REEXAMINE_NOW);
+        let memory_items = format!(
+            "{:?}",
+            get_reexamine_items_at(&context, &memory, scenario.ledger(), &request, now)?.data
+        );
+        let pg_items = format!(
+            "{:?}",
+            get_reexamine_items_at(&context, pg, scenario.ledger(), &request, now)?.data
+        );
+        if memory_items != pg_items {
+            return Err(test_error(format!(
+                "get_reexamine_items mismatch: memory={memory_items} pg={pg_items}"
+            )));
+        }
+        assert_reexamine_scenario(&scenario, pg)
+    })
+}

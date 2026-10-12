@@ -176,6 +176,46 @@ pub(crate) fn relation_edges(
     Ok(edges)
 }
 
+/// Every `(from, to)` pair of one relation with the ledger offset of the event that first
+/// asserted it, sorted and distinct. Where a pair was asserted more than once the lowest offset
+/// wins: Postgres and Kuzu keep one edge per pair (the first write), memory keeps one per
+/// assertion, and the first assertion is what all three agree on. An offset the edge does not
+/// carry reads as `None`.
+pub(crate) fn relation_edges_with_origin(
+    graph: &impl GraphView,
+    relation: RelationKind,
+) -> Result<Vec<(String, String, Option<i64>)>> {
+    let (from_kind, to_kind) = relation.endpoints();
+    let from_table = from_kind.table_name();
+    let to_table = to_kind.table_name();
+    let relation_table = relation.table_name();
+    let rows = graph.query(
+        &format!(
+            "MATCH (from:`{from_table}`)-[r:`{relation_table}`]->(to:`{to_table}`) RETURN from.id AS from_id, to.id AS to_id, r.event_origin AS event_origin ORDER BY from.id, to.id;"
+        ),
+        &GraphParams::new(),
+    )?;
+
+    let mut edges = Vec::with_capacity(rows.len());
+    for row in rows {
+        edges.push((
+            required_string(&row, "from_id")?,
+            required_string(&row, "to_id")?,
+            optional_int(&row, "event_origin"),
+        ));
+    }
+    // The lowest offset of a pair first (an unknown one last), so the dedup keeps it.
+    edges.sort_by(|left, right| {
+        (&left.0, &left.1, left.2.unwrap_or(i64::MAX)).cmp(&(
+            &right.0,
+            &right.1,
+            right.2.unwrap_or(i64::MAX),
+        ))
+    });
+    edges.dedup_by(|later, earlier| later.0 == earlier.0 && later.1 == earlier.1);
+    Ok(edges)
+}
+
 pub(crate) fn relation_targets(
     edges: &BTreeMap<RelationKind, Vec<(String, String)>>,
     relations: &[RelationKind],
@@ -242,6 +282,49 @@ pub(crate) fn neighbor_pairs(
         pairs.push((id, event_origin));
     }
     Ok(pairs)
+}
+
+/// One node's neighbours over one relation with the ledger offset of the event that asserted each
+/// edge, sorted by neighbour id. Anchored, like [`neighbor_pairs`], but the offset is the real one
+/// on every backend (`neighbor_pairs` reads it as unknown on memory). A pair asserted more than
+/// once appears once, at its lowest offset.
+pub(crate) fn neighbor_edges_with_origin(
+    graph: &impl GraphView,
+    root_kind: NodeKind,
+    root_id: &str,
+    relation: RelationKind,
+    other_kind: NodeKind,
+    direction: Direction,
+) -> Result<Vec<(String, Option<i64>)>> {
+    let root_table = root_kind.table_name();
+    let relation_table = relation.table_name();
+    let other_table = other_kind.table_name();
+    let cypher = match direction {
+        Direction::Outgoing => format!(
+            "MATCH (a:`{root_table}` {{id: $id}})-[r:`{relation_table}`]->(b:`{other_table}`) RETURN b.id AS id, r.event_origin AS event_origin ORDER BY b.id, r.event_origin;"
+        ),
+        Direction::Incoming => format!(
+            "MATCH (a:`{root_table}` {{id: $id}})<-[r:`{relation_table}`]-(b:`{other_table}`) RETURN b.id AS id, r.event_origin AS event_origin ORDER BY b.id, r.event_origin;"
+        ),
+    };
+    let rows = graph.query(
+        &cypher,
+        &GraphParams::from([("id".to_owned(), GraphValue::String(root_id.to_owned()))]),
+    )?;
+
+    let mut neighbors = Vec::with_capacity(rows.len());
+    for row in rows {
+        neighbors.push((
+            required_string(&row, "id")?,
+            optional_int(&row, "event_origin"),
+        ));
+    }
+    // The lowest offset of a neighbour first (an unknown one last), so the dedup keeps it.
+    neighbors.sort_by(|left, right| {
+        (&left.0, left.1.unwrap_or(i64::MAX)).cmp(&(&right.0, right.1.unwrap_or(i64::MAX)))
+    });
+    neighbors.dedup_by(|later, earlier| later.0 == earlier.0);
+    Ok(neighbors)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

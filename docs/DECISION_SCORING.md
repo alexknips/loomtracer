@@ -338,7 +338,7 @@ re-examined" needs the re-examine state and is built with `hivemind-ottw`, not h
 **Standing decisions, one hop.** Only a decision that has not been superseded or
 rejected is flagged: a decision that was replaced needs no look. A decision is
 flagged for its own premises only. Carrying a change on to the decisions that rest
-on the flagged one is the re-examine walk (`hivemind-ottw`). A contested premise
+on the flagged one is the re-examine item (see "Re-examine items" below). A contested premise
 is a disagreement and is shown as such, not flagged as a change. A decision
 superseded by more than one decision names the earliest as the basis, and the
 first refutation is the basis of a refuted assumption or bet. A finding names the
@@ -376,10 +376,10 @@ the page is cut, not after: the page is filled from the findings that remain, so
 holds `limit` of them whenever that many remain, and `truncated` is true only when
 another finding that was not left out follows.
 
-A page issues 12 bulk reads (`GROUNDING_FACT_READS`: who superseded, accepted or
+A page issues 13 bulk reads (`GROUNDING_FACT_READS`: who superseded, accepted or
 rejected which decision; the `FOLLOWS_FROM`, `BASED_ON`, `PREMISED_ON_DIRECT`,
 `PREMISED_ON` and `CHOSE` links; the hypothesis and evidence rows; what refutes or
-supports a hypothesis), however many decisions there are, plus the anchored reads
+supports a hypothesis; the `Reaffirmation` nodes), however many decisions there are, plus the anchored reads
 that word each finding: one per distinct decision the finding names (the decision
 itself, and -- for `premise_superseded` and `premise_rejected` -- the premise),
 which gives its title and, for a decision that superseded a premise, also states
@@ -392,6 +392,87 @@ the page, and stops there. The rows those reads return grow with the grounding
 links, hypotheses and evidence, not with decisions times a per-decision cost.
 Nothing walks the premise graph, so a `FOLLOWS_FROM` cycle cannot loop and costs
 nothing extra.
+
+## Re-examine items: did the change travel?
+
+Implemented in `src/queries/reexamine.rs` (hivemind-ottw.2). Attention findings flag a
+decision for its *own* premises. A re-examine item is the next hop: a decision rests on
+a premise that changed, and the question is whether anyone has looked at the decision
+again. Items are visible state, not a score on a person. They are derived on every read
+from what the ledger already holds plus the recorded `decision.reaffirmed` events ("still
+holds"); nothing stores an item as open, so every existing ledger shows its items on the
+first read, dated at the change and not at first read. No model, no ranking, no write.
+
+**One item per (dependent, premise).** The dependent rests on the premise directly
+(`FOLLOWS_FROM` to a prior decision, `ASSUMES` or `PREMISED_ON` to an assumption or a
+bet), one hop. A changed dependent opens the items of its own dependents in turn; a
+dependent that still holds stops the wave. The premise has changed when:
+
+| Premise | Change | Ledger offset of the change |
+| --- | --- | --- |
+| a decision | `superseded` | the earliest superseding event |
+| a decision | `rejected` (rejected, never accepted) | the first rejection |
+| a decision | `contested` (accepted and rejected) | when the second side first spoke |
+| a hypothesis | `refuted` | the earliest refuting event |
+
+Ordering is by ledger offset, never by wall-clock time. An edge asserted twice counts
+at its first assertion, which is what Postgres and Kuzu keep and what memory's lowest
+offset gives, so every backend dates the change the same. An offset the graph does not
+state never closes an item.
+
+**Open until closed, and closing is recorded.** An item is open until
+
+- a `decision.reaffirmed` for (dependent, premise) lands at an offset **after** the change.
+  Several can exist for one pair and each is kept, with who, when and the one-line reason.
+  Anyone can record one, a human or an agent alike. (A reaffirmed dependent reads as holding
+  up again, with the history visible: it is not hidden and it is not wiped.)
+- the dependent is itself superseded or rejected after the change: it no longer stands, so
+  nothing is left to re-examine.
+
+A dependent that was already superseded or rejected *before* the change has no item and is
+not counted. A dependent linked to the premise after the change gets an open item. A later
+change to the same premise (contested, then superseded) is a new change at a later offset, so
+an earlier reaffirmation no longer closes it: the item reopens and the earlier ones stay
+visible beside it as `earlier_reaffirmations`. A reaffirmation that matches no changed
+premise, or a premise the decision never rested on, is ignored. Project links create no
+items; they decide which items a question sees.
+
+**Completeness: N of M, and unfinished.** For a changed premise the answer says "N of M
+dependents re-examined": M counts the dependents that stood when it changed (plus those
+linked since), N those reaffirmed or since superseded or rejected, `open` the rest. A change
+is `unfinished` when an item is still open more than `propagation_window_days` after the
+change: 14 by default, a field of `AttentionConfig`, per request when a surface offers it.
+Exactly the window is not yet past; one second more is. The age is the change's own time,
+which the graph states for a supersession (when the superseding decision was made, the
+earliest by offset when several) and for a refutation (the earliest refuting evidence). It
+does not state one for a rejection or a contest, so those can be open but are never counted
+unfinished by age; the answer says so rather than inventing a date. Wording never names an
+actor.
+
+**On a decision's outcome.** `DecisionOutcome` (`verify`, `get_decision_outcome`) carries
+`reexamine`: one entry per changed premise the decision rests on, open or closed, absent when
+no premise changed. `reasons` and `stale_premises` stay what the graph states. `held_up`
+changes in two ways, both written down:
+
+- A stale premise (superseded, rejected, refuted) stops counting once its change is
+  reaffirmed for this decision. The reason stays in `reasons`; the entry says who looked
+  again, when and why. A re-change reopens it.
+- A **contested** premise opens an entry and never flips `held_up`, as it never did: a live
+  disagreement is not a verdict.
+
+**Scope, paging and cost.** Asked from a project, only items on decisions in that project,
+the project it is part of and the projects it depends on are named (one hop, the same rule as
+every project-scoped list); the rest are counted in `not_shown` and never named, and an open
+item outside the scope still counts toward `unfinished`, so a scope cannot hide an
+unfinished propagation. A page holds at most `limit` items (default 50, never more than 1000)
+in `(dependent, premise, change offset)` order; when more remain `truncated` is true and
+`next_cursor` resumes after the last one returned. The cursor is a position, not an offset:
+items that open or close between two pages never make a reader skip or repeat one that stood
+throughout. A page issues the 13 bulk reads above, one read of the project labels (and one
+of the decisions when scoped) however many decisions there are, then anchored reads that
+word each item on the page. A decision's own entries (on its outcome) use anchored reads only
+and read nothing until one of its premises has changed. A `FOLLOWS_FROM` cycle is read once
+per link and cannot loop.
 
 ## What the tools return
 

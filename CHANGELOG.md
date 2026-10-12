@@ -139,6 +139,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A decision that rests on something that changed now says whether anyone looked again, and a
+  "still holds" counts.** When a premise a decision rests on changes (a prior decision it
+  follows from is superseded, rejected or contested; an assumption or bet it rests on is
+  refuted), `verify` (`get_decision_outcome`) gains `reexamine`: one entry per changed premise
+  with the change (who, the ledger offset, the time where the graph states one) and its state:
+  `open`, `reaffirmed` (each reaffirmation with its actor, time and reason), or the decision was
+  itself superseded or rejected afterwards. A reaffirmation closes it only if its ledger offset is
+  after the change, so a premise that changes again reopens it and the earlier word stays
+  visible. `held_up` now ignores a stale premise once its change is reaffirmed for that decision
+  (the reason stays in `reasons`); a contested premise opens an entry and, as before, never flips
+  it. A dependent that was already superseded or rejected before the change has no entry. The
+  library reads behind it: `queries::get_reexamine_items` (a keyset-paged list that says
+  `truncated` and gives a cursor, scoped to a project one hop with the rest counted and never
+  named) and `queries::get_propagation` ("N of M dependents re-examined", and `unfinished` once
+  an item has been open more than `propagation_window_days`, 14 by default, a new field of
+  `AttentionConfig`). No new event or node; an existing ledger shows its items on the first read.
+  The CLI and MCP verbs that list and record them come next. `GROUNDING_FACT_READS` is 13: one
+  more bulk read, for the reaffirmations. (hivemind-ottw.2)
 - **The answer to "what did we decide and why" carries the quality profile, and says how many
   days it has held, in the same response.** `verify` (`get_decision_outcome`) gains `data.quality`
   and `why` (`get_decision_neighborhood`) gains `data.root.quality`: the seven-dimension profile

@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 
 use crate::events::HypothesisKind;
 use crate::projector::memory::MemoryGraph;
-use crate::queries::test_fixtures::{attention_scenario, ts, CountingGraph, Scenario};
+use crate::queries::test_fixtures::{
+    attention_scenario, reaffirmation_scenario, reexamine_scenario, ts, CountingGraph, Scenario,
+};
 use crate::queries::{
     derive_decision_status, derive_hypothesis_status, DecisionStatus, HypothesisStatus,
 };
@@ -215,6 +217,61 @@ fn the_same_link_asserted_twice_is_one_link() -> Result<()> {
         Some(ids(&["e:1"]))
     );
     assert_eq!(facts.standings.superseders_of("d:premise"), ["d:newer"]);
+    Ok(())
+}
+
+#[test]
+fn every_reaffirmation_is_read_in_ledger_order_with_its_offset() -> Result<()> {
+    let graph = reaffirmation_scenario()?.graph()?;
+
+    let facts = get_grounding_facts(&graph)?;
+
+    let seen: Vec<(&str, &str, &str)> = facts
+        .reaffirmations
+        .iter()
+        .map(|record| {
+            (
+                record.decision_id.as_str(),
+                record.premise_id.as_str(),
+                record.reaffirmed_by.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("d:dependent", "d:premise", "human:alice"),
+            ("d:dependent", "d:premise", "agent:codex:reviewer"),
+            ("d:dependent", "h:premise", "human:alice"),
+        ]
+    );
+    let offsets: Vec<Option<i64>> = facts
+        .reaffirmations
+        .iter()
+        .map(|record| record.event_origin)
+        .collect();
+    assert!(offsets.iter().all(Option::is_some));
+    assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+    Ok(())
+}
+
+#[test]
+fn a_refuted_hypothesis_carries_the_offset_of_its_earliest_refutation() -> Result<()> {
+    let graph = reexamine_scenario()?.graph()?;
+    let facts = get_grounding_facts(&graph)?;
+
+    let offset_of = |evidence_id: &str| -> Result<i64> {
+        Ok(relation_edges_with_origin(&graph, RelationKind::Refutes)?
+            .into_iter()
+            .find(|(from, to, _)| from == evidence_id && to == "h:assumption")
+            .and_then(|(_, _, origin)| origin)
+            .expect("the refutation states its offset"))
+    };
+    let (first, second) = (offset_of("e:r1")?, offset_of("e:r2")?);
+
+    assert!(first < second);
+    assert_eq!(facts.hypotheses["h:assumption"].refuted_at, Some(first));
+    assert_eq!(facts.hypotheses["h:fine"].refuted_at, None);
     Ok(())
 }
 

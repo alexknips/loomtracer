@@ -603,6 +603,47 @@ fn attention_findings_read_the_same_lists_as_the_other_backends() -> Result<()> 
 }
 
 #[test]
+fn reexamine_items_read_the_same_as_the_other_backends() -> Result<()> {
+    use crate::queries::test_fixtures::{
+        assert_reexamine_scenario, reexamine_scenario, ts, REEXAMINE_NOW,
+    };
+    use crate::queries::{get_reexamine_items_at, QueryContext, ReexamineRequest};
+
+    let temp_dir = test_graph_dir("reexamine-items");
+    let graph = KuzuGraph::open(&temp_dir)?;
+    let scenario = reexamine_scenario()?;
+    let memory = scenario.graph()?;
+    crate::projector::project_from_ledger(scenario.ledger(), &graph, 0)?;
+
+    // The bulk facts carry the edge offsets; every backend must read the same ones.
+    assert_eq!(
+        format!("{:?}", crate::queries::get_grounding_facts(&graph)?),
+        format!("{:?}", crate::queries::get_grounding_facts(&memory)?),
+    );
+    let context = QueryContext::local();
+    let request = ReexamineRequest {
+        include_closed: true,
+        limit: 100,
+        ..ReexamineRequest::default()
+    };
+    let now = ts(REEXAMINE_NOW);
+    assert_eq!(
+        format!(
+            "{:?}",
+            get_reexamine_items_at(&context, &graph, scenario.ledger(), &request, now)?.data
+        ),
+        format!(
+            "{:?}",
+            get_reexamine_items_at(&context, &memory, scenario.ledger(), &request, now)?.data
+        ),
+    );
+    assert_reexamine_scenario(&scenario, &graph)?;
+
+    let _ = fs::remove_dir_all(temp_dir);
+    Ok(())
+}
+
+#[test]
 fn reaffirmation_nodes_read_the_same_as_the_other_backends() -> Result<()> {
     use crate::queries::test_fixtures::{assert_reaffirmation_nodes, reaffirmation_scenario};
 

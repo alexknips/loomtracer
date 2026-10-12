@@ -380,6 +380,9 @@ pub(crate) enum StalePremise {
 /// overdue.
 pub(crate) struct PremiseSignals {
     pub stale: Vec<StalePremise>,
+    /// Prior decisions it follows from that are contested: not stale (a live disagreement is not a
+    /// verdict), but a change its dependents are asked to look at again.
+    pub contested: Vec<String>,
     pub unchecked: Vec<UncheckedBet>,
 }
 
@@ -390,6 +393,7 @@ pub(crate) fn premise_signals(
 ) -> Result<PremiseSignals> {
     let premise_ids = premise_decision_ids(graph, decision_id)?;
     let mut stale = Vec::new();
+    let mut contested = Vec::new();
     for premise_id in &premise_ids {
         match premise_standing(graph, premise_id)? {
             PremiseStanding::Superseded { by_id } => stale.push(StalePremise::Superseded {
@@ -399,7 +403,8 @@ pub(crate) fn premise_signals(
             PremiseStanding::Rejected => stale.push(StalePremise::Rejected {
                 decision_id: premise_id.clone(), // ubs:ignore: owned copy for the outcome reason; premise_ids is still iterated
             }),
-            PremiseStanding::Holds | PremiseStanding::Contested => {}
+            PremiseStanding::Contested => contested.push(premise_id.clone()), // ubs:ignore: owned copy for the signals; premise_ids is still iterated
+            PremiseStanding::Holds => {}
         }
     }
 
@@ -422,7 +427,11 @@ pub(crate) fn premise_signals(
         }
     }
 
-    Ok(PremiseSignals { stale, unchecked })
+    Ok(PremiseSignals {
+        stale,
+        contested,
+        unchecked,
+    })
 }
 
 // ---------------------------------------------------------------------------

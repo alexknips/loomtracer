@@ -256,18 +256,29 @@ impl GraphView for MemoryGraph {
 
         if cypher.contains("RETURN from.id AS from_id, to.id AS to_id") {
             let relation = query_relation(cypher)?;
+            // Only a read that asks for the offset (`queries::shared::relation_edges_with_origin`)
+            // gets the column; every other edge list keeps its two-column rows. One row per
+            // assertion, as the edge set holds them: the reader keeps the first of each pair.
+            let with_origin = cypher.contains("r.event_origin AS event_origin");
             let mut rows = self
                 .edges_lock()?
                 .iter()
                 .filter(|edge| edge.relation == relation)
                 .map(|edge| {
-                    GraphRow::from([
+                    let mut row = GraphRow::from([
                         (
                             "from_id".to_owned(),
                             GraphValue::String(edge.from_id.clone()),
                         ),
                         ("to_id".to_owned(), GraphValue::String(edge.to_id.clone())),
-                    ])
+                    ]);
+                    if with_origin {
+                        row.insert(
+                            "event_origin".to_owned(),
+                            edge._event_origin.map_or(GraphValue::Null, GraphValue::Int),
+                        );
+                    }
+                    row
                 })
                 .collect::<Vec<_>>();
             rows.sort_by(|left, right| {
@@ -562,6 +573,50 @@ impl GraphView for MemoryGraph {
             return Ok(ids
                 .into_iter()
                 .map(|id| GraphRow::from([(alias.to_owned(), GraphValue::String(id))]))
+                .collect());
+        }
+
+        // The same walk with the real offset of each edge, one row per assertion
+        // (`queries::shared::neighbor_edges_with_origin`). The shape below returns a null offset
+        // here, and its public answers are pinned by goldens, so this one has its own text.
+        if cypher.contains(
+            "RETURN b.id AS id, r.event_origin AS event_origin ORDER BY b.id, r.event_origin;",
+        ) {
+            let relation = query_relation(cypher)?;
+            let id = required_param_string(params, "id")?;
+            let incoming = cypher.contains("<-[r:`");
+            let mut neighbors = self
+                .edges_lock()?
+                .iter()
+                .filter(|edge| {
+                    edge.relation == relation
+                        && if incoming {
+                            edge.to_id == id
+                        } else {
+                            edge.from_id == id
+                        }
+                })
+                .map(|edge| {
+                    let neighbor = if incoming {
+                        edge.from_id.clone()
+                    } else {
+                        edge.to_id.clone()
+                    };
+                    (neighbor, edge._event_origin)
+                })
+                .collect::<Vec<_>>();
+            neighbors.sort();
+            return Ok(neighbors
+                .into_iter()
+                .map(|(neighbor, event_origin)| {
+                    GraphRow::from([
+                        ("id".to_owned(), GraphValue::String(neighbor)),
+                        (
+                            "event_origin".to_owned(),
+                            event_origin.map_or(GraphValue::Null, GraphValue::Int),
+                        ),
+                    ])
+                })
                 .collect());
         }
 

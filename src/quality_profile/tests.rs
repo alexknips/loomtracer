@@ -2004,6 +2004,16 @@ fn the_model_assessment_is_one_extra_field_present_only_when_one_exists() {
     }
 }
 
+/// The profile's attention config carries the re-examine window, and its default is the one the
+/// query layer names: Layer 3 may read the query layer's constant, never the other way round.
+#[test]
+fn the_attention_config_defaults_to_the_query_layers_propagation_window() {
+    assert_eq!(
+        AttentionConfig::default().propagation_window_days,
+        crate::queries::DEFAULT_PROPAGATION_WINDOW_DAYS
+    );
+}
+
 // ── Layer boundary ────────────────────────────────────────────────────────────
 
 /// The profile is Layer 3: queries stay pure and the write layer stays dumb. Nothing in

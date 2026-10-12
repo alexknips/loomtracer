@@ -659,9 +659,12 @@ fn query_edge_list(
 ) -> Result<Vec<GraphRow>> {
     let _ = params;
     let relation = parse_relation(cypher)?;
+    // Only a read that asks for the offset (`queries::shared::relation_edges_with_origin`) gets
+    // the column; every other edge list keeps its two-column rows.
+    let with_origin = cypher.contains("r.event_origin AS event_origin");
     let rows = client
         .query(
-            "SELECT from_id, to_id FROM hm_edges
+            "SELECT from_id, to_id, event_origin FROM hm_edges
              WHERE tenant_id=$1 AND relation_kind=$2
              ORDER BY from_id, to_id",
             &[&tenant_id, &relation.table_name()],
@@ -672,10 +675,18 @@ fn query_edge_list(
         .map(|row| {
             let from_id: String = row.get(0);
             let to_id: String = row.get(1);
-            GraphRow::from([
+            let mut graph_row = GraphRow::from([
                 ("from_id".to_owned(), GraphValue::String(from_id)),
                 ("to_id".to_owned(), GraphValue::String(to_id)),
-            ])
+            ]);
+            if with_origin {
+                let event_origin: Option<i64> = row.get(2);
+                graph_row.insert(
+                    "event_origin".to_owned(),
+                    event_origin.map_or(GraphValue::Null, GraphValue::Int),
+                );
+            }
+            graph_row
         })
         .collect())
 }

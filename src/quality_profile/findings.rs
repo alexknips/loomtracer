@@ -148,12 +148,18 @@ pub struct AttentionConfig {
     /// A decision is flagged for `evidence_not_rechecked` when the newest evidence linked to it
     /// was recorded more than this many days ago. Default [`DEFAULT_EVIDENCE_WINDOW_DAYS`].
     pub evidence_window_days: u32,
+    /// A change to a premise reads as unfinished when a decision resting on it still has an open
+    /// re-examine item more than this many days after the change (see
+    /// [`queries::get_propagation_at`](crate::queries::get_propagation_at)). Default
+    /// [`DEFAULT_PROPAGATION_WINDOW_DAYS`](crate::queries::DEFAULT_PROPAGATION_WINDOW_DAYS).
+    pub propagation_window_days: u32,
 }
 
 impl Default for AttentionConfig {
     fn default() -> Self {
         Self {
             evidence_window_days: DEFAULT_EVIDENCE_WINDOW_DAYS,
+            propagation_window_days: crate::queries::DEFAULT_PROPAGATION_WINDOW_DAYS,
         }
     }
 }

@@ -555,6 +555,7 @@ fn the_window_is_configurable() -> Result<()> {
             &request(&[FindingKind::EvidenceNotRechecked], 0),
             &AttentionConfig {
                 evidence_window_days: days,
+                ..AttentionConfig::default()
             },
             now(),
         )?
@@ -591,6 +592,7 @@ fn a_page_says_which_clock_and_window_it_was_derived_with() -> Result<()> {
         &request(&[], 0),
         &AttentionConfig {
             evidence_window_days: 45,
+            ..AttentionConfig::default()
         },
         now(),
     )?;
@@ -1049,6 +1051,7 @@ fn a_one_day_window_reads_day_not_days() -> Result<()> {
         &request(&[FindingKind::EvidenceNotRechecked], 1),
         &AttentionConfig {
             evidence_window_days: 1,
+            ..AttentionConfig::default()
         },
         now(),
     )?;

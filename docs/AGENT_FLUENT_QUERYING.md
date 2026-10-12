@@ -959,7 +959,8 @@ date, and whether it is overdue) / `held` / `failed` — and whether it was name
 causing proposal event, never blended. Staleness is never silent: a prior
 decision that was superseded or rejected adds `PremiseSuperseded` /
 `PremiseRejected` to `still_holds.reasons` and flips `held_up` (like a refuted
-assumption); a contested premise is shown but does not flip it; an overdue bet
+assumption) until someone records that this decision still holds (see below); a
+contested premise is shown but does not flip it; an overdue bet
 is reported under `still_holds.unchecked` (attention, not staleness) and does
 not. `grounding_state: nothing_declared` means "never asked" (legacy records,
 classifier extraction, document import, raw `emit decision.proposed`) and is shown
@@ -1025,6 +1026,32 @@ quantitative assessment in the same response, so nobody needs to know to ask
   ids stay in the JSON.
 - The old `thin_structure` reason is not in `still_holds.reasons`: how a
   decision was made is the profile's, whether it held is `still_holds`.
+
+**Did the change travel to this decision?** (hivemind-ottw.2). When something a
+decision rests on changed (a prior decision it follows from was superseded, rejected
+or contested; an assumption or bet it rests on was refuted), the decision's outcome
+(`verify`, `get_decision_outcome`) carries `reexamine`: one entry per changed premise,
+absent when none changed. An entry names the premise (`premise_id`, `premise_kind`,
+`premise_label`), the change (`kind` `superseded` | `rejected` | `contested` |
+`refuted`, `by_ids`, `at_offset`, and `at_time` where the graph states one: it does
+not for a rejection or a contest) and where it stands (`state`):
+
+- `open`: nobody has said the decision still holds, and it still stands.
+- `reaffirmed`: someone said it still holds after the change, each reaffirmation
+  listed in ledger order with its actor, time and one-line reason. An agent's counts
+  like a person's, and several reaffirmations of one pair are all kept.
+- `dependent_superseded` (`by_id`) or `dependent_rejected`: the decision was itself
+  superseded or rejected after the change, so there is nothing left to re-examine.
+
+`earlier_reaffirmations` lists reaffirmations recorded before the latest change:
+history that no longer closes it. A premise that changes again reopens the entry.
+Ordering is by ledger offset, never by wall-clock time. `held_up` ignores a stale
+premise once its change is reaffirmed for this decision (the reason stays in
+`reasons` and the entry says who looked again); a contested premise opens an entry
+and never flips `held_up`. A decision that was already superseded or rejected before
+the premise changed has no entry. The completeness of one premise's propagation (N of M
+dependents re-examined, `unfinished` after `propagation_window_days`, default 14) and
+the rules are in [`DECISION_SCORING.md`](DECISION_SCORING.md#re-examine-items-did-the-change-travel).
 
 **`why` reuses the brief.** `get_decision_neighborhood` (`why`) returns the
 one-hop graph and leads with this same `DecisionBrief`: `root` carries it

@@ -81,3 +81,4 @@ src/queries/suggestion_acks/tests.rs
 src/replay/tests.rs
 src/importance/tests.rs
 src/queries/importance_facts/tests.rs
+src/queries/reexamine/tests.rs

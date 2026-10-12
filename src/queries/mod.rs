@@ -24,6 +24,7 @@ mod project_scope;
 mod projects;
 mod question;
 mod record_facts;
+mod reexamine;
 mod relevant;
 mod resolve;
 mod same_as;
@@ -89,7 +90,7 @@ pub use grounding::{
 };
 pub use grounding_facts::{
     get_decision_anchors, get_grounding_facts, DecisionAnchor, GroundingFacts, HypothesisRecord,
-    GROUNDING_FACT_READS,
+    ReaffirmationRecord, GROUNDING_FACT_READS,
 };
 pub use history::*;
 pub use importance_facts::{
@@ -122,6 +123,12 @@ pub use question::{answers_to, QuestionAnswer, QuestionAnswers, QuestionKey};
 pub use record_facts::{
     get_record_facts, EvidenceFact, HypothesisFact, ModelAssessmentFact, OptionFact, PremiseFact,
     RecordFacts, RefutationFact, SupersessionFact,
+};
+pub use reexamine::{
+    get_propagation, get_propagation_at, get_reexamine_items, get_reexamine_items_at, ChangeKind,
+    ItemDependent, ItemState, PremiseChange, PremiseKind, Propagation, ReaffirmationSummary,
+    ReexamineEntry, ReexamineItem, ReexamineRequest, ReexamineResults,
+    DEFAULT_PROPAGATION_WINDOW_DAYS, DEFAULT_REEXAMINE_PAGE_SIZE,
 };
 pub use relevant::get_relevant_decisions;
 pub use resolve::{

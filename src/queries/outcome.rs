@@ -23,6 +23,13 @@
 //! overdue bet and a conflicting answer do not flip it: both are reported as attention, not
 //! staleness.
 //!
+//! A decision resting on a premise that changed also carries `reexamine`: one entry per such
+//! premise, open until someone records that the decision still holds (or it is itself superseded
+//! or rejected), so a reader sees the change travelled (hivemind-ottw.2, see `reexamine.rs`). The
+//! reasons and `stale_premises` stay what the graph states; `held_up` stops counting a stale
+//! premise once its change has been reaffirmed, and the entry keeps who said so, when and why.
+//! A contested premise opens an entry and never flips `held_up`, as it never did.
+//!
 //! This is the "did it hold up" view and nothing else. How well a decision was made (options
 //! weighed, what it rests on) is quality, which the seven-dimension profile reports; it is not a
 //! reason a decision stopped holding.
@@ -38,6 +45,7 @@ use crate::Result;
 use super::grounding::{premise_signals, StalePremise, UncheckedBet};
 use super::project_label::ProjectLabels;
 use super::question::conflicting_answer_ids;
+use super::reexamine::{reexamine_entries_for, ItemState, ReexamineEntry};
 use super::shared::{
     neighbor_ids, optional_int, optional_string, query_error, query_superseder, query_timer_start,
     required_string, MAX_QUERY_RESULTS,
@@ -79,8 +87,10 @@ pub enum OutcomeReason {
 /// Derived outcome record for a single decision.
 ///
 /// `reasons` is empty when the decision is clean (no negative signals).
-/// `held_up` is false when the decision is superseded, has stale premises, is contested, or was
-/// rejected and never accepted. An overdue bet does NOT set `held_up = false`.
+/// `held_up` is false when the decision is superseded, has a stale premise nobody has reaffirmed,
+/// is contested, or was rejected and never accepted. An overdue bet does NOT set
+/// `held_up = false`, and neither does a stale premise whose change `reexamine` shows as
+/// reaffirmed (the reason stays in `reasons`, the entry says who looked again).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DecisionOutcome {
     pub decision_id: String,
@@ -88,7 +98,8 @@ pub struct DecisionOutcome {
     pub project: Option<String>,
     /// What a person calls that project (see `DecisionView::project_label`).
     pub project_label: String,
-    /// False when superseded, stale (a premise no longer stands), contested, or rejected.
+    /// False when superseded, stale (a premise no longer stands and nobody has said this decision
+    /// still holds), contested, or rejected.
     pub held_up: bool,
     pub superseded: bool,
     pub superseded_by: Option<String>,
@@ -108,6 +119,10 @@ pub struct DecisionOutcome {
     pub unchecked: Vec<UncheckedBet>,
     /// All contributing reasons, each carrying the details needed to understand it.
     pub reasons: Vec<OutcomeReason>,
+    /// The premises this decision rests on that changed (superseded, rejected, contested,
+    /// refuted), each open or closed: whether anyone has looked again. Empty when none changed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reexamine: Vec<ReexamineEntry>,
 }
 
 /// Request for the bulk quality-candidates query.
@@ -297,6 +312,17 @@ fn derive_outcome(
     }
     let signals = premise_signals(graph, decision_id, now)?;
     stale_premises |= !signals.stale.is_empty();
+    // The prior decisions whose change this decision is asked to look at again: the ones that no
+    // longer stand, and the contested ones.
+    let mut changed_premises: Vec<String> = signals
+        .stale
+        .iter()
+        .map(|stale| match stale {
+            StalePremise::Superseded { decision_id, .. }
+            | StalePremise::Rejected { decision_id } => decision_id.clone(), // ubs:ignore: owned copy for the lookup; the stale premises are consumed below
+        })
+        .collect();
+    changed_premises.extend(signals.contested.iter().cloned());
     for stale in signals.stale {
         reasons.push(match stale {
             StalePremise::Superseded { decision_id, by_id } => {
@@ -342,7 +368,33 @@ fn derive_outcome(
         reasons.push(OutcomeReason::ConflictingAnswer { other_id });
     }
 
-    let held_up = !superseded && !stale_premises && !contested && !rejected;
+    // --- Re-examination: did the change to a premise travel to this decision? ---
+    let reexamine = reexamine_entries_for(
+        graph,
+        decision_id,
+        &changed_premises,
+        &refuted_hypothesis_ids,
+    )?;
+
+    // A stale premise stops counting once someone recorded that this decision still holds after
+    // the change. The reason stays in `reasons`; the entry says who looked again, when and why.
+    let reaffirmed: Vec<&str> = reexamine
+        .iter()
+        .filter(|entry| matches!(entry.state, ItemState::Reaffirmed { .. }))
+        .map(|entry| entry.premise_id.as_str())
+        .collect();
+    let stale_and_open = reasons.iter().any(|reason| match reason {
+        OutcomeReason::PremiseSuperseded { decision_id, .. }
+        | OutcomeReason::PremiseRejected { decision_id } => {
+            !reaffirmed.contains(&decision_id.as_str())
+        }
+        OutcomeReason::PremisedOnRefuted { hypothesis_id } => {
+            !reaffirmed.contains(&hypothesis_id.as_str())
+        }
+        _ => false,
+    });
+
+    let held_up = !superseded && !stale_and_open && !contested && !rejected;
 
     Ok(DecisionOutcome {
         decision_id: decision_id.to_owned(),
@@ -358,6 +410,7 @@ fn derive_outcome(
         rejected,
         unchecked: signals.unchecked,
         reasons,
+        reexamine,
     })
 }
 

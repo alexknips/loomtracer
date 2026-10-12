@@ -293,6 +293,7 @@ fn scan_page_at(
         evidence_window_days: request
             .evidence_window_days
             .unwrap_or(DEFAULT_EVIDENCE_WINDOW_DAYS),
+        ..AttentionConfig::default()
     };
     let page = attention_findings_at(
         graph,

@@ -116,6 +116,35 @@ impl Scenario {
         )
     }
 
+    /// `decision.proposed` filed under `project` (a stated one), with no option, evidence or
+    /// hypothesis.
+    pub(crate) fn decision_in(
+        &self,
+        decision_id: &str,
+        title: &str,
+        project: &str,
+        actor_id: &str,
+        timestamp: &str,
+    ) -> Result<EventId> {
+        self.proposal(
+            actor_id,
+            timestamp,
+            json!({
+                "decision_id": decision_id,
+                "title": title,
+                "rationale": format!("Rationale for {title}, long enough to read on its own"),
+                "topic_keys": ["grounding"],
+                "option_ids": [],
+                "option_labels": [],
+                "chosen_option_id": Value::Null,
+                "hypothesis_ids": [],
+                "evidence_ids": [],
+                "project": project,
+                "project_source": "stated",
+            }),
+        )
+    }
+
     /// `decision.proposed` with everything a capture can name. `chosen` picks an option, so
     /// hypotheses hang off it (the capture-time shape); without one they hang off the decision.
     #[allow(clippy::too_many_arguments)]
@@ -2021,5 +2050,1030 @@ pub(crate) fn assert_reaffirmation_nodes(graph: &impl GraphView) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+// ── re-examine scenario (hivemind-ottw.2) ───────────────────────────────────────────
+
+/// The instant [`reexamine_scenario`] is read at: what "unfinished" is judged against.
+pub(crate) const REEXAMINE_NOW: &str = "2026-10-01T00:00:00Z";
+
+/// Premises that changed, and the decisions that rest on them, in every state an item can be in.
+///
+/// - `d:p-sup` (billing) is superseded by `d:p-sup-new` on 2026-09-02, with five dependents:
+///   `d:open` (nobody looked again), `d:twice` (platform; reaffirmed by alice and by a reviewer
+///   agent), `d:after-sup` (itself superseded afterwards), `d:after-rej` (itself rejected
+///   afterwards) and `d:late-link` (marketing; linked after the change). `d:before-sup` was
+///   superseded *before* the change, so it has no item at all.
+/// - `d:p-conc` is superseded twice; the supersession recorded first names the later decision.
+/// - `d:p-rej` is rejected, `d:p-cont` contested; `d:p-cont2` is contested, reaffirmed, and then
+///   superseded (the earlier reaffirmation no longer closes it); `d:p-cont3` is contested and
+///   reaffirmed.
+/// - `h:assumption` and `h:bet` are refuted (the assumption twice, the earlier evidence
+///   recorded second); `d:on-bet` was reaffirmed, `d:on-assumption` was not. `d:on-fine` rests on
+///   a hypothesis nobody refuted.
+/// - `d:p-edge-eq` and `d:p-edge-over` were superseded exactly 14 days and 14 days and a second
+///   before `REEXAMINE_NOW`.
+/// - A `FOLLOWS_FROM` cycle (`d:cyc-a` and `d:cyc-b`), a decision that follows itself, and a
+///   superseded decision nothing rests on.
+///
+/// Only the `d:p-sup` family is filed under projects (billing is part of platform; marketing is
+/// apart), so a question asked from billing sees four of its five dependents and counts the fifth.
+pub(crate) fn reexamine_scenario() -> Result<Scenario> {
+    let s = Scenario::new();
+    let (alex, alice, bob) = ("human:alex", "human:alice", "human:bob");
+    let (crew, reviewer) = ("agent:claude:crew", "agent:codex:reviewer");
+
+    let commands = Commands::new(s.ledger());
+    commands.register_project(alex, "billing", Some("Billing"), None)?;
+    commands.register_project(alex, "platform", Some("Platform"), None)?;
+    commands.register_project(alex, "marketing", Some("Marketing"), None)?;
+    commands.link_project(alex, "billing", "platform", ProjectLinkKind::PartOf)?;
+
+    let stand = |ids: &[&str]| -> Result<()> {
+        for id in ids {
+            s.accept(id, alex, "2026-09-01T12:00:00Z")?;
+        }
+        Ok(())
+    };
+    let follows = |dependent: &str, premise: &str| -> Result<()> {
+        s.relation(
+            "FOLLOWS_FROM",
+            dependent,
+            premise,
+            crew,
+            None,
+            "2026-09-01T12:00:30Z",
+        )
+    };
+
+    // The d:p-sup family.
+    for (id, title, project, at) in [
+        (
+            "d:p-sup",
+            "Cap requests per tenant",
+            "billing",
+            "2026-09-01T00:00:00Z",
+        ),
+        (
+            "d:p-sup-new",
+            "Cap requests per user",
+            "billing",
+            "2026-09-02T00:00:00Z",
+        ),
+        (
+            "d:open",
+            "Shard by tenant",
+            "billing",
+            "2026-09-01T00:01:00Z",
+        ),
+        (
+            "d:twice",
+            "Bill by request count",
+            "platform",
+            "2026-09-01T00:02:00Z",
+        ),
+        (
+            "d:after-sup",
+            "Quota dashboard per tenant",
+            "billing",
+            "2026-09-01T00:03:00Z",
+        ),
+        (
+            "d:after-sup-v2",
+            "Quota dashboard per user",
+            "billing",
+            "2026-09-01T00:04:00Z",
+        ),
+        (
+            "d:after-rej",
+            "Tenant-level alerts",
+            "billing",
+            "2026-09-01T00:05:00Z",
+        ),
+        (
+            "d:late-link",
+            "Promo caps per tenant",
+            "marketing",
+            "2026-09-01T00:06:00Z",
+        ),
+        (
+            "d:before-sup",
+            "Per-tenant invoices",
+            "billing",
+            "2026-09-01T00:07:00Z",
+        ),
+        (
+            "d:before-sup-v2",
+            "Per-user invoices",
+            "billing",
+            "2026-09-01T00:08:00Z",
+        ),
+    ] {
+        s.decision_in(id, title, project, crew, at)?;
+    }
+    stand(&[
+        "d:p-sup",
+        "d:p-sup-new",
+        "d:open",
+        "d:twice",
+        "d:after-sup",
+        "d:after-sup-v2",
+        "d:late-link",
+        "d:before-sup",
+        "d:before-sup-v2",
+    ])?;
+    for dependent in [
+        "d:open",
+        "d:twice",
+        "d:after-sup",
+        "d:after-rej",
+        "d:before-sup",
+    ] {
+        follows(dependent, "d:p-sup")?;
+    }
+    s.supersede(
+        "d:before-sup",
+        "d:before-sup-v2",
+        alex,
+        "2026-09-01T13:00:00Z",
+    )?;
+    s.supersede("d:p-sup", "d:p-sup-new", alex, "2026-09-02T00:00:01Z")?;
+    s.reaffirmed(
+        "d:twice",
+        "d:p-sup",
+        "Billing by request count never depended on the per-tenant cap",
+        alice,
+        "2026-09-03T00:00:00Z",
+    )?;
+    s.reaffirmed(
+        "d:twice",
+        "d:p-sup",
+        "Checked again against the per-user cap",
+        reviewer,
+        "2026-09-04T00:00:00Z",
+    )?;
+    s.supersede(
+        "d:after-sup",
+        "d:after-sup-v2",
+        alex,
+        "2026-09-05T00:00:00Z",
+    )?;
+    s.reject("d:after-rej", bob, "2026-09-05T00:00:01Z")?;
+    follows("d:late-link", "d:p-sup")?;
+
+    // Concurrent superseders: recorded b first, then a.
+    for (id, title, at) in [
+        (
+            "d:p-conc",
+            "Retry failed jobs twice",
+            "2026-09-01T01:00:00Z",
+        ),
+        ("d:conc-a", "Retry failed jobs once", "2026-09-10T00:00:00Z"),
+        (
+            "d:conc-b",
+            "Never retry failed jobs",
+            "2026-09-12T00:00:00Z",
+        ),
+        (
+            "d:on-conc",
+            "Alert after two retries",
+            "2026-09-01T01:01:00Z",
+        ),
+    ] {
+        s.decision(id, title, crew, at)?;
+    }
+    stand(&["d:p-conc", "d:conc-a", "d:conc-b", "d:on-conc"])?;
+    follows("d:on-conc", "d:p-conc")?;
+    s.supersede("d:p-conc", "d:conc-b", alex, "2026-09-12T00:00:01Z")?;
+    s.supersede("d:p-conc", "d:conc-a", alice, "2026-09-12T00:00:02Z")?;
+
+    // A rejected premise: one dependent open, one reaffirmed.
+    for (id, title, at) in [
+        ("d:p-rej", "Adopt vendor X", "2026-08-01T00:00:00Z"),
+        (
+            "d:on-rej",
+            "Migrate the queue to vendor X",
+            "2026-08-01T00:01:00Z",
+        ),
+        (
+            "d:on-rej-ok",
+            "Train support on vendor X",
+            "2026-08-01T00:02:00Z",
+        ),
+    ] {
+        s.decision(id, title, crew, at)?;
+    }
+    stand(&["d:on-rej", "d:on-rej-ok"])?;
+    follows("d:on-rej", "d:p-rej")?;
+    follows("d:on-rej-ok", "d:p-rej")?;
+    s.reject("d:p-rej", bob, "2026-08-02T00:00:00Z")?;
+    s.reaffirmed(
+        "d:on-rej-ok",
+        "d:p-rej",
+        "Support training is vendor-neutral",
+        alice,
+        "2026-08-03T00:00:00Z",
+    )?;
+
+    // Contested premises.
+    for (id, title, at) in [
+        ("d:p-cont", "Use queue Y", "2026-09-01T02:00:00Z"),
+        (
+            "d:on-cont",
+            "Size the workers for queue Y",
+            "2026-09-01T02:01:00Z",
+        ),
+        ("d:p-cont2", "Use cache Z", "2026-09-01T02:02:00Z"),
+        (
+            "d:on-cont2",
+            "Warm cache Z at deploy",
+            "2026-09-01T02:03:00Z",
+        ),
+        ("d:cont2-new", "Use cache W", "2026-09-20T00:00:00Z"),
+        ("d:p-cont3", "Use region R", "2026-09-01T02:04:00Z"),
+        (
+            "d:on-cont3",
+            "Pin the database to region R",
+            "2026-09-01T02:05:00Z",
+        ),
+    ] {
+        s.decision(id, title, crew, at)?;
+    }
+    stand(&["d:on-cont", "d:on-cont2", "d:cont2-new", "d:on-cont3"])?;
+    follows("d:on-cont", "d:p-cont")?;
+    follows("d:on-cont2", "d:p-cont2")?;
+    follows("d:on-cont3", "d:p-cont3")?;
+    s.accept("d:p-cont", alice, "2026-09-06T00:00:00Z")?;
+    s.reject("d:p-cont", bob, "2026-09-06T00:00:01Z")?;
+    s.accept("d:p-cont2", alice, "2026-09-06T00:01:00Z")?;
+    s.reject("d:p-cont2", bob, "2026-09-06T00:01:01Z")?;
+    s.reaffirmed(
+        "d:on-cont2",
+        "d:p-cont2",
+        "Warming is useful whichever cache wins",
+        alice,
+        "2026-09-07T00:00:00Z",
+    )?;
+    s.supersede("d:p-cont2", "d:cont2-new", alex, "2026-09-20T00:00:01Z")?;
+    s.accept("d:p-cont3", alice, "2026-09-06T00:02:00Z")?;
+    s.reject("d:p-cont3", bob, "2026-09-06T00:02:01Z")?;
+    s.reaffirmed(
+        "d:on-cont3",
+        "d:p-cont3",
+        "The database stays in region R either way",
+        alice,
+        "2026-09-07T00:01:00Z",
+    )?;
+
+    // Refuted hypotheses.
+    s.hypothesis(
+        "h:assumption",
+        "Users log in daily",
+        "assumption",
+        None,
+        "2026-09-01T03:00:00Z",
+    )?;
+    s.hypothesis(
+        "h:bet",
+        "The cache holds under load",
+        "bet",
+        Some("2026-12-01T00:00:00Z"),
+        "2026-09-01T03:00:01Z",
+    )?;
+    s.hypothesis(
+        "h:fine",
+        "The API is stable",
+        "assumption",
+        None,
+        "2026-09-01T03:00:02Z",
+    )?;
+    s.evidence(
+        "e:r1",
+        "Median session length fell below one a week",
+        Some("analytics"),
+        "2026-09-05T00:00:00Z",
+    )?;
+    s.evidence(
+        "e:r2",
+        "Weekly actives are half the daily estimate",
+        Some("analytics"),
+        "2026-09-03T00:00:00Z",
+    )?;
+    s.evidence(
+        "e:bet",
+        "p95 doubled under load",
+        Some("dashboard"),
+        "2026-09-12T00:00:00Z",
+    )?;
+    s.decision_with(
+        "d:on-assumption",
+        "Send the digest daily",
+        crew,
+        "2026-09-01T03:01:00Z",
+        false,
+        &[],
+        &["h:assumption"],
+        None,
+    )?;
+    s.decision_with(
+        "d:on-bet",
+        "Skip the second cache tier",
+        crew,
+        "2026-09-01T03:02:00Z",
+        true,
+        &[],
+        &["h:bet"],
+        None,
+    )?;
+    s.decision_with(
+        "d:on-fine",
+        "Pin the client to the v2 API",
+        crew,
+        "2026-09-01T03:03:00Z",
+        false,
+        &[],
+        &["h:fine"],
+        None,
+    )?;
+    stand(&["d:on-assumption", "d:on-bet", "d:on-fine"])?;
+    s.relation(
+        "REFUTES",
+        "e:r1",
+        "h:assumption",
+        alex,
+        None,
+        "2026-09-05T00:00:01Z",
+    )?;
+    s.relation(
+        "REFUTES",
+        "e:r2",
+        "h:assumption",
+        alex,
+        None,
+        "2026-09-05T00:00:02Z",
+    )?;
+    s.relation(
+        "REFUTES",
+        "e:bet",
+        "h:bet",
+        alex,
+        None,
+        "2026-09-12T00:00:01Z",
+    )?;
+    s.reaffirmed(
+        "d:on-bet",
+        "h:bet",
+        "The second tier would not have helped at this load",
+        reviewer,
+        "2026-09-13T00:00:00Z",
+    )?;
+
+    // Exactly 14 days, and 14 days and a second, before REEXAMINE_NOW.
+    for (id, title, at) in [
+        ("d:p-edge-eq", "Ship weekly", "2026-09-01T04:00:00Z"),
+        ("d:edge-eq-new", "Ship daily", "2026-09-17T00:00:00Z"),
+        (
+            "d:on-edge-eq",
+            "Staff the weekly release",
+            "2026-09-01T04:01:00Z",
+        ),
+        (
+            "d:p-edge-over",
+            "Review every change twice",
+            "2026-09-01T04:02:00Z",
+        ),
+        (
+            "d:edge-over-new",
+            "Review every change once",
+            "2026-09-16T23:59:59Z",
+        ),
+        (
+            "d:on-edge-over",
+            "Hire a second reviewer",
+            "2026-09-01T04:03:00Z",
+        ),
+    ] {
+        s.decision(id, title, crew, at)?;
+    }
+    stand(&[
+        "d:p-edge-eq",
+        "d:edge-eq-new",
+        "d:on-edge-eq",
+        "d:p-edge-over",
+        "d:edge-over-new",
+        "d:on-edge-over",
+    ])?;
+    follows("d:on-edge-eq", "d:p-edge-eq")?;
+    follows("d:on-edge-over", "d:p-edge-over")?;
+    s.supersede("d:p-edge-eq", "d:edge-eq-new", alex, "2026-09-17T00:00:01Z")?;
+    s.supersede(
+        "d:p-edge-over",
+        "d:edge-over-new",
+        alex,
+        "2026-09-16T23:59:59Z",
+    )?;
+
+    // A cycle, a decision that follows itself, a superseded decision nothing rests on.
+    for (id, title, at) in [
+        ("d:cyc-a", "Run the batch at night", "2026-09-01T05:00:00Z"),
+        (
+            "d:cyc-b",
+            "Reserve the night window",
+            "2026-09-01T05:01:00Z",
+        ),
+        (
+            "d:cyc-a-new",
+            "Run the batch at noon",
+            "2026-09-05T00:00:00Z",
+        ),
+        ("d:self", "Rotate keys yearly", "2026-09-01T05:02:00Z"),
+        ("d:self-new", "Rotate keys monthly", "2026-09-05T00:00:00Z"),
+        ("d:lonely", "Name the service Atlas", "2026-09-01T05:03:00Z"),
+        (
+            "d:lonely-new",
+            "Name the service Orion",
+            "2026-09-05T00:00:00Z",
+        ),
+    ] {
+        s.decision(id, title, crew, at)?;
+    }
+    stand(&[
+        "d:cyc-a",
+        "d:cyc-b",
+        "d:cyc-a-new",
+        "d:self",
+        "d:self-new",
+        "d:lonely",
+        "d:lonely-new",
+    ])?;
+    follows("d:cyc-a", "d:cyc-b")?;
+    follows("d:cyc-b", "d:cyc-a")?;
+    follows("d:self", "d:self")?;
+    s.supersede("d:cyc-a", "d:cyc-a-new", alex, "2026-09-05T00:00:01Z")?;
+    s.supersede("d:self", "d:self-new", alex, "2026-09-05T00:00:02Z")?;
+    s.supersede("d:lonely", "d:lonely-new", alex, "2026-09-05T00:00:03Z")?;
+    Ok(s)
+}
+
+/// What every backend must read from [`reexamine_scenario`] at `REEXAMINE_NOW`: the same sixteen
+/// items in the same order, whole or paged, the same completeness for each changed premise, the
+/// same answer from a project, and the same entries on each dependent's own outcome as in the
+/// list. Shared by the memory, Postgres and Kuzu tests.
+pub(crate) fn assert_reexamine_scenario(scenario: &Scenario, graph: &impl GraphView) -> Result<()> {
+    use crate::queries::{
+        get_decision_outcome_at, get_propagation_at, get_reexamine_items_at, ChangeKind, ItemState,
+        OutcomeReason, PremiseKind, QueryContext, ReexamineItem, ReexamineRequest,
+        ReexamineResults,
+    };
+
+    let now = ts(REEXAMINE_NOW);
+    let context = QueryContext::local();
+    let ledger = scenario.ledger();
+    let list = |request: ReexamineRequest| -> Result<ReexamineResults> {
+        Ok(get_reexamine_items_at(&context, graph, ledger, &request, now)?.data)
+    };
+    let tag = |state: &ItemState| -> String {
+        match state {
+            ItemState::Open => "open".to_owned(),
+            ItemState::Reaffirmed { reaffirmations } => {
+                format!("reaffirmed:{}", reaffirmations.len())
+            }
+            ItemState::DependentSuperseded { by_id } => format!("dependent_superseded:{by_id}"),
+            ItemState::DependentRejected => "dependent_rejected".to_owned(),
+        }
+    };
+    let ids = |items: &[ReexamineItem]| -> Vec<(String, String)> {
+        items
+            .iter()
+            .map(|item| (item.dependent.id.clone(), item.entry.premise_id.clone()))
+            .collect()
+    };
+
+    // ── the items, whole ────────────────────────────────────────────────────────
+    use ChangeKind::{Contested, Refuted, Rejected, Superseded};
+    let mut expected: Vec<(&str, &str, ChangeKind, &str, usize)> = vec![
+        (
+            "d:after-rej",
+            "d:p-sup",
+            Superseded,
+            "dependent_rejected",
+            0,
+        ),
+        (
+            "d:after-sup",
+            "d:p-sup",
+            Superseded,
+            "dependent_superseded:d:after-sup-v2",
+            0,
+        ),
+        ("d:cyc-b", "d:cyc-a", Superseded, "open", 0),
+        ("d:late-link", "d:p-sup", Superseded, "open", 0),
+        ("d:on-assumption", "h:assumption", Refuted, "open", 0),
+        ("d:on-bet", "h:bet", Refuted, "reaffirmed:1", 0),
+        ("d:on-conc", "d:p-conc", Superseded, "open", 0),
+        ("d:on-cont", "d:p-cont", Contested, "open", 0),
+        ("d:on-cont2", "d:p-cont2", Superseded, "open", 1),
+        ("d:on-cont3", "d:p-cont3", Contested, "reaffirmed:1", 0),
+        ("d:on-edge-eq", "d:p-edge-eq", Superseded, "open", 0),
+        ("d:on-edge-over", "d:p-edge-over", Superseded, "open", 0),
+        ("d:on-rej", "d:p-rej", Rejected, "open", 0),
+        ("d:on-rej-ok", "d:p-rej", Rejected, "reaffirmed:1", 0),
+        ("d:open", "d:p-sup", Superseded, "open", 0),
+        ("d:twice", "d:p-sup", Superseded, "reaffirmed:2", 0),
+    ];
+    expected.sort_by_key(|row| (row.0, row.1));
+    let summary = |items: &[ReexamineItem]| -> Vec<(String, String, ChangeKind, String, usize)> {
+        items
+            .iter()
+            .map(|item| {
+                (
+                    item.dependent.id.clone(),
+                    item.entry.premise_id.clone(),
+                    item.entry.change.kind,
+                    tag(&item.entry.state),
+                    item.entry.earlier_reaffirmations.len(),
+                )
+            })
+            .collect()
+    };
+    let want = |only_open: bool| -> Vec<(String, String, ChangeKind, String, usize)> {
+        expected
+            .iter()
+            .filter(|row| !only_open || row.3 == "open")
+            .map(|row| {
+                (
+                    row.0.to_owned(),
+                    row.1.to_owned(),
+                    row.2,
+                    row.3.to_owned(),
+                    row.4,
+                )
+            })
+            .collect()
+    };
+
+    let everything = list(ReexamineRequest {
+        include_closed: true,
+        limit: 100,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(summary(&everything.items), want(false));
+    assert_eq!(everything.next_cursor, None);
+    assert_eq!(everything.not_shown, None);
+    assert!(everything.scope.is_none() && everything.propagation.is_none());
+
+    // Open ones only, by default: what is still waiting for someone to look again.
+    let open = list(ReexamineRequest {
+        limit: 100,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(summary(&open.items), want(true));
+    assert_eq!(open.items.len(), 10);
+
+    // ── offsets order a reaffirmation against its change ───────────────────────────
+    for item in &everything.items {
+        let change = item
+            .entry
+            .change
+            .at_offset
+            .expect("every change has an offset");
+        let reaffirmed = match &item.entry.state {
+            ItemState::Reaffirmed { reaffirmations } => reaffirmations.as_slice(),
+            _ => &[],
+        };
+        for reaffirmation in reaffirmed {
+            assert!(
+                reaffirmation.event_origin.expect("reaffirmation offset") > change,
+                "{} closes only after the change",
+                item.dependent.id
+            );
+        }
+        for earlier in &item.entry.earlier_reaffirmations {
+            assert!(
+                earlier.event_origin.expect("reaffirmation offset") < change,
+                "{} keeps only reaffirmations from before the change",
+                item.dependent.id
+            );
+        }
+    }
+    let find = |dependent: &str| -> &ReexamineItem {
+        everything
+            .items
+            .iter()
+            .find(|item| item.dependent.id == dependent)
+            .unwrap_or_else(|| panic!("no item on {dependent}"))
+    };
+
+    // ── who, when, in whose words ───────────────────────────────────────────────
+    let day = |text: &str| Some(ts(text));
+    let change_of = |dependent: &str| find(dependent).entry.change.clone();
+    assert_eq!(change_of("d:open").at_time, day("2026-09-02T00:00:00Z"));
+    assert_eq!(change_of("d:open").by_ids, ["d:p-sup-new"]);
+    // Concurrent superseders: both named, the one recorded first dates the change.
+    assert_eq!(change_of("d:on-conc").by_ids, ["d:conc-a", "d:conc-b"]);
+    assert_eq!(change_of("d:on-conc").at_time, day("2026-09-12T00:00:00Z"));
+    // A rejection or a contest states no time in the graph.
+    assert_eq!(change_of("d:on-rej").by_ids, ["human:bob"]);
+    assert_eq!(change_of("d:on-rej").at_time, None);
+    assert_eq!(change_of("d:on-cont").at_time, None);
+    // A refutation is dated by the earliest evidence, not the first one recorded.
+    assert_eq!(change_of("d:on-assumption").by_ids, ["e:r1", "e:r2"]);
+    assert_eq!(
+        change_of("d:on-assumption").at_time,
+        day("2026-09-03T00:00:00Z")
+    );
+    // A re-change is a new change, dated by its own supersession.
+    assert_eq!(change_of("d:on-cont2").at_time, day("2026-09-20T00:00:00Z"));
+    let open_item = find("d:open");
+    assert_eq!(open_item.dependent.title, "Shard by tenant");
+    assert_eq!(open_item.dependent.project.as_deref(), Some("billing"));
+    assert_eq!(open_item.dependent.project_label, "Billing");
+    assert_eq!(open_item.entry.premise_label, "Cap requests per tenant");
+    assert_eq!(open_item.entry.premise_kind, PremiseKind::Decision);
+    assert_eq!(open_item.premise_project.as_deref(), Some("billing"));
+    // An item that crossed a project link names where the change came from.
+    assert_eq!(
+        find("d:twice").dependent.project.as_deref(),
+        Some("platform")
+    );
+    assert_eq!(find("d:twice").premise_project.as_deref(), Some("billing"));
+    assert_eq!(
+        find("d:twice").premise_project_label.as_deref(),
+        Some("Billing")
+    );
+    let hypothesis_item = find("d:on-assumption");
+    assert_eq!(hypothesis_item.entry.premise_kind, PremiseKind::Hypothesis);
+    assert_eq!(hypothesis_item.entry.premise_label, "Users log in daily");
+    assert_eq!(hypothesis_item.premise_project, None);
+    if let ItemState::Reaffirmed { reaffirmations } = &find("d:twice").entry.state {
+        let by: Vec<&str> = reaffirmations.iter().map(|r| r.actor_id.as_str()).collect();
+        assert_eq!(by, ["human:alice", "agent:codex:reviewer"]);
+        assert_eq!(
+            reaffirmations[1].reason,
+            "Checked again against the per-user cap"
+        );
+    } else {
+        panic!("d:twice is reaffirmed");
+    }
+    // Contested, reaffirmed, then superseded: reopened, with the earlier word kept.
+    let reopened = find("d:on-cont2");
+    assert_eq!(tag(&reopened.entry.state), "open");
+    assert_eq!(
+        reopened.entry.earlier_reaffirmations[0].reason,
+        "Warming is useful whichever cache wins"
+    );
+
+    // A dependent that was out before the change, a decision that follows itself, a hypothesis
+    // nobody refuted: no item.
+    for absent in ["d:before-sup", "d:self", "d:on-fine", "d:p-sup", "d:lonely"] {
+        assert!(
+            everything
+                .items
+                .iter()
+                .all(|item| item.dependent.id != absent),
+            "{absent} has no item"
+        );
+    }
+
+    // ── paging: nothing cut silently ─────────────────────────────────────────────
+    for (include_closed, limit, sizes) in [
+        (false, 2, &[2_usize, 2, 2, 2, 2][..]),
+        (true, 3, &[3, 3, 3, 3, 3, 1][..]),
+        (true, 16, &[16][..]),
+    ] {
+        let mut cursor = None;
+        let mut seen = Vec::new();
+        let mut page_sizes = Vec::new();
+        loop {
+            let response = get_reexamine_items_at(
+                &context,
+                graph,
+                ledger,
+                &ReexamineRequest {
+                    include_closed,
+                    limit,
+                    cursor: cursor.clone(),
+                    ..ReexamineRequest::default()
+                },
+                now,
+            )?;
+            assert_eq!(response.truncated, response.data.next_cursor.is_some());
+            assert_eq!(response.result_count, response.data.items.len());
+            page_sizes.push(response.data.items.len());
+            seen.extend(ids(&response.data.items));
+            cursor = response.data.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(
+            page_sizes, sizes,
+            "include_closed={include_closed} limit={limit}"
+        );
+        let whole = if include_closed { &everything } else { &open };
+        assert_eq!(seen, ids(&whole.items));
+    }
+
+    // ── filters ──────────────────────────────────────────────────────────────────
+    let one = list(ReexamineRequest {
+        dependent_id: Some("d:twice".to_owned()),
+        include_closed: true,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(
+        ids(&one.items),
+        [("d:twice".to_owned(), "d:p-sup".to_owned())]
+    );
+    let of_premise = list(ReexamineRequest {
+        premise_id: Some("d:p-sup".to_owned()),
+        include_closed: true,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(of_premise.items.len(), 5);
+    assert!(of_premise.propagation.is_some());
+
+    // ── N of M, and unfinished ───────────────────────────────────────────────────
+    // (premise, kind, change, M, N, still open, unfinished, oldest open since)
+    type Row = (
+        &'static str,
+        PremiseKind,
+        ChangeKind,
+        usize,
+        usize,
+        usize,
+        bool,
+        Option<&'static str>,
+    );
+    let rows: [Row; 11] = [
+        (
+            "d:p-sup",
+            PremiseKind::Decision,
+            Superseded,
+            5,
+            3,
+            2,
+            true,
+            Some("2026-09-02T00:00:00Z"),
+        ),
+        (
+            "d:p-conc",
+            PremiseKind::Decision,
+            Superseded,
+            1,
+            0,
+            1,
+            true,
+            Some("2026-09-12T00:00:00Z"),
+        ),
+        (
+            "d:p-rej",
+            PremiseKind::Decision,
+            Rejected,
+            2,
+            1,
+            1,
+            false,
+            None,
+        ),
+        (
+            "d:p-cont",
+            PremiseKind::Decision,
+            Contested,
+            1,
+            0,
+            1,
+            false,
+            None,
+        ),
+        (
+            "d:p-cont2",
+            PremiseKind::Decision,
+            Superseded,
+            1,
+            0,
+            1,
+            false,
+            Some("2026-09-20T00:00:00Z"),
+        ),
+        (
+            "d:p-cont3",
+            PremiseKind::Decision,
+            Contested,
+            1,
+            1,
+            0,
+            false,
+            None,
+        ),
+        (
+            "h:assumption",
+            PremiseKind::Hypothesis,
+            Refuted,
+            1,
+            0,
+            1,
+            true,
+            Some("2026-09-03T00:00:00Z"),
+        ),
+        (
+            "h:bet",
+            PremiseKind::Hypothesis,
+            Refuted,
+            1,
+            1,
+            0,
+            false,
+            None,
+        ),
+        // Exactly 14 days is not past the window; a second more is.
+        (
+            "d:p-edge-eq",
+            PremiseKind::Decision,
+            Superseded,
+            1,
+            0,
+            1,
+            false,
+            Some("2026-09-17T00:00:00Z"),
+        ),
+        (
+            "d:p-edge-over",
+            PremiseKind::Decision,
+            Superseded,
+            1,
+            0,
+            1,
+            true,
+            Some("2026-09-16T23:59:59Z"),
+        ),
+        (
+            "d:cyc-a",
+            PremiseKind::Decision,
+            Superseded,
+            1,
+            0,
+            1,
+            true,
+            Some("2026-09-05T00:00:00Z"),
+        ),
+    ];
+    for (premise, kind, change, total, done, still_open, unfinished, since) in rows {
+        let propagation = get_propagation_at(graph, premise, None, now)?
+            .unwrap_or_else(|| panic!("{premise} has a propagation"));
+        assert_eq!(propagation.premise_kind, kind, "{premise}");
+        assert_eq!(propagation.change.kind, change, "{premise}");
+        assert_eq!(
+            (
+                propagation.dependents_total,
+                propagation.reexamined,
+                propagation.open
+            ),
+            (total, done, still_open),
+            "{premise}: N of M"
+        );
+        assert_eq!(propagation.unfinished, unfinished, "{premise}: unfinished");
+        assert_eq!(propagation.window_days, 14);
+        assert_eq!(
+            propagation.oldest_open_since,
+            since.and_then(day).filter(|_| still_open > 0),
+            "{premise}: oldest open since"
+        );
+        assert_eq!(
+            (propagation.not_shown, propagation.not_shown_open),
+            (None, None)
+        );
+    }
+    // The same change, a different window: 2026-09-02 to REEXAMINE_NOW is exactly 29 days.
+    let within = |days: u32| -> Result<bool> {
+        Ok(get_propagation_at(graph, "d:p-sup", Some(days), now)?
+            .expect("d:p-sup changed")
+            .unfinished)
+    };
+    assert!(!within(29)? && within(28)? && !within(60)?);
+    // Nothing to propagate: not changed, no dependent that stood, a self-link, an unknown id.
+    for quiet in ["d:p-sup-new", "d:lonely", "d:self", "h:fine", "d:nowhere"] {
+        assert!(
+            get_propagation_at(graph, quiet, None, now)?.is_none(),
+            "{quiet}"
+        );
+    }
+
+    // ── asked from a project: counted, never named ─────────────────────────────────
+    let from_billing = list(ReexamineRequest {
+        project: Some("billing".to_owned()),
+        include_closed: true,
+        limit: 100,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(
+        ids(&from_billing.items),
+        [
+            ("d:after-rej", "d:p-sup"),
+            ("d:after-sup", "d:p-sup"),
+            ("d:open", "d:p-sup"),
+            ("d:twice", "d:p-sup"),
+        ]
+        .map(|(dependent, premise)| (dependent.to_owned(), premise.to_owned()))
+    );
+    assert_eq!(from_billing.not_shown, Some(12));
+    let scope = from_billing
+        .scope
+        .expect("a scoped answer says where it looked");
+    let followed: Vec<&str> = scope.followed.iter().map(|p| p.project.as_str()).collect();
+    assert_eq!(followed, ["billing", "platform"]);
+    let scoped_open = list(ReexamineRequest {
+        project: Some("billing".to_owned()),
+        limit: 100,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(
+        ids(&scoped_open.items),
+        [("d:open".to_owned(), "d:p-sup".to_owned())]
+    );
+    assert_eq!(scoped_open.not_shown, Some(9));
+    let scoped_premise = list(ReexamineRequest {
+        project: Some("billing".to_owned()),
+        premise_id: Some("d:p-sup".to_owned()),
+        include_closed: true,
+        ..ReexamineRequest::default()
+    })?;
+    assert_eq!(scoped_premise.not_shown, Some(1));
+    let propagation = scoped_premise.propagation.expect("the premise changed");
+    assert_eq!(
+        (
+            propagation.dependents_total,
+            propagation.reexamined,
+            propagation.open,
+            propagation.not_shown,
+            propagation.not_shown_open,
+        ),
+        (4, 3, 1, Some(1), Some(1))
+    );
+    // The one open item the scope hides still counts toward unfinished.
+    assert!(propagation.unfinished);
+
+    // ── the outcome carries the same entries as the list ─────────────────────────────
+    let mut dependents: Vec<&str> = everything
+        .items
+        .iter()
+        .map(|item| item.dependent.id.as_str())
+        .collect();
+    dependents.dedup();
+    for dependent in &dependents {
+        let outcome = get_decision_outcome_at(graph, dependent, now)?
+            .data
+            .unwrap_or_else(|| panic!("{dependent} has an outcome"));
+        let listed: Vec<_> = everything
+            .items
+            .iter()
+            .filter(|item| item.dependent.id == *dependent)
+            .map(|item| item.entry.clone())
+            .collect();
+        assert_eq!(outcome.reexamine, listed, "{dependent}: outcome vs list");
+    }
+    for absent in ["d:before-sup", "d:self", "d:on-fine", "d:p-sup", "d:lonely"] {
+        let outcome = get_decision_outcome_at(graph, absent, now)?
+            .data
+            .unwrap_or_else(|| panic!("{absent} has an outcome"));
+        assert!(outcome.reexamine.is_empty(), "{absent}");
+    }
+
+    // R1 and R3: a reaffirmed change holds up again (the reason stays, with the entry saying who
+    // looked), a contested premise opens an item and never flips `held_up`, a re-change reopens.
+    for (dependent, held_up) in [
+        ("d:open", false),
+        ("d:twice", true),
+        ("d:after-sup", false),
+        ("d:on-assumption", false),
+        ("d:on-bet", true),
+        ("d:on-conc", false),
+        ("d:on-cont", true),
+        ("d:on-cont2", false),
+        ("d:on-cont3", true),
+        ("d:on-rej", false),
+        ("d:on-rej-ok", true),
+        ("d:on-edge-over", false),
+    ] {
+        let outcome = get_decision_outcome_at(graph, dependent, now)?
+            .data
+            .expect("outcome");
+        assert_eq!(outcome.held_up, held_up, "{dependent}: held_up");
+    }
+    let twice = get_decision_outcome_at(graph, "d:twice", now)?
+        .data
+        .expect("outcome");
+    assert!(twice.stale_premises);
+    assert!(twice.reasons.iter().any(|reason| matches!(
+        reason,
+        OutcomeReason::PremiseSuperseded { decision_id, .. } if decision_id == "d:p-sup"
+    )));
+    let bet = get_decision_outcome_at(graph, "d:on-bet", now)?
+        .data
+        .expect("outcome");
+    assert!(bet.reasons.iter().any(|reason| matches!(
+        reason,
+        OutcomeReason::PremisedOnRefuted { hypothesis_id } if hypothesis_id == "h:bet"
+    )));
     Ok(())
 }
