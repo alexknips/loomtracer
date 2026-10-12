@@ -129,6 +129,11 @@ batches for a local ledger (`--limit` 20 by default, so count it with a `--limit
 
 ## Step 5 — Query it back
 
+`hivemind query` and `/hivemind-capture:query-decisions` read a **local ledger**. Neither contacts
+a server; only `classify-queue` does. Where you read depends on where Steps 3-4 wrote.
+
+**A local ledger** (`HIVEMIND_API_URL` unset):
+
 ```text
 /hivemind-capture:query-decisions --limit 5
 ```
@@ -140,6 +145,22 @@ hivemind query recent_decisions --since 1h --limit 5
 hivemind query get_relevant_decisions --topic infrastructure
 hivemind query search_decisions --q "postgres"
 ```
+
+**The cell from Step 1** (`HIVEMIND_API_URL` set): ask its HTTP API with the token from Step 1.
+Each call returns the same decisions the CLI lists for a local ledger.
+
+```bash
+export HIVEMIND_API_URL=http://localhost:8080
+SINCE=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)   # macOS: date -u -v-1H +%Y-%m-%dT%H:%M:%SZ
+curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/search?since=$SINCE&limit=5"
+curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/relevant?topic=infrastructure"
+curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/search?q=postgres"
+```
+
+With `HIVEMIND_API_URL` set, `hivemind query` does not quietly read the wrong place. From a folder
+with no ledger it refuses and creates nothing; from a folder that holds one it answers from that
+ledger and adds a `notice` saying the answer is the local ledger's, not the server's. Unset
+`HIVEMIND_API_URL` to read a local ledger without the notice.
 
 A decision drafted this way is listed in a time window (`recent_decisions --since`, `digest`,
 `search_decisions --since`, `get_decisions_added_since`, `review --since`) by the time of the

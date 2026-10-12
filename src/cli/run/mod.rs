@@ -121,26 +121,90 @@ pub fn run(cli: &Cli) -> Result<String> {
     validate_global_flags(cli)?;
 
     let output = dispatch(cli)?;
-    with_unreadable_notice(cli, output)
+    with_read_notices(cli, output)
 }
 
 /// The read verbs answer even when the ledger holds annotation rows nobody can parse (a
 /// malformed assessment): the projector and every history read skip them. What they do not do is
-/// skip them silently: the answer carries a one-line notice naming the rows.
-fn with_unreadable_notice(cli: &Cli, output: String) -> Result<String> {
+/// skip them silently: the answer carries a one-line notice naming the rows. A `query` run with
+/// `HIVEMIND_API_URL` set also says that the answer is the local ledger's, not the server's.
+fn with_read_notices(cli: &Cli, output: String) -> Result<String> {
     if !matches!(
         cli.command,
         Command::Query(_) | Command::Export(_) | Command::Digest(_) | Command::QualityScan(_)
     ) {
         return Ok(output);
     }
+    let mut notices = Vec::new();
+    if matches!(cli.command, Command::Query(_)) {
+        if let Some(cell) = QueryBesideCell::from_cli(cli) {
+            notices.push(cell.answered_locally_notice());
+        }
+    }
     let tenant_id = cli_tenant(cli)?;
     let ledger = open_ledger(cli)?;
     let rows = crate::read_notice::unreadable_annotations(&ledger, &tenant_id)?;
-    Ok(match crate::read_notice::notice_for(&rows) {
-        Some(notice) => crate::read_notice::annotate_output(output, &notice),
-        None => output,
+    notices.extend(crate::read_notice::notice_for(&rows));
+    Ok(if notices.is_empty() {
+        output
+    } else {
+        crate::read_notice::annotate_output(output, &notices.join(" | "))
     })
+}
+
+/// `hivemind query` run with `HIVEMIND_API_URL` set. Only `classify-queue` honours that variable;
+/// `query` reads the ledger under `--hivemind-dir` and never contacts the server. Without this a
+/// person who follows the cell's docs gets "0 decisions" from an empty ledger the command made up
+/// in the current folder, or an answer from whatever ledger the folder holds, with nothing to say
+/// it is not the cell's. So the read refuses when there is no local ledger (and makes none), and
+/// otherwise names the ledger it answered from. A configured shared database is a direct read of
+/// the cell's own data, so it is left alone.
+struct QueryBesideCell {
+    api_url: String,
+    hivemind_dir: PathBuf,
+}
+
+impl QueryBesideCell {
+    fn from_cli(cli: &Cli) -> Option<Self> {
+        let config = LedgerConfig::from_cli(cli);
+        if config
+            .database_url
+            .as_deref()
+            .is_some_and(|url| !url.is_empty())
+        {
+            return None;
+        }
+        Some(Self {
+            api_url: hivemind_api_url_from_env()?,
+            hivemind_dir: config.hivemind_dir,
+        })
+    }
+
+    fn refuse_without_local_ledger(&self) -> Result<()> {
+        if SqliteEventLedger::exists_in(&self.hivemind_dir) {
+            return Ok(());
+        }
+        Err(CliError::InvalidInput(format!(
+            "HIVEMIND_API_URL is set ({url}), but `hivemind query` reads a local ledger and never \
+             contacts that server, and there is no local ledger under {dir}; none was created. \
+             To read the cell, call its HTTP API (GET {url}/v1/decisions/search, /recall or \
+             /relevant; docs/KEYLESS_CAPTURE.md Step 5). To read a local ledger, unset \
+             HIVEMIND_API_URL and point --hivemind-dir at it",
+            url = self.api_url,
+            dir = self.hivemind_dir.display(),
+        ))
+        .into())
+    }
+
+    fn answered_locally_notice(&self) -> String {
+        format!(
+            "HIVEMIND_API_URL is set ({url}), but this answer is from the local ledger under \
+             {dir}: `hivemind query` does not read that server. To read the cell, call its HTTP \
+             API (GET {url}/v1/decisions/search)",
+            url = self.api_url,
+            dir = self.hivemind_dir.display(),
+        )
+    }
 }
 
 fn dispatch(cli: &Cli) -> Result<String> {
@@ -586,20 +650,24 @@ struct ClassifyQueueServer {
     token: Option<String>,
 }
 
+/// The server a cell user pointed the CLI at: `HIVEMIND_API_URL`, trimmed, without a trailing
+/// slash; `None` when it is unset or blank.
+fn hivemind_api_url_from_env() -> Option<String> {
+    let base_url = std::env::var("HIVEMIND_API_URL").ok()?;
+    let base_url = base_url.trim();
+    if base_url.is_empty() {
+        return None;
+    }
+    Some(base_url.trim_end_matches('/').to_owned())
+}
+
 impl ClassifyQueueServer {
     fn from_env() -> Option<Self> {
-        let base_url = std::env::var("HIVEMIND_API_URL").ok()?;
-        let base_url = base_url.trim();
-        if base_url.is_empty() {
-            return None;
-        }
+        let base_url = hivemind_api_url_from_env()?;
         let token = std::env::var("HIVEMIND_API_KEY")
             .ok()
             .filter(|t| !t.trim().is_empty());
-        Some(Self {
-            base_url: base_url.trim_end_matches('/').to_owned(),
-            token,
-        })
+        Some(Self { base_url, token })
     }
 
     fn client(&self) -> Result<reqwest::blocking::Client> {
@@ -2437,6 +2505,9 @@ fn project_reminder(
 }
 
 fn run_query(cli: &Cli, query: &QueryArgs) -> Result<String> {
+    if let Some(cell) = QueryBesideCell::from_cli(cli) {
+        cell.refuse_without_local_ledger()?;
+    }
     let context = cli_query_context(cli)?;
     let ledger = open_ledger(cli)?;
 

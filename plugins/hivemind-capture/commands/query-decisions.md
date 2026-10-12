@@ -1,6 +1,6 @@
 ---
 name: query-decisions
-description: What did we decide about X? Free-text search over the configured HiveMind ledger.
+description: What did we decide about X? Free-text search over the local HiveMind ledger.
 argument-hint: '["free text"] [--q "..."] [--actor-id actor] [--source agent|human] [--limit 10]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/query-decisions.sh:*)
 disable-model-invocation: true
@@ -22,6 +22,11 @@ query into two words.
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/query-decisions.sh $ARGUMENTS
 ```
+
+The helper reads a local ledger; it never contacts a server. With `HIVEMIND_API_URL` set it
+refuses when the project holds no local ledger, and otherwise returns that ledger's answer with
+a `notice` that it is not the server's. Pass that notice on; do not present the answer as the
+cell's.
 
 No actor or source filter is applied unless the caller passes --actor-id
 or --source: this searches every decision in the ledger, not just the

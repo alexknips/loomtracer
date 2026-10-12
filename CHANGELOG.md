@@ -537,6 +537,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind query` no longer answers "0 decisions" from a ledger it made up when
+  `HIVEMIND_API_URL` points at a cell.** Only `classify-queue` honours that variable; `query`
+  (and the plugin's `/hivemind-capture:query-decisions`) reads a local ledger and never contacts
+  the server, so a person who followed `docs/KEYLESS_CAPTURE.md` to a cell and ran Step 5 from a
+  fresh folder got an empty `./hivemind/ledger.sqlite` created and an empty answer, and from a
+  folder that held some other ledger an answer from it, with nothing saying either was not the
+  cell's. With `HIVEMIND_API_URL` set, `query` now refuses when `--hivemind-dir` holds no ledger
+  (and creates none), and otherwise answers with a `notice` that the answer is the local ledger's.
+  A configured `--database-url` is a direct read of the shared data and is unchanged. Step 5 now
+  names the HTTP reads that do reach a cell (`GET /v1/decisions/search`, `/relevant`) and says the
+  CLI reads a local ledger. (hivemind-rmdi1)
 - **Disagreeing with a decision you accepted yourself says so and points to `supersede`.**
   An agent that captured a decision (a capture accepts itself) and then ran `disagree`,
   `emit decision.rejected` or the `disagree_decision` tool was refused with "invariant violated:

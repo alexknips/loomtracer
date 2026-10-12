@@ -1004,6 +1004,11 @@ the reply carries.
 opening the local SQLite ledger directly when `HIVEMIND_API_URL` is set (same
 `HIVEMIND_API_URL`/`HIVEMIND_API_KEY` variables as the Python capture clients
 above) — the agent never needs a direct database credential on a shared cell.
+`hivemind query` does not: it reads a local ledger (or the database named by
+`--database-url`) and never contacts `HIVEMIND_API_URL`. With that variable set it refuses when
+`--hivemind-dir` holds no ledger (and creates none), and otherwise answers from that ledger with a
+`notice` saying so. Read a cell over its HTTP API (`GET /v1/decisions/search`, `/recall`,
+`/relevant`) or its MCP tools.
 `classify-queue submit --batch-id id1,id2` accepts more than one batch id to
 submit a single classification covering several batches from the same session
 in one write, matching Worker A's cadence: classify each session once at

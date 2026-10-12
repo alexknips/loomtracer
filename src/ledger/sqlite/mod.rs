@@ -47,6 +47,12 @@ impl SqliteEventLedger {
         &self.path
     }
 
+    /// Whether `hivemind_dir` already holds a ledger. `open` creates one when it does not;
+    /// a read that must not make a ledger up asks this first.
+    pub fn exists_in(hivemind_dir: impl AsRef<Path>) -> bool {
+        hivemind_dir.as_ref().join(LEDGER_DB_NAME).is_file() // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
+    }
+
     /// Errors unless `tenant_id` has a row in the local `tenants` registry.
     /// Called once at ledger-open time (the CLI/stdio-MCP seam in
     /// [`crate::ledger::AnyLedger::open`] and the HTTP API's per-request
