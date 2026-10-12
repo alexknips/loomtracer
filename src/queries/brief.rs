@@ -108,6 +108,12 @@ pub struct DraftedFrom {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct StillHolds {
     pub held_up: bool,
+    /// Whole days from `occurred_at` until now, or until the decision that superseded it was
+    /// recorded: how long nothing in the graph replaced it. It is not evidence that the decision
+    /// was carried out. Absent, never `0`, when the dates needed are not recorded or run
+    /// backwards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_held: Option<u32>,
     pub reasons: Vec<OutcomeReason>,
     /// Bets whose check date has passed with no evidence either way. Attention, not staleness:
     /// `held_up` is unaffected.
@@ -245,6 +251,7 @@ pub(crate) fn get_decision_brief_with_labels(
         None
     };
     let grounding = grounding_of_at(graph, decision_id, now)?;
+    let days_held = days_held(graph, occurred_at, &outcome.reasons, now)?;
     let (other_answers, asked_at) = match &decision.question_id {
         Some(question_id) => (
             other_answers(graph, decision_id)?,
@@ -306,6 +313,7 @@ pub(crate) fn get_decision_brief_with_labels(
         dependents_count: grounding.dependents_count,
         still_holds: StillHolds {
             held_up: outcome.held_up,
+            days_held,
             reasons: outcome.reasons,
             unchecked: outcome.unchecked,
         },
@@ -319,6 +327,46 @@ pub(crate) fn get_decision_brief_with_labels(
         latency_ms: started.elapsed().as_millis(),
         data: Some(brief),
     })
+}
+
+/// `StillHolds::days_held`: whole days from `occurred_at` to the first superseding decision's
+/// `occurred_at`, or to `now` while nothing superseded it. A fact about the dates on the record:
+/// `None` when the decision's date, or a superseder's, is not recorded, or when the end comes
+/// before the start (a backdated import), because a guess would read as a measurement.
+fn days_held(
+    graph: &impl GraphView,
+    occurred_at: Option<DateTime<Utc>>,
+    reasons: &[OutcomeReason],
+    now: DateTime<Utc>,
+) -> Result<Option<u32>> {
+    let Some(start) = occurred_at else {
+        return Ok(None);
+    };
+    let mut superseders = reasons.iter().filter_map(|reason| match reason {
+        OutcomeReason::SupersededBy { by_id, .. } => Some(by_id.as_str()),
+        _ => None,
+    });
+    let end = if let Some(first) = superseders.next() {
+        // Concurrent supersessions both survive; the decision was held until the earliest.
+        let mut earliest = superseder_occurred_at(graph, first)?;
+        for by_id in superseders {
+            earliest = match (earliest, superseder_occurred_at(graph, by_id)?) {
+                (Some(left), Some(right)) => Some(left.min(right)),
+                _ => None,
+            };
+        }
+        earliest
+    } else {
+        Some(now)
+    };
+    Ok(end.and_then(|end| u32::try_from((end - start).num_days()).ok()))
+}
+
+fn superseder_occurred_at(graph: &impl GraphView, by_id: &str) -> Result<Option<DateTime<Utc>>> {
+    match node_row(graph, NodeKind::Decision, by_id)? {
+        Some(row) => optional_datetime(&row, "occurred_at"),
+        None => Ok(None),
+    }
 }
 
 pub(super) fn resolve_option_label(graph: &impl GraphView, option_id: &str) -> Result<OptionLabel> {

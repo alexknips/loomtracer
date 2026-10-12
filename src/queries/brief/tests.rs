@@ -729,3 +729,129 @@ fn the_brief_carries_what_the_decision_binds_what_undoing_it_costs_and_the_floor
     );
     Ok(())
 }
+
+// ── how long nothing replaced the decision (hivemind-bbnw.2) ─────────────────────────────
+
+fn days_held_of(scenario: &Scenario, decision_id: &str, now: &str) -> Result<Option<u32>> {
+    let brief = get_decision_brief_at(&scenario.graph()?, decision_id, ts(now))?
+        .data
+        .expect("decision exists");
+    Ok(brief.still_holds.days_held)
+}
+
+#[test]
+fn days_held_counts_whole_days_to_now_while_nothing_replaced_the_decision() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision("d:1", "Use SQLite", "human:alex", "2026-01-01T00:00:00Z")?;
+
+    assert_eq!(
+        days_held_of(&scenario, "d:1", "2026-01-11T23:59:59Z")?,
+        Some(10),
+        "a part of a day is not a day"
+    );
+    assert_eq!(
+        days_held_of(&scenario, "d:1", "2026-01-01T00:00:00Z")?,
+        Some(0),
+        "recorded this moment: held for no whole day yet"
+    );
+
+    let brief = get_decision_brief_at(&scenario.graph()?, "d:1", ts("2026-01-11T00:00:00Z"))?
+        .data
+        .expect("decision exists");
+    assert_eq!(
+        serde_json::to_value(&brief.still_holds).expect("serializes")["days_held"],
+        json!(10)
+    );
+    Ok(())
+}
+
+#[test]
+fn days_held_stops_at_the_decision_that_superseded_it() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision("d:old", "Use SQLite", "human:alex", "2026-01-01T00:00:00Z")?;
+    scenario.decision(
+        "d:new",
+        "Use Postgres",
+        "human:alex",
+        "2026-01-04T12:00:00Z",
+    )?;
+    scenario.supersede("d:old", "d:new", "human:alex", "2026-01-05T00:00:00Z")?;
+
+    // Months later, it still held three days: the days stop when the replacement was recorded,
+    // not when the supersession was linked and not at the clock.
+    assert_eq!(
+        days_held_of(&scenario, "d:old", "2026-06-01T00:00:00Z")?,
+        Some(3)
+    );
+    // The replacement is a live decision of its own.
+    assert_eq!(
+        days_held_of(&scenario, "d:new", "2026-06-01T00:00:00Z")?,
+        Some(147),
+        "recorded at noon on 4 January: 147 and a half days"
+    );
+    Ok(())
+}
+
+#[test]
+fn days_held_of_concurrent_supersessions_stops_at_the_earliest() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision("d:old", "Use SQLite", "human:alex", "2026-01-01T00:00:00Z")?;
+    scenario.decision(
+        "d:late",
+        "Use Postgres",
+        "human:alex",
+        "2026-01-20T00:00:00Z",
+    )?;
+    scenario.decision("d:early", "Use files", "human:bob", "2026-01-06T00:00:00Z")?;
+    scenario.supersede("d:old", "d:late", "human:alex", "2026-01-20T00:00:01Z")?;
+    scenario.supersede("d:old", "d:early", "human:bob", "2026-01-21T00:00:00Z")?;
+
+    assert_eq!(
+        days_held_of(&scenario, "d:old", "2026-06-01T00:00:00Z")?,
+        Some(5)
+    );
+    Ok(())
+}
+
+#[test]
+fn days_held_is_left_out_not_zeroed_when_the_dates_cannot_say() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision("d:1", "Use SQLite", "human:alex", "2026-03-01T00:00:00Z")?;
+
+    // The clock is before the decision (a backdated read): no figure, and no key in the JSON.
+    let brief = get_decision_brief_at(&scenario.graph()?, "d:1", ts("2026-01-01T00:00:00Z"))?
+        .data
+        .expect("decision exists");
+    assert_eq!(brief.still_holds.days_held, None);
+    assert!(
+        serde_json::to_value(&brief.still_holds)
+            .expect("serializes")
+            .get("days_held")
+            .is_none(),
+        "an unknown figure is absent, never 0"
+    );
+
+    // A decision with no date of its own has no figure either.
+    let graph = scenario.graph()?;
+    assert_eq!(
+        days_held(&graph, None, &[], ts("2026-06-01T00:00:00Z"))?,
+        None
+    );
+
+    // A replacement recorded before the decision it replaces (a backdated import) is not a
+    // negative number of days.
+    let scenario = Scenario::new();
+    scenario.decision("d:old", "Use SQLite", "human:alex", "2026-03-01T00:00:00Z")?;
+    scenario.decision(
+        "d:new",
+        "Use Postgres",
+        "human:alex",
+        "2026-02-01T00:00:00Z",
+    )?;
+    scenario.supersede("d:old", "d:new", "human:alex", "2026-03-02T00:00:00Z")?;
+    assert_eq!(
+        days_held_of(&scenario, "d:old", "2026-06-01T00:00:00Z")?,
+        None
+    );
+    Ok(())
+}

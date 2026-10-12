@@ -801,7 +801,7 @@ status and provenance signals wearing a quality label, and they are gone from
 
 | Was a deduction for | Now |
 | --- | --- |
-| superseded | the "did it hold up" outcome view (`verify`), shown beside quality and never folded into it. Supersession is a fact there (which decision replaced it); nothing weighs how quickly it happened, and a fast reversal is never penalized |
+| superseded | the "did it hold up" outcome view (`verify`), shown beside quality (`verify` and `why` carry the profile in the same response, hivemind-bbnw.2) and never folded into it. Supersession is a fact there (which decision replaced it); nothing weighs how quickly it happened, and a fast reversal is never penalized |
 | premised on a refuted assumption, or on a superseded or rejected decision | staleness: the `assumption_refuted`, `bet_failed`, `premise_superseded` and `premise_rejected` findings |
 | contested | a status, shown as such: deducting for disagreement would be conformity bias |
 | agent-only, unreviewed | the provenance line |

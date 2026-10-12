@@ -451,7 +451,24 @@ fn canonical_query_json(raw_json: &str) -> TestResult<String> {
             object.insert("latency_ms".to_owned(), json!(0));
         }
     }
+    normalise_days_held(&mut value);
     Ok(serde_json::to_string_pretty(&value)?)
+}
+
+/// `still_holds.days_held` counts whole days up to the wall clock, so a snapshot of a fixture
+/// decided on a fixed date would drift every day. Where the answer has one it is pinned to 0:
+/// the figure's arithmetic is tested against a fixed clock in `queries::brief`.
+fn normalise_days_held(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(days) = object.get_mut("days_held") {
+                *days = json!(0);
+            }
+            object.values_mut().for_each(normalise_days_held);
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(normalise_days_held),
+        _ => {}
+    }
 }
 
 fn canonical_error_json(error: &str) -> TestResult<String> {

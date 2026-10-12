@@ -17,7 +17,10 @@ use crate::projector::{
     GraphParams, GraphProperties, GraphRow, GraphValue, GraphView, NodeKind,
     RelationKind as GraphRelationKind,
 };
-use crate::quality_profile::{Assessment, Dimension, ScanReport, ScoreReport};
+use crate::quality_profile::{
+    Assessment, Dimension, QualityProfile, ReasonKind, ScanReport, ScoreReport, VerifyAnswer,
+    WhyAnswer,
+};
 use crate::queries::{
     annotate_resolution, derive_decision_status, derive_hypothesis_status, option_label_unit,
     oriented_edges, BlockerNotificationCandidates, ChangedDecisionsResults, CompactView, Contest,
@@ -25,13 +28,13 @@ use crate::queries::{
     DecisionSearchResults, DecisionStatus, DecisionTimeline, DecisionView,
     DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom, GroundingAdded,
     GroundingItem, GroundingItemState, GroundingKind, GroundingState, HistoryChangeKind,
-    HypothesisStatus, MatchReason, MisfiledDecisionCandidate, NeighborhoodView, OpenWhyResults,
-    OpenWhyView, OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage,
-    ProjectListResults, ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse,
-    QuestionAnswer, ReadOnlyExport, ReadOnlyExportFormat as QueryReadOnlyExportFormat,
-    ReadOnlyExportQueryKind, RecentActivityResults, RecentDecisionsResults, ResolveOutcome,
-    ResolvedCandidate, ReviewShape, SituationalResults, SupersessionChain, TimelineEntry,
-    TimelineFact, TitleChange, WaitingRequestsResults, POLARITY_REASON,
+    HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults, OpenWhyView,
+    OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage, ProjectListResults,
+    ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse, QuestionAnswer, ReadOnlyExport,
+    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind,
+    RecentActivityResults, RecentDecisionsResults, ResolveOutcome, ResolvedCandidate, ReviewShape,
+    SituationalResults, StillHolds, SupersessionChain, TimelineEntry, TimelineFact, TitleChange,
+    WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
 use crate::{HivemindError, Result};
@@ -859,13 +862,13 @@ pub(crate) fn render_supersession_summary(chain: &SupersessionChain) -> String {
 /// Leads with the decision, then why, who decided, and whether it still holds — the shared
 /// output contract for fluent verbs (docs/AGENT_FLUENT_QUERYING.md §4). IDs are a trailing
 /// "ref:" line, present for follow-up, never required reading to understand the answer.
-pub(crate) fn render_decision_brief_summary(brief: &Option<DecisionBrief>) -> String {
-    let Some(brief) = brief else {
+pub(crate) fn render_decision_brief_summary(answer: &Option<VerifyAnswer>) -> String {
+    let Some(answer) = answer else {
         return "No decision found".to_owned();
     };
 
     let mut output = String::new();
-    write_decision_brief(&mut output, brief);
+    write_decision_brief(&mut output, &answer.brief, &answer.quality);
     output.trim_end().to_owned()
 }
 
@@ -885,7 +888,7 @@ fn option_labels(options: &[OptionLabel]) -> String {
     labels
 }
 
-fn write_decision_brief(output: &mut String, brief: &DecisionBrief) {
+fn write_decision_brief(output: &mut String, brief: &DecisionBrief, quality: &QualityProfile) {
     let _ = writeln!(
         output,
         "decision: {} [{}]",
@@ -917,11 +920,15 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief) {
         output.push('\n');
     }
     if !brief.rejected_options.is_empty() {
-        let _ = writeln!(
+        let _ = write!(
             output,
-            "  rejected: {} (shares the rationale above — no distinct per-option reason is recorded)",
+            "  rejected: {}",
             option_labels(&brief.rejected_options)
         );
+        if let Some(note) = rejected_reasons_note(&brief.rejected_options, quality) {
+            let _ = write!(output, " ({note})");
+        }
+        output.push('\n');
     }
     // Nobody turned these down: no choice is recorded, so the question is still open.
     if !brief.open_options.is_empty() {
@@ -941,7 +948,11 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief) {
     write_rests_on(output, brief);
     write_floor_lines(output, &brief.floor);
     if brief.still_holds.held_up {
-        let _ = writeln!(output, "  still holds: yes");
+        let _ = writeln!(
+            output,
+            "  still holds: yes — {}",
+            held_up_clause(&brief.still_holds)
+        );
     } else {
         let labels = still_holds_labels(&brief.still_holds.reasons);
         if labels.is_empty() {
@@ -956,6 +967,25 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief) {
             "    - {}",
             format_outcome_reason(reason, &brief.rests_on, &brief.other_answers)
         );
+    }
+    if !brief.still_holds.held_up {
+        if let Some(days) = brief.still_holds.days_held {
+            let until = if brief
+                .still_holds
+                .reasons
+                .iter()
+                .any(|reason| matches!(reason, OutcomeReason::SupersededBy { .. }))
+            {
+                "until it was superseded"
+            } else {
+                "without being replaced"
+            };
+            let _ = writeln!(
+                output,
+                "  held {} {until} ({NOT_CARRIED_OUT})",
+                day_count(days)
+            );
+        }
     }
     for unchecked in &brief.still_holds.unchecked {
         let label = brief
@@ -979,10 +1009,138 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief) {
     if brief.dependents_count > 0 {
         let _ = writeln!(output, "  {}", dependents_line(brief.dependents_count));
     }
+    write_quality_lines(output, quality);
     if !brief.topic_keys.is_empty() {
         let _ = writeln!(output, "  topics: {}", brief.topic_keys.join(","));
     }
     let _ = writeln!(output, "  ref: {}", brief.decision_id);
+}
+
+/// Said beside every days-held figure: the days count how long nothing replaced the decision.
+const NOT_CARRIED_OUT: &str = "whether it was carried out is not tracked";
+
+fn day_count(days: u32) -> String {
+    if days == 1 {
+        "1 day".to_owned()
+    } else {
+        format!("{days} days")
+    }
+}
+
+/// What follows `still holds: yes —`: how long it has held, when the record can say, and what
+/// "holds" covers.
+fn held_up_clause(still_holds: &StillHolds) -> String {
+    let covers = format!(
+        "nothing in the graph has superseded, contested or rejected it, or undercut what it rests on ({NOT_CARRIED_OUT})"
+    );
+    match still_holds.days_held {
+        Some(days) => format!("held {}; {covers}", day_count(days)),
+        None => covers,
+    }
+}
+
+/// What `rejected:` says about the reasons the options were turned down: which of them carry none
+/// of their own and so share the decision's rationale. Read from the profile's Alternatives
+/// floor, so an option that is described is not told it has no reason. Nothing when every
+/// rejected option is described, or when the profile names none as undescribed.
+fn rejected_reasons_note(rejected: &[OptionLabel], quality: &QualityProfile) -> Option<String> {
+    let Assessment::Assessed { reasons, .. } = &quality.alternatives else {
+        return None;
+    };
+    let undescribed: &[String] = reasons
+        .iter()
+        .find(|reason| reason.kind == ReasonKind::AlternativesUndescribed)
+        .map_or(&[], |reason| reason.node_ids.as_slice());
+    let without: Vec<OptionLabel> = rejected
+        .iter()
+        .filter(|option| undescribed.contains(&option.option_id))
+        .cloned()
+        .collect();
+    if without.is_empty() {
+        return None;
+    }
+    Some(if without.len() == rejected.len() {
+        match rejected.len() {
+            1 => "it has no reason of its own; it shares the rationale above".to_owned(),
+            2 => "neither has a reason of its own; both share the rationale above".to_owned(),
+            _ => "none has a reason of its own; all share the rationale above".to_owned(),
+        }
+    } else {
+        let shares = if without.len() == 1 {
+            "it shares"
+        } else {
+            "they share"
+        };
+        format!(
+            "no reason of its own for {}; {shares} the rationale above",
+            option_labels(&without)
+        )
+    })
+}
+
+/// The profile as lines beneath `quality`: one per dimension (its level and reasons, or why it
+/// was not assessed), a model's answer under the dimension it assessed, and what deserves a
+/// look. Node ids stay in the JSON. No number stands in for any of it.
+fn write_quality_lines(output: &mut String, quality: &QualityProfile) {
+    let _ = writeln!(
+        output,
+        "  quality (what the record states, not whether it is sound; floor v{}):",
+        quality.floor_version
+    );
+    for (dimension, assessment) in quality.iter() {
+        let name = wire_name(&dimension);
+        match assessment {
+            Assessment::Assessed { level, reasons, .. } => {
+                let texts: Vec<String> = reasons
+                    .iter()
+                    .map(|reason| summary_cell(&reason.text))
+                    .collect();
+                let _ = writeln!(
+                    output,
+                    "    {name}: {} — {}",
+                    wire_name(level),
+                    texts.join("; ")
+                );
+            }
+            Assessment::NotAssessed { why } => {
+                let _ = writeln!(output, "    {name}: not assessed — {}", summary_cell(why));
+            }
+        }
+        match quality.model_answer(dimension) {
+            Some(ModelDimension::Assessed {
+                level,
+                explanation,
+                quote,
+            }) => {
+                let _ = write!(
+                    output,
+                    "      model: {} — {}",
+                    wire_name(level),
+                    summary_cell(explanation)
+                );
+                if let Some(quote) = quote {
+                    let _ = write!(output, " Quoted: \"{}\"", summary_cell(quote));
+                }
+                output.push('\n');
+            }
+            Some(ModelDimension::NotAssessed { reason }) => {
+                let _ = writeln!(
+                    output,
+                    "      model: not assessed — {}",
+                    summary_cell(reason)
+                );
+            }
+            None => {}
+        }
+    }
+    for attention in &quality.attention {
+        let _ = writeln!(
+            output,
+            "    worth a second look ({}): {}",
+            wire_name(&attention.dimension),
+            summary_cell(&attention.text)
+        );
+    }
 }
 
 /// Recorder and decider are distinct actors (hivemind-zdsh.9): the recorder is whoever
@@ -1334,10 +1492,11 @@ pub(crate) fn render_resolve_outcome_summary(outcome: &ResolveOutcome) -> String
 /// chosen and rejected options, who decided, whether it still holds), then the graph as
 /// tab-separated `root`/`node`/`edge` lines. Nodes carry a trailing `label=` when they have one,
 /// and decision nodes a trailing `project=`; the root's project is the brief's `project:` line.
-pub(crate) fn render_neighborhood_summary(neighborhood: &NeighborhoodView) -> String {
+pub(crate) fn render_neighborhood_summary(neighborhood: &WhyAnswer) -> String {
     let mut output = String::new();
-    if let Some(brief) = &neighborhood.root.brief {
-        write_decision_brief(&mut output, brief);
+    let root = &neighborhood.root.root;
+    if let (Some(brief), Some(quality)) = (&root.brief, &neighborhood.root.quality) {
+        write_decision_brief(&mut output, brief, quality);
     }
     if let Some(timeline) = &neighborhood.timeline {
         write_timeline(&mut output, timeline);
@@ -1345,9 +1504,9 @@ pub(crate) fn render_neighborhood_summary(neighborhood: &NeighborhoodView) -> St
     let _ = writeln!(
         output,
         "root\t{}\t{}\tpresent={}\tnodes={}\tedges={}",
-        neighborhood.root.kind.table_name(),
-        neighborhood.root.id,
-        neighborhood.root.present,
+        root.kind.table_name(),
+        root.id,
+        root.present,
         neighborhood.nodes.len(),
         neighborhood.edges.len()
     );

@@ -3613,7 +3613,149 @@ mod transport_parity {
                 "not_found", // ubs:ignore: test-only assertion
                 "{name}: outcome"
             );
+            assert!(
+                result["structuredContent"]["data"].get("quality").is_none(),
+                "{name}: a miss carries no profile"
+            ); // ubs:ignore: test-only assertion
         }
+    }
+
+    /// The profile's shape with the ids left out, so two ledgers that captured the same decision
+    /// (and so minted different ids) can be compared.
+    fn quality_shape(quality: &Value) -> Value {
+        let mut shape = serde_json::Map::new();
+        for (dimension, entry) in quality.as_object().expect("the profile is an object") {
+            // ubs:ignore: test-only; panicking is correct in tests
+            if !entry.is_object() {
+                continue;
+            }
+            let reasons: Vec<&Value> = entry["reasons"]
+                .as_array()
+                .map(|reasons| reasons.iter().map(|reason| &reason["kind"]).collect())
+                .unwrap_or_default();
+            shape.insert(
+                dimension.clone(),
+                json!({"status": entry["status"], "level": entry["level"], "reasons": reasons}),
+            );
+        }
+        Value::Object(shape)
+    }
+
+    #[tokio::test]
+    async fn verify_and_why_carry_the_profile_score_decision_returns_on_both_transports() {
+        let stdio_dir = unique_dir("parity-stdio-answer-quality");
+        let http_dir = unique_dir("parity-http-answer-quality");
+        let capture_args = json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
+            "grounding": [{"kind": "bet"}],
+            "title": "Use SQLite for the ledger",
+            "rationale": "Local-first storage is enough for v1",
+            "topic_keys": ["storage"],
+            "options": [{"label": "sqlite"}, {"label": "postgres"}],
+            "chosen_option_label": "sqlite",
+        });
+        let stdio_capture = stdio_call(&stdio_dir, "capture_decision", capture_args.clone());
+        let http_capture = http_call(&http_dir, "capture_decision", capture_args).await;
+        let id_of = |capture: &Value| -> String {
+            capture["result"]["structuredContent"]["decision_id"]
+                .as_str()
+                .expect("decision_id") // ubs:ignore: test-only; panicking is correct in tests
+                .to_owned()
+        };
+        let (stdio_id, http_id) = (id_of(&stdio_capture), id_of(&http_capture));
+
+        let mut shapes = Vec::new();
+        for (name, answers) in [
+            (
+                "stdio",
+                [
+                    stdio_call(
+                        &stdio_dir,
+                        "get_decision_outcome",
+                        json!({"decision_id": stdio_id}),
+                    ),
+                    stdio_call(
+                        &stdio_dir,
+                        "get_decision_neighborhood",
+                        json!({"decision_id": stdio_id}),
+                    ),
+                    stdio_call(
+                        &stdio_dir,
+                        "score_decision",
+                        json!({"decision_id": stdio_id}),
+                    ),
+                ],
+            ),
+            (
+                "http",
+                [
+                    http_call(
+                        &http_dir,
+                        "get_decision_outcome",
+                        json!({"decision_id": http_id}),
+                    )
+                    .await,
+                    http_call(
+                        &http_dir,
+                        "get_decision_neighborhood",
+                        json!({"decision_id": http_id}),
+                    )
+                    .await,
+                    http_call(&http_dir, "score_decision", json!({"decision_id": http_id})).await,
+                ],
+            ),
+        ] {
+            let [verify, why, score] = answers.map(|answer| {
+                assert_eq!(answer["result"]["isError"], false, "{name}: {answer}"); // ubs:ignore: test-only assertion
+                answer["result"]["structuredContent"]["data"].clone()
+            });
+            // The profile on the score tool, less the provenance line that stays there.
+            let mut profile = score.clone();
+            profile
+                .as_object_mut()
+                .expect("score data is an object") // ubs:ignore: test-only; panicking is correct in tests
+                .remove("provenance");
+
+            assert_eq!(
+                verify["quality"], profile,
+                "{name}: verify carries the profile"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                why["root"]["quality"], profile,
+                "{name}: why carries the profile on its root"
+            ); // ubs:ignore: test-only assertion
+            for key in ["score", "tier"] {
+                assert!(
+                    verify["quality"].get(key).is_none(),
+                    "{name}: no {key} in the profile"
+                ); // ubs:ignore: test-only assertion
+            }
+            assert!(
+                verify["still_holds"]["days_held"].is_u64(),
+                "{name}: verify says how many days it has held: {verify}"
+            ); // ubs:ignore: test-only assertion
+            assert!(
+                why["root"]["still_holds"]["days_held"].is_u64(),
+                "{name}: why says how many days it has held: {why}"
+            ); // ubs:ignore: test-only assertion
+            assert!(
+                verify["still_holds"]["reasons"]
+                    .as_array()
+                    .is_some_and(|reasons| reasons
+                        .iter()
+                        .all(|reason| reason["kind"] != "thin_structure")),
+                "{name}: thin structure left still_holds for the profile: {verify}"
+            ); // ubs:ignore: test-only assertion
+            shapes.push(quality_shape(&verify["quality"]));
+        }
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+
+        assert_eq!(
+            shapes[0], shapes[1],
+            "both transports give the same profile for the same capture"
+        ); // ubs:ignore: test-only assertion
     }
 
     #[tokio::test]

@@ -1388,6 +1388,70 @@ async fn verify_resolves_by_id_and_by_description() {
 }
 
 #[tokio::test]
+async fn verify_and_why_carry_the_quality_profile_and_the_days_the_decision_has_held() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Quality profile rides along verify and why",
+                "rationale": "One call answers what was decided, why, and how well the record supports it",
+                "topic_keys": ["answer-quality-test"],
+                "options": [{"label": "profile in the answer"}, {"label": "second call"}],
+                "chosen_option_label": "profile in the answer"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "capture: {body}"); // ubs:ignore
+    let decision_id = body["decision_id"].as_str().unwrap().to_owned();
+
+    let (status, verify) = call(
+        app(dir.clone()),
+        get_req(&format!("/v1/decisions/verify?id={decision_id}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{verify}"); // ubs:ignore
+    let (status, why) = call(
+        app(dir),
+        get_req(&format!("/v1/decisions/why?id={decision_id}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{why}"); // ubs:ignore
+
+    let quality = &verify["data"]["quality"];
+    assert_eq!(quality["decision_id"], decision_id, "{verify}"); // ubs:ignore
+    for dimension in [
+        "framing",
+        "alternatives",
+        "information",
+        "reasoning",
+        "values_tradeoffs",
+        "bias_exposure",
+        "calibration",
+    ] {
+        assert!(
+            quality[dimension]["status"].is_string(),
+            "{dimension} is assessed or not assessed: {quality}"
+        ); // ubs:ignore
+    }
+    for composite in ["score", "tier"] {
+        assert!(quality.get(composite).is_none(), "{quality}"); // ubs:ignore
+    }
+    assert_eq!(
+        why["data"]["root"]["quality"], *quality,
+        "why carries the same profile on its root"
+    ); // ubs:ignore
+    for brief in [&verify["data"], &why["data"]["root"]] {
+        assert!(brief["still_holds"]["days_held"].is_u64(), "{brief}"); // ubs:ignore
+    }
+}
+
+#[tokio::test]
 async fn verify_returns_404_for_missing_id() {
     let dir = test_ledger_dir();
     let (status, body) = call(app(dir), get_req("/v1/decisions/verify?id=nonexistent-id")).await;

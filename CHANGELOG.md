@@ -139,6 +139,23 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The answer to "what did we decide and why" carries the quality profile, and says how many
+  days it has held, in the same response.** `verify` (`get_decision_outcome`) gains `data.quality`
+  and `why` (`get_decision_neighborhood`) gains `data.root.quality`: the seven-dimension profile
+  exactly as `score_decision` returns it (framing, alternatives, information, reasoning,
+  values_tradeoffs, bias_exposure, calibration; each `assessed` with a `level` of `none`,
+  `partial` or `solid`, its `reasons` and the `node_ids` they rest on, or `not_assessed` and
+  why), less the `provenance` line, which stays on `score_decision`. There is no composite, tier
+  or score. Both answers also gain `still_holds.days_held`: the whole days nothing in the graph
+  replaced the decision, counted to now, or to the superseding decision once it was superseded.
+  It is not evidence the decision was carried out, and it is absent, never `0`, when a date is
+  not recorded. The same on MCP over stdio and HTTP, the native HTTP routes and the CLI; a
+  not-found or ambiguous answer carries no `quality`, and `get_decision` stays the plain record.
+  `--summary` prints `still holds: yes — held N days; …`, a `quality` block with one line per
+  dimension, and, for a superseded decision, `held N days until it was superseded`. The
+  `rejected:` line now names which rejected options share the decision's rationale, read from the
+  Alternatives floor, and says nothing for an option that carries a description of its own; it no
+  longer claims "no distinct per-option reason is recorded" for every decision. (hivemind-bbnw.2)
 - **A list of binding decisions whose why is still to answer.** `hivemind query
   get_open_why_decisions`, the MCP tool `get_open_why_decisions` and `GET
   /v1/attention/open-why` list, oldest first, the decisions in force that clear the decision floor

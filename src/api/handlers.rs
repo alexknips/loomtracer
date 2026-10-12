@@ -23,6 +23,7 @@ use crate::importance::{rank_decisions_by_importance, ImportanceRequest, DEFAULT
 use crate::ledger::{EventLedger, SqliteEventLedger, TenantScopedLedger};
 use crate::possibly_related::{possibly_related, PossiblyRelatedRequest};
 use crate::projector::GraphView;
+use crate::quality_profile::{verify_with_quality, why_with_quality};
 use crate::queries::{
     annotate_resolution, derive_decision_status, get_changed_decisions, get_compact_view,
     get_contested_decisions, get_decision, get_decision_brief, get_decision_neighborhood,
@@ -1480,6 +1481,7 @@ pub(super) async fn why_handler(
                 response.data.timeline = get_decision_timeline(graph, &scoped_ledger, &decision_id)
                     .map_err(to_api_error)?
                     .data;
+                let response = why_with_quality(graph, response).map_err(to_api_error)?;
                 Ok(answer_envelope(&response, close_match.as_ref()))
             }
         }
@@ -1518,6 +1520,7 @@ pub(super) async fn verify_handler(
                         "decision not found: {decision_id}"
                     )));
                 }
+                let response = verify_with_quality(graph, response).map_err(to_api_error)?;
                 Ok(answer_envelope(&response, close_match.as_ref()))
             }
         }

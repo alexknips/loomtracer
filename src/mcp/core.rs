@@ -948,7 +948,8 @@ pub(crate) fn get_situational_decisions<P: LedgerProvider>(
 /// The migrated core for the `get_decision_neighborhood` MCP tool (the CLI's
 /// `why`): one implementation consumed by both transports. Payload is
 /// identical to `hivemind query why --json` — the same `QueryResponse`
-/// envelope around [`crate::queries::NeighborhoodView`], always at the
+/// envelope around [`crate::queries::NeighborhoodView`] with the decision's
+/// quality profile on the root (`data.root.quality`), always at the
 /// CLI default (depth 1, all relations, non-compact); this bead does not
 /// expose those filters over MCP.
 pub(crate) fn get_decision_neighborhood<P: LedgerProvider>(
@@ -978,6 +979,8 @@ pub(crate) fn get_decision_neighborhood<P: LedgerProvider>(
     response.data.timeline = query_get_decision_timeline(&graph, &handle.ledger, &decision_id)
         .map_err(CoreError::from)?
         .data;
+    // The answer to "why" carries how well the record supports the decision (hivemind-bbnw.2).
+    let response = quality_profile::why_with_quality(&graph, response).map_err(CoreError::from)?;
 
     Ok(read_reply(&response, close_match.as_ref()))
 }
@@ -1324,11 +1327,11 @@ impl GetDecisionOutcomeArgs {
 
 /// The migrated core for the `get_decision_outcome` MCP tool (the CLI's
 /// `verify`): one implementation consumed by both transports. Payload is
-/// `DecisionBrief` — the same envelope `hivemind query verify --json`
-/// (`get_decision_brief`, composing `get_decision` + `get_decision_context` +
-/// `get_decision_outcome`) returns, not the narrower outcome-signal-only
-/// payload this tool returned before this migration — see hivemind-ot72.8
-/// ("match the CLI").
+/// `DecisionBrief` plus the decision's quality profile as `data.quality` — the
+/// same envelope `hivemind query verify --json` (`get_decision_brief`,
+/// composing `get_decision` + `get_decision_context` + `get_decision_outcome`)
+/// returns, not the narrower outcome-signal-only payload this tool returned
+/// before this migration — see hivemind-ot72.8 ("match the CLI").
 pub(crate) fn get_decision_outcome<P: LedgerProvider>(
     provider: &P,
     args: GetDecisionOutcomeArgs,
@@ -1350,6 +1353,9 @@ pub(crate) fn get_decision_outcome<P: LedgerProvider>(
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
     let response = query_get_decision_brief(&graph, &decision_id).map_err(CoreError::from)?;
+    // The answer carries how well the record supports the decision (hivemind-bbnw.2).
+    let response =
+        quality_profile::verify_with_quality(&graph, response).map_err(CoreError::from)?;
 
     Ok(read_reply(&response, close_match.as_ref()))
 }

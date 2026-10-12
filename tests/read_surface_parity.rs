@@ -517,6 +517,26 @@ async fn why_and_verify_answer_the_same_through_the_cli_the_plugin_http_and_mcp(
             "{verb} {question:?}: expected {expected:?}, the CLI came to {resolution:?}: {cli}"
         );
 
+        // hivemind-bbnw.2: an answer carries the quality profile and the days it has held, a list
+        // and a miss carry neither. Every surface below is compared with this envelope whole, so
+        // the profile is the same on all of them.
+        let brief = brief_of(verb, &cli);
+        match &resolution {
+            Resolution::Answered(_) => {
+                assert_seven_dimensions(&brief["quality"], &format!("{verb} {question:?}"));
+                assert!(
+                    brief["still_holds"]["days_held"].is_u64(),
+                    "{verb} {question:?}: the answer says how many days it has held: {cli}"
+                );
+            }
+            Resolution::Listed(_) | Resolution::NoMatch => {
+                assert!(
+                    brief.get("quality").is_none(),
+                    "{verb} {question:?}: only an answer carries a profile: {cli}"
+                );
+            }
+        }
+
         // The plugin runs the CLI, so its reply is the CLI's, and MCP puts the same envelope in
         // its structured content.
         assert_eq!(
@@ -536,6 +556,39 @@ async fn why_and_verify_answer_the_same_through_the_cli_the_plugin_http_and_mcp(
 
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
+}
+
+/// A profile names each of the seven dimensions, as assessed (a level and its reasons) or as not
+/// assessed (and why), and carries no composite.
+fn assert_seven_dimensions(quality: &Value, what: &str) {
+    for dimension in [
+        "framing",
+        "alternatives",
+        "information",
+        "reasoning",
+        "values_tradeoffs",
+        "bias_exposure",
+        "calibration",
+    ] {
+        let entry = &quality[dimension];
+        match entry["status"].as_str() {
+            Some("assessed") => assert!(
+                entry["level"].is_string() && entry["reasons"].is_array(),
+                "{what}: {dimension} is assessed with a level and reasons: {entry}"
+            ),
+            Some("not_assessed") => assert!(
+                entry["why"].is_string() && entry.get("level").is_none(),
+                "{what}: {dimension} is not assessed and says why: {entry}"
+            ),
+            other => panic!("{what}: {dimension} has status {other:?}: {quality}"),
+        }
+    }
+    for composite in ["score", "tier", "grade"] {
+        assert!(
+            quality.get(composite).is_none(),
+            "{what}: the profile has no {composite}: {quality}"
+        );
+    }
 }
 
 /// The labels listed under `key` of a brief, sorted (the order options come back in is not part

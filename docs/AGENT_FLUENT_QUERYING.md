@@ -866,10 +866,11 @@ the classifier/ingest extraction pipeline, not the core `Decision`/`Option`
 model that `get_decision` reads. "REJECTED options + why" therefore means:
 resolve each non-chosen `option_id` to its `label` (new lookup, small
 addition), and reuse the single decision-level `rationale` string as the
-shared "why" for the choice among options — there is no way to show a
-*distinct* rejection reason per option today without a capture-side schema
-change, which is out of scope. This is stated as a limitation in the
-rendered output, not silently glossed over (AGENTS.md §6: no invented
+shared "why" for the choice among options. An option captured with a
+description of its own (`option_descriptions`) has a reason of its own; the
+rest share the rationale. The rendered output says which rejected options
+share it, read from the quality profile's Alternatives floor, and says nothing
+for an option that carries its own reason (AGENTS.md §6: no invented
 confidence).
 
 ```rust
@@ -902,7 +903,7 @@ pub struct DecisionBrief {
 
 pub struct OptionLabel { pub option_id: String, pub label: String, pub recorded_as: Option<String> } // recorded_as: what the capture recorded, when `label` reads it differently (slug -> words); absent otherwise
 pub struct DecidedBy { pub proposer_id: Option<String>, pub decider_ids: Vec<String>, pub source: String, pub source_ref: Option<String>, pub delegated_by: Option<String>, pub review: ReviewShape, pub rejecter_ids: Vec<String> /* REJECTED_BY actors; empty when none */, pub drafted_from: Option<DraftedFrom> /* a classifier draft only: the session, who started it, who took part, as the received batches state them */ }
-pub struct StillHolds { pub held_up: bool, pub reasons: Vec<OutcomeReason>, pub unchecked: Vec<UncheckedBet> }
+pub struct StillHolds { pub held_up: bool, pub days_held: Option<u32> /* whole days nothing replaced it; absent, never 0, when a date is missing */, pub reasons: Vec<OutcomeReason>, pub unchecked: Vec<UncheckedBet> }
 ```
 
 `get_decision_brief` composes the three existing query calls plus the new
@@ -983,6 +984,47 @@ used by list-shaped commands
 record meant to be read, not a row in a list. IDs appear only in a trailing
 "ref: <decision_id>" line — present for follow-up (`--id`, `--pick`), never
 required reading to understand the answer.
+
+**The quality profile and the days held ride along `verify` and `why`**
+(hivemind-bbnw.2). "What did we decide, why, and did it hold" is answered with a
+quantitative assessment in the same response, so nobody needs to know to ask
+`score_decision` as well.
+
+- `quality` is the seven-dimension profile exactly as `score_decision` returns
+  it, less the `provenance` line (the answer's `decided_by` already says who
+  decided and how far it was reviewed): `decision_id`, `floor_version`, and one
+  entry each for `framing`, `alternatives`, `information`, `reasoning`,
+  `values_tradeoffs`, `bias_exposure`, `calibration`. An entry is either
+  `{status: "assessed", level: "none"|"partial"|"solid", reasons: [{kind, text,
+  node_ids?}], node_ids}` or `{status: "not_assessed", why}` (no `level`, by
+  construction). `attention` and a model's assessment ride along when the profile
+  has them. There is no composite, tier or score: levels say what the record
+  states, never that the decision is sound, and every level ships with its
+  reasons and the nodes they rest on. Counts (options weighed, evidence linked)
+  are in those reasons, not in a second block.
+- `still_holds.days_held` is the whole days nothing in the graph replaced the
+  decision: from `occurred_at` to now, or to the superseding decision's
+  `occurred_at` once it was superseded (the earliest superseder when concurrent
+  supersessions both survive). It is not evidence the decision was carried out
+  and the text says so. It is absent, never `0`, when a date it needs is not
+  recorded or the end falls before the start.
+- `verify` (`get_decision_outcome`) carries `data.quality`; `why`
+  (`get_decision_neighborhood`) carries `data.root.quality`. `get_decision`
+  stays the plain record. A `not_found` or `ambiguous` answer carries no
+  `quality`, and a `why` whose root is absent has none on the root.
+- Placement: the profile is composed by `quality_profile::verify_with_quality` and
+  `why_with_quality` (Layer 3), called by each transport after the query (the
+  stdio and HTTP MCP servers share one core; the native HTTP routes; the CLI), so
+  `src/queries/` never imports the profile. It reads one decision and its direct
+  options and evidence from the same graph: no scan, no model, no network, so
+  every backend gives the same profile.
+- `--summary` prints `still holds: yes — held N days; …`, a `quality (what the
+  record states, not whether it is sound; floor vN):` block with one line per
+  dimension (its level and reasons, or `not assessed` and why), and any attention
+  lines. A superseded decision reads `held N days until it was superseded`. Node
+  ids stay in the JSON.
+- The old `thin_structure` reason is not in `still_holds.reasons`: how a
+  decision was made is the profile's, whether it held is `still_holds`.
 
 **`why` reuses the brief.** `get_decision_neighborhood` (`why`) returns the
 one-hop graph and leads with this same `DecisionBrief`: `root` carries it

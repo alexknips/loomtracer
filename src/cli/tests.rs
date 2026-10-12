@@ -2555,7 +2555,7 @@ fn query_why_and_verify_list_the_options_of_an_undecided_decision_as_open() -> C
         &format!("why --summary should list the options as open, got:\n{summary}"),
     )?;
     ensure(
-        !summary.contains("rejected"),
+        !summary.lines().any(|line| line.starts_with("  rejected:")),
         &format!("why --summary should not call an option rejected, got:\n{summary}"),
     )?;
 

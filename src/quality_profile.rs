@@ -53,6 +53,9 @@
 //! its provenance line, and a page of findings each with the dimensions it bears on (for
 //! `get_suggestions`, without the ones already acknowledged).
 //!
+//! [`answer`] puts the same profile in the response of `verify` and `why`, beside the decision,
+//! its rationale and whether it still holds, so one question gets the whole answer.
+//!
 //! [`markdown`] is the same profile laid out for reading: the dimension lines of a scan ticket
 //! and the "Quality profile" section of each decision in the Markdown decision-log export.
 
@@ -68,11 +71,13 @@ use crate::queries::{
 };
 use crate::Result;
 
+pub mod answer;
 pub mod failure_modes;
 pub mod findings;
 pub mod markdown;
 pub mod report;
 
+pub use answer::{verify_with_quality, why_with_quality, VerifyAnswer, WhyAnswer, WhyRoot};
 pub use failure_modes::{analyze_failure_modes, profile_conditions};
 pub use findings::{
     attention_findings, attention_findings_at, AttentionConfig, AttentionFinding, AttentionPage,

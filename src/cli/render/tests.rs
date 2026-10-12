@@ -1,13 +1,17 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
 use crate::projector::memory::MemoryGraph;
-use crate::quality_profile::{scan_decision_quality_at, score_decision, ScanRequest};
+use crate::quality_profile::{
+    scan_decision_quality_at, score_decision, verify_with_quality, why_with_quality, ScanRequest,
+};
 use crate::queries::test_fixtures::{
-    attention_scenario, floor_scenario, project_first_fixture, ts, Scenario, ATTENTION_NOW,
+    attention_scenario, floor_scenario, project_first_fixture, record_payload, ts, Scenario,
+    ATTENTION_NOW,
 };
 use crate::queries::{
-    get_compact_view, get_decision_brief_at, get_decisions_changed_since, get_recent_activity,
-    get_situational_decisions, search_decisions_with_ledger, ChangedSinceRequest, QueryContext,
+    get_compact_view, get_decision_brief_at, get_decision_neighborhood,
+    get_decisions_changed_since, get_recent_activity, get_situational_decisions,
+    search_decisions_with_ledger, ChangedSinceRequest, NeighborhoodRequest, QueryContext,
     RecentActivityRequest, SearchDecisionRequest, SituationalRequest,
 };
 use crate::summarize::{DecisionSummary, RecallRanked, RecallResponse, SummarizeMode};
@@ -16,8 +20,16 @@ use crate::Result;
 use super::*;
 
 fn brief_text(graph: &MemoryGraph, decision_id: &str) -> Result<String> {
-    let brief = get_decision_brief_at(graph, decision_id, ts("2026-06-01T00:00:00Z"))?.data;
-    Ok(render_decision_brief_summary(&brief))
+    let brief = get_decision_brief_at(graph, decision_id, ts("2026-06-01T00:00:00Z"))?;
+    let answer = verify_with_quality(graph, brief)?.data;
+    Ok(render_decision_brief_summary(&answer))
+}
+
+/// What follows `still holds: yes —` for a decision that has held `days` days.
+fn held_clause(days: &str) -> String {
+    format!(
+        "held {days}; nothing in the graph has superseded, contested or rejected it, or undercut what it rests on (whether it was carried out is not tracked)"
+    )
 }
 
 /// `d:goal` (accepted by Alex) and `d:derived`, which follows from it, cites evidence and
@@ -84,7 +96,14 @@ fn brief_says_nothing_declared_for_a_decision_nobody_asked_about() -> Result<()>
         ),
         "{text}"
     );
-    assert!(text.contains("  still holds: yes\n"), "{text}");
+    // 2026-01-01 to the fixed clock of `brief_text`, 2026-06-01.
+    assert!(
+        text.contains(&format!(
+            "  still holds: yes — {}\n",
+            held_clause("151 days")
+        )),
+        "{text}"
+    );
     assert!(!text.contains("confidence at capture"), "{text}");
     assert!(!text.contains("rest on this"), "{text}");
     Ok(())
@@ -101,7 +120,7 @@ fn brief_lists_each_thing_it_rests_on_with_its_state_and_provenance() -> Result<
         "    decision   \"Ship the hosted MVP\"  still holds  (at capture)\n",
         "    evidence   \"27 of 27 captures carry no premise\" (mayor audit 2026-09-22)  (at capture)\n",
         "    bet        \"Agents answer the question instead of skipping capture\"  check by 2026-10-15, open  (at capture)\n",
-        "  still holds: yes\n",
+        "  still holds: yes — held 150 days; nothing in the graph has superseded",
         "  confidence at capture: high (decider's words)\n",
     ] {
         assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
@@ -265,7 +284,7 @@ fn brief_reports_an_overdue_bet_as_unchecked_while_it_still_holds() -> Result<()
 
     let text = brief_text(&scenario.graph()?, "d:1")?;
 
-    assert!(text.contains("  still holds: yes\n"), "{text}");
+    assert!(text.contains("  still holds: yes — held "), "{text}");
     assert!(
         text.contains(
             "  unchecked: bet \"Nobody will notice\" — check date 2026-02-01 has passed, no evidence recorded either way\n"
@@ -889,10 +908,267 @@ fn brief_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Result
     );
     assert!(
         text.contains(
-            "  rejected: Standing (recorded as: name-b-standing), Decisis (recorded as: name-c-decisis) (shares"
+            "  rejected: Standing (recorded as: name-b-standing), Decisis (recorded as: name-c-decisis) (neither has a reason of its own; both share the rationale above)\n"
         ),
         "{text}"
     );
+    Ok(())
+}
+
+/// `d:pick`: a question, the chosen `options[0]` and the rest rejected. `options` are `(id,
+/// label, description)`; an empty description is an alternative with no reason of its own, which
+/// a capture surface records as the placeholder text it generates (the projector refuses an empty
+/// one).
+fn rejected_scenario(options: &[(&str, &str, &str)]) -> Result<Scenario> {
+    let scenario = Scenario::new();
+    let placeholders: Vec<String> = options
+        .iter()
+        .map(|(_, label, _)| format!("Option generated from CLI value '{label}'"))
+        .collect();
+    let options: Vec<(&str, &str, &str)> = options
+        .iter()
+        .zip(&placeholders)
+        .map(|((id, label, description), placeholder)| {
+            let description = if description.is_empty() {
+                placeholder.as_str()
+            } else {
+                description
+            };
+            (*id, *label, description)
+        })
+        .collect();
+    let options = options.as_slice();
+    scenario.proposal(
+        "human:alex",
+        "2026-01-01T00:00:00Z",
+        record_payload(
+            "d:pick",
+            Some("Which store holds the ledger?"),
+            options,
+            Some(options[0].0),
+            &[],
+        ),
+    )?;
+    Ok(scenario)
+}
+
+fn rejected_line(text: &str) -> &str {
+    text.lines()
+        .find(|line| line.starts_with("  rejected: "))
+        .unwrap_or_else(|| panic!("no rejected line in:\n{text}"))
+}
+
+#[test]
+fn brief_prints_one_quality_line_per_dimension_before_the_ref() -> Result<()> {
+    let scenario = rejected_scenario(&[
+        ("o:sqlite", "SQLite", "Embedded, no server to run"),
+        ("o:pg", "Postgres", "Shared across hosts, one more service"),
+    ])?;
+
+    let text = brief_text(&scenario.graph()?, "d:pick")?;
+
+    assert!(
+        text.contains(&format!(
+            "  quality (what the record states, not whether it is sound; floor v{}):\n",
+            crate::quality_profile::FLOOR_VERSION
+        )),
+        "{text}"
+    );
+    for dimension in [
+        "framing",
+        "alternatives",
+        "information",
+        "reasoning",
+        "values_tradeoffs",
+        "bias_exposure",
+        "calibration",
+    ] {
+        let prefix = format!("    {dimension}: ");
+        assert_eq!(
+            text.lines()
+                .filter(|line| line.starts_with(&prefix))
+                .count(),
+            1,
+            "one line for {dimension} in:\n{text}"
+        );
+    }
+    // An assessed dimension prints its level and its reasons; a dimension with no basis says so.
+    assert!(
+        text.contains("    alternatives: solid — "),
+        "an assessed dimension prints level and reasons:\n{text}"
+    );
+    assert!(
+        text.contains("    values_tradeoffs: not assessed — "),
+        "an unassessed dimension prints why:\n{text}"
+    );
+    // The profile has no number or grade to print.
+    assert!(!text.contains("score"), "{text}");
+    assert!(!text.contains("tier"), "{text}");
+    let quality_at = text.find("  quality (").expect("quality block");
+    let ref_at = text.find("  ref: d:pick").expect("ref line");
+    assert!(quality_at < ref_at, "the ref line stays last:\n{text}");
+    assert!(text.ends_with("  ref: d:pick"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn rejected_line_has_no_shared_rationale_note_when_every_option_has_its_own_reason() -> Result<()> {
+    let scenario = rejected_scenario(&[
+        ("o:sqlite", "SQLite", "Embedded, no server to run"),
+        ("o:pg", "Postgres", "Shared across hosts, one more service"),
+        ("o:files", "Flat files", "No concurrent writers"),
+    ])?;
+
+    let text = brief_text(&scenario.graph()?, "d:pick")?;
+
+    assert_eq!(
+        rejected_line(&text),
+        "  rejected: Flat files, Postgres",
+        "{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn rejected_line_names_only_the_options_that_share_the_rationale() -> Result<()> {
+    let scenario = rejected_scenario(&[
+        ("o:sqlite", "SQLite", "Embedded, no server to run"),
+        ("o:pg", "Postgres", "Shared across hosts, one more service"),
+        ("o:files", "Flat files", ""),
+    ])?;
+
+    let text = brief_text(&scenario.graph()?, "d:pick")?;
+
+    assert_eq!(
+        rejected_line(&text),
+        "  rejected: Flat files, Postgres (no reason of its own for Flat files; it shares the rationale above)",
+        "{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn rejected_line_says_so_when_none_of_the_options_has_a_reason_of_its_own() -> Result<()> {
+    let one = rejected_scenario(&[("o:sqlite", "SQLite", ""), ("o:pg", "Postgres", "")])?;
+    let two = rejected_scenario(&[
+        ("o:sqlite", "SQLite", ""),
+        ("o:pg", "Postgres", ""),
+        ("o:files", "Flat files", ""),
+    ])?;
+    let three = rejected_scenario(&[
+        ("o:sqlite", "SQLite", ""),
+        ("o:pg", "Postgres", ""),
+        ("o:files", "Flat files", ""),
+        ("o:kuzu", "Kuzu", ""),
+    ])?;
+
+    let one = brief_text(&one.graph()?, "d:pick")?;
+    let two = brief_text(&two.graph()?, "d:pick")?;
+    let three = brief_text(&three.graph()?, "d:pick")?;
+
+    assert_eq!(
+        rejected_line(&one),
+        "  rejected: Postgres (it has no reason of its own; it shares the rationale above)"
+    );
+    assert_eq!(
+        rejected_line(&two),
+        "  rejected: Flat files, Postgres (neither has a reason of its own; both share the rationale above)"
+    );
+    assert_eq!(
+        rejected_line(&three),
+        "  rejected: Flat files, Kuzu, Postgres (none has a reason of its own; all share the rationale above)"
+    );
+    Ok(())
+}
+
+#[test]
+fn brief_counts_the_days_a_live_decision_has_held_and_says_that_is_not_proof_it_was_carried_out(
+) -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision(
+        "d:yesterday",
+        "Adopt the error shape",
+        "human:alex",
+        "2026-05-31T00:00:00Z",
+    )?;
+
+    let text = brief_text(&scenario.graph()?, "d:yesterday")?;
+
+    assert!(
+        text.contains(&format!("  still holds: yes — {}\n", held_clause("1 day"))),
+        "one day is singular:\n{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn brief_says_how_long_a_superseded_decision_held_before_it_was_replaced() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision(
+        "d:old",
+        "Use JSON-RPC error 32001",
+        "human:alex",
+        "2026-01-01T00:00:00Z",
+    )?;
+    scenario.decision(
+        "d:new",
+        "Use a typed miss",
+        "human:alex",
+        "2026-01-11T00:00:00Z",
+    )?;
+    scenario.supersede("d:old", "d:new", "human:alex", "2026-01-11T00:00:01Z")?;
+
+    let text = brief_text(&scenario.graph()?, "d:old")?;
+
+    // The count stops at the superseder, not at the clock of the question (2026-06-01).
+    assert!(
+        text.contains(
+            "  held 10 days until it was superseded (whether it was carried out is not tracked)\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("still holds: yes"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn why_summary_prints_the_same_quality_lines_as_verify() -> Result<()> {
+    let scenario = rejected_scenario(&[
+        ("o:sqlite", "SQLite", "Embedded, no server to run"),
+        ("o:pg", "Postgres", ""),
+    ])?;
+    let graph = scenario.graph()?;
+    let view = get_decision_neighborhood(&graph, "d:pick", &NeighborhoodRequest::all())?;
+
+    let why = render_neighborhood_summary(&why_with_quality(&graph, view)?.data);
+
+    let verify = brief_text(&graph, "d:pick")?;
+    let block = |text: &str| -> Vec<String> {
+        text.lines()
+            .skip_while(|line| !line.starts_with("  quality ("))
+            .take_while(|line| line.starts_with("  quality (") || line.starts_with("    "))
+            .map(str::to_owned)
+            .collect()
+    };
+    let verify_block = block(&verify);
+    assert_eq!(
+        verify_block.len(),
+        8,
+        "header plus seven dimensions:\n{verify}"
+    );
+    assert_eq!(block(&why), verify_block, "{why}");
+    Ok(())
+}
+
+#[test]
+fn why_summary_for_a_decision_that_is_not_there_prints_no_quality() -> Result<()> {
+    let graph = Scenario::new().graph()?;
+    let view = get_decision_neighborhood(&graph, "d:nope", &NeighborhoodRequest::all())?;
+
+    let why = render_neighborhood_summary(&why_with_quality(&graph, view)?.data);
+
+    assert!(!why.contains("quality"), "{why}");
+    assert!(why.contains("present=false"), "{why}");
     Ok(())
 }
 
@@ -922,7 +1198,10 @@ fn brief_lists_the_options_of_a_decision_nobody_has_decided_as_open_not_rejected
         text.contains("  options: Daily, Weekly (open — no choice is recorded)\n"),
         "{text}"
     );
-    assert!(!text.contains("rejected"), "{text}");
+    assert!(
+        !text.lines().any(|line| line.starts_with("  rejected:")),
+        "{text}"
+    );
     assert!(!text.contains("  chose:"), "{text}");
     Ok(())
 }

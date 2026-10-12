@@ -105,6 +105,108 @@
       "present": true,
       "project": "personal:actor:planner",
       "project_label": "actor:planner's personal project",
+      "quality": {
+        "alternatives": {
+          "level": "partial",
+          "node_ids": [
+            "option-016-a"
+          ],
+          "reasons": [
+            {
+              "kind": "alternatives_recorded",
+              "node_ids": [
+                "option-016-a"
+              ],
+              "text": "1 alternative recorded besides the chosen option"
+            },
+            {
+              "kind": "alternatives_undescribed",
+              "node_ids": [
+                "option-016-a"
+              ],
+              "text": "1 alternative without a description of its own (text a capture surface fills in does not count)"
+            }
+          ],
+          "status": "assessed"
+        },
+        "attention": [],
+        "bias_exposure": {
+          "level": "partial",
+          "node_ids": [
+            "option-016-a"
+          ],
+          "reasons": [
+            {
+              "kind": "counter_option_recorded",
+              "node_ids": [
+                "option-016-a"
+              ],
+              "text": "1 counter-option recorded besides the chosen option: something was set against the option taken"
+            },
+            {
+              "kind": "no_counter_evidence",
+              "text": "no evidence that refutes something the decision rests on was on record before it"
+            },
+            {
+              "kind": "not_judged_without_model",
+              "text": "whether a distortion shaped the choice is judged, not derived: no higher than partial without a model assessment"
+            }
+          ],
+          "status": "assessed"
+        },
+        "calibration": {
+          "status": "not_assessed",
+          "why": "No confidence was declared at capture, so there is nothing to compare with what the decision rests on. None is inferred from the wording of the rationale or from how the decision is grounded."
+        },
+        "decision_id": "decision-016",
+        "floor_version": 2,
+        "framing": {
+          "level": "none",
+          "node_ids": [],
+          "reasons": [
+            {
+              "kind": "no_question_recorded",
+              "text": "no question is recorded: the record does not say what question this decision answers"
+            }
+          ],
+          "status": "assessed"
+        },
+        "information": {
+          "level": "none",
+          "node_ids": [],
+          "reasons": [
+            {
+              "kind": "nothing_rested_on",
+              "text": "nothing is on record that the decision rests on: no evidence, prior decision, assumption or declared bet"
+            }
+          ],
+          "status": "assessed"
+        },
+        "reasoning": {
+          "level": "partial",
+          "node_ids": [
+            "decision-016"
+          ],
+          "reasons": [
+            {
+              "kind": "rationale_stated",
+              "node_ids": [
+                "decision-016"
+              ],
+              "text": "a rationale is recorded (stated, not judged sound)"
+            },
+            {
+              "kind": "not_judged_without_model",
+              "text": "whether the inference is sound is judged, not derived: no higher than partial without a model assessment"
+            }
+          ],
+          "status": "assessed"
+        },
+        "values_tradeoffs": {
+          "status": "not_assessed",
+          "why": "Judged only: nothing recorded can stand in for a judgement of whether the values and tradeoffs were made explicit and weighed, and no model assessment is attached."
+        }
+      },
       "rationale": "Deterministic rationale for seed decision 016",
       "rejected_options": [
         {
@@ -116,6 +218,7 @@
       "slug": "seed-decision-016",
       "status": "superseded",
       "still_holds": {
+        "days_held": 0,
         "held_up": false,
         "reasons": [
           {

@@ -3674,6 +3674,8 @@ fn run_query_with_graph(
                 let scoped_ledger = TenantScopedLedger::new(ledger, context.tenant_id.clone());
                 response.data.timeline =
                     get_decision_timeline(graph, &scoped_ledger, &decision_id)?.data;
+                // The answer to "why" carries how well the record supports the decision.
+                let response = quality_profile::why_with_quality(graph, response)?;
                 format_close_matched_response(
                     query.summary,
                     &response,
@@ -3719,6 +3721,8 @@ fn run_query_with_graph(
                 FluentResolution::Output(output) => return Ok(output),
             };
             let response = get_decision_brief(graph, &decision_id)?;
+            // The answer carries how well the record supports the decision.
+            let response = quality_profile::verify_with_quality(graph, response)?;
             format_close_matched_response(
                 query.summary,
                 &response,

@@ -93,7 +93,10 @@ what it wants to ask.
 
   Read `still_holds.held_up` and `still_holds.reasons`. A `false` here is a
   real signal, not noise — do not proceed as if the decision still stands
-  without accounting for why it doesn't.
+  without accounting for why it doesn't. `still_holds.days_held` says how long
+  nothing replaced it (not that it was carried out), and `quality` says how
+  well the record supports it: a level per dimension with its reasons, or "not
+  assessed" and why. `why` carries the same on its root.
 
 - **Push back or move on** — these are WRITE verbs. Never invent an id;
   resolve by description exactly like the read verbs above:
