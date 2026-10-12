@@ -991,28 +991,27 @@ mod tests {
             .iter()
             .map(|label| commands.record_option("test-actor", label, label).unwrap()) // ubs:ignore: test-only helper; panicking is correct in tests
             .collect();
-        commands
-            .propose_decision(DecisionProposalInput {
-                grounding: Grounding::NotAsked,
-                expressed_confidence: None,
-                project: None,
-                actor_id: "test-actor",
-                title,
-                rationale: "A stated reason for the summary floor test",
-                topic_keys: &topic_keys,
-                option_ids: &option_ids,
-                option_labels: &option_labels,
-                chosen_option_id: option_ids.first().map(String::as_str),
-                decided_by: None,
-                delegated_by: None,
-                still_proposed: false,
-                hypothesis_ids: &[],
-                evidence_ids: &[],
-                quote: None,
-                question: None,
-                floor: FloorInput::Stated(answers),
-            })
-            .unwrap() // ubs:ignore: test-only helper; panicking is correct in tests
+        let input = DecisionProposalInput {
+            grounding: Grounding::NotAsked,
+            expressed_confidence: None,
+            project: None,
+            actor_id: "test-actor",
+            title,
+            rationale: "A stated reason for the summary floor test",
+            topic_keys: &topic_keys,
+            option_ids: &option_ids,
+            option_labels: &option_labels,
+            chosen_option_id: option_ids.first().map(String::as_str),
+            decided_by: None,
+            delegated_by: None,
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            quote: None,
+            question: None,
+            floor: FloorInput::Stated(answers),
+        };
+        commands.propose_decision(input).unwrap() // ubs:ignore: test-only helper; panicking is correct in tests
     }
 
     #[test]
