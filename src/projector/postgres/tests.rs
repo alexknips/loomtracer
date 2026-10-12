@@ -2675,6 +2675,23 @@ fn failure_modes_by_profile_match_memory() -> Result<()> {
     })
 }
 
+// ── reaffirmation nodes (hivemind-ottw.1) ───────────────────────────────────────────
+//
+// A "still holds" is a node id'd by its event, not an edge from the dependent to the premise:
+// `hm_edges` is unique on (tenant, relation, from, to), so a second reaffirmation of one pair
+// would be dropped. The shared bulk node read returns every one of them, in ledger order.
+
+#[test]
+fn reaffirmation_nodes_match_memory() -> Result<()> {
+    use crate::queries::test_fixtures::{assert_reaffirmation_nodes, reaffirmation_scenario};
+
+    with_postgres_graph("reaffirmation-nodes", |pg| {
+        let scenario = reaffirmation_scenario()?;
+        project_from_ledger(scenario.ledger(), pg, 0)?;
+        assert_reaffirmation_nodes(pg)
+    })
+}
+
 // ── attention findings parity (hivemind-qo11.4) ─────────────────────────────────
 //
 // The findings read the grounding relations in bulk (`relation_edges`, `node_rows`) and date a

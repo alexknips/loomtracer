@@ -1,0 +1,16 @@
+{
+  "event_id": 26,
+  "event_uuid": "018f5d8a-03fb-7df0-8e36-64d7410cfe26",
+  "correlation_id": "session-1",
+  "causation_event_id": null,
+  "type": "decision.reaffirmed",
+  "actor_id": "agent:codex:reviewer",
+  "source": "agent",
+  "source_ref": "agent:codex:reviewer",
+  "payload": {
+    "decision_id": "decision-2",
+    "premise_id": "decision-1",
+    "reason": "Sharding never depended on the per-tenant cap, only on the tenant id"
+  },
+  "ts": "2026-10-12T20:46:45Z"
+}

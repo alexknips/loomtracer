@@ -223,6 +223,7 @@ fn graph_node_query(kind: NodeKind) -> String {
         NodeKind::Question => "node.id AS id, node.text AS text",
         NodeKind::Project => "node.id AS id, node.handle AS handle, node.display_name AS display_name",
         NodeKind::Ask => "node.id AS id, node.text AS text, node.question_id AS question_id",
+        NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
     };
     format!(
         "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",

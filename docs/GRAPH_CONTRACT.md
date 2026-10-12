@@ -180,6 +180,17 @@ name a placeholder that a later event fills in:
   in practice this arrow never reverses; it carries a real reversed label anyway because its
   target is not an `Actor`.
 
+A `Reaffirmation` node is created by `decision.reaffirmed` ("still holds"): its id is the event's
+uuid, and it carries `decision_id` (the dependent), `premise_id` (a decision or a hypothesis),
+`reason`, `reaffirmed_by` and `reaffirmed_at`, plus the usual `event_origin`. It has no edges, and
+that is the rule, not an omission. An edge from the dependent to the premise is unique per
+(kind, source, target) on Postgres and Kuzu, so a second reaffirmation of one pair after the
+premise changed again would collapse into the first; a node per event keeps every one. The
+premise is a decision or a hypothesis, which one Kuzu relation table, bound to a single
+source-and-target pair, cannot span; and every relation kind costs the bulk readers one more
+graph query per call. A reader takes the nodes in bulk and matches `decision_id` and
+`premise_id`. Nothing else is written or moved by the event.
+
 A `Notification` node is created by `notification.sent` (about a blocker, with a
 `NOTIFICATION_FOR_BLOCKER` edge) or by `suggestion.surfaced` (about a finding: it carries
 `finding_id` and `decision_id` and has only the `NOTIFICATION_RECIPIENT` edge, never a

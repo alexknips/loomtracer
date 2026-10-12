@@ -1812,6 +1812,7 @@ fn event_type_label(event_type: EventType) -> &'static str {
         EventType::DecisionMetadataDerived => "decision.metadata_derived",
         EventType::DecisionMoved => "decision.moved",
         EventType::DecisionRetitled => "decision.retitled",
+        EventType::DecisionReaffirmed => "decision.reaffirmed",
         EventType::ProjectRegistered => "project.registered",
         EventType::ProjectLinked => "project.linked",
         EventType::ProjectUnlinked => "project.unlinked",
@@ -2343,6 +2344,7 @@ fn node_dump_query(kind: NodeKind) -> String {
             "node.id AS id, node.handle AS handle, node.display_name AS display_name, node.purpose AS purpose, node.anchors AS anchors"
         }
         NodeKind::Ask => "node.id AS id, node.question_id AS question_id, node.text AS text, node.asked_at AS asked_at",
+        NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
     };
     format!(
         "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",
@@ -2409,6 +2411,13 @@ fn node_properties_from_row(kind: NodeKind, row: &GraphRow) -> GraphProperties {
             insert_if_present(&mut properties, row, "text");
             insert_if_present(&mut properties, row, "asked_at");
         }
+        NodeKind::Reaffirmation => {
+            insert_if_present(&mut properties, row, "decision_id");
+            insert_if_present(&mut properties, row, "premise_id");
+            insert_if_present(&mut properties, row, "reason");
+            insert_if_present(&mut properties, row, "reaffirmed_by");
+            insert_if_present(&mut properties, row, "reaffirmed_at");
+        }
     }
     properties
 }
@@ -2443,6 +2452,7 @@ fn node_color(kind: NodeKind) -> &'static str {
         NodeKind::Question => "#d4e6f1",
         NodeKind::Project => "#aed6f1",
         NodeKind::Ask => "#a9dfbf",
+        NodeKind::Reaffirmation => "#abebc6",
     }
 }
 

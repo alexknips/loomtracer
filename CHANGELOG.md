@@ -121,6 +121,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   and `verify` through all four. A 404 stays for what does not exist: an `id` that names no
   decision, and an unknown route. A client that branched on the 404 for a description now reads
   `data.outcome`. (hivemind-996m)
+- **A new ledger event, `decision.reaffirmed` ("still holds"): upgrade every reader before any
+  client records one.** It says a decision that rests on a premise stood after the premise
+  changed: `{decision_id, premise_id, reason}`, attributed to the actor who looked again, a
+  one-line reason required, a human or an agent alike. `premise_id` is a decision or a
+  hypothesis. Readers hard-fail on an event type they do not know, so a server or CLI older
+  than this release stops replaying a ledger that holds one: run this release on the server
+  (the cell image) first, then on every client. Nothing records the event yet; the verbs that
+  do (`reaffirm`, `reexamine`, MCP `reaffirm_decision`) land after this is live, and no existing
+  event changes, so an existing ledger replays unchanged. The graph gains one node kind,
+  `Reaffirmation` (id: the event's uuid; `decision_id`, `premise_id`, `reason`, `reaffirmed_by`,
+  `reaffirmed_at`), and no new relation kind; `GET /v1/graph` lists it as an unlabelled node
+  with no edge, like a `Question`. `Commands::reaffirm_decision` and
+  `reaffirm_decision_with_uuid` (library callers) append exactly one event and touch nothing
+  else; its invariants are written in the `commands` module header.
+  (hivemind-ottw.1)
 
 ### Added
 

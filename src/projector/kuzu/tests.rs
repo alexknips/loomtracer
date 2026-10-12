@@ -603,6 +603,21 @@ fn attention_findings_read_the_same_lists_as_the_other_backends() -> Result<()> 
 }
 
 #[test]
+fn reaffirmation_nodes_read_the_same_as_the_other_backends() -> Result<()> {
+    use crate::queries::test_fixtures::{assert_reaffirmation_nodes, reaffirmation_scenario};
+
+    let temp_dir = test_graph_dir("reaffirmation-nodes");
+    let graph = KuzuGraph::open(&temp_dir)?;
+    let scenario = reaffirmation_scenario()?;
+    crate::projector::project_from_ledger(scenario.ledger(), &graph, 0)?;
+
+    assert_reaffirmation_nodes(&graph)?;
+
+    let _ = fs::remove_dir_all(temp_dir);
+    Ok(())
+}
+
+#[test]
 fn score_and_scan_reports_read_the_same_answers_as_the_other_backends() -> Result<()> {
     use crate::queries::test_fixtures::attention_scenario;
 

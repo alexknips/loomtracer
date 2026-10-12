@@ -9,9 +9,9 @@ use crate::commands::{normalize_topic_key, personal_project_handle};
 use crate::error::ProjectorError;
 use crate::events::{
     self, classified_batch_ids, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem,
-    DecisionMovedPayload, DecisionProposedPayload, DecisionRequestedPayload,
-    DecisionRetitledPayload, DecisionScoredPayload, Event, EventId, EventPayload,
-    EvidenceRecordedPayload, HypothesisRecordedPayload, IngestBatchClassifiedPayload,
+    DecisionMovedPayload, DecisionProposedPayload, DecisionReaffirmedPayload,
+    DecisionRequestedPayload, DecisionRetitledPayload, DecisionScoredPayload, Event, EventId,
+    EventPayload, EvidenceRecordedPayload, HypothesisRecordedPayload, IngestBatchClassifiedPayload,
     NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
     ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload, ProjectSource,
     QuestionAskedPayload, QuestionRecordedPayload, ReadEvent, RelationKind as EventRelationKind,
@@ -72,10 +72,17 @@ pub enum NodeKind {
     /// (`ASK_FOR`) and the actor who asked (`ASKED_BY`). Distinct from `Question` itself — a
     /// question can be asked more than once, or never asked at all (hivemind-bbnw.4).
     Ask,
+    /// One `decision.reaffirmed` event: a dependent decision "still holds" after its premise
+    /// changed. It is a node with no edges, id'd by the event's own uuid: a decision-to-premise
+    /// edge is unique per (kind, from, to) on Postgres and Kuzu, so a second reaffirmation of
+    /// the same pair would collapse into the first, and a premise is a decision or a
+    /// hypothesis, which one Kuzu relation table cannot span. The read layer reads these nodes
+    /// in bulk and matches on `decision_id` and `premise_id` (hivemind-ottw.1).
+    Reaffirmation,
 }
 
 impl NodeKind {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Decision,
         Self::DecisionRequest,
         Self::Actor,
@@ -87,6 +94,7 @@ impl NodeKind {
         Self::Question,
         Self::Project,
         Self::Ask,
+        Self::Reaffirmation,
     ];
 
     pub const fn table_name(self) -> &'static str {
@@ -102,6 +110,7 @@ impl NodeKind {
             Self::Question => "Question",
             Self::Project => "Project",
             Self::Ask => "Ask",
+            Self::Reaffirmation => "Reaffirmation",
         }
     }
 }
@@ -439,6 +448,9 @@ fn project_event_reporting(
         EventPayload::DecisionRetitled(payload) => {
             project_decision_retitled(graph, &payload)?;
         }
+        EventPayload::DecisionReaffirmed(payload) => {
+            project_decision_reaffirmed(graph, event, &payload, &origin_properties)?;
+        }
         EventPayload::ProjectRegistered(payload) => {
             project_project_registered(graph, &payload, &origin_properties)?
         }
@@ -715,9 +727,11 @@ fn capture_node_text(kind: NodeKind, id: &str, props: &GraphProperties) -> Strin
         // Actor nodes have no text property; use the ID as a scoring proxy so
         // gold_as_captures() IDs (e.g. "mia") match the produced Actor node ID.
         NodeKind::Actor => return id.to_owned(),
-        // No capture kind ever produces a Project or Ask node (see `project_capture`'s match);
-        // this arm exists only for exhaustiveness.
-        NodeKind::Notification | NodeKind::Project | NodeKind::Ask => return String::new(),
+        // No capture kind ever produces a Project, Ask or Reaffirmation node (see
+        // `project_capture`'s match); this arm exists only for exhaustiveness.
+        NodeKind::Notification | NodeKind::Project | NodeKind::Ask | NodeKind::Reaffirmation => {
+            return String::new()
+        }
     };
     match props.get(key) {
         Some(GraphValue::String(s)) => s.clone(),
@@ -2131,6 +2145,37 @@ fn project_decision_retitled(
                 GraphValue::String(payload.from.clone()),
             ),
         ]),
+    )
+}
+
+/// `decision.reaffirmed` becomes one `Reaffirmation` node id'd by the event's own uuid (the way an
+/// `Ask` is), carrying the dependent, the premise, the reason, who reaffirmed and when. The
+/// ids are properties, not edges (see [`NodeKind::Reaffirmation`]). It touches no other node:
+/// whether the pair has an open re-examine item is derived from the graph on read, never stored
+/// on the dependent (hivemind-ottw.1).
+fn project_decision_reaffirmed(
+    graph: &impl GraphView,
+    event: &Event,
+    payload: &DecisionReaffirmedPayload,
+    origin_properties: &GraphProperties,
+) -> Result<()> {
+    let props = props_extend(
+        origin_properties,
+        [
+            (
+                "decision_id",
+                GraphValue::String(payload.decision_id.clone()),
+            ),
+            ("premise_id", GraphValue::String(payload.premise_id.clone())),
+            ("reason", GraphValue::String(payload.reason.clone())),
+            ("reaffirmed_by", GraphValue::String(event.actor_id.clone())),
+            ("reaffirmed_at", event_timestamp(event)),
+        ],
+    );
+    graph.upsert_node(
+        NodeKind::Reaffirmation,
+        &event.event_uuid.to_string(),
+        &props,
     )
 }
 

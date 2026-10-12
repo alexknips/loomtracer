@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use hivemind::events::{
     self, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem, DecisionAcceptedPayload,
     DecisionAssessedPayload, DecisionBlockerPriority, DecisionMetadataDerivedPayload,
-    DecisionMovedPayload, DecisionProposedPayload, DecisionRejectedPayload,
-    DecisionRequestedPayload, DecisionRetitledPayload, DecisionScoredPayload,
-    DecisionSupersededPayload, Event, EventBuilder, EventEnvelope, EventPayload, EventSource,
-    EventType, EventValidationError, EvidenceRecordedPayload, HypothesisKind,
-    HypothesisRecordedPayload, ImportanceFactors, IngestBatchClassifiedPayload,
+    DecisionMovedPayload, DecisionProposedPayload, DecisionReaffirmedPayload,
+    DecisionRejectedPayload, DecisionRequestedPayload, DecisionRetitledPayload,
+    DecisionScoredPayload, DecisionSupersededPayload, Event, EventBuilder, EventEnvelope,
+    EventPayload, EventSource, EventType, EventValidationError, EvidenceRecordedPayload,
+    HypothesisKind, HypothesisRecordedPayload, ImportanceFactors, IngestBatchClassifiedPayload,
     IngestBatchReceivedPayload, IngestTurn, ModelDimension, ModelDimensions,
     NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
     ProjectAnchorPayload, ProjectLinkKind, ProjectLinkPayload, ProjectRegisteredPayload,
@@ -23,7 +23,7 @@ use hivemind::{CliError, CommandError, HivemindError, LedgerError, ProjectorErro
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-const EVENT_TYPES: [EventType; 28] = [
+const EVENT_TYPES: [EventType; 29] = [
     EventType::DecisionProposed,
     EventType::DecisionRequested,
     EventType::DecisionAccepted,
@@ -46,6 +46,7 @@ const EVENT_TYPES: [EventType; 28] = [
     EventType::DecisionMetadataDerived,
     EventType::DecisionMoved,
     EventType::DecisionRetitled,
+    EventType::DecisionReaffirmed,
     EventType::ProjectRegistered,
     EventType::ProjectLinked,
     EventType::ProjectUnlinked,
@@ -66,7 +67,7 @@ const EVENT_RELATION_KINDS: [EventRelationKind; 9] = [
     EventRelationKind::Answers,
 ];
 
-const NODE_KINDS: [NodeKind; 11] = [
+const NODE_KINDS: [NodeKind; 12] = [
     NodeKind::Decision,
     NodeKind::DecisionRequest,
     NodeKind::Actor,
@@ -78,6 +79,7 @@ const NODE_KINDS: [NodeKind; 11] = [
     NodeKind::Question,
     NodeKind::Project,
     NodeKind::Ask,
+    NodeKind::Reaffirmation,
 ];
 
 const PROJECTOR_RELATION_KINDS: [ProjectorRelationKind; 31] = [
@@ -463,6 +465,7 @@ fn event_type_name(event_type: EventType) -> &'static str {
         EventType::DecisionMetadataDerived => "decision.metadata_derived",
         EventType::DecisionMoved => "decision.moved",
         EventType::DecisionRetitled => "decision.retitled",
+        EventType::DecisionReaffirmed => "decision.reaffirmed",
         EventType::ProjectRegistered => "project.registered",
         EventType::ProjectLinked => "project.linked",
         EventType::ProjectUnlinked => "project.unlinked",
@@ -498,6 +501,7 @@ fn payload_variant_type(payload: &EventPayload) -> EventType {
         EventPayload::DecisionMetadataDerived(_) => EventType::DecisionMetadataDerived,
         EventPayload::DecisionMoved(_) => EventType::DecisionMoved,
         EventPayload::DecisionRetitled(_) => EventType::DecisionRetitled,
+        EventPayload::DecisionReaffirmed(_) => EventType::DecisionReaffirmed,
         EventPayload::ProjectRegistered(_) => EventType::ProjectRegistered,
         EventPayload::ProjectLinked(_) => EventType::ProjectLinked,
         EventPayload::ProjectUnlinked(_) => EventType::ProjectUnlinked,
@@ -573,6 +577,9 @@ fn typed_payload_from_value(
         EventType::DecisionMoved => EventPayload::DecisionMoved(serde_json::from_value(payload)?),
         EventType::DecisionRetitled => {
             EventPayload::DecisionRetitled(serde_json::from_value(payload)?)
+        }
+        EventType::DecisionReaffirmed => {
+            EventPayload::DecisionReaffirmed(serde_json::from_value(payload)?)
         }
         EventType::ProjectRegistered => {
             EventPayload::ProjectRegistered(serde_json::from_value(payload)?)
@@ -889,6 +896,14 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             }),
         ),
         (
+            EventType::DecisionReaffirmed,
+            EventPayload::DecisionReaffirmed(DecisionReaffirmedPayload {
+                decision_id: "decision:minimal".to_owned(),
+                premise_id: "decision:premise".to_owned(),
+                reason: "Contract tests need one valid reaffirmation payload".to_owned(),
+            }),
+        ),
+        (
             EventType::ProjectRegistered,
             EventPayload::ProjectRegistered(ProjectRegisteredPayload {
                 handle: "contract-test".to_owned(),
@@ -963,6 +978,7 @@ fn payload_json(payload: &EventPayload) -> Value {
         EventPayload::DecisionMetadataDerived(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::DecisionMoved(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::DecisionRetitled(payload) => serde_json::to_value(payload).unwrap(),
+        EventPayload::DecisionReaffirmed(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::ProjectRegistered(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::ProjectLinked(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::ProjectUnlinked(payload) => serde_json::to_value(payload).unwrap(),
@@ -1072,6 +1088,7 @@ fn node_kind_contract(kind: NodeKind) -> &'static str {
         NodeKind::Question => "Question",
         NodeKind::Project => "Project",
         NodeKind::Ask => "Ask",
+        NodeKind::Reaffirmation => "Reaffirmation",
     }
 }
 

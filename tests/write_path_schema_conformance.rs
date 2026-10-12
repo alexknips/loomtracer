@@ -25,7 +25,7 @@ use std::path::PathBuf;
 
 use hivemind::commands::{
     CommandContext, Commands, DecisionProposalInput, DeterminedProject, FloorInput, GroundInput,
-    Grounding, GroundingPlan, NewBet, NewEvidence, SupersedeInput,
+    Grounding, GroundingPlan, NewBet, NewEvidence, ReaffirmInput, SupersedeInput,
 };
 use hivemind::connector;
 use hivemind::events::{
@@ -497,6 +497,16 @@ fn every_write_path_event_validates_against_its_schema() {
         )
         .expect("retitle decision back (reversal, no reason)");
 
+    // -- decision.reaffirmed (hivemind-ottw.1): a dependent still holds on a decision premise --
+    commands
+        .reaffirm_decision(ReaffirmInput {
+            actor_id: actor,
+            decision_id: &retitled_decision_id,
+            premise_id: &moved_decision_id,
+            reason: "contract test exercising decision.reaffirmed",
+        })
+        .expect("reaffirm decision");
+
     // -- grounding (hivemind-gwhr.1): a bet hypothesis with kind/check_by/would_change_if, a
     // decision that follows from a premise at capture (relation.added FOLLOWS_FROM with
     // causation), later grounding without causation, and a standalone FOLLOWS_FROM link --
@@ -613,6 +623,7 @@ fn every_write_path_event_validates_against_its_schema() {
         EventType::DecisionScored,
         EventType::DecisionMoved,
         EventType::DecisionRetitled,
+        EventType::DecisionReaffirmed,
         EventType::ProjectRegistered,
         EventType::ProjectLinked,
         EventType::ProjectUnlinked,
@@ -715,6 +726,7 @@ fn schema_file_stem(event_type: EventType) -> &'static str {
         EventType::DecisionMetadataDerived => "decision.metadata_derived",
         EventType::DecisionMoved => "decision.moved",
         EventType::DecisionRetitled => "decision.retitled",
+        EventType::DecisionReaffirmed => "decision.reaffirmed",
         EventType::ProjectRegistered => "project.registered",
         EventType::ProjectLinked => "project.linked",
         EventType::ProjectUnlinked => "project.unlinked",

@@ -159,6 +159,34 @@
 //!   <text>` would — no new invariant, and no requirement that the request still be unanswered
 //!   (re-answering a question is the contested flow `question` already supports).
 
+//! # Reaffirmation (`reaffirm_decision`, hivemind-ottw.1)
+//!
+//! "Still holds": a decision that rests on a premise says, after the premise changed, that it
+//! stands. `reaffirm_decision` appends one `decision.reaffirmed {decision_id, premise_id,
+//! reason}` and nothing else. Enforced by `reaffirm_decision_with_uuid`, tested in
+//! `commands/reaffirm/tests.rs`:
+//!
+//! - The actor id is valid and not a bare UUID, and is recorded as given. An agent reaffirms on
+//!   the same footing as a human; there is no human-only rule.
+//! - The reason is required and must contain words: a reaffirmation without one is refused.
+//! - The decision must exist in the tenant. The premise must exist in the tenant as a decision
+//!   or a hypothesis, and must not be the decision itself. Whether the decision actually rests
+//!   on the premise is not checked here.
+//! - Exactly one event is appended: no fan-out to other dependents, no derivation, no side
+//!   effect on any other decision. The re-examine item it closes is derived from the graph on
+//!   read, never stored.
+//! - There is no check for an earlier reaffirmation by the same actor with the same words. A
+//!   reaffirmation closes the item as of its own ledger offset, and a premise that changed again
+//!   since reopens it; the same words after that are a new act. A retry is deduplicated by the
+//!   event uuid the caller passes (`reaffirm_decision_with_uuid`), the way the ledger
+//!   deduplicates every event.
+//! - Refusing a reaffirmation that would close nothing (no open item for the pair: the premise
+//!   still stands, the item was already reaffirmed after the premise's latest change, or the
+//!   decision was superseded) needs the graph, so it is the calling verb's rule, applied before
+//!   this function is called and writing nothing on refusal.
+//! - Never: `supersede`, `disagree`, a link or any other command writes a `decision.reaffirmed`.
+//!   Closing an item is always an explicit act of an actor, and no command supersedes a dependent.
+//!
 //! # Restatements (`restatement` module, hivemind-83cj)
 //!
 //! A decision stated again is one decision, not two. The classifier (layer 3) judges that a
@@ -267,6 +295,7 @@ use uuid::Uuid;
 mod ground_later;
 mod grounding;
 mod question;
+mod reaffirm;
 mod restatement;
 mod transcript;
 
@@ -280,6 +309,7 @@ use question::{require_question_text, QuestionEventUuids};
 pub use question::{
     AnsweredQuestion, AskPlan, AskRecorded, AskedRequest, QuestionAnswerPlan, QuestionId,
 };
+pub use reaffirm::ReaffirmInput;
 pub use restatement::{ClassifiedBatchRecorded, RestatedCapture, RestatementOutcome};
 use transcript::captured_answers;
 

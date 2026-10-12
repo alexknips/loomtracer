@@ -12,8 +12,8 @@ use crate::commands::{
 use crate::events::{Event, EventId, EventSource, EventType, ProjectLinkKind, TenantId};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{
-    memory::MemoryGraph, rebuild_graph, GraphParams, GraphProperties, GraphRow, GraphView,
-    NodeKind, RelationKind,
+    memory::MemoryGraph, rebuild_graph, GraphParams, GraphProperties, GraphRow, GraphValue,
+    GraphView, NodeKind, RelationKind,
 };
 use crate::Result;
 
@@ -503,6 +503,25 @@ impl Scenario {
             timestamp,
         )
         .map(|_| ())
+    }
+
+    /// `decision.reaffirmed`: `decision_id` "still holds" after `premise_id` changed. Returns the
+    /// event id, so a test can order the reaffirmation against a later change.
+    pub(crate) fn reaffirmed(
+        &self,
+        decision_id: &str,
+        premise_id: &str,
+        reason: &str,
+        actor_id: &str,
+        timestamp: &str,
+    ) -> Result<EventId> {
+        self.push(
+            actor_id,
+            EventType::DecisionReaffirmed,
+            json!({"decision_id": decision_id, "premise_id": premise_id, "reason": reason}),
+            None,
+            timestamp,
+        )
     }
 
     /// `suggestion.surfaced`: `finding_id` (about `decision_id`) shown to `recipient`. Returns the
@@ -1828,4 +1847,179 @@ pub(crate) fn project_first_fixture() -> Result<ProjectFirstFixture> {
         marketing,
         personal,
     })
+}
+
+/// `d:dependent` follows from `d:premise`, which `d:replacement` supersedes, and a hypothesis
+/// `h:premise` it assumes. Three `decision.reaffirmed` events follow: `d:dependent` still holds on
+/// `d:premise` twice (alice, then a reviewer agent) and once on `h:premise`.
+///
+/// The two reaffirmations of one pair are the point: an edge from the dependent to the premise
+/// is unique per (kind, from, to) on Postgres and Kuzu, so a second reaffirmation stored as an
+/// edge would collapse into the first. Stored as nodes they both survive on every backend.
+pub(crate) fn reaffirmation_scenario() -> Result<Scenario> {
+    let s = Scenario::new();
+    s.hypothesis(
+        "h:premise",
+        "Traffic stays under the cap",
+        "assumption",
+        None,
+        "2026-09-01T00:00:00Z",
+    )?;
+    s.decision(
+        "d:premise",
+        "Cap requests per tenant",
+        "human:alex",
+        "2026-09-01T00:00:01Z",
+    )?;
+    s.decision(
+        "d:replacement",
+        "Cap requests per user",
+        "human:alex",
+        "2026-09-01T00:00:02Z",
+    )?;
+    s.decision(
+        "d:dependent",
+        "Shard by tenant",
+        "agent:claude:crew",
+        "2026-09-01T00:00:03Z",
+    )?;
+    s.relation(
+        "FOLLOWS_FROM",
+        "d:dependent",
+        "d:premise",
+        "agent:claude:crew",
+        None,
+        "2026-09-01T00:00:04Z",
+    )?;
+    s.relation(
+        "ASSUMES",
+        "d:dependent",
+        "h:premise",
+        "agent:claude:crew",
+        None,
+        "2026-09-01T00:00:05Z",
+    )?;
+    s.supersede(
+        "d:premise",
+        "d:replacement",
+        "human:alex",
+        "2026-09-02T00:00:00Z",
+    )?;
+    s.reaffirmed(
+        "d:dependent",
+        "d:premise",
+        "Sharding never depended on the per-tenant cap",
+        "human:alice",
+        "2026-09-03T00:00:00Z",
+    )?;
+    s.reaffirmed(
+        "d:dependent",
+        "d:premise",
+        "Checked again after the second change to the cap",
+        "agent:codex:reviewer",
+        "2026-09-04T00:00:00Z",
+    )?;
+    s.reaffirmed(
+        "d:dependent",
+        "h:premise",
+        "The hypothesis is only a sizing note here",
+        "human:alice",
+        "2026-09-05T00:00:00Z",
+    )?;
+    Ok(s)
+}
+
+/// What [`reaffirmation_scenario`] reads as on `graph`, through the shared bulk node read the
+/// re-examine reader uses: one `Reaffirmation` node per event, in ledger order, carrying the
+/// dependent, the premise, the reason, the actor and the time, with no edge touching any of them.
+/// Every backend passes it, so a `Reaffirmation` is stored the same way on memory, Postgres and
+/// Kuzu.
+pub(crate) fn assert_reaffirmation_nodes(graph: &impl GraphView) -> Result<()> {
+    let text = |row: &GraphRow, key: &str| match row.get(key) {
+        Some(GraphValue::String(value)) => Some(value.clone()),
+        _ => None,
+    };
+    let field = |row: &GraphRow, key: &str| text(row, key).unwrap_or_default();
+    let mut rows: Vec<GraphRow> = super::shared::node_rows(graph, NodeKind::Reaffirmation)?
+        .into_values()
+        .collect();
+    rows.sort_by_key(|row| match row.get("event_origin") {
+        Some(GraphValue::Int(origin)) => *origin,
+        _ => i64::MAX,
+    });
+
+    let seen: Vec<[String; 4]> = rows
+        .iter()
+        .map(|row| {
+            [
+                field(row, "decision_id"),
+                field(row, "premise_id"),
+                field(row, "reaffirmed_by"),
+                field(row, "reason"),
+            ]
+        })
+        .collect();
+    let expected: Vec<[String; 4]> = [
+        (
+            "d:premise",
+            "human:alice",
+            "Sharding never depended on the per-tenant cap",
+        ),
+        (
+            "d:premise",
+            "agent:codex:reviewer",
+            "Checked again after the second change to the cap",
+        ),
+        (
+            "h:premise",
+            "human:alice",
+            "The hypothesis is only a sizing note here",
+        ),
+    ]
+    .into_iter()
+    .map(|(premise, actor, reason)| {
+        [
+            "d:dependent".to_owned(),
+            premise.to_owned(),
+            actor.to_owned(),
+            reason.to_owned(),
+        ]
+    })
+    .collect();
+    if seen != expected {
+        return Err(super::shared::query_error(format!(
+            "reaffirmation nodes read {seen:?}, expected {expected:?}"
+        ))
+        .into());
+    }
+
+    let origins: Vec<i64> = rows
+        .iter()
+        .filter_map(|row| match row.get("event_origin") {
+            Some(GraphValue::Int(origin)) => Some(*origin),
+            _ => None,
+        })
+        .collect();
+    if origins.len() != 3 || origins.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(super::shared::query_error(format!(
+            "each reaffirmation carries its own increasing event_origin, read {origins:?}"
+        ))
+        .into());
+    }
+    if rows.iter().any(|row| text(row, "reaffirmed_at").is_none()) {
+        return Err(super::shared::query_error("a reaffirmation carries its time").into());
+    }
+
+    let reaffirmation_ids: Vec<String> = rows.iter().filter_map(|row| text(row, "id")).collect();
+    for relation in RelationKind::ALL {
+        for (from_id, to_id) in super::shared::relation_edges(graph, relation)? {
+            if reaffirmation_ids.contains(&from_id) || reaffirmation_ids.contains(&to_id) {
+                return Err(super::shared::query_error(format!(
+                    "a reaffirmation has no edges, found {relation:?} {from_id} -> {to_id}"
+                ))
+                .into());
+            }
+        }
+    }
+    Ok(())
 }

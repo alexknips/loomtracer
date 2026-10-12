@@ -13,8 +13,9 @@ use crate::commands::personal_project_handle;
 use crate::error::QueryError;
 use crate::events::{
     self, DecisionAcceptedPayload, DecisionMovedPayload, DecisionProposedPayload,
-    DecisionRejectedPayload, DecisionRetitledPayload, DecisionSupersededPayload, Event, EventId,
-    EventPayload, EventSource, EventType, RelationAddedPayload, RelationKind as EventRelationKind,
+    DecisionReaffirmedPayload, DecisionRejectedPayload, DecisionRetitledPayload,
+    DecisionSupersededPayload, Event, EventId, EventPayload, EventSource, EventType,
+    RelationAddedPayload, RelationKind as EventRelationKind,
 };
 use crate::floor::RecordedFloor;
 use crate::ledger::EventLedger;
@@ -1721,7 +1722,8 @@ impl DecisionIndex {
                 | EventPayload::ProjectUnlinked(_)
                 | EventPayload::ProjectAnchored(_)
                 | EventPayload::ProjectUnanchored(_)
-                | EventPayload::ProjectTopicDeclared(_) => {}
+                | EventPayload::ProjectTopicDeclared(_)
+                | EventPayload::DecisionReaffirmed(_) => {}
                 EventPayload::DecisionMoved(payload) => {
                     index
                         .decisions
@@ -1930,6 +1932,9 @@ fn change_kind_for_payload(payload: &EventPayload) -> HistoryChangeKind {
         EventPayload::DecisionSuperseded(_) => HistoryChangeKind::Supersession,
         EventPayload::DecisionMoved(_) => HistoryChangeKind::ProjectMoved,
         EventPayload::DecisionRetitled(_) => HistoryChangeKind::TitleChanged,
+        // A "still holds" is context on the dependent until the surfaces that show it give it
+        // its own kind (hivemind-ottw.3).
+        EventPayload::DecisionReaffirmed(_) => HistoryChangeKind::ContextChange,
         EventPayload::EvidenceRecorded(_) => HistoryChangeKind::NewEvidence,
         EventPayload::RelationAdded(payload) => match payload.relation {
             EventRelationKind::BasedOn | EventRelationKind::Supports => {
@@ -1993,6 +1998,9 @@ fn decision_ids_for_payload(payload: &EventPayload, index: &DecisionIndex) -> Ve
             ids.insert(decision_id.clone());
         }
         EventPayload::DecisionRetitled(DecisionRetitledPayload { decision_id, .. }) => {
+            ids.insert(decision_id.clone());
+        }
+        EventPayload::DecisionReaffirmed(DecisionReaffirmedPayload { decision_id, .. }) => {
             ids.insert(decision_id.clone());
         }
         EventPayload::DecisionRequested(payload) => {
@@ -2106,6 +2114,13 @@ fn affected_nodes_for_event(event: &Event, payload: &EventPayload) -> Vec<Affect
             nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
         }
         EventPayload::DecisionRetitled(payload) => {
+            nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
+        }
+        EventPayload::DecisionReaffirmed(payload) => {
+            nodes.insert(affected_node(
+                &event.event_uuid.to_string(),
+                NodeKind::Reaffirmation,
+            ));
             nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
         }
         EventPayload::EvidenceRecorded(payload) => {

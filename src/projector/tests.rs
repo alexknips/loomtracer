@@ -5239,6 +5239,15 @@ pub(super) fn every_event_scenario() -> Result<InMemoryEventLedger> {
             json!({"decision_id": "decision:1", "from": "billing", "to": "platform"}),
         ),
         event(
+            EventType::DecisionReaffirmed,
+            "human:alice",
+            json!({
+                "decision_id": "decision:2",
+                "premise_id": "decision:1",
+                "reason": "the premise changed but the plan does not depend on the part that moved"
+            }),
+        ),
+        event(
             EventType::BlockerResolved,
             "agent:release-bot",
             json!({
@@ -5321,6 +5330,65 @@ fn every_event_scenario_writes_every_node_and_relation_kind() -> Result<()> {
         );
     }
     Ok(())
+}
+
+// ── Reaffirmations (hivemind-ottw.1): a "still holds" is a node, never an edge ──
+
+#[test]
+fn decision_reaffirmed_projects_one_node_and_touches_nothing_else() -> Result<()> {
+    let reaffirmed = event(
+        EventType::DecisionReaffirmed,
+        "human:alice",
+        json!({
+            "decision_id": "decision:dependent",
+            "premise_id": "decision:premise",
+            "reason": "Sharding never depended on the per-tenant cap"
+        }),
+    );
+    let node_id = reaffirmed.event_uuid.to_string();
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(reaffirmed)?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let nodes = graph.nodes();
+    assert_eq!(
+        nodes.keys().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+        vec![NodeKind::Actor, NodeKind::Reaffirmation],
+        "the actor and the reaffirmation, no stub for the dependent or the premise"
+    );
+    assert!(graph.edges().is_empty(), "a reaffirmation has no edge");
+    let props = nodes
+        .get(&(NodeKind::Reaffirmation, node_id))
+        .expect("the node is id'd by the event's uuid");
+    for (key, expected) in [
+        ("decision_id", "decision:dependent"),
+        ("premise_id", "decision:premise"),
+        ("reason", "Sharding never depended on the per-tenant cap"),
+        ("reaffirmed_by", "human:alice"),
+        ("source", "agent"),
+        ("source_ref", "projection-test"),
+    ] {
+        assert_eq!(
+            props.get(key),
+            Some(&GraphValue::String(expected.to_owned())),
+            "{key}"
+        );
+    }
+    assert_eq!(props.get("event_origin"), Some(&GraphValue::Int(1)));
+    assert!(matches!(
+        props.get("reaffirmed_at"),
+        Some(GraphValue::String(_))
+    ));
+    Ok(())
+}
+
+#[test]
+fn two_reaffirmations_of_one_pair_are_two_nodes_on_the_memory_graph() -> Result<()> {
+    use crate::queries::test_fixtures::{assert_reaffirmation_nodes, reaffirmation_scenario};
+
+    assert_reaffirmation_nodes(&reaffirmation_scenario()?.graph()?)
 }
 
 // ── Arrow orientation (hivemind-ku1x): every arrow runs newer -> older ──

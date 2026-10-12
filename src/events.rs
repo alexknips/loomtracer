@@ -115,6 +115,12 @@ pub enum EventType {
     /// (same shape as `decision.moved`; hivemind-ydmp).
     #[serde(rename = "decision.retitled")]
     DecisionRetitled,
+    /// A decision that rests on a premise was looked at again after the premise changed and
+    /// still holds, with a one-line reason. It closes the derived re-examine item for that
+    /// (decision, premise) pair as of its own ledger offset; a later change to the premise
+    /// reopens it (hivemind-ottw.1).
+    #[serde(rename = "decision.reaffirmed")]
+    DecisionReaffirmed,
     #[serde(rename = "project.registered")]
     ProjectRegistered,
     #[serde(rename = "project.linked")]
@@ -1336,6 +1342,21 @@ pub struct DecisionRetitledPayload {
     pub reason: Option<String>,
 }
 
+/// `decision.reaffirmed` ("still holds", hivemind-ottw.1). `decision_id` is the dependent: the
+/// decision that rests on `premise_id`, a decision or a hypothesis. `reason` is the one line
+/// the actor gives for why the dependent still holds; the actor and the time come from the
+/// envelope. There is no verdict field: the other outcomes of a re-examination are existing
+/// events (`decision.superseded`, `decision.rejected`). That an open re-examine item exists
+/// for the pair is enforced by `commands::reaffirm_decision`, not here; the event schema only
+/// shapes the wire format. Nothing here is ever edited in place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionReaffirmedPayload {
+    pub decision_id: String,
+    pub premise_id: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectRegisteredPayload {
@@ -1402,6 +1423,7 @@ pub enum EventPayload {
     DecisionMetadataDerived(DecisionMetadataDerivedPayload),
     DecisionMoved(DecisionMovedPayload),
     DecisionRetitled(DecisionRetitledPayload),
+    DecisionReaffirmed(DecisionReaffirmedPayload),
     ProjectRegistered(ProjectRegisteredPayload),
     ProjectLinked(ProjectLinkPayload),
     ProjectUnlinked(ProjectLinkPayload),
@@ -1435,6 +1457,7 @@ impl EventPayload {
             Self::DecisionMetadataDerived(_) => EventType::DecisionMetadataDerived,
             Self::DecisionMoved(_) => EventType::DecisionMoved,
             Self::DecisionRetitled(_) => EventType::DecisionRetitled,
+            Self::DecisionReaffirmed(_) => EventType::DecisionReaffirmed,
             Self::ProjectRegistered(_) => EventType::ProjectRegistered,
             Self::ProjectLinked(_) => EventType::ProjectLinked,
             Self::ProjectUnlinked(_) => EventType::ProjectUnlinked,
@@ -1469,6 +1492,7 @@ impl EventPayload {
             Self::DecisionMetadataDerived(payload) => serde_json::to_value(payload),
             Self::DecisionMoved(payload) => serde_json::to_value(payload),
             Self::DecisionRetitled(payload) => serde_json::to_value(payload),
+            Self::DecisionReaffirmed(payload) => serde_json::to_value(payload),
             Self::ProjectRegistered(payload) => serde_json::to_value(payload),
             Self::ProjectLinked(payload) => serde_json::to_value(payload),
             Self::ProjectUnlinked(payload) => serde_json::to_value(payload),
@@ -1986,6 +2010,13 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             require_non_empty("payload.to", &payload.to)?;
             require_optional_non_empty("payload.reason", payload.reason.as_deref())?;
             Ok(EventPayload::DecisionRetitled(payload))
+        }
+        EventType::DecisionReaffirmed => {
+            let payload: DecisionReaffirmedPayload = parse_payload(event)?;
+            require_non_empty("payload.decision_id", &payload.decision_id)?;
+            require_non_empty("payload.premise_id", &payload.premise_id)?;
+            require_non_empty("payload.reason", &payload.reason)?;
+            Ok(EventPayload::DecisionReaffirmed(payload))
         }
         EventType::ProjectRegistered => {
             let payload: ProjectRegisteredPayload = parse_payload(event)?;
