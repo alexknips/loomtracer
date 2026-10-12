@@ -35,6 +35,7 @@
         "decided_at": "2026-01-01T00:00:11Z",
         "decision_id": "decision-001",
         "evidence_ids": [],
+        "floor": "not_asked",
         "hypothesis_ids": [],
         "option_ids": [
           "option-001-a",

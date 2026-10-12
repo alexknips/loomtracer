@@ -31,6 +31,7 @@ use crate::events::{
     self, DecisionRejectedPayload, DecisionSupersededPayload, Event, EventId, EventPayload,
     EventType, RelationKind as EventRelationKind,
 };
+use crate::floor::RecordedFloor;
 use crate::ledger::EventLedger;
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
@@ -40,7 +41,8 @@ use super::project_label::ProjectLabels;
 use super::question::{asks_for_question, earliest_ask, question_id_of};
 use super::shared::{
     decision_node_exists, neighbor_pairs, node_row, node_rows, normalized_limit, normalized_query,
-    optional_datetime, optional_int, optional_string, query_error, query_timer_start, Direction,
+    optional_datetime, optional_int, optional_string, query_error, query_timer_start,
+    recorded_floor_of, Direction,
 };
 use super::status::{DecisionStandings, DecisionStatus};
 use super::QueryResponse;
@@ -542,6 +544,10 @@ pub struct ChangedDecisionView {
     /// When the decision was recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decided_at: Option<DateTime<Utc>>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     /// The time of the latest change in the window; absent when it carries none.
     pub last_changed_at: Option<DateTime<Utc>>,
     /// The changes in the window, oldest first: superseded, retitled, moved, or a premise no
@@ -629,6 +635,7 @@ pub fn get_changed_decisions(
             status: standings.status_of(&decision_id),
             asked_at,
             decided_at,
+            floor: recorded_floor_of(row),
             last_changed_at: entries.last().and_then(|entry| entry.ts),
             changes: entries,
             decision_id,

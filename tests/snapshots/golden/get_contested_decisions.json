@@ -14,6 +14,7 @@
         },
         "decided_at": "2026-01-01T00:00:14Z",
         "decision_id": "decision-004",
+        "floor": "not_asked",
         "project": "personal:actor:planner",
         "project_label": "actor:planner's personal project",
         "slug": "seed-decision-004",

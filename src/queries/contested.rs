@@ -16,6 +16,7 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+use crate::floor::RecordedFloor;
 use crate::projector::{GraphView, NodeKind};
 use crate::Result;
 
@@ -23,7 +24,7 @@ use super::project_label::ProjectLabels;
 use super::question::{choice_key, conflicting_answer_sets, QuestionAnswer};
 use super::shared::{
     node_rows, normalized_limit, normalized_query, optional_int, optional_string, parse_cursor,
-    query_timer_start,
+    query_timer_start, recorded_floor_of,
 };
 use super::status::{DecisionStandings, DecisionStatus};
 use super::timeline::asked_and_decided_at;
@@ -81,6 +82,10 @@ pub struct ContestedDecisionView {
     /// When the decision was recorded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decided_at: Option<DateTime<Utc>>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     pub contest: Contest,
 }
 
@@ -122,6 +127,7 @@ pub fn get_contested_decisions(
             status: found.status,
             asked_at,
             decided_at,
+            floor: row.map_or_else(RecordedFloor::not_asked, recorded_floor_of),
             contest: found.contest,
             decision_id: found.decision_id,
         });

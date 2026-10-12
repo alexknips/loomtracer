@@ -7943,7 +7943,10 @@ fn project_decisions_lists_shared_and_personal_projects_body(
                         "status": "accepted",
                         "proposed_by": "agent:claude:session-1",
                         "session": "session-1",
-                        "project_source": "personal_fallback"
+                        "project_source": "personal_fallback",
+                        "binds": {"level": "nothing"},
+                        "undo_cost": {"level": "cheap"},
+                        "floor": "below"
                     },
                     {
                         "decision_id": second,
@@ -7951,7 +7954,10 @@ fn project_decisions_lists_shared_and_personal_projects_body(
                         "status": "accepted",
                         "proposed_by": "agent:claude:session-2",
                         "session": "session-2",
-                        "project_source": "personal_fallback"
+                        "project_source": "personal_fallback",
+                        "binds": {"level": "nothing"},
+                        "undo_cost": {"level": "cheap"},
+                        "floor": "below"
                     }
                 ]
             }
@@ -7964,8 +7970,8 @@ fn project_decisions_lists_shared_and_personal_projects_body(
         project_decisions_text(backend, &["personal:agent:claude"])?,
         format!(
             "in agent:claude's personal project, not yet shared: 2\n\
-             accepted\t{first}\tRetry billing jobs with backoff\tactor=agent:claude:session-1\tsession=session-1\tproject_source=personal_fallback\n\
-             accepted\t{second}\tExport invoices nightly\tactor=agent:claude:session-2\tsession=session-2\tproject_source=personal_fallback"
+             accepted\t{first}\tRetry billing jobs with backoff\tactor=agent:claude:session-1\tsession=session-1\tproject_source=personal_fallback\tfloor=below\n\
+             accepted\t{second}\tExport invoices nightly\tactor=agent:claude:session-2\tsession=session-2\tproject_source=personal_fallback\tfloor=below"
         ),
         "personal project text",
     )?;
@@ -7994,7 +8000,10 @@ fn project_decisions_lists_shared_and_personal_projects_body(
                         "status": "accepted",
                         "proposed_by": "agent:claude:session-1",
                         "session": "session-1",
-                        "project_source": "personal_fallback"
+                        "project_source": "personal_fallback",
+                        "binds": {"level": "nothing"},
+                        "undo_cost": {"level": "cheap"},
+                        "floor": "below"
                     }
                 ]
             }
@@ -8005,7 +8014,7 @@ fn project_decisions_lists_shared_and_personal_projects_body(
         project_decisions_text(backend, &["personal:agent:claude", "--limit", "1"])?,
         format!(
             "in agent:claude's personal project, not yet shared: 2\n\
-             accepted\t{first}\tRetry billing jobs with backoff\tactor=agent:claude:session-1\tsession=session-1\tproject_source=personal_fallback\n\
+             accepted\t{first}\tRetry billing jobs with backoff\tactor=agent:claude:session-1\tsession=session-1\tproject_source=personal_fallback\tfloor=below\n\
              truncated=true next_cursor=1"
         ),
         "truncated personal project text",
@@ -8048,7 +8057,10 @@ fn project_decisions_lists_shared_and_personal_projects_body(
                         "status": "accepted",
                         "proposed_by": "agent:claude:session-1",
                         "session": "session-1",
-                        "project_source": "stated"
+                        "project_source": "stated",
+                        "binds": {"level": "nothing"},
+                        "undo_cost": {"level": "cheap"},
+                        "floor": "below"
                     }
                 ]
             }
@@ -8059,7 +8071,7 @@ fn project_decisions_lists_shared_and_personal_projects_body(
         project_decisions_text(backend, &["billing"])?,
         format!(
             "in project billing: 1\n\
-             accepted\t{stated}\tAdopt async billing queue\tactor=agent:claude:session-1\tsession=session-1\tproject_source=stated"
+             accepted\t{stated}\tAdopt async billing queue\tactor=agent:claude:session-1\tsession=session-1\tproject_source=stated\tfloor=below"
         ),
         "shared project text",
     )?;
@@ -11095,7 +11107,7 @@ fn recall_project_first_body(backend: &TestBackend) -> CliTestResult {
         text.lines().any(|line| {
             line.starts_with("match\t")
                 && line.contains("\tproject=Platform\t")
-                && line.ends_with("\tscope=from Platform; Billing is part of it")
+                && line.ends_with("\tscope=from Platform; Billing is part of it\tfloor=below")
         }),
         &format!("the parent's decision is labelled inherited: {text}"),
     )?;
@@ -11244,7 +11256,10 @@ fn move_by_description_records_the_move_and_reverses_body(backend: &TestBackend)
             "title": "Adopt async billing queue",
             "status": "accepted",
             "proposed_by": "human:alice",
-            "project_source": "moved"
+            "project_source": "moved",
+            "binds": {"level": "nothing"},
+            "undo_cost": {"level": "cheap"},
+            "floor": "below"
         }]),
         "the moved decision is listed under its new project",
     )?;
@@ -13954,4 +13969,175 @@ fn reads_show_what_a_decision_binds_and_what_undoing_it_costs_postgres() -> CliT
         return Ok(());
     };
     reads_show_the_floor_answers_body(&backend)
+}
+
+/// The one row of a list's text that starts with `prefix` and names `id`.
+fn list_row<'a>(
+    text: &'a str,
+    prefix: &str,
+    id: &str,
+) -> std::result::Result<&'a str, Box<dyn std::error::Error>> {
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|line| line.starts_with(prefix) && line.contains(id))
+        .collect();
+    match rows.as_slice() {
+        [row] => Ok(row),
+        _ => Err(format!("expected one row for {id} in\n{text}").into()),
+    }
+}
+
+/// Every list that shows one decision per row ends a below-floor decision's row in
+/// `floor=below` (hivemind-ekmp4), and says nothing on the rows of a decision that cleared the
+/// floor or was never asked. The JSON items carry the same `floor` key the single-decision reads
+/// do.
+fn list_rows_end_in_floor_below_body(backend: &TestBackend) -> CliTestResult {
+    let apple = capture_with_floor_flags(
+        backend,
+        "Write Apple with a capital letter",
+        &["--binds-nothing", "--cheap-to-undo"],
+    )?;
+    let rename = capture_with_floor_flags(
+        backend,
+        "Rename beadline check to doctor",
+        &[
+            "--binds",
+            "Users and scripts that call the old name",
+            "--cheap-to-undo",
+        ],
+    )?;
+    let legacy = envelope_value(&run(&Cli::parse_from(cli_args(
+        backend,
+        &[
+            "--json",
+            "--actor",
+            "agent:claude:session-1",
+            "emit",
+            "decision.proposed",
+            "--title",
+            "Keep the previous export format",
+            "--rationale",
+            PROJECT_TEST_RATIONALE,
+            "--topic-keys",
+            "billing",
+            "--options",
+            "only",
+        ],
+    )))?);
+
+    // (list, its text, the prefix its decision rows start with)
+    let recent = run_query(backend, &["recent_decisions", "--since", "7d"], true)?;
+    let added = run_query(
+        backend,
+        &["get_decisions_added_since", "--since", "7d"],
+        true,
+    )?;
+    let importance = run_query(
+        backend,
+        &["rank_decisions_by_importance", "--limit", "200"],
+        true,
+    )?;
+    let recalled = run_query(
+        backend,
+        &["recall", "Write Apple with a capital letter"],
+        true,
+    )?;
+    let situational = run_query(backend, &["situational", "--paths", "billing"], true)?;
+    let project = project_decisions_text(backend, &["personal:agent:claude"])?;
+    let lists: [(&str, &str, &str); 6] = [
+        ("recent_decisions", &recent, ""),
+        ("get_decisions_added_since", &added, "added\t"),
+        ("rank_decisions_by_importance", &importance, ""),
+        ("recall", &recalled, "match\t"),
+        ("situational", &situational, "match\t"),
+        ("project decisions", &project, ""),
+    ];
+    for (list, text, prefix) in lists {
+        let apple_row = list_row(text, prefix, &apple)?;
+        ensure(
+            apple_row.ends_with("\tfloor=below"),
+            &format!("{list}: the below-floor row ends in floor=below:\n{apple_row}"),
+        )?;
+        for cleared in [&rename, &legacy] {
+            // Recall and situational pick the decisions that bear on a question, so they may
+            // leave the others out.
+            let Ok(row) = list_row(text, prefix, cleared) else {
+                ensure(
+                    matches!(list, "recall" | "situational"),
+                    &format!("{list}: no row for {cleared}:\n{text}"),
+                )?;
+                continue;
+            };
+            ensure(
+                !row.contains("floor=below"),
+                &format!(
+                    "{list}: a decision that is not below the floor carries no marker:\n{row}"
+                ),
+            )?;
+        }
+    }
+
+    // The JSON items carry the verdict the single-decision reads carry.
+    let verdict = |json: &str,
+                   items: &[&str],
+                   id: &str|
+     -> std::result::Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let value: serde_json::Value = serde_json::from_str(json)?;
+        let mut node = &value["data"];
+        for key in items {
+            node = &node[*key];
+        }
+        let item = node
+            .as_array()
+            .ok_or("the list is an array")?
+            .iter()
+            .find(|item| item["decision_id"] == serde_json::json!(id))
+            .ok_or_else(|| format!("no item for {id}"))?;
+        Ok(item["floor"].clone())
+    };
+    for (verb, items) in [
+        ("recent_decisions", vec!["items"]),
+        ("get_decisions_added_since", vec!["added_decisions"]),
+        ("rank_decisions_by_importance", vec!["decisions"]),
+    ] {
+        let json = run_query(
+            backend,
+            &match verb {
+                "rank_decisions_by_importance" => vec![verb, "--limit", "200"],
+                _ => vec![verb, "--since", "7d"],
+            },
+            false,
+        )?;
+        ensure_eq(
+            verdict(&json, &items, &apple)?,
+            serde_json::json!("below"),
+            &format!("{verb} JSON: Apple vs apple"),
+        )?;
+        ensure_eq(
+            verdict(&json, &items, &rename)?,
+            serde_json::json!("cleared"),
+            &format!("{verb} JSON: the rename"),
+        )?;
+        ensure_eq(
+            verdict(&json, &items, &legacy)?,
+            serde_json::json!("not_asked"),
+            &format!("{verb} JSON: a decision recorded without the answers"),
+        )?;
+    }
+    let _ = std::fs::remove_dir_all(&backend.hivemind_dir);
+    Ok(())
+}
+
+#[test]
+fn list_rows_end_a_below_floor_decision_in_floor_below() -> CliTestResult {
+    list_rows_end_in_floor_below_body(&TestBackend::sqlite("list-rows-floor-below"))
+}
+
+#[test]
+fn list_rows_end_a_below_floor_decision_in_floor_below_postgres() -> CliTestResult {
+    let Some(backend) = TestBackend::postgres("list-rows-floor-below-pg") else {
+        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        return Ok(());
+    };
+    list_rows_end_in_floor_below_body(&backend)
 }

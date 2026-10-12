@@ -4,6 +4,7 @@ use chrono::{Duration, Utc};
 
 use crate::commands::{Commands, DecisionProposalInput, FloorInput, GroundInput, Grounding};
 use crate::events::{RelationKind, TenantId};
+use crate::floor::{BindsAnswer, FloorAnswers, FloorVerdict, UndoCostAnswer};
 use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::test_fixtures::TypedReadsOnly;
@@ -310,6 +311,60 @@ fn changed(
 ) -> Result<crate::queries::QueryResponse<super::ChangedDecisionsResults>> {
     let graph = graph(ledger)?;
     get_changed_decisions(&graph, ledger, request)
+}
+
+#[test]
+fn a_changed_decision_carries_the_floor_its_own_answers_reach() -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let apple = commands.record_option(ACTOR, "apple", "apple")?;
+    let answers = FloorAnswers {
+        binds: BindsAnswer::nothing(),
+        undo_cost: UndoCostAnswer::cheap(),
+    };
+    let below = commands.propose_decision(DecisionProposalInput {
+        grounding: Grounding::NotAsked,
+        expressed_confidence: None,
+        actor_id: ACTOR,
+        title: "Write Apple with a capital letter",
+        rationale: "Rationale text long enough for the readable floor",
+        topic_keys: &["storage".to_owned()],
+        option_ids: std::slice::from_ref(&apple),
+        option_labels: &["apple".to_owned()],
+        chosen_option_id: Some(apple.as_str()),
+        decided_by: None,
+        still_proposed: false,
+        hypothesis_ids: &[],
+        evidence_ids: &[],
+        quote: None,
+        question: None,
+        delegated_by: None,
+        project: None,
+        floor: FloorInput::Stated(&answers),
+    })?;
+    let unasked = capture(&commands, "Use tabs", "tabs", None)?;
+    commands.retitle_decision(
+        ACTOR,
+        &below,
+        "Write Apple with a capital letter",
+        "Write Apple with a capital A",
+        None,
+    )?;
+    commands.retitle_decision(ACTOR, &unasked, "Use tabs", "Use tabs everywhere", None)?;
+
+    let response = changed(&ledger, &ChangedDecisionsRequest::default())?;
+
+    let verdict_of = |id: &str| {
+        response
+            .data
+            .items
+            .iter()
+            .find(|item| item.decision_id == id)
+            .map(|item| item.floor.verdict)
+    };
+    assert_eq!(verdict_of(&below), Some(FloorVerdict::Below));
+    assert_eq!(verdict_of(&unasked), Some(FloorVerdict::NotAsked));
+    Ok(())
 }
 
 #[test]

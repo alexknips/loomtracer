@@ -57,6 +57,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::error::QueryError;
+use crate::floor::RecordedFloor;
 use crate::projector::GraphView;
 use crate::queries::{
     get_importance_facts, Decider, DecisionFacts, DecisionStatus, ImportanceFacts,
@@ -190,6 +191,11 @@ pub struct ImportanceRow {
     pub decided_by: DecidedBy,
     /// Who recorded it. Often a scribe; never the decider.
     pub recorded_by: Option<String>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Shown beside the position and never used to rank it. Serialized as
+    /// `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_judged: Option<ModelJudged>,
     /// The basis for the position, in words.
@@ -449,6 +455,7 @@ fn row_of(candidate: &Candidate<'_>, position: usize) -> ImportanceRow {
             rejected_by: facts.rejected_by.clone(),
         },
         recorded_by: facts.recorded_by.clone(),
+        floor: facts.floor.clone(),
         model_judged,
         reasons,
     }

@@ -16,13 +16,14 @@ use crate::events::{
     DecisionRejectedPayload, DecisionRetitledPayload, DecisionSupersededPayload, Event, EventId,
     EventPayload, EventSource, EventType, RelationAddedPayload, RelationKind as EventRelationKind,
 };
+use crate::floor::RecordedFloor;
 use crate::ledger::EventLedger;
-use crate::projector::{GraphView, NodeKind};
+use crate::projector::{GraphRow, GraphView, NodeKind};
 use crate::Result;
 
 use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
 use super::project_label::ProjectLabels;
-use super::shared::normalized_query;
+use super::shared::{node_rows, normalized_query, recorded_floor_of};
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
 mod drafts;
@@ -253,6 +254,10 @@ pub struct RecentDecisionEntry {
     /// recorded it, which for a draft is the classification, possibly days later.
     pub decided_at: Option<DateTime<Utc>>,
     pub creation: DecisionEventProvenance,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     pub chosen_option_id: Option<String>,
     pub option_ids: Vec<String>,
     pub evidence_ids: Vec<String>,
@@ -381,6 +386,10 @@ pub struct AddedDecisionEntry {
     /// When it was decided (see `RecentDecisionEntry::decided_at`): what the timestamp bounds of
     /// the request window on for a decision a classifier drafted.
     pub decided_at: Option<DateTime<Utc>>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     pub creation: DecisionEventProvenance,
     pub option_ids: Vec<String>,
     pub evidence_ids: Vec<String>,
@@ -393,6 +402,10 @@ pub struct ChangedDecisionEntry {
     pub decision_id: String,
     pub status: DecisionStatus,
     pub topic_keys: Vec<String>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     pub creation: Option<DecisionEventProvenance>,
     pub option_ids: Vec<String>,
     pub evidence_ids: Vec<String>,
@@ -503,6 +516,7 @@ pub fn get_recent_decisions(
     let latest_offset = ledger.latest_offset()?;
     let window = resolve_recent_decisions_window(&events, latest_offset, request);
     let index = DecisionIndex::from_events(&events)?;
+    let decision_rows = node_rows(graph, NodeKind::Decision)?;
     let labels = ProjectLabels::from_events(&events);
     let filters = normalized_recent_decision_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
@@ -573,6 +587,7 @@ pub fn get_recent_decisions(
                 None => payload.title,
             };
             items.push(RecentDecisionEntry {
+                floor: floor_of(&decision_rows, &decision_id),
                 decision_id,
                 title,
                 rationale: payload.rationale,
@@ -592,7 +607,7 @@ pub fn get_recent_decisions(
             });
         }
     }
-    for (decision_id, draft) in ClassifiedDrafts::load(graph, &events)? {
+    for (decision_id, draft) in ClassifiedDrafts::load(graph, &events, &decision_rows)? {
         if !draft.decided_between(Some(request.since_timestamp), request.until_timestamp)
             || !decision_matches_recent_filters(
                 &draft.topic_keys,
@@ -604,7 +619,8 @@ pub fn get_recent_decisions(
         {
             continue;
         }
-        items.push(recent_entry_of_draft(decision_id, draft, &labels));
+        let floor = floor_of(&decision_rows, &decision_id);
+        items.push(recent_entry_of_draft(decision_id, draft, &labels, floor));
     }
     items.sort_by(|left, right| {
         Reverse(left.creation.event_origin)
@@ -645,12 +661,22 @@ pub fn get_recent_decisions(
     })
 }
 
+/// The floor answers the decision's node states. A decision with no node, or a node without the
+/// answers, reads as never asked.
+fn floor_of(decisions: &BTreeMap<String, GraphRow>, decision_id: &str) -> RecordedFloor {
+    decisions
+        .get(decision_id)
+        .map_or_else(RecordedFloor::not_asked, recorded_floor_of)
+}
+
 fn recent_entry_of_draft(
     decision_id: String,
     draft: ClassifiedDraft,
     labels: &ProjectLabels,
+    floor: RecordedFloor,
 ) -> RecentDecisionEntry {
     RecentDecisionEntry {
+        floor,
         decision_id,
         title: draft.title,
         rationale: draft.rationale,
@@ -755,7 +781,8 @@ pub fn get_decisions_added_since(
     let latest_offset = ledger.latest_offset()?;
     let window = resolve_added_since_window(&events, latest_offset, request);
     let index = DecisionIndex::from_events(&events)?;
-    let mut drafts = ClassifiedDrafts::load(graph, &events)?;
+    let decision_rows = node_rows(graph, NodeKind::Decision)?;
+    let mut drafts = ClassifiedDrafts::load(graph, &events, &decision_rows)?;
     let filters = normalized_added_since_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
@@ -879,6 +906,7 @@ pub fn get_decisions_added_since(
 
         match creation {
             Some(creation) if created_in_window => added.push(AddedDecisionEntry {
+                floor: floor_of(&decision_rows, decision_id),
                 decision_id: decision_id.clone(),
                 status,
                 topic_keys,
@@ -890,6 +918,7 @@ pub fn get_decisions_added_since(
                 changes_in_window: changes,
             }),
             creation => changed.push(ChangedDecisionEntry {
+                floor: floor_of(&decision_rows, decision_id),
                 decision_id: decision_id.clone(),
                 status,
                 topic_keys,
@@ -916,6 +945,7 @@ pub fn get_decisions_added_since(
             continue;
         }
         added.push(AddedDecisionEntry {
+            floor: floor_of(&decision_rows, &decision_id),
             decision_id,
             status: draft.status,
             topic_keys: draft.topic_keys,

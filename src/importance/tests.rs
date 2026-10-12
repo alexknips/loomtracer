@@ -282,6 +282,7 @@ fn bare_facts() -> DecisionFacts {
         rejected_by: Vec::new(),
         recorded_by: None,
         delegated_by: None,
+        floor: RecordedFloor::not_asked(),
         model_judged: None,
     }
 }

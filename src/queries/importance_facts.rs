@@ -17,12 +17,14 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
+use crate::floor::RecordedFloor;
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::project_label::ProjectLabels;
 use super::shared::{
-    node_rows, optional_datetime, optional_float, optional_int, optional_string, relation_edges,
+    node_rows, optional_datetime, optional_float, optional_int, optional_string, recorded_floor_of,
+    relation_edges,
 };
 use super::status::{Decider, DecisionStandings, DecisionStatus};
 
@@ -69,6 +71,8 @@ pub struct DecisionFacts {
     pub recorded_by: Option<String>,
     /// The human whose delegation an agent's acceptance fell within.
     pub delegated_by: Option<String>,
+    /// What the capturer said it binds and what undoing it costs, and the floor those reach.
+    pub floor: RecordedFloor,
     /// Present only when a model judged the importance factors.
     pub model_judged: Option<ModelJudgedFacts>,
 }
@@ -112,6 +116,7 @@ pub fn get_importance_facts(graph: &impl GraphView) -> Result<ImportanceFacts> {
                 rejected_by: standings.rejecters_of(&decision_id).to_vec(),
                 recorded_by: recorded_by.remove(&decision_id),
                 delegated_by: optional_string(&row, "delegated_by"),
+                floor: recorded_floor_of(&row),
                 model_judged: model_judged(&row),
             },
         );

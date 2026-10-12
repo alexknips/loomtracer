@@ -2,6 +2,7 @@
 #[cfg(test)]
 use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use crate::events::TenantId;
+use crate::floor::{BindsAnswer, FloorAnswers, FloorVerdict, UndoCostAnswer};
 use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::DecisionStatus;
@@ -99,6 +100,57 @@ fn a_disagreement_names_who_accepted_and_who_rejected() -> Result<()> {
             accepted_by: vec![ACTOR.to_owned()],
             rejected_by: vec![OTHER.to_owned()],
         }
+    );
+    Ok(())
+}
+
+#[test]
+fn a_contested_decision_carries_the_floor_its_own_answers_reach() -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let apple = commands.record_option(ACTOR, "apple", "apple")?;
+    let answers = FloorAnswers {
+        binds: BindsAnswer::nothing(),
+        undo_cost: UndoCostAnswer::cheap(),
+    };
+    let below = commands.propose_decision(DecisionProposalInput {
+        grounding: Grounding::NotAsked,
+        expressed_confidence: None,
+        actor_id: ACTOR,
+        title: "Write Apple with a capital letter",
+        rationale: "Rationale text long enough for the readable floor",
+        topic_keys: &["storage".to_owned()],
+        option_ids: std::slice::from_ref(&apple),
+        option_labels: &["apple".to_owned()],
+        chosen_option_id: Some(apple.as_str()),
+        decided_by: None,
+        still_proposed: false,
+        hypothesis_ids: &[],
+        evidence_ids: &[],
+        quote: None,
+        question: None,
+        delegated_by: None,
+        project: None,
+        floor: FloorInput::Stated(&answers),
+    })?;
+    let unasked = capture(&commands, "Use SQLite", "sqlite", None, true)?;
+    commands.reject_decision(&below, OTHER)?;
+    commands.reject_decision(&unasked, OTHER)?;
+
+    let results = contested(&ledger, 0, None)?;
+
+    let verdict_of = |id: &str| {
+        results
+            .items
+            .iter()
+            .find(|item| item.decision_id == id)
+            .map(|item| item.floor.verdict)
+    };
+    assert_eq!(verdict_of(&below), Some(FloorVerdict::Below));
+    assert_eq!(
+        verdict_of(&unasked),
+        Some(FloorVerdict::NotAsked),
+        "a decision that was never asked is not called below the floor"
     );
     Ok(())
 }

@@ -20,13 +20,15 @@ use crate::events::{
     EventType, ProjectAnchorKind, ProjectAnchorPayload, ProjectLinkKind, ProjectLinkPayload,
     ProjectRegisteredPayload, ProjectTopicDeclaredPayload,
 };
+use crate::floor::RecordedFloor;
 use crate::ledger::EventLedger;
 use crate::projector::{GraphParams, GraphRow, GraphValue, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::shared::{
     neighbor_pairs, node_row, normalized_limit, normalized_query, optional_int, optional_string,
-    parse_cursor, query_error, query_timer_start, required_string, Direction, DEFAULT_SEARCH_LIMIT,
+    parse_cursor, query_error, query_timer_start, recorded_floor_of, required_string, Direction,
+    DEFAULT_SEARCH_LIMIT,
 };
 use super::status::{derive_decision_status, DecisionStatus};
 use super::QueryResponse;
@@ -135,6 +137,10 @@ pub struct ProjectDecisionItem {
     /// How the decision's project was determined (`stated`, `personal_fallback`, ...).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_source: Option<String>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-ekmp4).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub occurred_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -576,13 +582,14 @@ pub fn decisions_in_project(
     })
 }
 
-/// Every decision node whose project is `handle`. Filtered here rather than in the query:
-/// the in-memory and Postgres graphs answer this shape by returning every decision, and a
-/// decision node without a project (a stub named only by a request or blocker) belongs to
-/// none.
+/// Every decision node whose project is `handle`, with the two floor answers
+/// (`binds_level`, `binds`, `undo_cost_level`, `undo_cost`) a list row marks. Filtered here
+/// rather than in the query: the in-memory and Postgres graphs answer this shape by returning
+/// every decision, and a decision node without a project (a stub named only by a request or
+/// blocker) belongs to none.
 fn project_decision_rows(graph: &impl GraphView, handle: &str) -> Result<Vec<GraphRow>> {
     let rows = graph.query(
-        "MATCH (node:`Decision`) RETURN node.id AS id, node.title AS title, node.project AS project, node.project_source AS project_source, node.occurred_at AS occurred_at, node.event_origin AS event_origin ORDER BY node.id;",
+        "MATCH (node:`Decision`) RETURN node.id AS id, node.title AS title, node.project AS project, node.project_source AS project_source, node.binds_level AS binds_level, node.binds AS binds, node.undo_cost_level AS undo_cost_level, node.undo_cost AS undo_cost, node.occurred_at AS occurred_at, node.event_origin AS event_origin ORDER BY node.id;",
         &GraphParams::new(),
     )?;
     Ok(rows
@@ -628,6 +635,7 @@ fn project_decision_item(graph: &impl GraphView, row: &GraphRow) -> Result<Proje
         proposed_by,
         session,
         project_source: optional_string(row, "project_source"),
+        floor: recorded_floor_of(row),
         occurred_at: optional_string(row, "occurred_at"),
         event_origin: optional_int(row, "event_origin"),
     })

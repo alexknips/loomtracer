@@ -6,6 +6,7 @@
       {
         "decision_id": "decision-029",
         "event_origin": 39,
+        "floor": "not_asked",
         "occurred_at": "2026-01-01T00:00:39+00:00",
         "project_source": "personal_fallback",
         "proposed_by": "actor:planner",
@@ -15,6 +16,7 @@
       {
         "decision_id": "decision-030",
         "event_origin": 40,
+        "floor": "not_asked",
         "occurred_at": "2026-01-01T00:00:40+00:00",
         "project_source": "personal_fallback",
         "proposed_by": "actor:planner",

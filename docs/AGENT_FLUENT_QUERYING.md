@@ -917,9 +917,14 @@ existed. `floor` is derived from the two levels and never stored: `cleared` when
 binds something or is costly to undo, `below` when it does neither, `not_asked` otherwise. A
 `below` decision also reads `floor: below the decision floor` wherever it is shown (the
 brief, `get_decision`, the decision-log export's front matter and index, the digest, the
-TUI), and `floor=below` ends its row in a list. `get_decision`, search results and the digest
-entries carry the same `binds`, `undo_cost` and `floor` fields as the brief. Search and
-recall are not filtered by it: a below-floor decision is returned like any other.
+TUI), and `floor=below` ends its row in a list: the text rows of `search_decisions`,
+`get_relevant_decisions`, `situational`, `recall`, `recent_decisions`,
+`get_decisions_added_since` (added and changed rows), `rank_decisions_by_importance`,
+`get_contested_decisions`, `get_changed_decisions` and `project decisions`. `get_decision`,
+search results, the digest entries and the items of those lists carry the same `binds`,
+`undo_cost` and `floor` fields as the brief. No list is filtered or reordered by it: a
+below-floor decision is returned like any other. A row for a decision that cleared the floor,
+or was never asked, carries no marker.
 
 **Which question it answers** (hivemind-zdsh.16). Decisions whose question is
 the same after lowercasing, collapsing spaces and dropping trailing punctuation

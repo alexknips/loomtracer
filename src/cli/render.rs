@@ -106,7 +106,7 @@ pub(crate) fn render_recent_decisions_summary(results: &RecentDecisionsResults) 
             .decided_at
             .map(|ts| ts.to_rfc3339())
             .unwrap_or_else(|| "unknown-ts".to_owned());
-        let _ = writeln!(
+        let _ = write!(
             output,
             "{}\t{}\t{}\t{}\tactor={}\tsource={}\tproject={}\tcitation={}",
             timestamp,
@@ -118,6 +118,8 @@ pub(crate) fn render_recent_decisions_summary(results: &RecentDecisionsResults) 
             summary_cell(&item.project_label),
             item.creation.citation_id
         );
+        write_floor_field(&mut output, &item.floor);
+        output.push('\n');
     }
     output.trim_end().to_owned()
 }
@@ -209,7 +211,7 @@ pub(crate) fn render_added_since_summary(results: &DecisionsAddedSinceResults) -
 
     let mut output = String::new();
     for item in &results.added_decisions {
-        let _ = writeln!(
+        let _ = write!(
             output,
             "added\t{}\t{}\ttopics={}\tcitation={}\tchanges={}",
             decision_status_label(item.status),
@@ -218,9 +220,11 @@ pub(crate) fn render_added_since_summary(results: &DecisionsAddedSinceResults) -
             item.creation.citation_id,
             item.changes_in_window.len()
         );
+        write_floor_field(&mut output, &item.floor);
+        output.push('\n');
     }
     for item in &results.changed_existing_decisions {
-        let _ = writeln!(
+        let _ = write!(
             output,
             "changed\t{}\t{}\ttopics={}\tchanges={}",
             decision_status_label(item.status),
@@ -228,6 +232,8 @@ pub(crate) fn render_added_since_summary(results: &DecisionsAddedSinceResults) -
             item.topic_keys.join(","),
             item.changes_in_window.len()
         );
+        write_floor_field(&mut output, &item.floor);
+        output.push('\n');
     }
     output.trim_end().to_owned()
 }
@@ -483,9 +489,6 @@ pub(crate) fn render_situational_summary(results: &SituationalResults) -> String
             changed,
             summary_cell(&item.decision.project_label),
         );
-        if item.decision.floor.is_below() {
-            output.push_str("floor=below\t");
-        }
         // Only a project-scoped answer says how each decision reached it.
         if let Some(scope) = &item.scope {
             let _ = write!(output, "scope={}\t", summary_cell(&scope.label));
@@ -505,6 +508,7 @@ pub(crate) fn render_situational_summary(results: &SituationalResults) -> String
                 }
             }
         }
+        write_floor_field(&mut output, &item.decision.floor);
         output.push('\n');
         // A newer accepted answer to the question this decision answers, and any accepted
         // answer that chose differently, sit on their own lines: never folded into `holds`.
@@ -582,6 +586,7 @@ pub(crate) fn render_recall_summary(response: &crate::summarize::RecallResponse)
                 .collect();
             let _ = write!(output, "\talso_recorded_as={}", copies.join(","));
         }
+        write_floor_field(&mut output, &item.decision.floor);
         output.push('\n');
     }
     output.trim_end().to_owned()
@@ -794,12 +799,14 @@ pub(crate) fn render_importance_summary(report: &ImportanceReport) -> String {
         if let Some(delegated_by) = &row.decided_by.delegated_by {
             let _ = write!(output, " delegated_by={delegated_by}");
         }
-        let _ = writeln!(
+        let _ = write!(
             output,
             "\trecorded_by={}\t{}",
             row.recorded_by.as_deref().unwrap_or("-"),
             summary_cell(&row.reasons.join("; "))
         );
+        write_floor_field(&mut output, &row.floor);
+        output.push('\n');
     }
     output.trim_end().to_owned()
 }
@@ -1468,6 +1475,7 @@ pub(crate) fn render_contested_decisions_summary(results: &ContestedDecisionsRes
             }
         }
         write_project_field(&mut output, Some(&item.project_label));
+        write_floor_field(&mut output, &item.floor);
         output.push('\n');
     }
     output.trim_end().to_owned()
@@ -1493,6 +1501,7 @@ pub(crate) fn render_changed_decisions_summary(results: &ChangedDecisionsResults
             summary_cell(&item.title)
         );
         write_project_field(&mut output, Some(&item.project_label));
+        write_floor_field(&mut output, &item.floor);
         output.push('\n');
         for change in &item.changes {
             write_timeline_entry(&mut output, change);
@@ -2773,6 +2782,7 @@ pub(crate) fn render_project_decisions_summary(outcome: &ProjectDecisionsOutcome
             "\tproject_source={}",
             item.project_source.as_deref().unwrap_or("-")
         );
+        write_floor_field(&mut output, &item.floor);
     }
     output
 }

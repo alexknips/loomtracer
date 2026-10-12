@@ -13,10 +13,10 @@ use chrono::{DateTime, Utc};
 
 use crate::commands::personal_project_handle;
 use crate::events::{Event, EventId};
-use crate::projector::{GraphView, NodeKind, RelationKind};
+use crate::projector::{GraphRow, GraphView, RelationKind};
 use crate::queries::brief::is_classified_capture;
 use crate::queries::shared::{
-    node_rows, optional_datetime, optional_int, optional_string, optional_string_list, query_error,
+    optional_datetime, optional_int, optional_string, optional_string_list, query_error,
     relation_edges,
 };
 use crate::queries::status::DecisionStandings;
@@ -77,13 +77,20 @@ pub(super) struct ClassifiedDrafts {
 }
 
 impl ClassifiedDrafts {
-    /// Reads the drafts out of `graph`. `events` is the ledger in offset order: each draft's
-    /// creation is the classification event its node names. A draft that names an event the
-    /// ledger does not hold is refused, not dropped: a window that quietly lost it would look
-    /// complete.
-    pub(super) fn load(graph: &impl GraphView, events: &[Event]) -> Result<Self> {
-        let mut rows = node_rows(graph, NodeKind::Decision)?;
-        rows.retain(|id, _| is_classified_capture(id));
+    /// Reads the drafts out of `graph`. `decisions` is every decision node of the graph by id
+    /// (`node_rows`), read once by the caller, who also needs the floor answers on it. `events` is
+    /// the ledger in offset order: each draft's creation is the classification event its node
+    /// names. A draft that names an event the ledger does not hold is refused, not dropped: a
+    /// window that quietly lost it would look complete.
+    pub(super) fn load(
+        graph: &impl GraphView,
+        events: &[Event],
+        decisions: &BTreeMap<String, GraphRow>,
+    ) -> Result<Self> {
+        let rows: Vec<(&String, &GraphRow)> = decisions
+            .iter()
+            .filter(|(id, _)| is_classified_capture(id))
+            .collect();
         if rows.is_empty() {
             return Ok(Self::default());
         }
@@ -110,7 +117,7 @@ impl ClassifiedDrafts {
 
         let mut drafts = BTreeMap::new();
         for (id, row) in rows {
-            let origin = optional_int(&row, "event_origin")
+            let origin = optional_int(row, "event_origin")
                 .and_then(|origin| EventId::try_from(origin).ok())
                 .ok_or_else(|| query_error(format!("draft {id} names no classification event")))?;
             let batch = events
@@ -127,37 +134,37 @@ impl ClassifiedDrafts {
             // ubs:ignore: the draft owns its recorder twice, in its creation and in its actors
             let mut actor_ids = BTreeSet::from([creation.actor_id.clone()]);
             for by_source in [&proposed_by, &accepted_by, &rejected_by] {
-                actor_ids.extend(named(by_source, &id));
+                actor_ids.extend(named(by_source, id));
             }
 
-            let option_ids = named(&has_option, &id);
-            let chosen_option_id = named(&chose, &id).into_iter().next();
-            let mut hypothesis_ids = named(&premised_on_direct, &id);
+            let option_ids = named(&has_option, id);
+            let chosen_option_id = named(&chose, id).into_iter().next();
+            let mut hypothesis_ids = named(&premised_on_direct, id);
             if let Some(chosen) = &chosen_option_id {
                 hypothesis_ids.extend(named(&premised_on, chosen));
                 hypothesis_ids.sort();
                 hypothesis_ids.dedup();
             }
-            let project = optional_string(&row, "project")
+            let project = optional_string(row, "project")
                 .unwrap_or_else(|| personal_project_handle(&creation.actor_id));
 
             let draft = ClassifiedDraft {
-                decided_at: optional_datetime(&row, "occurred_at")?,
-                title: optional_string(&row, "title").unwrap_or_default(),
-                rationale: optional_string(&row, "rationale").unwrap_or_default(),
-                quote: optional_string(&row, "quote"),
-                question: optional_string(&row, "question"),
-                status: standings.status_of(&id),
+                decided_at: optional_datetime(row, "occurred_at")?,
+                title: optional_string(row, "title").unwrap_or_default(),
+                rationale: optional_string(row, "rationale").unwrap_or_default(),
+                quote: optional_string(row, "quote"),
+                question: optional_string(row, "question"),
+                status: standings.status_of(id),
                 project,
-                topic_keys: optional_string_list(&row, "topic_keys"),
+                topic_keys: optional_string_list(row, "topic_keys"),
                 actor_ids: actor_ids.into_iter().collect(),
                 creation,
                 chosen_option_id,
                 option_ids,
-                evidence_ids: named(&based_on, &id),
+                evidence_ids: named(&based_on, id),
                 hypothesis_ids,
             };
-            drafts.insert(id, draft);
+            drafts.insert(id.clone(), draft); // ubs:ignore: the map owns its ids; one clone per draft
         }
         Ok(Self { drafts })
     }

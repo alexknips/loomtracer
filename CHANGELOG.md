@@ -537,6 +537,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A below-floor decision now ends its row in `floor=below` in every list, not only in search,
+  relevant and situational.** The list a person asks for first ("what did we decide today?",
+  `recent_decisions`) showed an Apple-vs-apple decision with no marker, and so did
+  `get_decisions_added_since`, `rank_decisions_by_importance`, `get_contested_decisions`,
+  `get_changed_decisions`, `recall` and `project decisions`, although the entry above says a list
+  row ends in `floor=below`. Each of those rows now ends in it, and `situational` moves its marker
+  from the middle of the row to the end. The JSON items of the same lists carry `binds`,
+  `undo_cost` and `floor` like every other read of a decision. The marker is information, not a
+  filter: the ranking, the windows and the order are unchanged. (hivemind-ekmp4)
 - **`hivemind query` no longer answers "0 decisions" from a ledger it made up when
   `HIVEMIND_API_URL` points at a cell.** Only `classify-queue` honours that variable; `query`
   (and the plugin's `/hivemind-capture:query-decisions`) reads a local ledger and never contacts
