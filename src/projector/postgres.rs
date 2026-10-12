@@ -218,7 +218,9 @@ fn dispatch_query(
     // ── Decision by id (title/rationale/topic_keys, or existence+event_origin
     //    check — outcome.rs's get_decision_outcome existence probe reads only
     //    id/event_origin but the row carries every stored property either way) ──
-    if cypher.contains("LIMIT 1")
+    // `LIMIT 1;` with the semicolon: the topic read ends `LIMIT 1000;`, which a bare `LIMIT 1`
+    // also matches, and it would be sent here (no `id` param) instead of to the topic handler.
+    if cypher.contains("LIMIT 1;")
         && (cypher.contains("d.title AS title")
             || cypher.contains("d.event_origin AS event_origin"))
     {
