@@ -565,6 +565,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   from the middle of the row to the end. The JSON items of the same lists carry `binds`,
   `undo_cost` and `floor` like every other read of a decision. The marker is information, not a
   filter: the ranking, the windows and the order are unchanged. (hivemind-ekmp4)
+- **`scan_misfiled_decisions` ends a below-floor decision's row in `floor=below` too.** The
+  ekmp4 entry above says a list row ends in the marker, but the misfiled report was left out: an
+  Apple-vs-apple decision in it showed no marker, and its JSON and MCP items carried no `binds`,
+  `undo_cost` or `floor`. They do now, like every other read of a decision. A row that names a
+  decision by id alone (`get_supersession_chain`) carries none, and the docs say so. The report
+  is still only a report: nothing is filtered, reordered or moved. (hivemind-h2we6)
 - **`hivemind query` no longer answers "0 decisions" from a ledger it made up when
   `HIVEMIND_API_URL` points at a cell.** Only `classify-queue` honours that variable; `query`
   (and the plugin's `/hivemind-capture:query-decisions`) reads a local ledger and never contacts

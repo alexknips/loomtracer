@@ -709,8 +709,9 @@ built on), so it is listed without a rank, never as the least important.
 write-time inputs to reach and irreversibility: what the decision binds beyond the edit in
 front of the capturer (`binds`: `nothing`, or `something` with one sentence saying what) and
 what undoing it would cost (`undo_cost`: `cheap`, or `costly` with one sentence). They are
-recorded on the decision and shown with it everywhere it is read (a list row ends in
-`floor=below` for a decision below the floor), as `binds`, `undo_cost` and
+recorded on the decision and shown with it everywhere it is read (a list row that names the
+decision by title ends in `floor=below` when it is below the floor; the lists are named in
+`AGENT_FLUENT_QUERYING.md`), as `binds`, `undo_cost` and
 the derived `floor` (`cleared` when it binds something or is costly to undo, `below` when it
 does neither, `not_asked` for a decision recorded before the questions existed). They are
 facts, not a score: the ranking still reads only what follows from a decision. They enter

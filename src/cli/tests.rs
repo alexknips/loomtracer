@@ -14044,13 +14044,19 @@ fn list_rows_end_in_floor_below_body(backend: &TestBackend) -> CliTestResult {
     )?;
     let situational = run_query(backend, &["situational", "--paths", "billing"], true)?;
     let project = project_decisions_text(backend, &["personal:agent:claude"])?;
-    let lists: [(&str, &str, &str); 6] = [
+    let misfiled = run_query(
+        backend,
+        &["scan_misfiled_decisions", "--foreign-topic", "billing"],
+        true,
+    )?;
+    let lists: [(&str, &str, &str); 7] = [
         ("recent_decisions", &recent, ""),
         ("get_decisions_added_since", &added, "added\t"),
         ("rank_decisions_by_importance", &importance, ""),
         ("recall", &recalled, "match\t"),
         ("situational", &situational, "match\t"),
         ("project decisions", &project, ""),
+        ("scan_misfiled_decisions", &misfiled, "misfiled\t"),
     ];
     for (list, text, prefix) in lists {
         let apple_row = list_row(text, prefix, &apple)?;
@@ -14099,11 +14105,13 @@ fn list_rows_end_in_floor_below_body(backend: &TestBackend) -> CliTestResult {
         ("recent_decisions", vec!["items"]),
         ("get_decisions_added_since", vec!["added_decisions"]),
         ("rank_decisions_by_importance", vec!["decisions"]),
+        ("scan_misfiled_decisions", vec![]),
     ] {
         let json = run_query(
             backend,
             &match verb {
                 "rank_decisions_by_importance" => vec![verb, "--limit", "200"],
+                "scan_misfiled_decisions" => vec![verb, "--foreign-topic", "billing"],
                 _ => vec![verb, "--since", "7d"],
             },
             false,

@@ -833,6 +833,7 @@ pub(crate) fn render_misfiled_scan_summary(candidates: &[MisfiledDecisionCandida
                 candidate.decision_id
             );
         }
+        write_floor_field(&mut output, &candidate.floor);
         output.push('\n');
     }
     output.trim_end().to_owned()

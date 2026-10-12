@@ -24,6 +24,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::commands::normalize_topic_key;
+use crate::floor::RecordedFloor;
 use crate::ledger::EventLedger;
 use crate::projector::GraphView;
 use crate::Result;
@@ -47,6 +48,10 @@ pub struct MisfiledDecisionCandidate {
     /// The project the decision is filed under now (a registered handle or a
     /// personal address), so the reviewer sees what a move would leave.
     pub project: Option<String>,
+    /// What the capturer said the decision binds and what undoing it costs, and the floor those
+    /// answers reach. Serialized as `binds`, `undo_cost` and `floor` (hivemind-h2we6).
+    #[serde(flatten)]
+    pub floor: RecordedFloor,
     /// Where the request said the flagged decisions belong (`move_to`), echoed on
     /// every row so a row is self-contained. Absent when the request named none.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,6 +151,7 @@ pub fn scan_misfiled_decisions(
                 matched_topic_keys: matched,
                 actor_ids: item.graph_context.actor_ids,
                 project: item.decision.project,
+                floor: item.decision.floor,
                 proposed_move_to: request.move_to.clone(),
             })
         })

@@ -4214,6 +4214,68 @@ mod transport_parity {
         }
     }
 
+    /// A misfiled-scan item is one decision, so like every other read of one it carries `binds`,
+    /// `undo_cost` and the derived `floor` (hivemind-h2we6).
+    #[tokio::test]
+    async fn scan_misfiled_decisions_items_carry_the_floor_across_transports() {
+        let stdio_dir = unique_dir("parity-stdio-misfiled-floor");
+        let http_dir = unique_dir("parity-http-misfiled-floor");
+        for (title, binds) in [
+            (
+                "Spell Apple with a capital in the badge",
+                json!({"level": "nothing"}),
+            ),
+            (
+                "Rename the check to doctor",
+                json!({"level": "something", "statement": "Scripts that call the old name"}),
+            ),
+        ] {
+            let seed = json!({
+                "binds": binds,
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": title,
+                "rationale": "seed for the misfiled floor parity test",
+                "topic_keys": ["parity"],
+                "options": [{"label": "only"}],
+            });
+            stdio_call(&stdio_dir, "capture_decision", seed.clone());
+            http_call(&http_dir, "capture_decision", seed).await;
+        }
+        let arguments = json!({ "foreign_topic_keys": ["parity"] });
+        let stdio = stdio_call(&stdio_dir, "scan_misfiled_decisions", arguments.clone());
+        let http = http_call(&http_dir, "scan_misfiled_decisions", arguments).await;
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+
+        // A missing list or item reads as empty or null, so the assertions below fail on it.
+        for (name, reply) in [("stdio", &stdio), ("http", &http)] {
+            let result = &reply["result"]; // ubs:ignore: test-only; index guaranteed by test setup
+            assert_eq!(result["isError"], false, "{name}: expected success"); // ubs:ignore: test-only assertion
+            let items = result["structuredContent"]["data"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let item = |title: &str| {
+                items
+                    .iter()
+                    .find(|item| item["title"] == title)
+                    .cloned()
+                    .unwrap_or(Value::Null)
+            };
+            let apple = item("Spell Apple with a capital in the badge");
+            assert_eq!(apple["floor"], "below", "{name}: Apple vs apple"); // ubs:ignore: test-only assertion
+            assert_eq!(apple["binds"], json!({"level": "nothing"}), "{name}: binds"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                apple["undo_cost"],
+                json!({"level": "cheap"}),
+                "{name}: undo_cost"
+            ); // ubs:ignore: test-only assertion
+            let rename = item("Rename the check to doctor");
+            assert_eq!(rename["floor"], "cleared", "{name}: the rename"); // ubs:ignore: test-only assertion
+        }
+    }
+
     #[tokio::test]
     async fn analyze_failure_modes_counts_the_corpus_across_transports() {
         let (stdio, http) = run_seeded(
