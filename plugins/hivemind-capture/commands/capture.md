@@ -1,7 +1,7 @@
 ---
 name: capture
 description: Capture one HiveMind decision-memory item in the configured ledger
-argument-hint: '"<text>" [--kind decision|evidence|hypothesis|blocker|notification] [decision flags, incl. what it rests on, what it binds and what undoing it costs] [--source agent|human]'
+argument-hint: '"<text>" [--kind decision|evidence|hypothesis] [decision flags, incl. what it rests on, what it binds and what undoing it costs] [--source agent|human]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh:*)
 disable-model-invocation: true
 ---
@@ -104,10 +104,10 @@ agent deciding alone. It requires `--chose` and an agent actor.
 
 When `--kind` is omitted, the helper delegates classification to the configured
 `hivemind-classifier` subagent if it is installed; otherwise it emits nothing.
-The helper recognizes blocker and notification as schema kinds, but returns a
-clear unsupported-kind error until the command layer has canonical capture paths
-for those event shapes. There is no decision-request kind to capture: a request
-goes to your tracker.
+Blocker and notification are schema kinds with no canonical capture path yet
+(planned): `--kind blocker` and `--kind notification` exit 2 and record nothing.
+There is no decision-request kind to capture either: a request goes to your
+tracker.
 
 Default to `--source agent`, which records `actor_id=agent:claude:<name>`
 (a stable identity, preferring Gas City's `GC_AGENT`/`GC_ALIAS` over a raw

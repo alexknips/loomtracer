@@ -27,7 +27,7 @@ This directory is both the Codex capture plugin and the Claude Code
 - A `hivemind` MCP stdio server wired to `hivemind mcp`.
 - The `hivemind-capture` skill for capture boundaries and provenance rules.
 - The Claude `active-capture` skill, which nudges `/capture <text>
-  [--kind decision|evidence|hypothesis|blocker]` during live durable-decision
+  [--kind decision|evidence|hypothesis]` during live durable-decision
   moments while avoiding synthetic test data, routing chatter, choices that bind
   nothing and are cheap to undo, and requests (a request goes to your tracker).
 - The `citation` skill, which guides the agent to pin URL versions (commit

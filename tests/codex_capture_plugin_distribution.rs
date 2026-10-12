@@ -248,6 +248,20 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
         "hivemind-classifier",
         "unified capture command documents classifier delegation",
     )?;
+    // capture.sh refuses blocker and notification (exit 2, nothing recorded), so the
+    // hint must not offer a kind that records nothing.
+    let argument_hint = capture_command
+        .lines()
+        .find(|line| line.starts_with("argument-hint:"))
+        .ok_or("unified capture command has an argument-hint")?;
+    require_contains(
+        argument_hint,
+        "[--kind decision|evidence|hypothesis]",
+        "unified capture command hint offers only capturable kinds",
+    )?;
+    if argument_hint.contains("blocker") || argument_hint.contains("notification") {
+        return Err("unified capture command hint offers a kind capture.sh refuses".into());
+    }
 
     let capture_decision_command =
         fs::read_to_string(root.join("plugins/hivemind-capture/commands/capture-decision.md"))?;
@@ -2039,13 +2053,18 @@ fn verify_active_capture_skill(name: &str, body: &str) -> TestResult<()> {
     require_contains(body, "comparing alternatives", name)?;
     require_contains(
         body,
-        "/capture <text> [--kind decision|evidence|hypothesis|blocker]",
+        "/capture <text> [--kind decision|evidence|hypothesis]",
         name,
     )?;
     require_contains(body, "`decision`", name)?;
     require_contains(body, "`evidence`", name)?;
     require_contains(body, "`hypothesis`", name)?;
-    require_contains(body, "`blocker`", name)?;
+    // capture.sh refuses these two kinds and records nothing, so the skill must not teach them.
+    for refused in ["--kind blocker", "--kind notification"] {
+        if body.contains(refused) {
+            return Err(format!("{name} teaches `{refused}`, which capture.sh refuses").into());
+        }
+    }
     require_contains(
         body,
         "Do NOT call this for synthetic test data or routing chatter",

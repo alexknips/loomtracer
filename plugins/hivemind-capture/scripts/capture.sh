@@ -15,8 +15,10 @@ Usage:
   capture.sh "<text>"
 
 Options:
-  --kind KIND              decision, evidence, hypothesis, blocker, or
-                           notification. When omitted, the configured
+  --kind KIND              decision, evidence, or hypothesis. blocker and
+                           notification are schema kinds with no capture
+                           path yet (planned): they exit 2 and record
+                           nothing. When omitted, the configured
                            classifier chooses a kind. A request is not a
                            kind: it goes to your tracker.
   --source human|agent     Provenance source. Defaults to agent.
@@ -603,7 +605,7 @@ case "$KIND" in
     exit 2
     ;;
   *)
-    printf 'unsupported --kind %s (expected decision, evidence, hypothesis, blocker, or notification)\n' "$KIND" >&2
+    printf 'unsupported --kind %s (expected decision, evidence, or hypothesis)\n' "$KIND" >&2
     exit 2
     ;;
 esac

@@ -1,6 +1,6 @@
 ---
 name: active-capture
-description: Nudge HiveMind capture when durable decision memory is forming: comparing alternatives, choosing or rejecting a direction, recording real evidence, stating a hypothesis, or identifying a blocker. Do not activate for synthetic test data, routing chatter, task bookkeeping, or ordinary progress updates.
+description: Nudge HiveMind capture when durable decision memory is forming: comparing alternatives, choosing or rejecting a direction, recording real evidence, or stating a hypothesis. Do not activate for synthetic test data, routing chatter, task bookkeeping, or ordinary progress updates.
 ---
 
 # Active HiveMind Capture
@@ -26,22 +26,23 @@ organizational memory items:
   hypothesis.
 - `hypothesis`: an explicit assumption, prediction, or risk model is being
   relied on before it has been verified.
-- `blocker`: progress is waiting on a decision, owner, approval, evidence, or
-  unresolved disagreement.
+
+There is no `blocker` or `notification` kind to capture: `/capture` refuses
+both and records nothing. Something you are waiting on goes to your tracker;
+capture the decision it waits on once someone makes it.
 
 ## Call Form
 
 When the moment is real and specific, invoke:
 
 ```text
-/capture <text> [--kind decision|evidence|hypothesis|blocker]
+/capture <text> [--kind decision|evidence|hypothesis]
 ```
 
 Use the smallest durable statement that preserves the what, why, actor, and
 dependency context. Prefer `--kind decision` for selected or rejected options,
-`--kind evidence` for observed facts, `--kind hypothesis` for assumptions that
-may later be refuted, and `--kind blocker` for unresolved decision
-dependencies.
+`--kind evidence` for observed facts, and `--kind hypothesis` for assumptions
+that may later be refuted.
 
 A `decision` call carries its structured fields and the answers to "what does
 this rest on?" and "what does it bind, and what would undoing it cost?" (next
@@ -58,7 +59,6 @@ Examples:
 /capture "Use SQLite WAL for local concurrent writes" --kind decision --title "Use SQLite WAL for local concurrent writes" --rationale "It preserves single-process setup while allowing read concurrency" --topic-keys storage --options "SQLite WAL,Rollback journal" --chose "SQLite WAL" --rests-on-evidence "The WAL multiprocess test passed with two concurrent readers and one writer" --evidence-source "cargo test wal_multiprocess" --binds "Every local reader and writer opens the ledger in WAL mode" --cheap-to-undo
 /capture The WAL multiprocess test passed against two concurrent readers and one writer. --kind evidence
 /capture Shared backend adoption assumes teams will accept service-managed identity instead of per-repo local actors. --kind hypothesis
-/capture Release packaging is blocked on choosing GitHub Actions retries versus local DSR fallback. --kind blocker
 ```
 
 ## What a Decision Capture Must Carry
@@ -125,6 +125,6 @@ own transcript does not carry a prior session's writes. A hit that already
 covers this ground means: don't nudge another capture.
 
 If the signal is ambiguous, keep working and wait for a clearer decision,
-evidence, hypothesis, or blocker. Never infer importance with search,
+evidence, or hypothesis. Never infer importance with search,
 similarity, ranking, or model confidence; only capture explicit context in
 front of you.

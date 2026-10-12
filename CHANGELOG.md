@@ -548,6 +548,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   A configured `--database-url` is a direct read of the shared data and is unchanged. Step 5 now
   names the HTTP reads that do reach a cell (`GET /v1/decisions/search`, `/relevant`) and says the
   CLI reads a local ledger. (hivemind-rmdi1)
+- **The capture skill and command no longer offer `--kind blocker` or `--kind notification`.**
+  `capture.sh` refuses both (exit 2, nothing recorded: "kind blocker is known but does not yet
+  have a canonical CLI capture path"), yet the active-capture skill taught `/capture ... --kind
+  blocker` and the capture command's argument-hint listed both kinds, so an agent that followed
+  them lost the capture. Both copies of the skill, the argument-hint, the plugin README and
+  `capture.sh --help` now offer `decision`, `evidence` and `hypothesis`, and say the other two
+  have no capture path yet (planned). A test pins that neither the skill nor the hint teaches a
+  kind `capture.sh` refuses. (hivemind-udvza)
 - **Disagreeing with a decision you accepted yourself says so and points to `supersede`.**
   An agent that captured a decision (a capture accepts itself) and then ran `disagree`,
   `emit decision.rejected` or the `disagree_decision` tool was refused with "invariant violated:
