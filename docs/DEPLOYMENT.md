@@ -142,7 +142,9 @@ curl -s -X POST http://localhost:8080/v1/decisions \
     "chosen_option_label": "postgres",
     "grounding": [
       {"kind": "evidence", "content": "SQLite allows one writer at a time", "source": "https://www.sqlite.org/lockingv3.html"}
-    ]
+    ],
+    "binds": {"level": "something", "statement": "Every agent and the shared ledger move to Postgres"},
+    "undo_cost": {"level": "costly", "statement": "Moving back means exporting the ledger out of Postgres and replaying it"}
   }'
 
 # Query decisions

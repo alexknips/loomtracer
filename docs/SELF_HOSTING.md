@@ -290,6 +290,11 @@ using your agent's subscription seat. No key, no extra configuration.
      --undo-cost "Moving back means exporting the ledger out of Postgres and replaying it"
    ```
 
+   This writes a **local ledger** (the `hivemind/` folder of the project Claude Code runs in)
+   and does not contact the cell, with `HIVEMIND_API_URL` set or not. To record the decision in the
+   cell, post it to `POST /v1/decisions` with your token: see
+   [`KEYLESS_CAPTURE.md` Step 3](KEYLESS_CAPTURE.md#step-3--capture-a-decision-in-session).
+
 4. **Drain the classification queue** after your session:
 
    ```text
@@ -299,11 +304,15 @@ using your agent's subscription seat. No key, no extra configuration.
    The command classifies pending batches using your subscription model and
    writes `IngestBatchClassified` events. Pass `--limit N` to cap the run.
 
-5. **Query back**:
+5. **Query back**. `hivemind query` reads a local ledger, so from the project folder step 3
+   wrote to it lists that capture:
 
    ```bash
    hivemind query recent_decisions --since 1h --limit 5
    ```
+
+   A decision posted to the cell is read from the cell's HTTP API instead
+   (`GET /v1/decisions/search`, see [`KEYLESS_CAPTURE.md` Step 5](KEYLESS_CAPTURE.md#step-5--query-it-back)).
 
 See [`docs/KEYLESS_CAPTURE.md`](KEYLESS_CAPTURE.md) for the full walkthrough
 and a comparison of Worker A vs Worker B.
@@ -337,7 +346,9 @@ curl -s -X POST $HM_URL/v1/decisions \
     ],
     "grounding": [
       {"kind": "evidence", "content": "SQLite allows one writer at a time", "source": "https://www.sqlite.org/lockingv3.html"}
-    ]
+    ],
+    "binds": {"level": "something", "statement": "Every agent and the shared ledger move to Postgres"},
+    "undo_cost": {"level": "costly", "statement": "Moving back means exporting the ledger out of Postgres and replaying it"}
   }' | tee /tmp/decision.json
 # → {"decision_id":"decision-...","option_ids":[...],...}
 

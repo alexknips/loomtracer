@@ -78,15 +78,42 @@ From Claude Code, call the `/capture` command during a live session:
   --undo-cost "Moving back means exporting the ledger out of Postgres and replaying it"
 ```
 
-The command writes immediately to the local ledger (or the remote server if
-the bundled MCP server is configured) and prints a one-line confirmation:
+The command writes to a **local ledger**: the `hivemind/` folder of the project Claude Code runs
+in (the repository root, or the current folder outside a repository), created there if it is
+missing, or the folder `HIVEMIND_DIR` or the plugin's `hivemind_dir` option names. It does not
+contact the cell from Step 1, with `HIVEMIND_API_URL` set or not, and
+neither does the plugin's bundled MCP server, which opens the same local ledger. It prints where
+it wrote:
 
 ```
-✓ captured decision:<id>  — query: /hivemind-capture:query-decisions --limit 5
+Captured HiveMind decision decision-<id> in <folder>/hivemind.
 ```
 
-The decision is in the ledger. The classification queue now has an unclassified
-ingest batch waiting for topic annotation.
+That decision does not enter the classification queue: it already carries its topic keys. The
+queue holds session transcripts sent to the cell's `POST /v1/ingest`, and Step 4 drains those.
+
+**To record the decision in the cell instead**, post it to the cell's HTTP API with the token
+from Step 1:
+
+```bash
+curl -s -X POST http://localhost:8080/v1/decisions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "title": "Switch to Postgres for the shared backend",
+    "rationale": "SQLite WAL mode does not scale across concurrent writers",
+    "topic_keys": ["infrastructure", "storage"],
+    "options": [{"label": "SQLite"}, {"label": "Postgres"}],
+    "chosen_option_label": "Postgres",
+    "grounding": [{"kind": "assumption", "statement": "More than one agent writes to the shared ledger at once"}],
+    "binds": {"level": "something", "statement": "Every agent and the shared ledger move to Postgres"},
+    "undo_cost": {"level": "costly", "statement": "Moving back means exporting the ledger out of Postgres and replaying it"}
+  }'
+```
+
+The reply carries the new `decision_id`, and the cell reads in Step 5 list it. An agent that
+should capture into the cell on its own points its MCP client at the cell's `/mcp` endpoint
+instead ([Configuring an agent to use MCP-over-HTTP](SELF_HOSTING.md#configuring-an-agent-to-use-mcp-over-http))
+and calls `capture_decision`.
 
 ---
 
