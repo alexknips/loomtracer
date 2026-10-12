@@ -19,7 +19,10 @@ Options:
                            notification are schema kinds with no capture
                            path yet (planned): they exit 2 and record
                            nothing. When omitted, the configured
-                           classifier chooses a kind. A request is not a
+                           classifier chooses among decision, evidence,
+                           hypothesis and none; any other answer (blocker,
+                           notification, ...) records nothing and exits 0,
+                           saying what it answered. A request is not a
                            kind: it goes to your tracker.
   --source human|agent     Provenance source. Defaults to agent.
   --actor-id ID            Override actor id.
@@ -268,7 +271,7 @@ provenance_args() {
 
 classifier_schema() {
   cat <<'JSON'
-{"type":"object","properties":{"kind":{"type":"string","enum":["decision","evidence","hypothesis","blocker","notification","none"]}},"required":["kind"],"additionalProperties":true}
+{"type":"object","properties":{"kind":{"type":"string","enum":["decision","evidence","hypothesis","none"]}},"required":["kind"],"additionalProperties":true}
 JSON
 }
 
@@ -287,7 +290,7 @@ run_classifier() {
 
   if command -v claude >/dev/null 2>&1; then
     local prompt
-    prompt="$(printf 'Classify this HiveMind capture text. Return JSON only, with kind set to one of decision, evidence, hypothesis, blocker, notification, or none. Use decision only for a choice that binds something beyond the edit in front of its author or is costly to undo; a request for work is none.\n\nText:\n%s\n' "$input")"
+    prompt="$(printf 'Classify this HiveMind capture text. Return JSON only, with kind set to one of decision, evidence, hypothesis, or none. Use none for anything that is not one of the first three. Use decision only for a choice that binds something beyond the edit in front of its author or is costly to undo; a request for work is none.\n\nText:\n%s\n' "$input")"
     local claude_cmd=(claude --print --no-session-persistence --model "${HIVEMIND_CLASSIFIER_MODEL:-haiku}" --json-schema "$(classifier_schema)")
     if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
       claude_cmd+=(--plugin-dir "$CLAUDE_PLUGIN_ROOT")
@@ -334,10 +337,20 @@ resolve_kind() {
     exit 0
   fi
 
-  if [[ "$KIND" == "none" ]]; then
-    printf 'No HiveMind capture emitted: classifier returned kind=none.\n'
-    exit 0
-  fi
+  case "$KIND" in
+    decision|evidence|hypothesis) ;;
+    none)
+      printf 'No HiveMind capture emitted: classifier returned kind=none.\n'
+      exit 0
+      ;;
+    *)
+      # The classifier picked a kind capture.sh cannot record (blocker, notification, or
+      # anything it made up). The caller never chose it, so it is not the refusal an explicit
+      # --kind gets: nothing is recorded, and the line says what the classifier answered.
+      printf 'No HiveMind capture emitted: classifier returned kind=%s, which has no capture path.\n' "$KIND"
+      exit 0
+      ;;
+  esac
 }
 
 # What the CLI says on stderr about where a decision landed: a `project: <handle>

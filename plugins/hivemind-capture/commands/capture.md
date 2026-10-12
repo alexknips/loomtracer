@@ -106,6 +106,9 @@ When `--kind` is omitted, the helper delegates classification to the configured
 `hivemind-classifier` subagent if it is installed; otherwise it emits nothing.
 Blocker and notification are schema kinds with no canonical capture path yet
 (planned): `--kind blocker` and `--kind notification` exit 2 and record nothing.
+The classifier is not offered them: an omitted `--kind` that the classifier
+answers with anything but decision, evidence or hypothesis records nothing and
+exits 0, naming the kind it answered.
 There is no decision-request kind to capture either: a request goes to your
 tracker.
 

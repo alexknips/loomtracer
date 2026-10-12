@@ -1062,6 +1062,168 @@ fn unified_capture_script_uses_classifier_when_kind_is_omitted() -> TestResult<(
     Ok(())
 }
 
+/// `capture.sh` with the agent/classifier environment cleared, writing to `hivemind_dir`.
+fn capture_script_command(hivemind_dir: &Path) -> Command {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut command = Command::new(root.join("plugins/hivemind-capture/scripts/capture.sh"));
+    command
+        .current_dir(root)
+        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
+        .env("HIVEMIND_DIR", hivemind_dir)
+        .env("CODEX_THREAD_ID", "classifier-refusal-test")
+        .env_remove("CLAUDE_PROJECT_DIR")
+        .env_remove("CLAUDE_PLUGIN_ROOT")
+        .env_remove("HIVEMIND_CAPTURE_CLASSIFIER_JSON")
+        .env_remove("HIVEMIND_CAPTURE_CLASSIFIER_CMD");
+    without_agent_env(&mut command);
+    command
+}
+
+fn require_empty_ledger(hivemind_dir: &Path, message: &str) -> TestResult<()> {
+    let events = SqliteEventLedger::open(hivemind_dir)?.read(0, 100)?;
+    require(events.is_empty(), format!("{message}: {events:?}"))
+}
+
+#[test]
+fn capture_script_without_a_kind_records_nothing_when_the_classifier_picks_one_it_cannot_record(
+) -> TestResult<()> {
+    // hivemind-uwslm: the classifier was offered blocker and notification, and capture.sh then
+    // refused its own classifier's answer (exit 2, "known but does not yet have a canonical CLI
+    // capture path") for a kind the caller never chose. A kind capture.sh cannot record, from
+    // whatever the classifier answers, now ends as "no capture emitted" (exit 0, nothing written).
+    for kind in ["blocker", "notification", "request"] {
+        let scratch = unique_temp_dir("hivemind-classifier-unrecordable")?;
+        let hivemind_dir = scratch.join("ledger");
+        let output = capture_script_command(&hivemind_dir)
+            .env(
+                "HIVEMIND_CAPTURE_CLASSIFIER_JSON",
+                format!(r#"{{"kind":"{kind}"}}"#),
+            )
+            .arg("Merge is blocked until the schema review lands")
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        require(
+            output.status.success(),
+            format!("classifier kind {kind} should not fail the capture: {stdout} {stderr}"),
+        )?;
+        require_contains(
+            stdout.as_ref(),
+            &format!("No HiveMind capture emitted: classifier returned kind={kind}"),
+            "the line says what the classifier answered",
+        )?;
+        require(
+            !stderr.contains("known but does not yet"),
+            format!("classifier kind {kind} hit the explicit-kind refusal: {stderr}"),
+        )?;
+        require_empty_ledger(
+            &hivemind_dir,
+            "an unrecordable classifier kind wrote events",
+        )?;
+        let _ = fs::remove_dir_all(scratch);
+    }
+    Ok(())
+}
+
+#[test]
+fn capture_script_offers_its_classifier_only_the_kinds_it_can_record() -> TestResult<()> {
+    // hivemind-uwslm: the schema and the prompt handed to the classifier name decision,
+    // evidence, hypothesis and none, and no kind capture.sh refuses. A stand-in `claude` on PATH
+    // records its arguments and answers blocker, so the reply path runs end to end as well.
+    let scratch = unique_temp_dir("hivemind-classifier-offered-kinds")?;
+    let hivemind_dir = scratch.join("ledger");
+    let bin_dir = scratch.join("bin");
+    let args_file = scratch.join("claude-args");
+    fs::create_dir_all(&bin_dir)?;
+    let stub = bin_dir.join("claude");
+    fs::write(
+        &stub,
+        "#!/usr/bin/env bash\nprintf '%s\\0' \"$@\" > \"$STUB_ARGS_FILE\"\nprintf '%s\\n' \"$STUB_REPLY\"\n",
+    )?;
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755))?;
+
+    let output = capture_script_command(&hivemind_dir)
+        .env(
+            "PATH",
+            format!("{}:{}", bin_dir.display(), std::env::var("PATH")?),
+        )
+        .env("STUB_ARGS_FILE", &args_file)
+        .env("STUB_REPLY", r#"{"kind":"blocker"}"#)
+        .arg("Merge is blocked until the schema review lands")
+        .output()?;
+    require(
+        output.status.success(),
+        format!(
+            "a blocker reply should not fail the capture: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )?;
+    require_contains(
+        String::from_utf8_lossy(&output.stdout).as_ref(),
+        "No HiveMind capture emitted: classifier returned kind=blocker",
+        "the stand-in classifier's blocker reply",
+    )?;
+
+    let args_raw = fs::read_to_string(&args_file)?;
+    let args: Vec<&str> = args_raw.split('\0').collect();
+    let schema_at = args
+        .iter()
+        .position(|arg| *arg == "--json-schema")
+        .ok_or("the classifier is called with --json-schema")?;
+    let schema: Value = serde_json::from_str(args[schema_at + 1])?;
+    let offered: Vec<&str> = schema["properties"]["kind"]["enum"]
+        .as_array()
+        .ok_or("the schema lists the kinds as an enum")?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    require_eq(
+        offered,
+        vec!["decision", "evidence", "hypothesis", "none"],
+        "kinds in the classifier schema",
+    )?;
+    let prompt = args
+        .iter()
+        .find(|arg| arg.starts_with("Classify this HiveMind capture text"))
+        .ok_or("the classifier is handed the capture prompt")?
+        .to_lowercase();
+    for refused in ["blocker", "notification"] {
+        require(
+            !prompt.contains(refused),
+            format!("the classifier prompt offers {refused}, which capture.sh cannot record"),
+        )?;
+    }
+    require_empty_ledger(&hivemind_dir, "a blocker reply wrote events")?;
+    let _ = fs::remove_dir_all(scratch);
+    Ok(())
+}
+
+#[test]
+fn capture_script_explicit_blocker_and_notification_kinds_still_refuse() -> TestResult<()> {
+    // hivemind-uwslm leaves what hivemind-udvza taught alone: a caller who names the kind is told
+    // it has no capture path (exit 2), nothing recorded. Only the classifier's pick is softened.
+    for kind in ["blocker", "notification"] {
+        let scratch = unique_temp_dir("hivemind-explicit-unrecordable-kind")?;
+        let hivemind_dir = scratch.join("ledger");
+        let output = capture_script_command(&hivemind_dir)
+            .args([
+                "--kind",
+                kind,
+                "Merge is blocked until the schema review lands",
+            ])
+            .output()?;
+        require_eq(output.status.code(), Some(2), "explicit kind exit code")?;
+        require_contains(
+            String::from_utf8_lossy(&output.stderr).as_ref(),
+            &format!("kind {kind} is known but does not yet have a canonical CLI capture path"),
+            "explicit kind refusal",
+        )?;
+        require_empty_ledger(&hivemind_dir, "an explicit refused kind wrote events")?;
+        let _ = fs::remove_dir_all(scratch);
+    }
+    Ok(())
+}
+
 #[test]
 fn human_cli_emit_defaults_actor_and_source_from_git_email() -> TestResult<()> {
     let scratch = unique_temp_dir("hivemind-human-cli-default")?;

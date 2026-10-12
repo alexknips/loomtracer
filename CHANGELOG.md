@@ -556,6 +556,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `capture.sh --help` now offer `decision`, `evidence` and `hypothesis`, and say the other two
   have no capture path yet (planned). A test pins that neither the skill nor the hint teaches a
   kind `capture.sh` refuses. (hivemind-udvza)
+- **`capture.sh "<text>"` with no `--kind` no longer ends in the blocker/notification refusal.**
+  The classifier it asks was offered `blocker` and `notification`, and when it picked one
+  `capture.sh` exited 2 ("kind blocker is known but does not yet have a canonical CLI capture
+  path") and recorded nothing, for a kind the caller never chose. The classifier is now offered
+  only decision, evidence, hypothesis and none, and any other answer (those two, or a kind it
+  made up) ends as "No HiveMind capture emitted: classifier returned kind=<kind>, which has no
+  capture path." and exit 0: nothing is recorded, and it is not forced into the nearest recordable
+  kind, since a blocker is not evidence. An explicit `--kind blocker` or `--kind notification`
+  still exits 2. (hivemind-uwslm)
 - **Disagreeing with a decision you accepted yourself says so and points to `supersede`.**
   An agent that captured a decision (a capture accepts itself) and then ran `disagree`,
   `emit decision.rejected` or the `disagree_decision` tool was refused with "invariant violated:
