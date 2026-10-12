@@ -1,4 +1,6 @@
 mod ask;
+#[cfg(test)]
+mod beside_cell_tests;
 mod floor;
 mod ground;
 mod grounding;
@@ -201,21 +203,28 @@ enum CellBesideVerb {
     Import,
     RestatementsApply,
     QualityScan,
+    ProjectRegister,
+    ProjectLink,
+    ProjectUnlink,
+    ProjectAnchor,
+    ProjectDeclareTopic,
+    ProjectList,
+    ProjectShow,
+    ProjectDecisions,
+    ProjectUse,
+    IngestSlackThread,
+    Tui,
+    TenantCreate,
 }
 
 impl CellBesideVerb {
+    /// The verb `command` is, when it opens the ledger under `--hivemind-dir`. Every verb and
+    /// subcommand is named, with no catch-all arm, so adding one fails to compile here until
+    /// someone decides whether it needs the guard; a verb left out says why.
     fn of(command: &Command) -> Option<Self> {
         Some(match command {
-            Command::Query(_) => Self::Query,
-            Command::Digest(_) => Self::Digest,
-            Command::Export(_) => Self::Export,
-            Command::Dump(_) => Self::Dump,
-            Command::Map(_) => Self::Map,
-            Command::Restatements(args) => match args.command {
-                RestatementsCommand::Propose(_) => Self::RestatementsPropose,
-                RestatementsCommand::Apply(_) => Self::RestatementsApply,
-            },
-            Command::Review(_) => Self::Review,
+            // Makes its own throwaway ledger on purpose and prints its path.
+            Command::Quickstart(_) => return None,
             Command::Emit(_) => Self::Emit,
             Command::Disagree(_) => Self::Disagree,
             Command::Supersede(_) => Self::Supersede,
@@ -223,13 +232,67 @@ impl CellBesideVerb {
             Command::Retitle(_) => Self::Retitle,
             Command::Ground(_) => Self::Ground,
             Command::Ask(_) => Self::Ask,
-            // `import prepare-documents` turns files into text files and opens no ledger.
+            Command::Review(_) => Self::Review,
             Command::Import(args) => match args.command {
-                ImportCommand::PrepareDocuments(_) => return None,
                 ImportCommand::Documents(_) | ImportCommand::Connector(_) => Self::Import,
+                // Turns files into text files and opens no ledger.
+                ImportCommand::PrepareDocuments(_) => return None,
+            },
+            Command::Query(_) => Self::Query,
+            Command::Dump(_) => Self::Dump,
+            Command::Tui(_) => Self::Tui,
+            Command::Ingest(args) => match args.command {
+                IngestCommand::SlackThread(_) => Self::IngestSlackThread,
+            },
+            // The Slack app's pieces over a local dir: ignoring HIVEMIND_API_URL is the standing
+            // rmdi1 ruling, as for `mcp`.
+            Command::SlackApp(args) => match args.command {
+                SlackAppCommand::Manifest(_)
+                | SlackAppCommand::OauthUrl(_)
+                | SlackAppCommand::Install(_)
+                | SlackAppCommand::EnqueueCapture(_)
+                | SlackAppCommand::Drain(_)
+                | SlackAppCommand::Command(_) => return None,
+            },
+            // Servers over a local dir: the standing rmdi1 ruling is that they ignore the variable.
+            Command::Mcp(_) | Command::Serve(_) => return None,
+            // Reads the explicit source dir it is given and writes to the destination it names.
+            Command::Migrate(_) => return None,
+            Command::Map(_) => Self::Map,
+            Command::Digest(_) => Self::Digest,
+            // Honours HIVEMIND_API_URL: it talks to the server instead of opening a ledger.
+            Command::ClassifyQueue(args) => match args.command {
+                ClassifyQueueCommand::List(_) | ClassifyQueueCommand::Submit(_) => return None,
+            },
+            Command::Restatements(args) => match args.command {
+                RestatementsCommand::Propose(_) => Self::RestatementsPropose,
+                RestatementsCommand::Apply(_) => Self::RestatementsApply,
+            },
+            // Keeps only an OAuth token file under the hivemind dir; no ledger.
+            Command::Connector(args) => match args.command {
+                ConnectorCommand::Auth(_) => return None,
             },
             Command::QualityScan(_) => Self::QualityScan,
-            _ => return None,
+            Command::Export(_) => Self::Export,
+            Command::Tenant(args) => match args.command {
+                TenantCommand::Create(_) => Self::TenantCreate,
+            },
+            Command::Project(args) => match &args.command {
+                ProjectCommand::Register(_) => Self::ProjectRegister,
+                ProjectCommand::Link(_) => Self::ProjectLink,
+                ProjectCommand::Unlink(_) => Self::ProjectUnlink,
+                ProjectCommand::Anchor(_) => Self::ProjectAnchor,
+                ProjectCommand::DeclareTopic(_) => Self::ProjectDeclareTopic,
+                ProjectCommand::List(_) => Self::ProjectList,
+                // `--current` reads only the current-project file.
+                ProjectCommand::Show(show) if show.current => return None,
+                ProjectCommand::Show(_) => Self::ProjectShow,
+                ProjectCommand::Decisions(_) => Self::ProjectDecisions,
+                // `--clear` touches only the current-project file; setting a handle first checks
+                // it against the project registry in the ledger.
+                ProjectCommand::Use(set) if set.handle.is_none() || set.clear => return None,
+                ProjectCommand::Use(_) => Self::ProjectUse,
+            },
         })
     }
 
@@ -252,6 +315,18 @@ impl CellBesideVerb {
             Self::Import => "import",
             Self::RestatementsApply => "restatements apply",
             Self::QualityScan => "quality-scan",
+            Self::ProjectRegister => "project register",
+            Self::ProjectLink => "project link",
+            Self::ProjectUnlink => "project unlink",
+            Self::ProjectAnchor => "project anchor",
+            Self::ProjectDeclareTopic => "project declare-topic",
+            Self::ProjectList => "project list",
+            Self::ProjectShow => "project show",
+            Self::ProjectDecisions => "project decisions",
+            Self::ProjectUse => "project use",
+            Self::IngestSlackThread => "ingest slack-thread",
+            Self::Tui => "tui",
+            Self::TenantCreate => "tenant create",
         }
     }
 
@@ -263,16 +338,32 @@ impl CellBesideVerb {
             | Self::Export
             | Self::Dump
             | Self::Map
-            | Self::RestatementsPropose => "reads",
+            | Self::RestatementsPropose
+            | Self::ProjectList
+            | Self::ProjectShow
+            | Self::ProjectDecisions
+            | Self::Tui => "reads",
             Self::Review | Self::QualityScan => "reads and writes",
-            Self::Emit | Self::Ask | Self::Import => "writes to",
+            Self::Emit
+            | Self::Ask
+            | Self::Import
+            | Self::ProjectRegister
+            | Self::IngestSlackThread
+            | Self::TenantCreate => "writes to",
             // These find the decision they act on in the ledger, then write to it.
             Self::Disagree
             | Self::Supersede
             | Self::Move
             | Self::Retitle
             | Self::Ground
-            | Self::RestatementsApply => "reads and writes",
+            | Self::RestatementsApply
+            // These act on projects the registry already holds, and `project use` checks its
+            // handle against the registry before it stores the setting.
+            | Self::ProjectLink
+            | Self::ProjectUnlink
+            | Self::ProjectAnchor
+            | Self::ProjectDeclareTopic
+            | Self::ProjectUse => "reads and writes",
         }
     }
 
@@ -285,13 +376,19 @@ impl CellBesideVerb {
                 | Self::Dump
                 | Self::Map
                 | Self::RestatementsPropose
+                | Self::ProjectList
+                | Self::ProjectShow
+                | Self::ProjectDecisions
+                | Self::ProjectUse
+                | Self::Tui
         )
     }
 
     /// `emit` prints the new id and `dump` prints DOT: a line added to stdout would break the
-    /// script or `dot` that reads it.
+    /// script or `dot` that reads it. `tui` owns the terminal while it runs, so its notice goes to
+    /// stderr once it has exited.
     fn stdout_is_data(self) -> bool {
-        matches!(self, Self::Emit | Self::Dump)
+        matches!(self, Self::Emit | Self::Dump | Self::Tui)
     }
 }
 
@@ -337,7 +434,12 @@ impl LocalLedgerBesideCell {
             ""
         };
         let local_instead = match self.verb {
-            CellBesideVerb::Emit | CellBesideVerb::Ask | CellBesideVerb::Import => format!(
+            CellBesideVerb::Emit
+            | CellBesideVerb::Ask
+            | CellBesideVerb::Import
+            | CellBesideVerb::ProjectRegister
+            | CellBesideVerb::IngestSlackThread
+            | CellBesideVerb::TenantCreate => format!(
                 "To record to a local ledger instead, unset HIVEMIND_API_URL (the ledger is then \
                  created under {dir}) or point --hivemind-dir at an existing one"
             ),
@@ -351,7 +453,12 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::Retitle
             | CellBesideVerb::Ground
             | CellBesideVerb::RestatementsApply
-            | CellBesideVerb::QualityScan => {
+            | CellBesideVerb::QualityScan
+            | CellBesideVerb::ProjectLink
+            | CellBesideVerb::ProjectUnlink
+            | CellBesideVerb::ProjectAnchor
+            | CellBesideVerb::ProjectDeclareTopic
+            | CellBesideVerb::ProjectUse => {
                 "To use a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
                     .to_owned()
             }
@@ -360,7 +467,11 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::Export
             | CellBesideVerb::Dump
             | CellBesideVerb::Map
-            | CellBesideVerb::RestatementsPropose => {
+            | CellBesideVerb::RestatementsPropose
+            | CellBesideVerb::ProjectList
+            | CellBesideVerb::ProjectShow
+            | CellBesideVerb::ProjectDecisions
+            | CellBesideVerb::Tui => {
                 "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
                     .to_owned()
             }
@@ -419,7 +530,10 @@ impl LocalLedgerBesideCell {
                 "To read the cell's decisions, call GET {url}/v1/decisions/search; to act on one, \
                  POST {url}/v1/decisions/{{id}}/disagreements or /supersessions"
             ),
-            CellBesideVerb::Query | CellBesideVerb::Digest | CellBesideVerb::Export => format!(
+            CellBesideVerb::Query
+            | CellBesideVerb::Digest
+            | CellBesideVerb::Export
+            | CellBesideVerb::Tui => format!(
                 "To read the cell, call its HTTP API (GET {url}/v1/decisions/search, /recall or \
                  /relevant; docs/KEYLESS_CAPTURE.md Step 5)"
             ),
@@ -465,6 +579,30 @@ impl LocalLedgerBesideCell {
             CellBesideVerb::QualityScan => format!(
                 "To scan the cell's decisions, call its MCP tool scan_decision_quality (POST \
                  {url}/mcp)"
+            ),
+            CellBesideVerb::ProjectRegister
+            | CellBesideVerb::ProjectLink
+            | CellBesideVerb::ProjectUnlink
+            | CellBesideVerb::ProjectAnchor
+            | CellBesideVerb::ProjectDeclareTopic => {
+                "The cell has no HTTP route or MCP tool that changes its project registry"
+                    .to_owned()
+            }
+            CellBesideVerb::ProjectList
+            | CellBesideVerb::ProjectShow
+            | CellBesideVerb::ProjectDecisions
+            | CellBesideVerb::ProjectUse => format!(
+                "The cell has no route for its project registry; to read its projects, call its \
+                 HTTP API (GET {url}/v1/graph)"
+            ),
+            CellBesideVerb::IngestSlackThread => format!(
+                "The cell takes Slack captures from Slack itself (POST {url}/v1/slack/events; \
+                 docs/SLACK_APP.md); to record this thread's decision in it, call its HTTP API \
+                 (POST {url}/v1/decisions) or its MCP tools (POST {url}/mcp)"
+            ),
+            CellBesideVerb::TenantCreate => format!(
+                "To create a tenant in the cell, call its HTTP API (POST {url}/v1/tenants with \
+                 the admin key; a Postgres cell only)"
             ),
         }
     }

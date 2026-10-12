@@ -609,6 +609,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   unchanged. `--help` for these verbs says the same. A
   configured `--database-url` is a direct use of the shared data and is unchanged.
   (hivemind-nrk9f)
+- **`hivemind project`, `ingest slack-thread`, `tui` and `tenant create` no longer use a ledger
+  silently when `HIVEMIND_API_URL` points at a cell.** The verbs the two entries above left out.
+  With the variable set, `tenant create` put a tenant into a `./hivemind/ledger.sqlite` it created
+  (so a person following the cell docs had a tenant in a made-up local ledger, not the cell's),
+  `project register`, `link`, `unlink`, `anchor` and `declare-topic` and `ingest slack-thread`
+  wrote into one, and `project list`, `show`, `decisions`, `use <handle>` and `tui` answered from
+  an empty one, all exiting 0 with no word that the cell never saw any of it. They now follow the
+  `query` rule: with `HIVEMIND_API_URL` set and no `--database-url`, a fresh folder is refused
+  (exit 2, nothing created, nothing recorded, and the message names the cell's HTTP route or MCP
+  tool that does the same, or says the cell has none, as for the project registry), and a folder
+  that holds a ledger works and says which ledger it used, as a `notice` key under `--json` or a
+  `notice:` line after a text answer. `tui` is refused before the terminal UI starts and prints
+  its notice on stderr once it has exited. `project show --current` and `project use --clear`
+  open no ledger (only the current-project file) and are unchanged, as are `quickstart`,
+  `migrate`, `serve`, `mcp`, `slack-app`, `connector`, `classify-queue` and `import
+  prepare-documents`. The guard now names every verb and subcommand with no catch-all case, so a
+  verb added later does not compile until someone decides whether it needs the guard. `--help`
+  for these verbs says the same. A configured `--database-url` is a direct use of the shared data
+  and is unchanged. (hivemind-wp0n7)
 - **The capture skill and command no longer offer `--kind blocker` or `--kind notification`.**
   `capture.sh` refuses both (exit 2, nothing recorded: "kind blocker is known but does not yet
   have a canonical CLI capture path"), yet the active-capture skill taught `/capture ... --kind

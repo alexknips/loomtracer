@@ -1018,6 +1018,9 @@ cell takes a disagreement at `POST /v1/decisions/{id}/disagreements`, a superses
 `POST /v1/decisions/{id}/supersessions`, a restatement link at
 `POST /v1/decisions/{id}/restatements`, and the rest through its MCP tools (`move_decision`,
 `retitle_decision`, `ground_decision`, `request_decision`, `scan_decision_quality`).
+So do the `project` verbs, `ingest slack-thread`, `tui` and `tenant create` (the cell provisions
+a tenant at `POST /v1/tenants` with its admin key, and has no route for the project registry);
+`project show --current` and `project use --clear` open no ledger and are unaffected.
 `classify-queue submit --batch-id id1,id2` accepts more than one batch id to
 submit a single classification covering several batches from the same session
 in one write, matching Worker A's cadence: classify each session once at

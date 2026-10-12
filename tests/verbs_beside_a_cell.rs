@@ -1,8 +1,9 @@
-//! Regression test for hivemind-3wism and hivemind-nrk9f: with `HIVEMIND_API_URL` set, the verbs
-//! that open the ledger under `--hivemind-dir` must not use a local ledger silently. Only
-//! `classify-queue` honours the variable. 3wism covered `emit`, `digest`, `review`, `export` and
-//! `dump`; nrk9f covers `disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`, `import`,
-//! `restatements`, `map` and `quality-scan`. `emit` recorded the decision into a `./hivemind`
+//! Regression test for hivemind-3wism, hivemind-nrk9f and hivemind-wp0n7: with `HIVEMIND_API_URL`
+//! set, the verbs that open the ledger under `--hivemind-dir` must not use a local ledger
+//! silently. Only `classify-queue` honours the variable. 3wism covered `emit`, `digest`, `review`,
+//! `export` and `dump`; nrk9f covers `disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`,
+//! `import`, `restatements`, `map` and `quality-scan`; wp0n7 covers the `project` verbs,
+//! `ingest slack-thread`, `tui` and `tenant create`. `emit` recorded the decision into a `./hivemind`
 //! ledger it created and exited 0 with no word that the cell never got it, and the reads created
 //! an empty ledger and answered from it. Same rule as `query` (hivemind-rmdi1,
 //! tests/query_beside_a_cell.rs): with no local ledger the verb refuses and makes none; with one
@@ -791,6 +792,406 @@ fn a_shared_database_url_leaves_the_ten_other_verbs_alone() {
     for verb in OTHER_VERBS {
         let dir = unique_dir("other-database-url");
         let args = other_verb_args(verb, &note);
+
+        // The URL points nowhere, so the verb fails on the connection; the point is that it is
+        // not the cell refusal and made no local ledger.
+        let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
+            .env("HIVEMIND_API_URL", CELL)
+            .env(
+                "HIVEMIND_DATABASE_URL",
+                "postgres://nobody@127.0.0.1:9/none",
+            )
+            .arg("--hivemind-dir")
+            .arg(&dir)
+            .args(&args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
+
+        assert!(
+            !stderr(&output).contains("never contacts that server"),
+            "{verb}: a configured database is not the cell refusal: {}",
+            stderr(&output)
+        );
+        assert!(!dir.exists(), "{verb} made a local ledger");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// hivemind-wp0n7: project, ingest slack-thread, tui and tenant create
+// ---------------------------------------------------------------------------------------------
+
+/// The verbs hivemind-nrk9f left out, named as the refusal names them.
+const FOURTH_ROUND_VERBS: [&str; 12] = [
+    "project register",
+    "project link",
+    "project unlink",
+    "project anchor",
+    "project declare-topic",
+    "project list",
+    "project show",
+    "project decisions",
+    "project use",
+    "ingest slack-thread",
+    "tui",
+    "tenant create",
+];
+
+/// The same verbs without `tui`, which needs a terminal and a build with the `tui` feature, so it
+/// cannot run to the end here.
+fn runnable_fourth_round_verbs() -> impl Iterator<Item = &'static str> {
+    FOURTH_ROUND_VERBS.into_iter().filter(|verb| *verb != "tui")
+}
+
+/// Whether the refusal says nothing was recorded: the verbs that write to the ledger. `project use`
+/// only reads the registry and keeps its setting in a file, and `tui` only browses.
+fn fourth_round_records(verb: &str) -> bool {
+    !matches!(
+        verb,
+        "project list" | "project show" | "project decisions" | "project use" | "tui"
+    )
+}
+
+/// A ledger under `dir` that holds three registered projects and one link, made the way a person
+/// makes one: local commands with no cell URL.
+fn make_ledger_with_projects(dir: &Path) {
+    for args in [
+        vec!["project", "register", "pricing"],
+        vec!["project", "register", "billing"],
+        vec!["project", "register", "core"],
+        vec![
+            "project", "link", "--from", "pricing", "--to", "billing", "--kind", "part_of",
+        ],
+    ] {
+        let made = hivemind(dir, None, &args);
+        assert!(made.status.success(), "{args:?}: {}", stderr(&made));
+    }
+    assert!(dir.join("ledger.sqlite").is_file());
+}
+
+fn slack_thread_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("slack")
+        .join("thread_with_mention.json")
+}
+
+/// One invocation of `verb` that parses and, against `make_ledger_with_projects`, succeeds. `tui`
+/// takes no `--json`: it needs a terminal.
+fn fourth_round_args(verb: &str) -> Vec<String> {
+    let thread = slack_thread_fixture().display().to_string();
+    let args: Vec<&str> = match verb {
+        "project register" => vec!["project", "register", "newproj"],
+        "project link" => vec![
+            "project",
+            "link",
+            "--from",
+            "core",
+            "--to",
+            "billing",
+            "--kind",
+            "depends_on",
+        ],
+        "project unlink" => vec![
+            "project", "unlink", "--from", "pricing", "--to", "billing", "--kind", "part_of",
+        ],
+        "project anchor" => vec![
+            "project", "anchor", "--handle", "pricing", "--kind", "channel", "--value", "#pricing",
+        ],
+        "project declare-topic" => vec!["project", "declare-topic", "pricing", "seats"],
+        "project list" => vec!["project", "list"],
+        "project show" => vec!["project", "show", "pricing"],
+        "project decisions" => vec!["project", "decisions", "pricing"],
+        "project use" => vec!["project", "use", "pricing"],
+        "ingest slack-thread" => vec!["ingest", "slack-thread", "--file", &thread],
+        "tui" => vec!["tui"],
+        "tenant create" => vec!["tenant", "create", "acme"],
+        other => panic!("no invocation for {other}"), // ubs:ignore: test-only; panicking is correct in tests
+    };
+    let prefix: &[&str] = if verb == "tui" {
+        &["--actor", "human:reviewer"]
+    } else {
+        &["--actor", "human:reviewer", "--json"]
+    };
+    prefix
+        .iter()
+        .copied()
+        .chain(args)
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn a_cell_url_with_no_local_ledger_refuses_project_ingest_tui_and_tenant_create_and_creates_nothing(
+) {
+    for verb in FOURTH_ROUND_VERBS {
+        let dir = unique_dir(&format!("fourth-fresh-{}", verb.replace(' ', "-")));
+        let args = fourth_round_args(verb);
+
+        let output = hivemind(&dir, Some(CELL), &as_strs(&args));
+
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{verb} must refuse with exit 2; stdout: {} stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        let message = stderr(&output);
+        assert!(message.contains(CELL), "{verb} names the cell: {message}");
+        assert!(
+            message.contains(&format!("`hivemind {verb}`"))
+                && message.contains("never contacts that server")
+                && message.contains("none was created"),
+            "{verb} says what it uses and that nothing was made: {message}"
+        );
+        assert_eq!(
+            message.contains("nothing was recorded"),
+            fourth_round_records(verb),
+            "{verb} says the write did not happen exactly when it writes: {message}"
+        );
+        assert!(
+            message.contains(&dir.display().to_string()),
+            "{verb} names the folder it did not use: {message}"
+        );
+        assert!(
+            stdout(&output).is_empty(),
+            "{verb} printed an answer: {}",
+            stdout(&output)
+        );
+        assert!(
+            !dir.exists(),
+            "{verb} left a ledger directory behind under {}",
+            dir.display()
+        );
+    }
+}
+
+#[test]
+fn a_refusal_names_the_cells_route_where_it_has_one_and_says_so_where_it_has_none() {
+    for (verb, route) in [
+        ("project register", "no HTTP route or MCP tool"),
+        ("project link", "no HTTP route or MCP tool"),
+        ("project unlink", "no HTTP route or MCP tool"),
+        ("project anchor", "no HTTP route or MCP tool"),
+        ("project declare-topic", "no HTTP route or MCP tool"),
+        ("project list", "GET http://127.0.0.1:9/v1/graph"),
+        ("project show", "GET http://127.0.0.1:9/v1/graph"),
+        ("project decisions", "GET http://127.0.0.1:9/v1/graph"),
+        ("project use", "GET http://127.0.0.1:9/v1/graph"),
+        (
+            "ingest slack-thread",
+            "POST http://127.0.0.1:9/v1/decisions",
+        ),
+        ("tui", "GET http://127.0.0.1:9/v1/decisions/search"),
+        ("tenant create", "POST http://127.0.0.1:9/v1/tenants"),
+    ] {
+        let dir = unique_dir("fourth-route");
+        let args = fourth_round_args(verb);
+
+        let output = hivemind(&dir, Some(CELL), &as_strs(&args));
+
+        assert!(
+            stderr(&output).contains(route),
+            "{verb} says {route}: {}",
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn the_fourth_round_verbs_with_a_local_ledger_work_and_say_which_ledger_they_used() {
+    for verb in runnable_fourth_round_verbs() {
+        let dir = unique_dir(&format!("fourth-existing-{}", verb.replace(' ', "-")));
+        make_ledger_with_projects(&dir);
+        let args = fourth_round_args(verb);
+
+        let output = hivemind(&dir, Some(CELL), &as_strs(&args));
+
+        assert!(
+            output.status.success(),
+            "{verb}: stdout: {} stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        let notice = notice_of(&output);
+        assert!(
+            notice.contains(CELL) && notice.contains(&format!("`hivemind {verb}`")),
+            "{verb} names the cell and itself: {notice:?} in {}",
+            stdout(&output)
+        );
+        assert!(
+            notice.contains(&dir.display().to_string()),
+            "{verb} names the ledger it used: {notice}"
+        );
+        assert!(
+            notice.contains("does not use that server")
+                || notice.contains("does not read that server"),
+            "{verb} says the cell was not involved: {notice}"
+        );
+    }
+}
+
+#[test]
+fn tui_with_a_local_ledger_gets_past_the_guard() {
+    // It cannot run to the end here (no terminal, and the `tui` feature is optional), so the point
+    // is that a folder holding a ledger is not the cell refusal.
+    let dir = unique_dir("fourth-tui-existing");
+    make_ledger_with_projects(&dir);
+
+    let output = hivemind(&dir, Some(CELL), &["tui"]);
+
+    assert!(
+        !stderr(&output).contains("never contacts that server"),
+        "a folder with a ledger is not refused: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn a_write_with_a_local_ledger_really_lands_in_that_ledger_for_project_and_tenant_create() {
+    let dir = unique_dir("fourth-lands");
+    make_ledger_with_projects(&dir);
+    for args in [
+        vec!["project", "register", "newproj"],
+        vec!["project", "use", "pricing"],
+        vec!["tenant", "create", "acme"],
+    ] {
+        let output = hivemind(
+            &dir,
+            Some(CELL),
+            &[&["--actor", "human:reviewer", "--json"][..], &args].concat(),
+        );
+        assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+    }
+
+    let project = hivemind(&dir, None, &["--json", "project", "show", "newproj"]);
+    let setting = hivemind(
+        &dir,
+        None,
+        &["--actor", "human:reviewer", "project", "show", "--current"],
+    );
+    let tenant = hivemind(
+        &dir,
+        None,
+        &["--tenant", "acme", "query", "search_decisions", "--q", "x"],
+    );
+
+    assert!(
+        stdout(&project).contains("newproj") && !stdout(&project).contains("not_found"),
+        "the registered project is in the local ledger: {}",
+        stdout(&project)
+    );
+    assert!(
+        stdout(&setting).contains("handle=pricing"),
+        "the current-project setting was stored: {}",
+        stdout(&setting)
+    );
+    assert!(
+        tenant.status.success(),
+        "the tenant was created in the local ledger: {}",
+        stderr(&tenant)
+    );
+}
+
+#[test]
+fn a_text_answer_ends_with_the_notice_line_for_project_list_and_is_otherwise_unchanged() {
+    let dir = unique_dir("fourth-text-list");
+    make_ledger_with_projects(&dir);
+
+    let with_cell = hivemind(&dir, Some(CELL), &["project", "list"]);
+    let without_cell = hivemind(&dir, None, &["project", "list"]);
+
+    assert!(with_cell.status.success(), "{}", stderr(&with_cell));
+    let with_cell = stdout(&with_cell);
+    let (answer, notice) = with_cell
+        .trim_end()
+        .rsplit_once('\n')
+        .expect("an answer and a notice line"); // ubs:ignore: test-only; panicking is correct in tests
+    assert!(
+        notice.starts_with("notice: HIVEMIND_API_URL is set")
+            && notice.contains(CELL)
+            && notice.contains("`hivemind project list`"),
+        "the last line is the notice: {with_cell}"
+    );
+    assert_eq!(
+        answer,
+        stdout(&without_cell).trim_end(),
+        "the answer is the one the verb always gives"
+    );
+    assert!(!stdout(&without_cell).contains("notice:"));
+}
+
+#[test]
+fn the_verbs_that_open_no_ledger_are_not_refused() {
+    // Each of these is left out of the guard on purpose: it keeps no ledger under --hivemind-dir
+    // (only a token or the current-project file), makes its own, or honours HIVEMIND_API_URL.
+    let manifest_url = "https://example.test/slack";
+    for (label, args) in [
+        (
+            "project show --current",
+            vec!["project", "show", "--current"],
+        ),
+        ("project use --clear", vec!["project", "use", "--clear"]),
+        ("quickstart", vec!["quickstart"]),
+        (
+            "slack-app manifest",
+            vec!["slack-app", "manifest", "--request-url", manifest_url],
+        ),
+        (
+            "connector auth",
+            vec!["connector", "auth", "no-such-connector"],
+        ),
+        ("classify-queue list", vec!["classify-queue", "list"]),
+    ] {
+        let dir = unique_dir("fourth-left-out");
+
+        let output = hivemind(&dir, Some(CELL), &args);
+
+        assert!(
+            !stderr(&output).contains("never contacts that server"),
+            "{label} is not the cell refusal: {}",
+            stderr(&output)
+        );
+        assert!(
+            !dir.join("ledger.sqlite").exists(),
+            "{label} made a ledger under {}",
+            dir.display()
+        );
+    }
+}
+
+#[test]
+fn without_a_cell_url_the_fourth_round_verbs_are_unchanged() {
+    for verb in runnable_fourth_round_verbs() {
+        let dir = unique_dir(&format!("fourth-local-{}", verb.replace(' ', "-")));
+        make_ledger_with_projects(&dir);
+        let args = fourth_round_args(verb);
+
+        let output = hivemind(&dir, None, &as_strs(&args));
+
+        assert!(
+            output.status.success(),
+            "{verb}: stdout: {} stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert!(
+            !stdout(&output).contains("HIVEMIND_API_URL")
+                && !stderr(&output).contains("HIVEMIND_API_URL"),
+            "{verb} mentions a cell nobody set: {} {}",
+            stdout(&output),
+            stderr(&output)
+        );
+    }
+}
+
+#[test]
+fn a_shared_database_url_leaves_the_fourth_round_verbs_alone() {
+    for verb in FOURTH_ROUND_VERBS {
+        let dir = unique_dir("fourth-database-url");
+        let args = fourth_round_args(verb);
 
         // The URL points nowhere, so the verb fails on the connection; the point is that it is
         // not the cell refusal and made no local ledger.

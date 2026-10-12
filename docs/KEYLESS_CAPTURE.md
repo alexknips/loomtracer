@@ -197,7 +197,11 @@ ledger and adds a `notice` saying the answer is the local ledger's, not the serv
 a plain DOT graph or id). So do the verbs that act on a decision (`disagree`, `supersede`, `move`,
 `retitle`, `ground`), `ask`, `import`, `restatements`, `map` and `quality-scan`: each one refuses
 from a folder with no ledger, and from a folder that holds one says which ledger it used. The
-refusal names the cell's route for the same thing.
+refusal names the cell's route for the same thing. So do the `project` verbs, `ingest
+slack-thread`, `tui` and `tenant create` (a tenant made in a ledger the cell never sees is no
+tenant of the cell's; the cell makes one at `POST /v1/tenants` with its admin key). The cell has
+no route for the project registry, and the refusal says so. `project show --current` and `project
+use --clear` open no ledger and are unaffected.
 
 A decision drafted this way is listed in a time window (`recent_decisions --since`, `digest`,
 `search_decisions --since`, `get_decisions_added_since`, `review --since`) by the time of the

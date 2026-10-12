@@ -287,12 +287,22 @@ pub enum Command {
     /// exists, and write a decision's neighborhood out as DOT (`--dot-output`).
     ///
     /// Needs a terminal (`--json` is refused) and a build with the `tui` feature.
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger (before the terminal UI starts), and otherwise says on stderr, once the UI has
+    /// exited, that it browsed that local ledger.
     Tui(TuiArgs),
     /// Turn an exported Slack thread into a proposed decision: reads the thread from `--file`
     /// and records the decision its messages spell out. Nothing is summarized or inferred.
     ///
     /// The thread must mention the bot (`--mention`, default @hivemind). A thread already
     /// ingested returns the existing decision id. The live Slack integration is `slack-app`.
+    ///
+    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
+    /// server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Ingest(IngestArgs),
     /// Run the Slack integration's pieces by hand: print the app manifest, build the OAuth
     /// install URL, store a workspace install, queue and drain thread captures, and answer
@@ -381,10 +391,23 @@ pub enum Command {
     /// Manage the local tenant registry. Every ledger open (CLI, stdio-MCP,
     /// and the HTTP API server) errors on an unrecognized --tenant/
     /// X-HiveMind-Tenant rather than silently opening a fresh, empty scope.
+    ///
+    /// Writes to the ledger under --hivemind-dir and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing recorded, when
+    /// --hivemind-dir holds no ledger (a tenant made in a ledger the cell never sees is no tenant
+    /// of the cell's), and otherwise says in its output (a `notice` key under --json) that the
+    /// tenant went into that local ledger.
     Tenant(TenantArgs),
     /// Manage the project registry: shared projects, part_of/depends_on links,
     /// and anchors. A personal project (`personal:<actor>`) is derived from the
     /// actor and never registered — `project show` resolves it directly.
+    ///
+    /// The registry lives in the ledger under --hivemind-dir (or --database-url); no `project`
+    /// subcommand contacts the server in HIVEMIND_API_URL. With that variable set, each one that
+    /// opens the ledger (all but `project show --current` and `project use --clear`, which touch
+    /// only the current-project file) refuses, exit 2 and nothing recorded, when --hivemind-dir
+    /// holds no ledger, and otherwise says in its output (a `notice` key under --json) that it
+    /// used that local ledger.
     Project(ProjectArgs),
 }
 
