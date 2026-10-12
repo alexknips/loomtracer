@@ -1008,7 +1008,11 @@ above) — the agent never needs a direct database credential on a shared cell.
 `--database-url`) and never contacts `HIVEMIND_API_URL`. With that variable set it refuses when
 `--hivemind-dir` holds no ledger (and creates none), and otherwise answers from that ledger with a
 `notice` saying so. Read a cell over its HTTP API (`GET /v1/decisions/search`, `/recall`,
-`/relevant`) or its MCP tools.
+`/relevant`) or its MCP tools. `hivemind emit`, `digest`, `review`, `export` and `dump` do the
+same: they use a local ledger, refuse (exit 2, nothing created, nothing recorded) when
+`--hivemind-dir` holds none and `HIVEMIND_API_URL` is set, and otherwise say which ledger they
+used. Record to a cell over `POST /v1/decisions` (and `/v1/evidence`, `/v1/hypotheses`) or its
+MCP tools.
 `classify-queue submit --batch-id id1,id2` accepts more than one batch id to
 submit a single classification covering several batches from the same session
 in one write, matching Worker A's cadence: classify each session once at

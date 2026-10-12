@@ -16,6 +16,11 @@ Run the plugin helper:
 ${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh $ARGUMENTS
 ```
 
+The helper writes a local ledger; it never contacts a server. With `HIVEMIND_API_URL` set it
+refuses (exit 2, nothing recorded) when the project holds no local ledger, and otherwise records
+there and prints a `notice:` line on stderr saying the cell did not get it. Pass that on; do not
+tell the person the decision is on the cell.
+
 Use `/hivemind-capture:capture "<observation>" --kind evidence` for durable
 observations and `/hivemind-capture:capture "<claim>" --kind hypothesis` for
 assumptions that may later be supported or refuted.

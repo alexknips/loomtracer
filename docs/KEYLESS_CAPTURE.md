@@ -92,6 +92,11 @@ Captured HiveMind decision decision-<id> in <folder>/hivemind.
 That decision does not enter the classification queue: it already carries its topic keys. The
 queue holds session transcripts sent to the cell's `POST /v1/ingest`, and Step 4 drains those.
 
+With `HIVEMIND_API_URL` set the command does not quietly record to the wrong place either: from a
+folder with no ledger it refuses (exit 2, nothing recorded, nothing created), and from a folder
+that holds one it records there and says on stderr which ledger took it, and that the cell did
+not.
+
 **To record the decision in the cell instead**, post it to the cell's HTTP API with the token
 from Step 1:
 
@@ -187,7 +192,9 @@ curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/search
 With `HIVEMIND_API_URL` set, `hivemind query` does not quietly read the wrong place. From a folder
 with no ledger it refuses and creates nothing; from a folder that holds one it answers from that
 ledger and adds a `notice` saying the answer is the local ledger's, not the server's. Unset
-`HIVEMIND_API_URL` to read a local ledger without the notice.
+`HIVEMIND_API_URL` to read a local ledger without the notice. `hivemind digest`, `review`,
+`export` and `dump` follow the same rule (`dump` and `emit` say it on stderr, so their stdout stays
+a plain DOT graph or id).
 
 A decision drafted this way is listed in a time window (`recent_decisions --since`, `digest`,
 `search_decisions --since`, `get_decisions_added_since`, `review --since`) by the time of the

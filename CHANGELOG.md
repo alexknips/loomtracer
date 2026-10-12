@@ -569,6 +569,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   A configured `--database-url` is a direct read of the shared data and is unchanged. Step 5 now
   names the HTTP reads that do reach a cell (`GET /v1/decisions/search`, `/relevant`) and says the
   CLI reads a local ledger. (hivemind-rmdi1)
+- **`hivemind emit`, `digest`, `review`, `export` and `dump` no longer use a ledger silently when
+  `HIVEMIND_API_URL` points at a cell.** The same gap as `query` above, and worse for `emit`:
+  with the variable set, `emit decision.capture` from a fresh folder recorded the decision into a
+  `./hivemind/ledger.sqlite` it created, exited 0 and named no path, so the cell never got it and
+  nothing said so; the four reads created an empty ledger and answered from it. All five now follow
+  the `query` rule. With `HIVEMIND_API_URL` set and no `--database-url`, a fresh folder is
+  refused (exit 2, nothing created, nothing recorded, and the message says the verb uses a local
+  ledger and points at the cell's HTTP routes), and a folder that holds a ledger works and says
+  which ledger it used: a `notice` key under `--json` or a `notice:` line after a text answer,
+  and on stderr for `emit`'s bare id and `dump`'s DOT, so `$(hivemind emit ...)` and `| dot` keep
+  reading a clean stdout. `--help` for these verbs and for `query` says the same. A configured
+  `--database-url` is a direct use of the shared data and is unchanged. (hivemind-3wism)
 - **The capture skill and command no longer offer `--kind blocker` or `--kind notification`.**
   `capture.sh` refuses both (exit 2, nothing recorded: "kind blocker is known but does not yet
   have a canonical CLI capture path"), yet the active-capture skill taught `/capture ... --kind

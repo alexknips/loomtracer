@@ -120,31 +120,49 @@ use super::render::{
 pub fn run(cli: &Cli) -> Result<String> {
     validate_global_flags(cli)?;
 
+    let beside_cell = LocalLedgerBesideCell::from_cli(cli);
+    if let Some(cell) = &beside_cell {
+        cell.refuse_without_local_ledger()?;
+    }
     let output = dispatch(cli)?;
-    with_read_notices(cli, output)
+    with_read_notices(cli, output, beside_cell.as_ref(), &mut io::stderr())
 }
 
 /// The read verbs answer even when the ledger holds annotation rows nobody can parse (a
 /// malformed assessment): the projector and every history read skip them. What they do not do is
-/// skip them silently: the answer carries a one-line notice naming the rows. A `query` run with
-/// `HIVEMIND_API_URL` set also says that the answer is the local ledger's, not the server's.
-fn with_read_notices(cli: &Cli, output: String) -> Result<String> {
-    if !matches!(
+/// skip them silently: the answer carries a one-line notice naming the rows. A verb run with
+/// `HIVEMIND_API_URL` set also says that it used the local ledger, not the server (see
+/// [`LocalLedgerBesideCell`]); where stdout is data, `emit`'s bare id and `dump`'s DOT, that
+/// notice goes to stderr instead.
+fn with_read_notices<W: IoWrite>(
+    cli: &Cli,
+    output: String,
+    cell: Option<&LocalLedgerBesideCell>,
+    stderr: &mut W,
+) -> Result<String> {
+    let reads_annotations = matches!(
         cli.command,
         Command::Query(_) | Command::Export(_) | Command::Digest(_) | Command::QualityScan(_)
-    ) {
+    );
+    if cell.is_none() && !reads_annotations {
         return Ok(output);
     }
     let mut notices = Vec::new();
-    if matches!(cli.command, Command::Query(_)) {
-        if let Some(cell) = QueryBesideCell::from_cli(cli) {
-            notices.push(cell.answered_locally_notice());
+    if let Some(cell) = cell {
+        let notice = cell.used_locally_notice();
+        if cell.verb.stdout_is_data() && !is_json_object(&output) {
+            // Best effort: the command has already run, so a closed stderr must not fail it.
+            let _ = writeln!(stderr, "notice: {notice}");
+        } else {
+            notices.push(notice);
         }
     }
-    let tenant_id = cli_tenant(cli)?;
-    let ledger = open_ledger(cli)?;
-    let rows = crate::read_notice::unreadable_annotations(&ledger, &tenant_id)?;
-    notices.extend(crate::read_notice::notice_for(&rows));
+    if reads_annotations {
+        let tenant_id = cli_tenant(cli)?;
+        let ledger = open_ledger(cli)?;
+        let rows = crate::read_notice::unreadable_annotations(&ledger, &tenant_id)?;
+        notices.extend(crate::read_notice::notice_for(&rows));
+    }
     Ok(if notices.is_empty() {
         output
     } else {
@@ -152,20 +170,82 @@ fn with_read_notices(cli: &Cli, output: String) -> Result<String> {
     })
 }
 
-/// `hivemind query` run with `HIVEMIND_API_URL` set. Only `classify-queue` honours that variable;
-/// `query` reads the ledger under `--hivemind-dir` and never contacts the server. Without this a
-/// person who follows the cell's docs gets "0 decisions" from an empty ledger the command made up
-/// in the current folder, or an answer from whatever ledger the folder holds, with nothing to say
-/// it is not the cell's. So the read refuses when there is no local ledger (and makes none), and
-/// otherwise names the ledger it answered from. A configured shared database is a direct read of
-/// the cell's own data, so it is left alone.
-struct QueryBesideCell {
+fn is_json_object(output: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(output).is_ok_and(|value| value.is_object())
+}
+
+/// The verbs that open the ledger under `--hivemind-dir` and are not told about the server in
+/// `HIVEMIND_API_URL`. Only `classify-queue` honours that variable.
+#[derive(Debug, Clone, Copy)]
+enum CellBesideVerb {
+    Query,
+    Digest,
+    Export,
+    Dump,
+    Review,
+    Emit,
+}
+
+impl CellBesideVerb {
+    fn of(command: &Command) -> Option<Self> {
+        Some(match command {
+            Command::Query(_) => Self::Query,
+            Command::Digest(_) => Self::Digest,
+            Command::Export(_) => Self::Export,
+            Command::Dump(_) => Self::Dump,
+            Command::Review(_) => Self::Review,
+            Command::Emit(_) => Self::Emit,
+            _ => return None,
+        })
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Query => "query",
+            Self::Digest => "digest",
+            Self::Export => "export",
+            Self::Dump => "dump",
+            Self::Review => "review",
+            Self::Emit => "emit",
+        }
+    }
+
+    /// What the verb does to the local ledger, for "`hivemind X` ___ a local ledger".
+    fn uses(self) -> &'static str {
+        match self {
+            Self::Query | Self::Digest | Self::Export | Self::Dump => "reads",
+            Self::Review => "reads and writes",
+            Self::Emit => "writes to",
+        }
+    }
+
+    fn records(self) -> bool {
+        matches!(self, Self::Review | Self::Emit)
+    }
+
+    /// `emit` prints the new id and `dump` prints DOT: a line added to stdout would break the
+    /// script or `dot` that reads it.
+    fn stdout_is_data(self) -> bool {
+        matches!(self, Self::Emit | Self::Dump)
+    }
+}
+
+/// A verb run with `HIVEMIND_API_URL` set, which it never contacts. A person who follows the
+/// cell's docs (`docs/KEYLESS_CAPTURE.md`) has that variable set, and without this their `query`
+/// answered "0 decisions" from an empty ledger the command made up in the current folder (or from
+/// whatever ledger the folder held), and `emit` recorded the decision there and exited 0, with
+/// nothing to say it was not the cell's. So the verb refuses when there is no local ledger (and
+/// makes none), and otherwise names the ledger it used. A configured shared database is a direct
+/// read of the cell's own data, so it is left alone.
+struct LocalLedgerBesideCell {
+    verb: CellBesideVerb,
     api_url: String,
     hivemind_dir: PathBuf,
 }
 
-impl QueryBesideCell {
+impl LocalLedgerBesideCell {
     fn from_cli(cli: &Cli) -> Option<Self> {
+        let verb = CellBesideVerb::of(&cli.command)?;
         let config = LedgerConfig::from_cli(cli);
         if config
             .database_url
@@ -175,6 +255,7 @@ impl QueryBesideCell {
             return None;
         }
         Some(Self {
+            verb,
             api_url: hivemind_api_url_from_env()?,
             hivemind_dir: config.hivemind_dir,
         })
@@ -184,26 +265,80 @@ impl QueryBesideCell {
         if SqliteEventLedger::exists_in(&self.hivemind_dir) {
             return Ok(());
         }
+        let dir = self.hivemind_dir.display();
+        let nothing_recorded = if self.verb.records() {
+            ", and nothing was recorded"
+        } else {
+            ""
+        };
+        let local_instead = match self.verb {
+            CellBesideVerb::Emit => format!(
+                "To record to a local ledger instead, unset HIVEMIND_API_URL (the ledger is then \
+                 created under {dir}) or point --hivemind-dir at an existing one"
+            ),
+            CellBesideVerb::Review => "To review a local ledger, unset HIVEMIND_API_URL and point \
+                 --hivemind-dir at it"
+                .to_owned(),
+            _ => "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
+                .to_owned(),
+        };
         Err(CliError::InvalidInput(format!(
-            "HIVEMIND_API_URL is set ({url}), but `hivemind query` reads a local ledger and never \
-             contacts that server, and there is no local ledger under {dir}; none was created. \
-             To read the cell, call its HTTP API (GET {url}/v1/decisions/search, /recall or \
-             /relevant; docs/KEYLESS_CAPTURE.md Step 5). To read a local ledger, unset \
-             HIVEMIND_API_URL and point --hivemind-dir at it",
+            "HIVEMIND_API_URL is set ({url}), but `hivemind {verb}` {uses} a local ledger and \
+             never contacts that server, and there is no local ledger under {dir}; none was \
+             created{nothing_recorded}. {hint}. {local_instead}",
             url = self.api_url,
-            dir = self.hivemind_dir.display(),
+            verb = self.verb.name(),
+            uses = self.verb.uses(),
+            hint = self.cell_route_hint(),
         ))
         .into())
     }
 
-    fn answered_locally_notice(&self) -> String {
+    fn used_locally_notice(&self) -> String {
+        let dir = self.hivemind_dir.display();
+        let verb = self.verb.name();
+        let what = match self.verb {
+            CellBesideVerb::Emit => format!(
+                "this was recorded in the local ledger under {dir}: `hivemind emit` does not \
+                 write to that server, so the cell does not have it"
+            ),
+            CellBesideVerb::Review => format!(
+                "this review used the local ledger under {dir}, and anything it recorded went \
+                 there: `hivemind review` does not use that server, so the cell does not have it"
+            ),
+            _ => format!(
+                "this answer is from the local ledger under {dir}: `hivemind {verb}` does not \
+                 read that server"
+            ),
+        };
         format!(
-            "HIVEMIND_API_URL is set ({url}), but this answer is from the local ledger under \
-             {dir}: `hivemind query` does not read that server. To read the cell, call its HTTP \
-             API (GET {url}/v1/decisions/search)",
+            "HIVEMIND_API_URL is set ({url}), but {what}. {hint}",
             url = self.api_url,
-            dir = self.hivemind_dir.display(),
+            hint = self.cell_route_hint(),
         )
+    }
+
+    /// The cell's own HTTP routes that do what the verb does against a local ledger.
+    fn cell_route_hint(&self) -> String {
+        let url = &self.api_url;
+        match self.verb {
+            CellBesideVerb::Emit => format!(
+                "To record to the cell, call its HTTP API (POST {url}/v1/decisions, /v1/evidence \
+                 or /v1/hypotheses) or its MCP tools (POST {url}/mcp)"
+            ),
+            CellBesideVerb::Dump => format!(
+                "To read the cell's graph, call its HTTP API (GET {url}/v1/graph; \
+                 docs/KEYLESS_CAPTURE.md Step 5)"
+            ),
+            CellBesideVerb::Review => format!(
+                "To read the cell's decisions, call GET {url}/v1/decisions/search; to act on one, \
+                 POST {url}/v1/decisions/{{id}}/disagreements or /supersessions"
+            ),
+            CellBesideVerb::Query | CellBesideVerb::Digest | CellBesideVerb::Export => format!(
+                "To read the cell, call its HTTP API (GET {url}/v1/decisions/search, /recall or \
+                 /relevant; docs/KEYLESS_CAPTURE.md Step 5)"
+            ),
+        }
     }
 }
 
@@ -2505,9 +2640,6 @@ fn project_reminder(
 }
 
 fn run_query(cli: &Cli, query: &QueryArgs) -> Result<String> {
-    if let Some(cell) = QueryBesideCell::from_cli(cli) {
-        cell.refuse_without_local_ledger()?;
-    }
     let context = cli_query_context(cli)?;
     let ledger = open_ledger(cli)?;
 

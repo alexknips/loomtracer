@@ -158,6 +158,11 @@ pub enum Command {
     ///
     /// The low-level write path. `emit decision.capture` is the everyday capture; the other
     /// events are the single steps that `disagree`, `supersede`, `ground` and `review` compose.
+    ///
+    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
+    /// server in HIVEMIND_API_URL; only `classify-queue` does. With that variable set it refuses,
+    /// exit 2 and nothing recorded, when --hivemind-dir holds no ledger, and otherwise says on
+    /// stderr (a `notice` key under --json) that the event went to that local ledger.
     Emit(Box<EmitArgs>),
     /// Record that you disagree with a decision, found by describing it, and why. Your rejection
     /// is kept beside everyone else's position, never overwriting it: a decision one actor
@@ -214,6 +219,11 @@ pub enum Command {
     /// written as an ordinary accept, reject or supersede event from `--actor`, so reviewed
     /// state is derived from the ledger, never stored separately; `--unreviewed-only` skips
     /// decisions someone already ruled on.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2, when
+    /// --hivemind-dir holds no ledger, and otherwise says in its output that it used that local
+    /// ledger.
     Review(ReviewArgs),
     /// Bring decisions in from documents: local Markdown or text notes with `Decision:` blocks
     /// (or prose, through an extractor), prepared PDF/OCR text, or the version history of a
@@ -224,9 +234,18 @@ pub enum Command {
     /// decisions are reported unless `--on-conflict` says how to resolve them.
     Import(ImportArgs),
     /// Run deterministic read queries. JSON is the default; pass --summary for compact text.
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger, and otherwise adds a `notice` saying the answer is that local ledger's.
     Query(Box<QueryArgs>),
     /// Print the whole projected decision graph as Graphviz DOT: decisions, actors, options,
     /// evidence and hypotheses with the edges between them, ready for `dot -Tsvg`.
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger, and otherwise says on stderr, keeping stdout a plain DOT graph, that it read that
+    /// local ledger.
     Dump(DumpArgs),
     /// Browse the decision graph in an interactive terminal UI: search decisions, read why each
     /// exists, and write a decision's neighborhood out as DOT (`--dot-output`).
@@ -268,6 +287,10 @@ pub enum Command {
     /// Generate a textual decision digest for a time window.
     /// Answers "what did the team decide this week and why?" using graph data.
     /// Outputs structured JSON by default; pass --summary for readable prose.
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger, and otherwise adds a `notice` saying the digest is that local ledger's.
     Digest(Box<DigestArgs>),
     /// Inspect and drain the classification work queue (Worker A).
     /// Use `classify-queue list` to see pending batches; use `classify-queue submit`
@@ -297,6 +320,11 @@ pub enum Command {
     /// export owns — stale files from a prior run are pruned. Not a `query`
     /// subcommand: query subcommands print one envelope, this one writes a
     /// directory tree.
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger (writing nothing under --out), and otherwise adds a `notice` saying the export is
+    /// that local ledger's.
     Export(ExportArgs),
     /// Manage the local tenant registry. Every ledger open (CLI, stdio-MCP,
     /// and the HTTP API server) errors on an unrecognized --tenant/

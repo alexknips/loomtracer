@@ -5,7 +5,10 @@ This directory is both the Codex capture plugin and the Claude Code
 
 - `/hivemind-capture:capture` for explicit writes through the deterministic
   capture helper. Use `--kind decision`, `--kind evidence`, or
-  `--kind hypothesis` when the kind is known.
+  `--kind hypothesis` when the kind is known. It writes a local ledger and never
+  contacts a server: with `HIVEMIND_API_URL` set it refuses when the project
+  holds no ledger, and otherwise records there and says on stderr that the cell
+  did not get it.
 - `/hivemind-capture:capture-decision` as the legacy decision-only wrapper for
   `emit decision.capture`.
 - `/hivemind-capture:query-decisions` for free-text `query recall` reads of the
