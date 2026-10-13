@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::projector::arrow::{orient, Arrow, NodeTime};
-use crate::projector::{GraphView, NodeKind, RelationKind};
+use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::shared::{node_row, node_rows, optional_int, optional_string, relation_edges};
@@ -127,41 +127,54 @@ pub fn reaffirmation_arrows(graph: &impl GraphView) -> Result<Vec<DerivedArrow>>
         .into_keys()
         .collect();
 
-    let mut arrows = Vec::new();
-    for (id, row) in &reaffirmations {
-        if let Some(decision_id) = optional_string(row, "decision_id") {
-            if decisions.contains(&decision_id) {
-                arrows.push(DerivedArrow {
-                    relation: REAFFIRMS,
-                    label: "reaffirms",
-                    from_kind: NodeKind::Reaffirmation,
-                    from_id: id.clone(),
-                    to_kind: NodeKind::Decision,
-                    to_id: decision_id,
-                });
-            }
-        }
-        if let Some(premise_id) = optional_string(row, "premise_id") {
-            let to_kind = if decisions.contains(&premise_id) {
-                Some(NodeKind::Decision)
-            } else if hypotheses.contains(&premise_id) {
-                Some(NodeKind::Hypothesis)
-            } else {
-                None
-            };
-            if let Some(to_kind) = to_kind {
-                arrows.push(DerivedArrow {
-                    relation: REAFFIRMED_AFTER,
-                    label: "after the change to",
-                    from_kind: NodeKind::Reaffirmation,
-                    from_id: id.clone(),
-                    to_kind,
-                    to_id: premise_id,
-                });
-            }
+    Ok(reaffirmations
+        .iter()
+        .flat_map(|(id, row)| arrows_of_reaffirmation(id, row, &decisions, &hypotheses))
+        .collect())
+}
+
+/// The arrows one `Reaffirmation` node derives: `REAFFIRMS` to the decision it was recorded
+/// on and `REAFFIRMED_AFTER` to the premise whose change it answered. An endpoint that is not a
+/// node in the graph (a premise outside the replayed ledger) gets no arrow.
+fn arrows_of_reaffirmation(
+    id: &str,
+    row: &GraphRow,
+    decisions: &BTreeSet<String>,
+    hypotheses: &BTreeSet<String>,
+) -> Vec<DerivedArrow> {
+    let mut arrows = Vec::with_capacity(2);
+    if let Some(decision_id) = optional_string(row, "decision_id") {
+        if decisions.contains(&decision_id) {
+            arrows.push(DerivedArrow {
+                relation: REAFFIRMS,
+                label: "reaffirms",
+                from_kind: NodeKind::Reaffirmation,
+                from_id: id.to_owned(),
+                to_kind: NodeKind::Decision,
+                to_id: decision_id,
+            });
         }
     }
-    Ok(arrows)
+    if let Some(premise_id) = optional_string(row, "premise_id") {
+        let to_kind = if decisions.contains(&premise_id) {
+            Some(NodeKind::Decision)
+        } else if hypotheses.contains(&premise_id) {
+            Some(NodeKind::Hypothesis)
+        } else {
+            None
+        };
+        if let Some(to_kind) = to_kind {
+            arrows.push(DerivedArrow {
+                relation: REAFFIRMED_AFTER,
+                label: "after the change to",
+                from_kind: NodeKind::Reaffirmation,
+                from_id: id.to_owned(),
+                to_kind,
+                to_id: premise_id,
+            });
+        }
+    }
+    arrows
 }
 
 #[cfg(test)]

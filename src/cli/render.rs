@@ -25,17 +25,17 @@ use crate::queries::{
     annotate_resolution, derive_decision_status, derive_hypothesis_status, option_label_unit,
     oriented_edges, reaffirmation_arrows, BlockerNotificationCandidates, ChangedDecisionsResults,
     CompactView, Contest, ContestedDecisionsResults, DecidedBy, DecisionBlockerResults,
-    DecisionBrief, DecisionSearchResults, DecisionStatus, DecisionTimeline, DecisionView,
-    DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom, GroundingAdded,
-    GroundingItem, GroundingItemState, GroundingKind, GroundingState, HistoryChangeKind,
-    HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults, OpenWhyView,
-    OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage, ProjectListResults,
-    ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse, QuestionAnswer, ReadOnlyExport,
-    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind, ReaffirmedPremise,
-    RecentActivityResults, RecentDecisionsResults, ReexamineEntry, ReexamineMarker,
-    ReexamineStatus, RelevantDecision, ResolveOutcome, ResolvedCandidate, ReviewShape,
-    SituationalResults, StillHolds, SupersessionChain, TimelineEntry, TimelineFact, TitleChange,
-    WaitingRequestsResults, POLARITY_REASON,
+    DecisionBrief, DecisionOutcome, DecisionSearchResults, DecisionStatus, DecisionTimeline,
+    DecisionView, DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom,
+    GroundingAdded, GroundingItem, GroundingItemState, GroundingKind, GroundingState,
+    HistoryChangeKind, HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults,
+    OpenWhyView, OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage,
+    ProjectListResults, ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse,
+    QuestionAnswer, ReadOnlyExport, ReadOnlyExportFormat as QueryReadOnlyExportFormat,
+    ReadOnlyExportQueryKind, ReaffirmedPremise, RecentActivityResults, RecentDecisionsResults,
+    ReexamineEntry, ReexamineMarker, ReexamineStatus, RelevantDecision, ResolveOutcome,
+    ResolvedCandidate, ReviewShape, SituationalResults, StillHolds, SupersessionChain,
+    TimelineEntry, TimelineFact, TitleChange, WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
 use crate::{HivemindError, Result};
@@ -95,19 +95,21 @@ pub(crate) fn render_compact_view_summary(view: &Option<CompactView>) -> String 
         } else if let (DecisionStatus::Contested, Some(state)) = (premise.status, state) {
             // A live disagreement is not a verdict: not STALE, but a decision resting on it has
             // an item to look at.
-            out.push_str(&format!(
-                "  CONTESTED PREMISE: follows from {}, which is contested ({state})\n",
+            let _ = writeln!(
+                out,
+                "  CONTESTED PREMISE: follows from {}, which is contested ({state})",
                 premise.decision_id
-            ));
+            );
         }
     }
     for hypothesis in &v.hypotheses {
         if let Some(state) = hypothesis.reexamine {
-            out.push_str(&format!(
-                "  REFUTED: rests on {}, which was refuted ({})\n",
+            let _ = writeln!(
+                out,
+                "  REFUTED: rests on {}, which was refuted ({})",
                 hypothesis.id,
                 reexamine_status_note(state)
-            ));
+            );
         }
     }
     if v.dependents_count > 0 {
@@ -516,27 +518,7 @@ pub(crate) fn render_situational_summary(results: &SituationalResults) -> String
         let _ = writeln!(output, "scope\t{}", summary_cell(&scope.note));
     }
     for item in &results.matches {
-        // Whether anyone looked again rides in the cell too: STALE(premise superseded,
-        // re-examine open), holds(re-examined), holds(re-examine open) for a contested premise.
-        let reexamine = reexamine_cell_note(&item.outcome.reexamine);
-        let held_up = if item.outcome.held_up {
-            match reexamine {
-                Some(note) => format!("holds({note})"),
-                None => "holds".to_owned(),
-            }
-        } else {
-            // The reason rides inside the cell: STALE(premise superseded), STALE(assumption
-            // refuted), STALE(superseded), ...
-            let mut labels = still_holds_labels(&item.outcome.reasons);
-            if let Some(note) = reexamine {
-                labels.push(note);
-            }
-            if labels.is_empty() {
-                "STALE".to_owned()
-            } else {
-                format!("STALE({})", labels.join(", "))
-            }
-        };
+        let held_up = held_up_cell(&item.outcome);
         let changed = match item.changed_since {
             Some(true) => "changed",
             Some(false) => "unchanged",
@@ -1455,6 +1437,27 @@ fn reexamine_cell_note(entries: &[ReexamineEntry]) -> Option<&'static str> {
         }
     }
     note
+}
+
+/// One match's holds/STALE cell. Whether anyone looked again rides in the cell too:
+/// `STALE(premise superseded, re-examine open)`, `holds(re-examined)`, and `holds(re-examine
+/// open)` for a contested premise. The reason rides inside the cell: `STALE(premise superseded)`,
+/// `STALE(assumption refuted)`, `STALE(superseded)`, ...
+fn held_up_cell(outcome: &DecisionOutcome) -> String {
+    let reexamine = reexamine_cell_note(&outcome.reexamine);
+    if outcome.held_up {
+        return match reexamine {
+            Some(note) => format!("holds({note})"),
+            None => "holds".to_owned(),
+        };
+    }
+    let mut labels = still_holds_labels(&outcome.reasons);
+    labels.extend(reexamine);
+    if labels.is_empty() {
+        "STALE".to_owned()
+    } else {
+        format!("STALE({})", labels.join(", "))
+    }
 }
 
 /// `re-examine open since 2026-09-12` (the oldest change an open item waits on, when the graph

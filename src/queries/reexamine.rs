@@ -1185,21 +1185,22 @@ pub(crate) fn propagation_of_decision(
         .into_iter()
         .filter(|record| record.premise_id == decision_id)
         .collect();
-    let mut states = Vec::with_capacity(dependents.len());
-    for dependent in &dependents {
-        let pair: Vec<&ReaffirmationRecord> = reaffirmations
-            .iter()
-            .filter(|record| &record.decision_id == dependent)
-            .collect();
-        if let Some(judged) = judge(
-            &standings.summary_of(dependent),
-            PremiseKind::Decision,
-            change.clone(),
-            &pair,
-        ) {
-            states.push(judged.state);
-        }
-    }
+    let states: Vec<ItemState> = dependents
+        .iter()
+        .filter_map(|dependent| {
+            let pair: Vec<&ReaffirmationRecord> = reaffirmations
+                .iter()
+                .filter(|record| &record.decision_id == dependent)
+                .collect();
+            judge(
+                &standings.summary_of(dependent),
+                PremiseKind::Decision,
+                change.clone(),
+                &pair,
+            )
+            .map(|judged| judged.state)
+        })
+        .collect();
     if states.is_empty() {
         return Ok(None);
     }
