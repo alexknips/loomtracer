@@ -223,7 +223,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   "Re-examination" list and a "Propagation" line in the Outcome section (without the UNFINISHED
   mark, which depends on today's date, so the same ledger exports the same file), and the TUI
   flags `!stale re-examine:N` on a result and prints the entries on the open decision.
-  `GET /v1/graph` and `export --format dot` no longer show a `Reaffirmation` alone: it is
+  `GET /v1/graph` and `dump --format dot` no longer show a `Reaffirmation` alone: it is
   labelled with its reason and tied to the decision it concerns (`REAFFIRMS`) and the premise
   that changed (`REAFFIRMED_AFTER`) by two lines read from its own properties, marked
   `"derived": true` in the JSON because the graph stores no such edge. Default-on, no flag.
@@ -235,8 +235,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **A decision that rests on something that changed now says whether anyone looked again, and a
   "still holds" counts.** When a premise a decision rests on changes (a prior decision it
   follows from is superseded, rejected or contested; an assumption or bet it rests on is
-  refuted), `verify` (`get_decision_outcome`) gains `reexamine`: one entry per changed premise
-  with the change (who, the ledger offset, the time where the graph states one) and its state:
+  refuted), `verify` (`get_decision_outcome`) gains `still_holds.reexamine`: one entry per
+  changed premise with the change (who, the ledger offset, the time where the graph states one)
+  and its state:
   `open`, `reaffirmed` (each reaffirmation with its actor, time and reason), or the decision was
   itself superseded or rejected afterwards. A reaffirmation closes it only if its ledger offset is
   after the change, so a premise that changes again reopens it and the earlier word stays

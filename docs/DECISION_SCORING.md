@@ -492,9 +492,10 @@ unfinished by age; the answer says so rather than inventing a date. Wording neve
 actor.
 
 **On a decision's outcome.** `DecisionOutcome` (`verify`, `get_decision_outcome`) carries
-`reexamine`: one entry per changed premise the decision rests on, open or closed, absent when
-no premise changed. `reasons` and `stale_premises` stay what the graph states. `held_up`
-changes in two ways, both written down:
+`reexamine`, which the JSON answers under `still_holds` (`data.still_holds.reexamine`; no
+top-level `data.reexamine`): one entry per changed premise the decision rests on, open or
+closed, absent when no premise changed. `reasons` and `stale_premises` stay what the graph
+states. `held_up` changes in two ways, both written down:
 
 - A stale premise (superseded, rejected, refuted) stops counting once its change is
   reaffirmed for this decision. The reason stays in `reasons`; the entry says who looked

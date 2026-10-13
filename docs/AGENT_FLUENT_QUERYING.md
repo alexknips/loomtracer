@@ -1081,9 +1081,10 @@ quantitative assessment in the same response, so nobody needs to know to ask
 **Did the change travel to this decision?** (hivemind-ottw.2). When something a
 decision rests on changed (a prior decision it follows from was superseded, rejected
 or contested; an assumption or bet it rests on was refuted), the decision's outcome
-(`verify`, `get_decision_outcome`) carries `reexamine`: one entry per changed premise,
-absent when none changed. An entry names the premise (`premise_id`, `premise_kind`,
-`premise_label`), the change (`kind` `superseded` | `rejected` | `contested` |
+(`verify`, `get_decision_outcome`) carries `reexamine` in its `still_holds` object
+(JSON `data.still_holds.reexamine`; there is no top-level `data.reexamine`): one entry per
+changed premise, absent when none changed. An entry names the premise (`premise_id`,
+`premise_kind`, `premise_label`), the change (`kind` `superseded` | `rejected` | `contested` |
 `refuted`, `by_ids`, `at_offset`, and `at_time` where the graph states one: it does
 not for a rejection or a contest) and where it stands (`state`):
 
@@ -1141,10 +1142,11 @@ to ask for; every surface that shows a decision says what it can, default-on, no
   entries) in its Outcome section; a decision that itself changed gets "Propagation". The
   UNFINISHED mark is left out there: it depends on today's date and the export carries no
   clock.
-- Graph views (`GET /v1/graph`, `export --format dot`): a `Reaffirmation` is labelled with its
-  reason and drawn with two lines to the decision it concerns (`REAFFIRMS`, "reaffirms") and
-  the premise that changed (`REAFFIRMED_AFTER`, "after the change to"). They are read from the
-  node's own properties and marked `"derived": true`; the graph stores no such edge.
+- Graph views (`GET /v1/graph`, `hivemind dump --format dot`; `export` writes Markdown only): a
+  `Reaffirmation` is labelled with its reason and drawn with two lines to the decision it
+  concerns (`REAFFIRMS`, "reaffirms") and the premise that changed (`REAFFIRMED_AFTER`, "after
+  the change to"). They are read from the node's own properties and marked `"derived": true`
+  in the JSON (drawn dashed in the DOT); the graph stores no such edge.
 - The TUI marks a result `!stale re-examine:N` and prints each entry on the open decision.
 
 **`why` reuses the brief.** `get_decision_neighborhood` (`why`) returns the
