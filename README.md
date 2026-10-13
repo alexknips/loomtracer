@@ -122,7 +122,11 @@ External consumers — dashboards, automation, factory loops — pull profiles,
 findings and signals via MCP.
 
 The default CLI stores events in SQLite at `./hivemind/ledger.sqlite` or the
-directory passed with `--hivemind-dir`. Queries and DOT dumps replay the
+directory passed with `--hivemind-dir`. A write creates the ledger on first use;
+a read (`query`, `digest`, `dump`, `export`, `map`, `reexamine`, `tui`,
+`restatements propose`, `project list`, `show` and `decisions`) aimed at a folder
+that holds none refuses (exit 2, naming the folder) and creates nothing, so a
+mistyped folder is never read as "no decisions". Queries and DOT dumps replay the
 ledger into an in-memory graph view by default. A Kuzu-backed projection is
 available behind the optional `graph-kuzu` feature.
 

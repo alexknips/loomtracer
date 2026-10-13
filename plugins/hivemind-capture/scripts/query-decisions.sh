@@ -15,9 +15,11 @@ Usage:
 `--q "..."` is accepted for backward compatibility and is treated the same
 as a bare positional query.
 
-This reads a local ledger (--hivemind-dir) and never contacts a server. With
-HIVEMIND_API_URL set it refuses when that directory holds no ledger, and
-otherwise answers from it with a `notice` saying so.
+This reads a local ledger (--hivemind-dir) and never contacts a server. It
+refuses (exit 2, naming the directory) when that directory holds no ledger, and
+makes none, so a mistyped path is not read as "no decisions". With
+HIVEMIND_API_URL set it otherwise answers from the ledger with a `notice`
+saying so.
 
 No actor or source filter is applied unless you pass --actor-id or
 --source explicitly — this is a free-text search over every decision in

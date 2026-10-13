@@ -1005,10 +1005,14 @@ opening the local SQLite ledger directly when `HIVEMIND_API_URL` is set (same
 `HIVEMIND_API_URL`/`HIVEMIND_API_KEY` variables as the Python capture clients
 above) — the agent never needs a direct database credential on a shared cell.
 `hivemind query` does not: it reads a local ledger (or the database named by
-`--database-url`) and never contacts `HIVEMIND_API_URL`. With that variable set it refuses when
-`--hivemind-dir` holds no ledger (and creates none), and otherwise answers from that ledger with a
-`notice` saying so. Read a cell over its HTTP API (`GET /v1/decisions/search`, `/recall`,
-`/relevant`) or its MCP tools. `hivemind emit`, `digest`, `review`, `export` and `dump` do the
+`--database-url`) and never contacts `HIVEMIND_API_URL`. It refuses (exit 2, naming the folder)
+when `--hivemind-dir` holds no ledger, and creates none, whether or not that variable is set: a
+folder mistyped or not yet recorded in is not an answer of "no decisions". With that variable set
+it otherwise answers from that ledger with a `notice` saying so. The other verbs that only read
+(`digest`, `dump`, `export`, `map`, `reexamine`, `tui`, `restatements propose`, `project list`,
+`project show` and `project decisions`) refuse the same way. Read a cell over its HTTP API
+(`GET /v1/decisions/search`, `/recall`, `/relevant`) or its MCP tools. `hivemind emit`, `digest`,
+`review`, `export` and `dump` do the
 same: they use a local ledger, refuse (exit 2, nothing created, nothing recorded) when
 `--hivemind-dir` holds none and `HIVEMIND_API_URL` is set, and otherwise say which ledger they
 used. Record to a cell over `POST /v1/decisions` (and `/v1/evidence`, `/v1/hypotheses`) or its

@@ -12,7 +12,8 @@ This directory is both the Codex capture plugin and the Claude Code
 - `/hivemind-capture:capture-decision` as the legacy decision-only wrapper for
   `emit decision.capture`.
 - `/hivemind-capture:query-decisions` for free-text `query recall` reads of the
-  local ledger (it never contacts a server; with `HIVEMIND_API_URL` set it says
+  local ledger (it never contacts a server; it refuses, naming the directory,
+  when the directory holds no ledger, and with `HIVEMIND_API_URL` set it says
   so) — "what did we decide about X?", never a decision id. For single-decision
   follow-up (why, still-holds, disagree, supersede), install the
   `hivemind-context` plugin instead.

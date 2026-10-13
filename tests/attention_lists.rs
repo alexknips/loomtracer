@@ -407,6 +407,8 @@ fn the_summaries_read_as_text() -> TestResult<()> {
     assert!(why.contains("asked to decided:"), "{why}");
 
     let empty = Scratch::new("summary-empty")?;
+    // A ledger that holds nothing answers; a folder with no ledger is refused (hivemind-i6ply).
+    hivemind::ledger::SqliteEventLedger::open(empty.path())?;
     assert_eq!(
         run_cli(
             empty.path(),

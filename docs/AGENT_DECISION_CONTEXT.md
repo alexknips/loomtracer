@@ -136,7 +136,11 @@ the agent; neither model sets either itself:
 
 - **Ledger location** (SQLite mode): `./hivemind/` by default, or
   `HIVEMIND_DIR`/`--hivemind-dir`/the plugin's `hivemind_dir` option for
-  another directory, including one on shared storage.
+  another directory, including one on shared storage. A read verb (`recall`,
+  `why`, `verify`, `situational`, `reexamine` and the rest) aimed at a directory
+  that holds no ledger refuses (exit 2, naming the directory) and creates none,
+  so a mistyped path is never read as "no decision found"; a write creates the
+  ledger on first use.
 - **Backend** (SQLite vs. Postgres): unset `HIVEMIND_DATABASE_URL` uses the
   SQLite ledger above; setting it (with `HIVEMIND_TENANT` to pick the
   tenant) makes `hivemind mcp` and every `hivemind query`/`disagree`/

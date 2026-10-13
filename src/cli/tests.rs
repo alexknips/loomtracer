@@ -6951,6 +6951,8 @@ fn workspace_fixture(relative: &str) -> PathBuf {
 #[test]
 fn kuzu_backend_requires_feature() {
     let hivemind_dir = unique_test_dir("kuzu-feature-required");
+    // A read of a folder with no ledger is refused before the backend is chosen (hivemind-i6ply).
+    crate::ledger::SqliteEventLedger::open(&hivemind_dir).expect("seed an empty ledger");
     let cli = Cli::parse_from([
         "hivemind",
         "--hivemind-dir",
@@ -9481,6 +9483,9 @@ fn export_out_pointing_at_file_fails_before_any_write() -> CliTestResult {
     let hivemind_dir = unique_test_dir("export-out-is-file-ledger");
     let out_path = unique_test_dir("export-out-is-file");
     std::fs::write(&out_path, b"not a directory")?;
+    // The ledger has to exist: an export of a folder with no ledger is refused first
+    // (hivemind-i6ply), before --out is looked at.
+    crate::ledger::SqliteEventLedger::open(&hivemind_dir)?;
 
     let error = run(&Cli::parse_from([
         "hivemind",
@@ -9501,12 +9506,9 @@ fn export_out_pointing_at_file_fails_before_any_write() -> CliTestResult {
         std::fs::metadata(&out_path)?.is_file(),
         "export must not touch --out when it already points at a file",
     )?;
-    ensure(
-        !hivemind_dir.exists(),
-        "export must not create the ledger before validating --out",
-    )?;
 
     let _ = std::fs::remove_file(&out_path);
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
     Ok(())
 }
 

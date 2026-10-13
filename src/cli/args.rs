@@ -269,8 +269,9 @@ pub enum Command {
     /// cut at `--limit` and says so (`truncated`, with the cursor to continue from).
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger, and otherwise adds a `notice` saying the answer is that local ledger's.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// ledger, so a mistyped folder is not read as "no decisions". With that variable set it
+    /// otherwise adds a `notice` saying the answer is that local ledger's.
     Reexamine(ReexamineArgs),
     /// Record that you are explicitly asking a question, before any decision answers it: writes
     /// a request that is "waiting" until a decision (`emit decision.capture --answers`) links to
@@ -314,16 +315,17 @@ pub enum Command {
     /// Run deterministic read queries. JSON is the default; pass --summary for compact text.
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger, and otherwise adds a `notice` saying the answer is that local ledger's.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// ledger, so a mistyped folder is not read as "no decisions". With that variable set it
+    /// otherwise adds a `notice` saying the answer is that local ledger's.
     Query(Box<QueryArgs>),
     /// Print the whole projected decision graph as Graphviz DOT: decisions, actors, options,
     /// evidence and hypotheses with the edges between them, ready for `dot -Tsvg`.
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger, and otherwise says on stderr, keeping stdout a plain DOT graph, that it read that
-    /// local ledger.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// ledger, so a mistyped folder is not read as an empty graph. With that variable set it
+    /// otherwise says on stderr, keeping stdout a plain DOT graph, that it read that local ledger.
     Dump(DumpArgs),
     /// Browse the decision graph in an interactive terminal UI: search decisions, read why each
     /// exists, and write a decision's neighborhood out as DOT (`--dot-output`).
@@ -331,9 +333,9 @@ pub enum Command {
     /// Needs a terminal (`--json` is refused) and a build with the `tui` feature.
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger (before the terminal UI starts), and otherwise says on stderr, once the UI has
-    /// exited, that it browsed that local ledger.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// ledger (before the terminal UI starts). With that variable set it otherwise says on
+    /// stderr, once the UI has exited, that it browsed that local ledger.
     Tui(TuiArgs),
     /// Turn an exported Slack thread into a proposed decision: reads the thread from `--file`
     /// and records the decision its messages spell out. Nothing is summarized or inferred.
@@ -373,17 +375,19 @@ pub enum Command {
     /// passed.
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger, and otherwise says that the map is that local ledger's: a `notice` key, or a
-    /// `notice:` line under --summary, or on stderr when several --alpha make stdout a JSON array.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// ledger, so a mistyped folder is not read as an empty map. With that variable set it
+    /// otherwise says that the map is that local ledger's: a `notice` key, or a `notice:` line
+    /// under --summary, or on stderr when several --alpha make stdout a JSON array.
     Map(MapArgs),
     /// Generate a textual decision digest for a time window.
     /// Answers "what did the team decide this week and why?" using graph data.
     /// Outputs structured JSON by default; pass --summary for readable prose.
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger, and otherwise adds a `notice` saying the digest is that local ledger's.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// ledger, so a mistyped folder is not read as "no decisions this week". With that variable
+    /// set it otherwise adds a `notice` saying the digest is that local ledger's.
     Digest(Box<DigestArgs>),
     /// Inspect and drain the classification work queue (Worker A).
     /// Use `classify-queue list` to see pending batches; use `classify-queue submit`
@@ -396,10 +400,11 @@ pub enum Command {
     /// merge: both records stay as recorded, and `recall` and `why` show them as one decision.
     ///
     /// Reads (`propose`) and writes (`apply`) the ledger under --hivemind-dir (or --database-url)
-    /// and never contacts the server in HIVEMIND_API_URL. With that variable set it refuses, exit
-    /// 2 and nothing recorded, when --hivemind-dir holds no ledger, and otherwise says in its
-    /// output (a `notice` key under --json, on stderr for `apply --json`, which prints an array)
-    /// that it used that local ledger.
+    /// and never contacts the server in HIVEMIND_API_URL. `propose` refuses, exit 2 and creating
+    /// nothing, when --hivemind-dir holds no ledger, so a mistyped folder is not read as "no
+    /// restatements". With that variable set, `apply` refuses likewise, exit 2 and nothing
+    /// recorded, and both otherwise say in their output (a `notice` key under --json, on stderr
+    /// for `apply --json`, which prints an array) that they used that local ledger.
     Restatements(RestatementsArgs),
     /// Manage connector authentication (e.g., Google Docs OAuth).
     /// Set HIVEMIND_GOOGLE_CLIENT_ID and HIVEMIND_GOOGLE_CLIENT_SECRET before running.
@@ -426,9 +431,9 @@ pub enum Command {
     /// directory tree.
     ///
     /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
-    /// ledger (writing nothing under --out), and otherwise adds a `notice` saying the export is
-    /// that local ledger's.
+    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing (nor anything under --out), when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as an empty log. With
+    /// that variable set it otherwise adds a `notice` saying the export is that local ledger's.
     Export(ExportArgs),
     /// Manage the local tenant registry. Every ledger open (CLI, stdio-MCP,
     /// and the HTTP API server) errors on an unrecognized --tenant/
@@ -445,11 +450,12 @@ pub enum Command {
     /// actor and never registered — `project show` resolves it directly.
     ///
     /// The registry lives in the ledger under --hivemind-dir (or --database-url); no `project`
-    /// subcommand contacts the server in HIVEMIND_API_URL. With that variable set, each one that
-    /// opens the ledger (all but `project show --current` and `project use --clear`, which touch
-    /// only the current-project file) refuses, exit 2 and nothing recorded, when --hivemind-dir
-    /// holds no ledger, and otherwise says in its output (a `notice` key under --json) that it
-    /// used that local ledger.
+    /// subcommand contacts the server in HIVEMIND_API_URL. `project list`, `show` and `decisions`
+    /// refuse, exit 2 and creating nothing, when --hivemind-dir holds no ledger, so a mistyped
+    /// folder is not read as "no projects". With that variable set, each subcommand that opens
+    /// the ledger (all but `project show --current` and `project use --clear`, which touch only
+    /// the current-project file) refuses likewise, nothing recorded, and otherwise says in its
+    /// output (a `notice` key under --json) that it used that local ledger.
     Project(ProjectArgs),
 }
 

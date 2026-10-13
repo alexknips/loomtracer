@@ -35,6 +35,25 @@ fn recent_decisions(dir: &Path, api_url: Option<&str>) -> Output {
         .expect("run hivemind") // ubs:ignore: test-only; panicking is correct in tests
 }
 
+/// A ledger under `dir`, made the way a person makes one: a local capture with no cell URL. A read
+/// no longer makes one (hivemind-i6ply, tests/reads_without_a_ledger.rs).
+fn make_local_ledger(dir: &Path) {
+    let made = Command::new(env!("CARGO_BIN_EXE_hivemind"))
+        .env_remove("HIVEMIND_API_URL")
+        .env_remove("HIVEMIND_DATABASE_URL")
+        .arg("--hivemind-dir")
+        .arg(dir)
+        .args(["emit", "evidence.recorded", "--content", "seed"])
+        .output()
+        .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
+    assert!(
+        made.status.success(),
+        "{}",
+        String::from_utf8_lossy(&made.stderr)
+    );
+    assert!(dir.join("ledger.sqlite").is_file());
+}
+
 #[test]
 fn a_cell_url_with_no_local_ledger_refuses_and_creates_nothing() {
     let dir = unique_dir("fresh");
@@ -68,12 +87,7 @@ fn a_cell_url_with_no_local_ledger_refuses_and_creates_nothing() {
 #[test]
 fn a_cell_url_with_a_local_ledger_answers_and_says_it_is_the_local_ledgers() {
     let dir = unique_dir("existing");
-    let made = recent_decisions(&dir, None);
-    assert!(
-        made.status.success(),
-        "{}",
-        String::from_utf8_lossy(&made.stderr)
-    );
+    make_local_ledger(&dir);
 
     let output = recent_decisions(&dir, Some(CELL));
 
@@ -100,6 +114,7 @@ fn a_cell_url_with_a_local_ledger_answers_and_says_it_is_the_local_ledgers() {
 #[test]
 fn without_a_cell_url_a_local_query_is_unchanged() {
     let dir = unique_dir("local");
+    make_local_ledger(&dir);
 
     let output = recent_decisions(&dir, None);
 
@@ -120,6 +135,7 @@ fn without_a_cell_url_a_local_query_is_unchanged() {
 #[test]
 fn a_blank_cell_url_is_no_cell_url() {
     let dir = unique_dir("blank");
+    make_local_ledger(&dir);
 
     let output = recent_decisions(&dir, Some("  "));
 

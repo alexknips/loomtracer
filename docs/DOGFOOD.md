@@ -25,7 +25,9 @@ cd /data/projects/hivemind
 
 The repo-level `.mcp.json`, Claude settings, and capture plugin defaults all pin
 `HIVEMIND_DIR` or `--hivemind-dir` to `./hivemind/`. The SQLite file is created
-on first write.
+on first write. A read (`query`, `digest`, `dump` and the other read verbs) aimed
+at a folder with no ledger is refused, exit 2 and naming the folder, and creates
+nothing: check the path before reading it as "no decisions".
 
 Use a temporary ledger for throwaway tests:
 

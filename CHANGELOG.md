@@ -699,6 +699,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A read aimed at a folder with no ledger now refuses instead of making an empty ledger and
+  answering "No decision found".** With `HIVEMIND_API_URL` unset, `--hivemind-dir` pointing at a
+  mistyped or fresh folder, and a read verb (`query why`, `verify`, `recall`, `search`,
+  `situational` and the rest of `query`), the CLI created an empty `ledger.sqlite` there, answered
+  that nothing matched and exited 0, which reads the same as a real ledger with no match; a
+  checker took it for a real answer twice. The read verbs now refuse (exit 2, nothing printed,
+  nothing created: no folder, no ledger file, nothing under `export --out`) and the message names
+  the folder it looked at and the verb: `query`, `digest`, `dump`, `export`, `map`, `reexamine`,
+  `tui` (before the terminal UI starts), `restatements propose`, `project list`, `project show`
+  and `project decisions`. This is the case hivemind-rmdi1, 3wism, nrk9f and wp0n7 left open;
+  they refused it with the cell URL set. A folder that holds a ledger, even one with no decision
+  in it, answers as before. Writes keep making the ledger on their first run (`emit`, `ask`,
+  `import`, `project register`, `ingest slack-thread`, `tenant create`), and so do the verbs that
+  act on a decision or project a ledger already holds (`disagree`, `supersede`, `review` and the
+  rest), which this fix leaves as they were. A configured `--database-url` names no folder and
+  is unchanged. Which verbs only read is now one exhaustive match on the verb, with no catch-all
+  case, so a verb added later does not compile until someone decides. `--help` for these verbs,
+  the README and the capture and context docs say the same. (hivemind-i6ply)
 - **A below-floor decision now ends its row in `floor=below` in every list, not only in search,
   relevant and situational.** The list a person asks for first ("what did we decide today?",
   `recent_decisions`) showed an Apple-vs-apple decision with no marker, and so did
