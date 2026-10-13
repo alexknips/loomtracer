@@ -104,7 +104,7 @@ fn walk(graph: &impl GraphView, request: &ScanRequest) -> Result<(Vec<usize>, Ve
 pub(crate) fn assert_report_scenario(graph: &impl GraphView) -> Result<()> {
     let expected = attention(graph)?;
     let all = scan(graph, &everything())?;
-    assert_eq!(all.result_count, 13);
+    assert_eq!(all.result_count, 15);
     assert!(!all.truncated);
     assert!(all.data.next_cursor.is_none());
     assert_eq!(all.data.as_of, now());
@@ -134,7 +134,7 @@ pub(crate) fn assert_report_scenario(graph: &impl GraphView) -> Result<()> {
             ..ScanRequest::default()
         },
     )?;
-    assert_eq!(sizes, [4, 4, 4, 1]);
+    assert_eq!(sizes, [4, 4, 4, 3]);
     assert_eq!(paged, all.data.findings);
 
     // The profile of a decision, with the provenance its shapes state.
@@ -214,22 +214,30 @@ fn each_kind_bears_on_the_dimensions_the_docs_name() {
     use Dimension::{Calibration, Information, Reasoning};
     use FindingKind::{
         AssumptionRefuted, BetFailed, BetPastCheckDate, EvidenceNotRechecked, PremiseRejected,
-        PremiseSuperseded,
+        PremiseSuperseded, PropagationUnfinished,
     };
-    let table: [(FindingKind, &[Dimension]); 6] = [
+    let table: [(FindingKind, &[Dimension]); 7] = [
         (BetPastCheckDate, &[Information, Calibration]),
         (PremiseSuperseded, &[Information, Reasoning]),
         (PremiseRejected, &[Information, Reasoning]),
         (AssumptionRefuted, &[Information]),
         (BetFailed, &[Information, Calibration]),
         (EvidenceNotRechecked, &[Information]),
+        // The decision it names was replaced; the decisions resting on it carry the dimensions.
+        (PropagationUnfinished, &[]),
     ];
     for (kind, dimensions) in table {
         assert_eq!(dimensions_for(kind), dimensions, "{kind:?}");
     }
-    // A new kind has to say what it bears on: this fails to compile until it does.
+    // A new kind has to say what it bears on: this fails to compile until it does. Saying it
+    // bears on none is an answer, and the only kind that gives it is the one on a replaced
+    // decision.
     for kind in FindingKind::ALL {
-        assert!(!dimensions_for(kind).is_empty(), "{kind:?}");
+        assert_eq!(
+            dimensions_for(kind).is_empty(),
+            kind == PropagationUnfinished,
+            "{kind:?}"
+        );
     }
 }
 

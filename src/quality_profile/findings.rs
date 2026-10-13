@@ -11,10 +11,12 @@
 //! as the only way to say what the finding is about.
 //!
 //! # The findings
-//! Six kinds, in the three lists the quality profile rolls up into. Each needs the decision to
-//! *stand* (not superseded and not rejected: a decision that has been replaced needs no look) and
-//! looks one hop: a decision is flagged for its own premises. Carrying a change on to the decisions
-//! that rest on the flagged one is the re-examine walk, which lands with `hivemind-ottw`.
+//! Seven kinds, in the four lists the quality profile rolls up into. Six of them need the
+//! decision to *stand* (not superseded and not rejected: a decision that has been replaced needs
+//! no look) and look one hop: a decision is flagged for its own premises. Carrying a change on
+//! to the decisions that rest on the flagged one is the re-examine walk (`queries::reexamine`):
+//! its items are what the seventh kind, `propagation_unfinished`, is made of, and what ends the
+//! first four.
 //!
 //! | Kind | List | The decision is flagged when | Basis time (`basis_at`) |
 //! | --- | --- | --- | --- |
@@ -24,19 +26,46 @@
 //! | `assumption_refuted` | premise changed | an assumption it rests on was refuted | when the earliest refuting evidence was recorded |
 //! | `bet_failed` | premise changed | a bet it rests on was refuted | when the earliest refuting evidence was recorded |
 //! | `evidence_not_rechecked` | evidence not re-checked | the newest evidence linked to it was recorded more than [`AttentionConfig::evidence_window_days`] ago | when that evidence was recorded |
+//! | `propagation_unfinished` | premises not re-examined | it was superseded and a decision resting on it is still open for re-examination more than [`AttentionConfig::propagation_window_days`] after the supersession | when the earliest superseding decision was made |
 //!
 //! "Re-checked" means newer evidence is linked to the decision, whether it was attached at
 //! capture or afterwards: the graph has no notion of one observation re-checking another, so the
 //! finding is about the decision's newest evidence, not each item. A decision with no evidence
 //! linked, or none whose record states a time, is never flagged here (its Information floor
-//! says so). "High-leverage premises not re-examined" needs the re-examine state and is not
-//! built here.
+//! says so).
+//!
+//! # Premises not re-examined
+//! `propagation_unfinished` is the one finding on the *changed* decision, not on a decision that
+//! rests on it, so it is the one that does not need its decision to stand: the decision it names
+//! is the one that was superseded, and what is unfinished is the look at the decisions resting
+//! on it. It counts the same dependents, closes the same way and ages by the same rule as
+//! [`Propagation`](crate::queries::Propagation): a dependent is open until someone records that
+//! it still holds (after the supersession) or it is itself superseded or rejected, and the
+//! finding fires when one is still open more than [`AttentionConfig::propagation_window_days`]
+//! after the supersession (14 by default; exactly the window is not yet past). The reason says
+//! how many of how many are open and never names a person, and the finding feeds the attention
+//! list only: no floor, tier or score moves with it, and it bears on no dimension.
+//!
+//! Only a supersession ages. A rejected or contested premise has no change time in the graph and
+//! a refuted hypothesis is not a decision, so none of them ever fires this kind: the rejected
+//! and contested premises are shown by their dependents' own findings and items, and a refuted
+//! hypothesis by the `assumption_refuted` or `bet_failed` finding on each dependent, which stays
+//! until that dependent is reaffirmed or goes out. No time lookup is added to date them.
+//!
+//! # Reaffirmed premises
+//! A dependent whose item is closed by a reaffirmation -- someone recorded, after the premise
+//! changed, that the decision still holds -- is no longer flagged for that premise by
+//! `premise_superseded`, `premise_rejected`, `assumption_refuted` or `bet_failed`. The same item
+//! state decides this as decides `held_up` on `verify`: a reaffirmation at an earlier offset, or
+//! at an offset the graph does not state, closes nothing, and a later change to the premise
+//! reopens the finding. The history stays visible on the item.
 //!
 //! # Identity
 //! `finding_id` is a hash of the kind, the node ids and the basis time, so a consumer can dedupe
 //! across scans. The same graph gives the same ids on every run; an id changes when the basis
 //! does (newer evidence is linked, another decision supersedes the premise), and only then: it
-//! does not depend on the clock.
+//! does not depend on the clock. The counts in a `propagation_unfinished` reason move every time
+//! someone looks again and are no part of its id.
 //!
 //! # Paging and cost
 //! A page holds at most `limit` findings (never more than `MAX_QUERY_RESULTS`), in order of
@@ -56,17 +85,22 @@
 //! `premise_rejected` -- the premise), which gives its title and, for a decision that superseded
 //! a premise, also states when in the same read; and one per distinct hypothesis or evidence item
 //! the finding names (a bet's or assumption's statement, an evidence item's content). That is a
-//! small, fixed multiple of `limit` more, never a scan. When findings are left out, the same
-//! anchored reads are made for each one stepped over on the way to a full page: the extra cost
-//! grows with the findings left out that sort before the end of the page, and stops there. The
+//! small, fixed multiple of `limit` more, never a scan. A `propagation_unfinished` candidate is
+//! not known to be a finding until its supersession is dated, so it is dated (two anchored reads:
+//! the decision and the superseding decision) when the page reaches it, and stepped over when the
+//! supersession is still inside the window: such a page costs more as it steps over more of them,
+//! as it does with excluded findings, and `truncated` is true only when a finding follows. When
+//! findings are left out, the same anchored reads are made for each one stepped over on the way
+//! to a full page: the extra cost grows with the findings left out that sort before the end of
+//! the page, and stops there. The
 //! rows those bulk reads return grow with the grounding links, hypotheses and evidence, not with
 //! decisions times a per-decision cost. Nothing walks the premise graph: a premise link is read
 //! once, so a `FOLLOWS_FROM` cycle costs nothing extra and cannot loop.
 //!
 //! # Placement
 //! Layer 3, with the rest of the profile. It reads the graph through `queries::get_grounding_facts`
-//! (pure Layer-2 reads) and nothing in `queries/` or `commands/` imports it. No model, no
-//! network, no write.
+//! (pure Layer-2 reads), derives the re-examine state from those facts by the Layer-2 rules, and
+//! nothing in `queries/` or `commands/` imports it. No model, no network, no write.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -80,8 +114,8 @@ use crate::events::HypothesisKind;
 use crate::projector::GraphView;
 use crate::queries::{
     get_decision_anchors, get_evidence_content, get_grounding_facts, get_hypothesis_statement,
-    DecisionAnchor, DecisionStatus, GroundingFacts, HypothesisRecord, HypothesisStatus,
-    MAX_QUERY_RESULTS,
+    is_past_window, DecisionAnchor, DecisionStatus, GroundingFacts, HypothesisRecord,
+    HypothesisStatus, OpenSupersession, ReexamineView, MAX_QUERY_RESULTS,
 };
 use crate::Result;
 
@@ -112,16 +146,20 @@ pub enum FindingKind {
     BetFailed,
     /// The newest evidence it rests on is older than the window.
     EvidenceNotRechecked,
+    /// It was superseded and a decision resting on it is still open for re-examination more than
+    /// the window after the supersession.
+    PropagationUnfinished,
 }
 
 impl FindingKind {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::BetPastCheckDate,
         Self::PremiseSuperseded,
         Self::PremiseRejected,
         Self::AssumptionRefuted,
         Self::BetFailed,
         Self::EvidenceNotRechecked,
+        Self::PropagationUnfinished,
     ];
 
     /// The wire name, also what the finding id is hashed from.
@@ -133,6 +171,7 @@ impl FindingKind {
             Self::AssumptionRefuted => "assumption_refuted",
             Self::BetFailed => "bet_failed",
             Self::EvidenceNotRechecked => "evidence_not_rechecked",
+            Self::PropagationUnfinished => "propagation_unfinished",
         }
     }
 
@@ -243,7 +282,8 @@ pub fn attention_findings_at(
     };
 
     let facts = get_grounding_facts(graph)?;
-    let mut candidates = candidates(&facts, &kinds, config, now);
+    let reexamine = ReexamineView::from_facts(&facts);
+    let mut candidates = candidates(&facts, &reexamine, &kinds, config, now);
     candidates.sort_unstable_by_key(Candidate::key);
 
     let start = after.as_ref().map_or(0, |after| {
@@ -255,7 +295,7 @@ pub fn attention_findings_at(
         candidates.partition_point(|candidate| candidate.key() <= after)
     });
     let rest = candidates.get(start..).unwrap_or_default();
-    let (findings, next_cursor) = take_page(graph, rest, limit, &request.excluded, config)?;
+    let (findings, next_cursor) = take_page(graph, rest, limit, &request.excluded, config, now)?;
 
     Ok(AttentionPage {
         as_of: now,
@@ -275,12 +315,20 @@ pub fn attention_findings_at(
 /// is the page and no more: the candidate after it is known to be a finding without being worded,
 /// so a page costs at most a small, fixed multiple of `limit` anchored reads. With findings
 /// excluded, what a page costs grows with the excluded findings it has to step over.
+///
+/// One kind is not known to be a finding until it is dated: a `propagation_unfinished` candidate
+/// fires only when its supersession is older than the window, and that date is an anchored read.
+/// So such a candidate is dated when it is reached, whether or not the page is already full, and
+/// stepped over when it does not fire: `truncated` is true only when a finding follows, never
+/// when only a supersession that is still inside the window does. A page's cost grows with the
+/// candidates of that kind it steps over, as it does with the excluded ones.
 fn take_page(
     graph: &impl GraphView,
     rest: &[Candidate<'_>],
     limit: usize,
     excluded: &BTreeSet<String>,
     config: &AttentionConfig,
+    now: DateTime<Utc>,
 ) -> Result<(Vec<AttentionFinding>, Option<String>)> {
     let mut anchors: BTreeMap<String, DecisionAnchor> = BTreeMap::new();
     let mut anchored: BTreeSet<&str> = BTreeSet::new();
@@ -292,7 +340,7 @@ fn take_page(
     let mut last: Option<&Candidate<'_>> = None;
 
     for candidate in rest {
-        if findings.len() == limit && excluded.is_empty() {
+        if findings.len() == limit && excluded.is_empty() && !candidate.needs_dating() {
             return Ok((findings, last.map(cursor_of).transpose()?));
         }
 
@@ -319,6 +367,9 @@ fn take_page(
             }
         }
 
+        if !candidate.fires(&anchors, config, now) {
+            continue;
+        }
         let finding = candidate.to_finding(&anchors, &hypothesis_labels, &evidence_labels, config);
         if excluded.contains(&finding.finding_id) {
             continue;
@@ -355,6 +406,10 @@ struct Candidate<'a> {
     /// The decisions that superseded the subject; the basis is the earliest of them, which takes
     /// an anchored read to date. Empty for every other kind.
     superseders: &'a [String],
+    /// How many decisions rest on the superseded subject and how many of those are still open,
+    /// for `propagation_unfinished` only. Never part of the finding's identity: it moves every
+    /// time someone looks again.
+    open_dependents: Option<(usize, usize)>,
 }
 
 impl<'a> Candidate<'a> {
@@ -366,7 +421,53 @@ impl<'a> Candidate<'a> {
             basis_node: None,
             basis_at: None,
             superseders: &[],
+            open_dependents: None,
         }
+    }
+
+    /// The candidate for a superseded decision some of whose dependents are still open. The
+    /// decision is its own subject: it is the one whose change is unfinished. Its basis is the
+    /// supersession that dates the change; the date itself takes an anchored read, so the
+    /// candidate is not yet known to be a finding (see [`Self::needs_dating`]).
+    fn unfinished(open: OpenSupersession<'a>) -> Self {
+        let mut candidate = Self::new(
+            open.premise_id,
+            FindingKind::PropagationUnfinished,
+            open.premise_id,
+        );
+        candidate.basis_node = Some(open.dated_by);
+        candidate.open_dependents = Some((open.dependents_total, open.open));
+        candidate
+    }
+
+    /// Whether this candidate is a finding only once it is dated: `propagation_unfinished` fires
+    /// when the supersession is older than the window, which the bulk facts cannot tell.
+    fn needs_dating(&self) -> bool {
+        self.kind == FindingKind::PropagationUnfinished
+    }
+
+    /// The time of the supersession that dates an unfinished propagation, once read.
+    fn supersession_at(&self, anchors: &BTreeMap<String, DecisionAnchor>) -> Option<DateTime<Utc>> {
+        self.basis_node
+            .and_then(|by_id| anchors.get(by_id))
+            .and_then(|anchor| anchor.occurred_at)
+    }
+
+    /// Whether this candidate is a finding. Every kind but `propagation_unfinished` is one from
+    /// the moment it is a candidate; that one is when its supersession is more than the window
+    /// old. A supersession whose record states no time is never counted old: the graph does not
+    /// say when, and no age is invented (the same rule [`Propagation`](crate::queries::Propagation)
+    /// follows).
+    fn fires(
+        &self,
+        anchors: &BTreeMap<String, DecisionAnchor>,
+        config: &AttentionConfig,
+        now: DateTime<Utc>,
+    ) -> bool {
+        !self.needs_dating()
+            || self
+                .supersession_at(anchors)
+                .is_some_and(|at| is_past_window(at, now, config.propagation_window_days))
     }
 
     /// The decisions that superseded the subject, other than this decision itself.
@@ -384,7 +485,8 @@ impl<'a> Candidate<'a> {
 
     /// The decisions this finding needs a [`DecisionAnchor`] for: the decision that needs a look
     /// itself (always, for [`AttentionFinding::decision_title`]), its subject when the subject is
-    /// a decision, and its superseders (to find the earliest and date it).
+    /// a decision, and its superseders (to find the earliest and date it). An unfinished
+    /// propagation already knows which superseder dates it, so it reads that one alone.
     fn decisions_to_anchor(&self) -> impl Iterator<Item = &'a str> + '_ {
         let subject_is_decision = matches!(
             self.kind,
@@ -393,6 +495,7 @@ impl<'a> Candidate<'a> {
         std::iter::once(self.decision_id)
             .chain(subject_is_decision.then_some(self.subject_id))
             .chain(self.other_superseders())
+            .chain(self.basis_node.filter(|_| self.needs_dating()))
     }
 
     /// The hypothesis this finding needs a statement for, when its subject is one.
@@ -420,6 +523,7 @@ impl<'a> Candidate<'a> {
 
 fn candidates<'a>(
     facts: &'a GroundingFacts,
+    reexamine: &'a ReexamineView,
     kinds: &BTreeSet<FindingKind>,
     config: &AttentionConfig,
     now: DateTime<Utc>,
@@ -451,7 +555,12 @@ fn candidates<'a>(
             }
             _ => continue,
         };
-        if kinds.contains(&candidate.kind) && standing(decision_id) {
+        // Once someone has said the decision still holds, after the premise changed, the premise
+        // is no longer a reason to look at it: the item is closed (see `queries::reexamine`).
+        if kinds.contains(&candidate.kind)
+            && standing(decision_id)
+            && !reexamine.is_reaffirmed(decision_id, premise_id)
+        {
             found.push(candidate);
         }
     }
@@ -465,13 +574,26 @@ fn candidates<'a>(
         else {
             continue;
         };
-        if kinds.contains(&candidate.kind) && standing(decision_id) {
+        // A bet or assumption nobody has refuted has no item, so only a refuted one can be closed.
+        if kinds.contains(&candidate.kind)
+            && standing(decision_id)
+            && !reexamine.is_reaffirmed(decision_id, hypothesis_id)
+        {
             found.push(candidate);
         }
     }
 
     if kinds.contains(&FindingKind::EvidenceNotRechecked) {
         found.extend(stale_evidence(facts, config, now, standing));
+    }
+    if kinds.contains(&FindingKind::PropagationUnfinished) {
+        // Not yet findings: each fires only once its supersession is dated (see `take_page`).
+        found.extend(
+            reexamine
+                .open_supersessions()
+                .into_iter()
+                .map(Candidate::unfinished),
+        );
     }
     found
 }
@@ -589,6 +711,9 @@ impl Candidate<'_> {
                 basis_node = Some(by_id);
                 basis_at = at;
             }
+        } else if self.needs_dating() {
+            // The supersession that dates the change is known already; only its time is read.
+            basis_at = self.supersession_at(anchors);
         }
 
         let node_ids: Vec<String> = [Some(self.decision_id), Some(self.subject_id), basis_node]
@@ -630,6 +755,19 @@ impl Candidate<'_> {
                     "the newest evidence it rests on, '{subject}', was recorded{on}, more than {days} day{plural} ago"
                 )
             }
+            FindingKind::PropagationUnfinished => {
+                let (total, open) = self.open_dependents.unwrap_or_default();
+                let (dependents, verb) = if total == 1 {
+                    ("decision", "is")
+                } else {
+                    ("decisions", "are")
+                };
+                let days = config.propagation_window_days;
+                let plural = if days == 1 { "" } else { "s" };
+                format!(
+                    "it was superseded by '{by}'{on}; more than {days} day{plural} later, {open} of {total} {dependents} resting on it {verb} not yet recorded as still holding"
+                )
+            }
         };
 
         AttentionFinding {
@@ -653,9 +791,9 @@ impl Candidate<'_> {
         evidence_labels: &BTreeMap<String, String>,
     ) -> String {
         match self.kind {
-            FindingKind::PremiseSuperseded | FindingKind::PremiseRejected => {
-                decision_label(anchors, self.subject_id)
-            }
+            FindingKind::PremiseSuperseded
+            | FindingKind::PremiseRejected
+            | FindingKind::PropagationUnfinished => decision_label(anchors, self.subject_id),
             FindingKind::BetPastCheckDate
             | FindingKind::AssumptionRefuted
             | FindingKind::BetFailed => label(
@@ -678,7 +816,9 @@ impl Candidate<'_> {
         evidence_labels: &BTreeMap<String, String>,
     ) -> String {
         match self.kind {
-            FindingKind::PremiseSuperseded => decision_label(anchors, by_id),
+            FindingKind::PremiseSuperseded | FindingKind::PropagationUnfinished => {
+                decision_label(anchors, by_id)
+            }
             _ => label(evidence_labels.get(by_id).map(String::as_str), by_id),
         }
     }

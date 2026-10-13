@@ -696,7 +696,8 @@ pub struct ConnectorAuthArgs {
 #[derive(Debug, Clone, Args)]
 pub struct QualityScanArgs {
     /// Only these kinds of finding (comma-separated): bet_past_check_date, premise_superseded,
-    /// premise_rejected, assumption_refuted, bet_failed, evidence_not_rechecked. Default: all.
+    /// premise_rejected, assumption_refuted, bet_failed, evidence_not_rechecked,
+    /// propagation_unfinished. Default: all.
     #[arg(long = "kind", value_delimiter = ',')]
     pub kinds: Vec<String>,
 
@@ -2926,7 +2927,8 @@ pub struct QueryScoreDecisionArgs {
 #[derive(Debug, Clone, Args)]
 pub struct QueryScanDecisionQualityArgs {
     /// Only these kinds of finding (comma-separated): bet_past_check_date, premise_superseded,
-    /// premise_rejected, assumption_refuted, bet_failed, evidence_not_rechecked. Default: all.
+    /// premise_rejected, assumption_refuted, bet_failed, evidence_not_rechecked,
+    /// propagation_unfinished. Default: all.
     #[arg(long = "kind", value_delimiter = ',')]
     pub kinds: Vec<String>,
 

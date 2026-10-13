@@ -2766,7 +2766,9 @@ fn reexamine_items_match_memory() -> Result<()> {
                 "get_reexamine_items mismatch: memory={memory_items} pg={pg_items}"
             )));
         }
-        assert_reexamine_scenario(&scenario, pg)
+        assert_reexamine_scenario(&scenario, pg)?;
+        // The attention findings are made of the same items (hivemind-ottw.6).
+        crate::quality_profile::findings::tests::assert_propagation_findings(pg)
     })
 }
 

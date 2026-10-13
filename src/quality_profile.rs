@@ -39,8 +39,8 @@
 //! # Attention findings
 //! The profile answers how much of each dimension one decision's record supports. What deserves
 //! a look across the graph is a separate, derived list: bets past their check date, decisions
-//! whose premise changed, evidence nobody has re-checked. That is [`findings`], and it is the
-//! roll-up in place of a grade.
+//! whose premise changed, evidence nobody has re-checked, superseded premises whose dependents
+//! nobody has re-examined. That is [`findings`], and it is the roll-up in place of a grade.
 //!
 //! # Failure modes
 //! The analysis of which conditions go with decisions that did not hold up takes the seven

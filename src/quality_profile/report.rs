@@ -23,6 +23,7 @@
 //! | `assumption_refuted` | Information | the assumption counts as information on record |
 //! | `bet_failed` | Information, Calibration | as for a bet past its check date |
 //! | `evidence_not_rechecked` | Information | the evidence is what Information counts |
+//! | `propagation_unfinished` | none | the decision it names was replaced; what is unfinished is the look at the decisions resting on it, and each of those already carries its own finding |
 //!
 //! # `get_suggestions`
 //! The same page of findings, without the ones someone has already acknowledged. A finding is
@@ -218,6 +219,9 @@ pub const fn dimensions_for(kind: FindingKind) -> &'static [Dimension] {
         FindingKind::AssumptionRefuted | FindingKind::EvidenceNotRechecked => {
             &[Dimension::Information]
         }
+        // The decision it names was superseded: nothing in its record is thin. What is unfinished
+        // is the look at the decisions resting on it, whose own findings carry the dimensions.
+        FindingKind::PropagationUnfinished => &[],
     }
 }
 

@@ -6,7 +6,8 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::projector::GraphView;
 use crate::queries::test_fixtures::{
-    attention_scenario, ts, CountingGraph, Scenario, ATTENTION_NOW,
+    attention_scenario, reexamine_scenario, ts, CountingGraph, Scenario, ATTENTION_NOW,
+    REEXAMINE_NOW,
 };
 use crate::queries::GROUNDING_FACT_READS;
 use crate::Result;
@@ -40,9 +41,9 @@ fn summaries(findings: &[AttentionFinding]) -> Vec<Summary> {
 fn expected_scenario_findings() -> Vec<Summary> {
     use FindingKind::{
         AssumptionRefuted, BetFailed, BetPastCheckDate, EvidenceNotRechecked, PremiseRejected,
-        PremiseSuperseded,
+        PremiseSuperseded, PropagationUnfinished,
     };
-    let table: [(&str, FindingKind, &[&str], Option<&str>); 13] = [
+    let table: [(&str, FindingKind, &[&str], Option<&str>); 15] = [
         (
             "d:assumption-refuted",
             AssumptionRefuted,
@@ -125,6 +126,20 @@ fn expected_scenario_findings() -> Vec<Summary> {
             &["d:f-superseded", "d:p-new", "d:p-old"],
             Some("2026-08-01T00:00:00Z"),
         ),
+        // Dated by the supersession recorded first (`d:p-double-a`), the rule `Propagation` ages
+        // by, where `d:f-concurrent` above is dated by the earlier one (`d:p-double-b`).
+        (
+            "d:p-double",
+            PropagationUnfinished,
+            &["d:p-double", "d:p-double-a"],
+            Some("2026-08-10T00:00:00Z"),
+        ),
+        (
+            "d:p-old",
+            PropagationUnfinished,
+            &["d:p-new", "d:p-old"],
+            Some("2026-08-01T00:00:00Z"),
+        ),
     ];
     table
         .iter()
@@ -196,7 +211,7 @@ pub(crate) fn assert_attention_scenario(graph: &impl GraphView) -> Result<()> {
 
     let config = AttentionConfig::default();
     let (sizes, paged) = walk(graph, &request(&[], 4), &config, now())?;
-    assert_eq!(sizes, [4, 4, 4, 1]);
+    assert_eq!(sizes, [4, 4, 4, 3]);
     assert_eq!(summaries(&paged), expected);
 
     for kind in FindingKind::ALL {
@@ -256,6 +271,12 @@ fn each_kind_finds_exactly_its_own_decisions() -> Result<()> {
     assert_eq!(
         of(FindingKind::EvidenceNotRechecked)?,
         ["d:ev-just-over", "d:ev-stale", "d:ev-stale-two"]
+    );
+    // The changed premises, not the decisions resting on them: the rejected and the contested
+    // ones never appear, and nor does a premise whose dependents are all closed or gone.
+    assert_eq!(
+        of(FindingKind::PropagationUnfinished)?,
+        ["d:p-double", "d:p-old"]
     );
     Ok(())
 }
@@ -464,7 +485,9 @@ fn a_decision_that_superseded_its_own_premise_is_not_flagged_for_it() -> Result<
     let findings = all_findings(&graph)?;
 
     // The refiner is the change. The bystander did not make it. `d:both` is told about the
-    // other supersession, dated by that one and not by its own.
+    // other supersession, dated by that one and not by its own. The same goes for the premises:
+    // `d:old` is unfinished for the bystander alone (the refiner is the change, so it is not
+    // counted), and `d:old2` for `d:both`, which is only one of its two superseders.
     assert_eq!(
         summaries(&findings),
         vec![
@@ -484,7 +507,23 @@ fn a_decision_that_superseded_its_own_premise_is_not_flagged_for_it() -> Result<
                 ],
                 Some(ts("2026-03-01T00:00:00Z")),
             ),
+            (
+                "d:old".to_owned(),
+                FindingKind::PropagationUnfinished,
+                vec!["d:old".to_owned(), "d:refiner".to_owned()],
+                Some(ts("2026-03-01T00:00:00Z")),
+            ),
+            (
+                "d:old2".to_owned(),
+                FindingKind::PropagationUnfinished,
+                vec!["d:both".to_owned(), "d:old2".to_owned()],
+                Some(ts("2026-03-10T00:00:00Z")),
+            ),
         ]
+    );
+    assert_eq!(
+        findings[2].reason,
+        "it was superseded by 'Use the old queue, tuned' on 2026-03-01; more than 14 days later, 1 of 1 decision resting on it is not yet recorded as still holding"
     );
     Ok(())
 }
@@ -812,13 +851,13 @@ fn a_page_that_holds_everything_left_is_not_truncated() -> Result<()> {
     let graph = attention_scenario()?.graph()?;
     let config = AttentionConfig::default();
 
-    let exact = attention_findings_at(&graph, &request(&[], 13), &config, now())?;
-    let one_short = attention_findings_at(&graph, &request(&[], 12), &config, now())?;
+    let exact = attention_findings_at(&graph, &request(&[], 15), &config, now())?;
+    let one_short = attention_findings_at(&graph, &request(&[], 14), &config, now())?;
 
-    assert_eq!(exact.findings.len(), 13);
+    assert_eq!(exact.findings.len(), 15);
     assert!(!exact.truncated);
     assert_eq!(exact.next_cursor, None);
-    assert_eq!(one_short.findings.len(), 12);
+    assert_eq!(one_short.findings.len(), 14);
     assert!(one_short.truncated);
     assert!(one_short.next_cursor.is_some());
     Ok(())
@@ -829,7 +868,7 @@ fn walking_the_cursors_visits_every_finding_once_whatever_the_page_size() -> Res
     let graph = attention_scenario()?.graph()?;
     let expected = expected_scenario_findings();
 
-    for limit in [1, 2, 3, 5, 7, 12, 13, 14, 1000] {
+    for limit in [1, 2, 3, 5, 7, 14, 15, 16, 1000] {
         let (sizes, findings) = walk(
             &graph,
             &request(&[], limit),
@@ -1039,6 +1078,12 @@ fn each_finding_says_in_words_what_changed_or_lapsed() -> Result<()> {
         reason_of("d:ev-stale", FindingKind::EvidenceNotRechecked),
         "the newest evidence it rests on, 'Benchmark from March', was recorded on 2026-03-01, more than 90 days ago"
     );
+    // Five decisions rest on `d:p-old`; two went out themselves after it was superseded, so three
+    // are open. No person is named.
+    assert_eq!(
+        reason_of("d:p-old", FindingKind::PropagationUnfinished),
+        "it was superseded by 'Use the new queue' on 2026-08-01; more than 14 days later, 3 of 5 decisions resting on it are not yet recorded as still holding"
+    );
     Ok(())
 }
 
@@ -1103,7 +1148,8 @@ fn kinds_go_by_their_wire_names() {
             "premise_rejected",
             "assumption_refuted",
             "bet_failed",
-            "evidence_not_rechecked"
+            "evidence_not_rechecked",
+            "propagation_unfinished"
         ]
     );
     for kind in FindingKind::ALL {
@@ -1124,8 +1170,9 @@ fn kinds_go_by_their_wire_names() {
 // ── cost ──────────────────────────────────────────────────────────────────────
 
 /// `decisions` decisions, each resting on a bet (every fifth is overdue), plus a tenth as many
-/// decisions following a superseded premise and citing stale evidence. Findings: 2/5 of
-/// `decisions`.
+/// decisions following a superseded premise and citing stale evidence. Findings: 1/2 of
+/// `decisions` (a fifth, a tenth and a tenth for the three kinds, and another tenth for the
+/// superseded premise nobody has looked at since).
 fn bulk_scenario(decisions: usize) -> Result<Scenario> {
     let scenario = Scenario::new();
     let crew = "agent:claude:crew";
@@ -1270,8 +1317,9 @@ fn a_large_graph_pages_through_every_finding_once_within_the_stated_cost() -> Re
         }
     }
 
-    // 160 overdue bets, 80 superseded premises, 80 stale evidence items.
-    assert_eq!(seen.len(), decisions * 2 / 5);
+    // 160 overdue bets, 80 superseded premises, 80 stale evidence items, and the 80 premises
+    // themselves, still unlooked at.
+    assert_eq!(seen.len(), decisions / 2);
     assert_eq!(pages, seen.len().div_ceil(limit));
     let ids: BTreeSet<&str> = seen.iter().map(|f| f.finding_id.as_str()).collect();
     assert_eq!(ids.len(), seen.len(), "no finding twice");
@@ -1311,9 +1359,9 @@ fn a_finding_that_is_left_out_is_on_no_page_and_the_others_keep_their_order() ->
         .filter(|finding| !excluded.contains(&finding.finding_id))
         .cloned()
         .collect();
-    assert_eq!(expected.len(), 8);
+    assert_eq!(expected.len(), 10);
 
-    for limit in [1, 2, 3, 4, 7, 8, 9, 13, 1000] {
+    for limit in [1, 2, 3, 4, 7, 10, 11, 15, 1000] {
         let (sizes, findings) = walk(
             &graph,
             &leaving_out(&excluded, &[], limit),
@@ -1447,5 +1495,491 @@ fn stepping_over_findings_that_are_left_out_costs_the_same_anchored_reads_each()
     // ten stepped over, the 25 on the page and the one after it (which is how the page is known
     // to be cut short) each cost three anchored reads.
     assert_eq!(counting.queries(), GROUNDING_FACT_READS + (10 + 25 + 1) * 3);
+    Ok(())
+}
+
+// ── premises not re-examined, and premises that were (hivemind-ottw.6) ────────────
+
+fn reexamine_now() -> DateTime<Utc> {
+    ts(REEXAMINE_NOW)
+}
+
+/// The findings of `kinds` (all when empty) as of `at`, in one page, with `config`.
+fn findings_at(
+    graph: &impl GraphView,
+    kinds: &[FindingKind],
+    config: &AttentionConfig,
+    at: DateTime<Utc>,
+) -> Result<Vec<AttentionFinding>> {
+    Ok(attention_findings_at(graph, &request(kinds, MAX_QUERY_RESULTS), config, at)?.findings)
+}
+
+/// The decisions flagged `propagation_unfinished` on `graph` as of `at`.
+fn unfinished_at(
+    graph: &impl GraphView,
+    config: &AttentionConfig,
+    at: DateTime<Utc>,
+) -> Result<Vec<String>> {
+    Ok(
+        findings_at(graph, &[FindingKind::PropagationUnfinished], config, at)?
+            .into_iter()
+            .map(|finding| finding.decision_id)
+            .collect(),
+    )
+}
+
+/// What every backend must read from `reexamine_scenario` as attention findings at
+/// `REEXAMINE_NOW`: the same thirteen findings, whole or paged. The scenario holds a premise
+/// superseded in every state an item can be in, so this is where a reaffirmation closing a
+/// finding, a reaffirmation that came too early closing nothing, and an unfinished propagation on
+/// either side of the window are all read from the graph. Shared by the memory, Postgres and Kuzu
+/// tests.
+pub(crate) fn assert_propagation_findings(graph: &impl GraphView) -> Result<()> {
+    use FindingKind::{
+        AssumptionRefuted, PremiseRejected, PremiseSuperseded, PropagationUnfinished,
+    };
+    // (decision, kind, nodes, basis time). Left out on purpose, and why:
+    // - `d:twice`, `d:on-rej-ok`, `d:on-bet`: reaffirmed after the change, so closed;
+    // - `d:on-cont2` is here: its reaffirmation came before the premise was superseded;
+    // - `d:on-cont`, `d:on-cont3` follow a contested premise, which is shown, not flagged;
+    // - `d:p-cont2` (superseded 11 days before), `d:p-edge-eq` (exactly 14) are inside the window;
+    // - `d:p-rej`, `d:p-cont`, `d:p-cont3`: no change time, so never unfinished;
+    // - `d:lonely`, `d:self`: nothing rests on them.
+    let table: [(&str, FindingKind, &[&str], Option<&str>); 13] = [
+        (
+            "d:cyc-a",
+            PropagationUnfinished,
+            &["d:cyc-a", "d:cyc-a-new"],
+            Some("2026-09-05T00:00:00Z"),
+        ),
+        (
+            "d:cyc-b",
+            PremiseSuperseded,
+            &["d:cyc-a", "d:cyc-a-new", "d:cyc-b"],
+            Some("2026-09-05T00:00:00Z"),
+        ),
+        (
+            "d:late-link",
+            PremiseSuperseded,
+            &["d:late-link", "d:p-sup", "d:p-sup-new"],
+            Some("2026-09-02T00:00:00Z"),
+        ),
+        (
+            "d:on-assumption",
+            AssumptionRefuted,
+            &["d:on-assumption", "e:r2", "h:assumption"],
+            Some("2026-09-03T00:00:00Z"),
+        ),
+        (
+            "d:on-conc",
+            PremiseSuperseded,
+            &["d:conc-a", "d:on-conc", "d:p-conc"],
+            Some("2026-09-10T00:00:00Z"),
+        ),
+        (
+            "d:on-cont2",
+            PremiseSuperseded,
+            &["d:cont2-new", "d:on-cont2", "d:p-cont2"],
+            Some("2026-09-20T00:00:00Z"),
+        ),
+        (
+            "d:on-edge-eq",
+            PremiseSuperseded,
+            &["d:edge-eq-new", "d:on-edge-eq", "d:p-edge-eq"],
+            Some("2026-09-17T00:00:00Z"),
+        ),
+        (
+            "d:on-edge-over",
+            PremiseSuperseded,
+            &["d:edge-over-new", "d:on-edge-over", "d:p-edge-over"],
+            Some("2026-09-16T23:59:59Z"),
+        ),
+        ("d:on-rej", PremiseRejected, &["d:on-rej", "d:p-rej"], None),
+        (
+            "d:open",
+            PremiseSuperseded,
+            &["d:open", "d:p-sup", "d:p-sup-new"],
+            Some("2026-09-02T00:00:00Z"),
+        ),
+        // Dated by the supersession recorded first (`d:conc-b`), where `d:on-conc` above is dated
+        // by the earlier one (`d:conc-a`).
+        (
+            "d:p-conc",
+            PropagationUnfinished,
+            &["d:conc-b", "d:p-conc"],
+            Some("2026-09-12T00:00:00Z"),
+        ),
+        (
+            "d:p-edge-over",
+            PropagationUnfinished,
+            &["d:edge-over-new", "d:p-edge-over"],
+            Some("2026-09-16T23:59:59Z"),
+        ),
+        (
+            "d:p-sup",
+            PropagationUnfinished,
+            &["d:p-sup", "d:p-sup-new"],
+            Some("2026-09-02T00:00:00Z"),
+        ),
+    ];
+    let expected: Vec<Summary> = table
+        .iter()
+        .map(|(decision_id, kind, node_ids, basis_at)| {
+            (
+                (*decision_id).to_owned(),
+                *kind,
+                node_ids.iter().map(|id| (*id).to_owned()).collect(),
+                basis_at.map(ts),
+            )
+        })
+        .collect();
+
+    let config = AttentionConfig::default();
+    let all = findings_at(graph, &[], &config, reexamine_now())?;
+    assert_eq!(summaries(&all), expected);
+    for limit in [1, 2, 5, 13, 14] {
+        let (sizes, paged) = walk(graph, &request(&[], limit), &config, reexamine_now())?;
+        assert_eq!(summaries(&paged), expected, "limit {limit}");
+        assert!(sizes.iter().all(|size| *size <= limit), "limit {limit}");
+    }
+    Ok(())
+}
+
+#[test]
+fn reaffirmed_dependents_and_unfinished_propagations_read_as_the_re_examine_state_says(
+) -> Result<()> {
+    let graph = reexamine_scenario()?.graph()?;
+
+    assert_propagation_findings(&graph)
+}
+
+/// `d:old` was superseded by `d:new` on 2026-08-01; `d:dep-a` and `d:dep-b` rest on it and nobody
+/// has looked at either since.
+fn two_dependents() -> Result<Scenario> {
+    let scenario = Scenario::new();
+    let crew = "agent:claude:crew";
+    scenario.decision("d:old", "Use the old queue", crew, "2026-02-01T00:00:00Z")?;
+    scenario.decision("d:new", "Use the new queue", crew, "2026-08-01T00:00:00Z")?;
+    for (id, title) in [("d:dep-a", "Batch jobs"), ("d:dep-b", "Cron jobs")] {
+        scenario.decision(id, title, crew, "2026-04-01T00:00:00Z")?;
+        scenario.relation(
+            "FOLLOWS_FROM",
+            id,
+            "d:old",
+            crew,
+            None,
+            "2026-04-01T00:00:01Z",
+        )?;
+    }
+    scenario.supersede("d:old", "d:new", crew, "2026-08-01T00:00:01Z")?;
+    Ok(scenario)
+}
+
+fn only_unfinished(
+    scenario: &Scenario,
+    config: &AttentionConfig,
+    at: DateTime<Utc>,
+) -> Result<Vec<AttentionFinding>> {
+    findings_at(
+        &scenario.graph()?,
+        &[FindingKind::PropagationUnfinished],
+        config,
+        at,
+    )
+}
+
+#[test]
+fn an_unfinished_propagation_says_how_many_are_open_and_names_nobody() -> Result<()> {
+    let scenario = two_dependents()?;
+    let config = AttentionConfig::default();
+
+    let before = only_unfinished(&scenario, &config, now())?;
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].decision_id, "d:old");
+    assert_eq!(before[0].decision_title, "Use the old queue");
+    assert_eq!(before[0].node_ids, ["d:new", "d:old"]);
+    assert_eq!(before[0].basis_at, Some(ts("2026-08-01T00:00:00Z")));
+    assert_eq!(
+        before[0].reason,
+        "it was superseded by 'Use the new queue' on 2026-08-01; more than 14 days later, 2 of 2 decisions resting on it are not yet recorded as still holding"
+    );
+
+    // One of them is looked at again: the count moves, the finding stays.
+    scenario.reaffirmed(
+        "d:dep-a",
+        "d:old",
+        "Batch jobs never used the queue",
+        "human:alice",
+        "2026-08-02T00:00:00Z",
+    )?;
+    let half = only_unfinished(&scenario, &config, now())?;
+    assert_eq!(half.len(), 1);
+    assert_eq!(
+        half[0].reason,
+        "it was superseded by 'Use the new queue' on 2026-08-01; more than 14 days later, 1 of 2 decisions resting on it are not yet recorded as still holding"
+    );
+    for text in [&before[0].reason, &half[0].reason] {
+        assert!(!text.contains("alice"), "{text}");
+    }
+
+    // The other too: nothing is left open, and the finding is gone.
+    scenario.reaffirmed(
+        "d:dep-b",
+        "d:old",
+        "Cron jobs never used the queue",
+        "agent:codex:reviewer",
+        "2026-08-03T00:00:00Z",
+    )?;
+    assert!(only_unfinished(&scenario, &config, now())?.is_empty());
+    // And with it the dependents' own findings for the premise.
+    assert!(findings_at(&scenario.graph()?, &[], &config, now())?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_id_of_an_unfinished_propagation_ignores_the_counts_and_the_clock() -> Result<()> {
+    let scenario = two_dependents()?;
+    let config = AttentionConfig::default();
+    let id_at = |at: DateTime<Utc>| -> Result<String> {
+        let found = only_unfinished(&scenario, &config, at)?;
+        assert_eq!(found.len(), 1);
+        Ok(found[0].finding_id.clone())
+    };
+
+    let first = id_at(now())?;
+    // A month on, the same finding.
+    assert_eq!(id_at(now() + Duration::days(30))?, first);
+    // One of two dependents is reaffirmed: the open count moved, the id did not, so an
+    // acknowledgement of the finding still holds.
+    scenario.reaffirmed(
+        "d:dep-a",
+        "d:old",
+        "Batch jobs never used the queue",
+        "human:alice",
+        "2026-08-02T00:00:00Z",
+    )?;
+    assert_eq!(id_at(now())?, first);
+    Ok(())
+}
+
+#[test]
+fn a_supersession_is_unfinished_only_after_the_window_and_the_window_is_configurable() -> Result<()>
+{
+    let scenario = two_dependents()?;
+    let config = AttentionConfig::default();
+
+    // Exactly 14 days after 2026-08-01T00:00:00Z is not yet past; one second more is.
+    assert!(only_unfinished(&scenario, &config, ts("2026-08-15T00:00:00Z"))?.is_empty());
+    assert_eq!(
+        only_unfinished(&scenario, &config, ts("2026-08-15T00:00:01Z"))?.len(),
+        1
+    );
+
+    let graph = reexamine_scenario()?.graph()?;
+    let flagged = |days: u32| -> Result<Vec<String>> {
+        unfinished_at(
+            &graph,
+            &AttentionConfig {
+                propagation_window_days: days,
+                ..AttentionConfig::default()
+            },
+            reexamine_now(),
+        )
+    };
+    // The default two weeks: four premises, one of them 14 days and a second old, none exactly 14.
+    assert_eq!(
+        flagged(14)?,
+        ["d:cyc-a", "d:p-conc", "d:p-edge-over", "d:p-sup"]
+    );
+    // Only `d:p-sup` (29 days) is older than 28.
+    assert_eq!(flagged(28)?, ["d:p-sup"]);
+    // No window at all: every superseded premise with an open dependent, inside the old window or
+    // not. A window longer than the record flags nothing, and cannot overflow the clock.
+    assert_eq!(
+        flagged(0)?,
+        [
+            "d:cyc-a",
+            "d:p-conc",
+            "d:p-cont2",
+            "d:p-edge-eq",
+            "d:p-edge-over",
+            "d:p-sup"
+        ]
+    );
+    assert!(flagged(u32::MAX)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn only_a_supersession_can_be_unfinished_whatever_the_clock() -> Result<()> {
+    let graph = reexamine_scenario()?.graph()?;
+
+    // Far in the future, every superseded premise with an open dependent is unfinished. A
+    // rejected or contested premise (`d:p-rej`, `d:p-cont`, `d:p-cont3`: open dependents, no
+    // change time) and a refuted hypothesis (`h:assumption`: not a decision) never are, and
+    // neither is a premise nothing rests on (`d:lonely`) or one that rests on itself (`d:self`).
+    let far = ts("2036-01-01T00:00:00Z");
+    assert_eq!(
+        unfinished_at(&graph, &AttentionConfig::default(), far)?,
+        [
+            "d:cyc-a",
+            "d:p-conc",
+            "d:p-cont2",
+            "d:p-edge-eq",
+            "d:p-edge-over",
+            "d:p-sup"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_supersession_that_states_no_time_is_never_old() -> Result<()> {
+    let scenario = Scenario::new();
+    let crew = "agent:claude:crew";
+    scenario.decision(
+        "d:premise",
+        "Use the old queue",
+        crew,
+        "2026-02-01T00:00:00Z",
+    )?;
+    scenario.decision("d:follower", "Batch jobs", crew, "2026-03-01T00:00:00Z")?;
+    scenario.relation(
+        "FOLLOWS_FROM",
+        "d:follower",
+        "d:premise",
+        crew,
+        None,
+        "2026-03-01T00:00:01Z",
+    )?;
+    // Named by a request and never proposed, so its node states no time: no age is invented.
+    scenario.request_naming("d:stub-new", "2026-04-01T00:00:00Z")?;
+    scenario.supersede("d:premise", "d:stub-new", crew, "2026-04-01T00:00:01Z")?;
+
+    let found = only_unfinished(
+        &scenario,
+        &AttentionConfig::default(),
+        ts("2036-01-01T00:00:00Z"),
+    )?;
+
+    assert!(found.is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_supersession_still_inside_the_window_does_not_make_a_page_truncated() -> Result<()> {
+    // `d:old` is old enough; `d:z-recent` sorts after it and is not, and has to be dated to know.
+    let scenario = two_dependents()?;
+    let crew = "agent:claude:crew";
+    scenario.decision("d:z-recent", "Use one cache", crew, "2026-02-01T00:00:00Z")?;
+    scenario.decision("d:z-new", "Use two caches", crew, "2026-09-20T00:00:00Z")?;
+    scenario.decision("d:z-dep", "Warm the cache", crew, "2026-04-01T00:00:00Z")?;
+    scenario.relation(
+        "FOLLOWS_FROM",
+        "d:z-dep",
+        "d:z-recent",
+        crew,
+        None,
+        "2026-04-01T00:00:01Z",
+    )?;
+    scenario.supersede("d:z-recent", "d:z-new", crew, "2026-09-20T00:00:01Z")?;
+    let graph = scenario.graph()?;
+    let config = AttentionConfig::default();
+    let kinds = [FindingKind::PropagationUnfinished];
+
+    let first = attention_findings_at(&graph, &request(&kinds, 1), &config, now())?;
+
+    assert_eq!(
+        decisions_flagged(&first.findings),
+        BTreeSet::from(["d:old"])
+    );
+    // Nothing follows that is a finding: only a supersession six days old.
+    assert!(!first.truncated);
+    assert_eq!(first.next_cursor, None);
+    // Later on, it is one: the same request is truncated after the first, and walks to both.
+    let later = now() + Duration::days(30);
+    let (sizes, found) = walk(&graph, &request(&kinds, 1), &config, later)?;
+    assert_eq!(sizes, [1, 1]);
+    assert_eq!(
+        found
+            .iter()
+            .map(|finding| finding.decision_id.as_str())
+            .collect::<Vec<_>>(),
+        ["d:old", "d:z-recent"]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_reaffirmation_closes_a_dependents_finding_by_ledger_order_never_by_the_clock() -> Result<()> {
+    let scenario = Scenario::new();
+    let crew = "agent:claude:crew";
+    scenario.decision("d:old", "Use the old queue", crew, "2026-02-01T00:00:00Z")?;
+    scenario.decision("d:new", "Use the new queue", crew, "2026-08-01T00:00:00Z")?;
+    for id in ["d:early", "d:late"] {
+        scenario.decision(id, "Batch jobs", crew, "2026-04-01T00:00:00Z")?;
+        scenario.relation(
+            "FOLLOWS_FROM",
+            id,
+            "d:old",
+            crew,
+            None,
+            "2026-04-01T00:00:01Z",
+        )?;
+    }
+    // Said before the premise changed: it covers nothing that came after.
+    scenario.reaffirmed(
+        "d:early",
+        "d:old",
+        "Fine as it is",
+        "human:alice",
+        "2026-05-01T00:00:00Z",
+    )?;
+    scenario.supersede("d:old", "d:new", crew, "2026-08-01T00:00:01Z")?;
+    // Said after, in the ledger, with a timestamp from before the change: the ledger decides.
+    scenario.reaffirmed(
+        "d:late",
+        "d:old",
+        "Checked against the new queue",
+        "human:alice",
+        "2026-01-01T00:00:00Z",
+    )?;
+
+    let findings = findings_at(
+        &scenario.graph()?,
+        &[FindingKind::PremiseSuperseded],
+        &AttentionConfig::default(),
+        now(),
+    )?;
+
+    assert_eq!(
+        findings
+            .iter()
+            .map(|finding| finding.decision_id.as_str())
+            .collect::<Vec<_>>(),
+        ["d:early"]
+    );
+    Ok(())
+}
+
+#[test]
+fn an_unfinished_propagation_carries_no_score_or_rank() -> Result<()> {
+    let graph = attention_scenario()?.graph()?;
+    let wire = serde_json::to_value(
+        findings_at(
+            &graph,
+            &[FindingKind::PropagationUnfinished],
+            &AttentionConfig::default(),
+            now(),
+        )?
+        .first()
+        .expect("the scenario has one"),
+    )
+    .expect("a finding serializes");
+
+    assert_eq!(wire["kind"], "propagation_unfinished");
+    for word in ["score", "tier", "rank", "grade", "leverage", "deduction"] {
+        assert!(wire.get(word).is_none(), "{word}");
+    }
     Ok(())
 }

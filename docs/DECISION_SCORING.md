@@ -320,10 +320,12 @@ applies its own.
 | `assumption_refuted` | an assumption it rests on was refuted | when the earliest refuting evidence was recorded |
 | `bet_failed` | a bet it rests on was refuted | when the earliest refuting evidence was recorded |
 | `evidence_not_rechecked` | the newest evidence linked to it was recorded more than the window ago | when that evidence was recorded |
+| `propagation_unfinished` | it was superseded and a decision resting on it is still open for re-examination more than the propagation window after the supersession | when the superseding decision was made (the one recorded first) |
 
-The first kind is the list of bets past their check date, the four in the middle
-are the list of decisions whose premise changed, the last is the list of evidence
-not re-checked. A request can ask for any subset of the six.
+The first kind is the list of bets past their check date, the four after it are the
+list of decisions whose premise changed, `evidence_not_rechecked` is the list of
+evidence not re-checked and `propagation_unfinished` is the list of premises whose
+change nobody has followed up. A request can ask for any subset of the seven.
 
 **Evidence not re-checked.** The window is 90 days by default (one quarter) and is
 configurable (`AttentionConfig::evidence_window_days`). "Re-checked" means newer
@@ -332,8 +334,43 @@ afterwards; the graph has no notion of one observation re-checking another, so
 the finding is about the decision's newest evidence, not about each item. Evidence
 recorded exactly one window ago is not yet old; one second earlier is. A decision
 with no evidence, or none whose record states a time, is never flagged here: its
-Information floor already says it rests on nothing. "High-leverage premises not
-re-examined" needs the re-examine state and is built with `hivemind-ottw`, not here.
+Information floor already says it rests on nothing.
+
+**Premises not re-examined.** `propagation_unfinished` is the one finding on the
+*changed* decision rather than on a decision that rests on it. It reads the re-examine
+items (see "Re-examine items" below) and counts the same dependents, closes them the
+same way and ages the change by the same rule as the `[UNFINISHED]` line on `verify`: a
+dependent is open until someone records that it still holds, after the supersession, or
+it is itself superseded or rejected; the finding fires when one is still open more than
+the propagation window after the supersession (14 days, `AttentionConfig::propagation_window_days`;
+exactly the window is not yet past, one second more is). The decision it names is the
+superseded one, so it is the one finding that does not need its decision to stand. Its
+`reason` says how many of how many are open ("2 of 5 decisions resting on it are not yet
+recorded as still holding") and never names a person; its `basis_at` is the time of the
+supersession recorded first, the superseding decision `node_ids` carries beside the premise.
+The count moves each time someone looks again and is no part of the `finding_id`, so an
+acknowledgement keeps holding until the last dependent is looked at, when the finding is gone.
+It feeds the attention list only: no floor, tier, score or deduction moves with it, and it
+bears on no dimension (the decisions resting on the premise carry their own findings).
+
+Only a supersession ages. A rejected or contested premise has no change time in the graph
+(a rejection is not dated) and a refuted hypothesis is not a decision, so none of them
+ever fires this kind, however long a dependent has been open; no time lookup is added to
+date them. Their dependents are not hidden for it: the dependents' own findings and
+re-examine items show them, and a refuted hypothesis stays flagged on each dependent
+(`assumption_refuted`, `bet_failed`) until that dependent is looked at again. A decision
+that is the *only* one to have superseded its premise is the change, not something that
+rests on the premise, and is not counted as a dependent (the rule `premise_superseded`
+follows; `verify`'s propagation line counts every decision that follows the premise, so in
+that one case its total is one higher).
+
+**Reaffirmed premises.** A dependent whose re-examine item is closed by a reaffirmation is
+no longer flagged for that premise by `premise_superseded`, `premise_rejected`,
+`assumption_refuted` or `bet_failed`: the same item state that stops `held_up` counting
+the premise on `verify`. A reaffirmation recorded before the premise changed, or at a
+ledger offset the graph does not state, closes nothing, and a later change to the premise
+reopens the finding; the history stays on the item. A contested premise was never flagged,
+so reaffirming past it changes no finding.
 
 **Standing decisions, one hop.** Only a decision that has not been superseded or
 rejected is flagged: a decision that was replaced needs no look. A decision is
@@ -391,7 +428,12 @@ page: the extra cost grows with the findings left out that sort before the end o
 the page, and stops there. The rows those reads return grow with the grounding
 links, hypotheses and evidence, not with decisions times a per-decision cost.
 Nothing walks the premise graph, so a `FOLLOWS_FROM` cycle cannot loop and costs
-nothing extra.
+nothing extra. A `propagation_unfinished` candidate is a finding only once its supersession
+is dated, so the page dates it (two anchored reads: the decision and the superseding
+decision) when it reaches it, whether or not the page is already full, and steps over it
+when the supersession is still inside the window. A page that steps over many of those
+costs more, as it does with findings left out, and `truncated` is true only when a finding
+follows.
 
 ## Re-examine items: did the change travel?
 
@@ -568,7 +610,7 @@ reasons:
 
 `truncated` (in the envelope) says more findings follow, and `data.next_cursor` is
 present exactly then; pass it as `cursor` to continue. Nothing is dropped silently.
-`kinds` limits the page to some of the six kinds, `evidence_window_days` overrides the
+`kinds` limits the page to some of the seven kinds, `evidence_window_days` overrides the
 default window (90), and `limit` defaults to 25 (at most 1000). An unknown kind, or a
 cursor no scan returned, is refused.
 
@@ -579,6 +621,7 @@ cursor no scan returned, is refused.
 | `assumption_refuted` | Information | the assumption counts as information on record |
 | `bet_failed` | Information, Calibration | as for a bet past its check date |
 | `evidence_not_rechecked` | Information | the evidence is what Information counts |
+| `propagation_unfinished` | none | the decision it names was replaced; what is unfinished is the look at the decisions resting on it, and each of those carries its own finding |
 
 **Cost.** A page costs what the findings cost (see below) plus one profile read per
 distinct decision on the page: never more than `limit` of each, however many decisions

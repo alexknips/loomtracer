@@ -130,6 +130,7 @@ pub use reexamine::{
     ReexamineEntry, ReexamineItem, ReexamineMarker, ReexamineRequest, ReexamineResults,
     ReexamineStatus, DEFAULT_PROPAGATION_WINDOW_DAYS, DEFAULT_REEXAMINE_PAGE_SIZE,
 };
+pub(crate) use reexamine::{is_past_window, OpenSupersession, ReexamineView};
 pub use relevant::{get_relevant_decisions, RelevantDecision};
 pub use resolve::{
     annotate_resolution, resolve_decision_by_description, resolve_decision_by_id,

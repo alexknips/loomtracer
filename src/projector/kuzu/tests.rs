@@ -638,6 +638,8 @@ fn reexamine_items_read_the_same_as_the_other_backends() -> Result<()> {
         ),
     );
     assert_reexamine_scenario(&scenario, &graph)?;
+    // The attention findings are made of the same items (hivemind-ottw.6).
+    crate::quality_profile::findings::tests::assert_propagation_findings(&graph)?;
 
     let _ = fs::remove_dir_all(temp_dir);
     Ok(())

@@ -209,7 +209,14 @@ pub(crate) fn assert_markdown_scenario(graph: &impl GraphView) -> Result<()> {
             "{body}"
         );
         assert!(body.contains(&finding.reason), "{body}");
-        assert!(!scanned.dimensions.is_empty(), "{}", finding.finding_id);
+        // Every kind bears on a dimension of the flagged decision but one: an unfinished
+        // propagation names a replaced decision, and its dependents carry the dimensions.
+        assert_eq!(
+            scanned.dimensions.is_empty(),
+            finding.kind == crate::quality_profile::FindingKind::PropagationUnfinished,
+            "{}",
+            finding.finding_id
+        );
         for line in &scanned.dimensions {
             assert!(
                 body.contains(&dimension_markdown(line.dimension, &line.assessment)),

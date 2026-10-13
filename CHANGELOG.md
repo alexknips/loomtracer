@@ -139,6 +139,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **The attention list says when a superseded premise was never followed up, and stops flagging
+  decisions someone has said still hold.** A new finding kind, `propagation_unfinished`
+  (`scan_decision_quality`, `get_suggestions`, `hivemind quality-scan --kind`), is flagged on a
+  decision that was superseded when a decision resting on it is still open for re-examination
+  more than `propagation_window_days` (14) after the supersession: "it was superseded by 'X' on
+  2026-08-01; more than 14 days later, 2 of 5 decisions resting on it are not yet recorded as
+  still holding". It counts, closes and ages the same way the `[UNFINISHED]` line on `verify`
+  does, names no person, bears on no dimension, and moves no floor, tier or score. Only a
+  supersession ages: a rejected or contested premise has no change time in the graph, and a
+  refuted hypothesis is not a decision, so none of them fires it (their dependents keep their own
+  findings and re-examine items). Its `finding_id` leaves out the counts, so an acknowledgement
+  holds until the last dependent is looked at. And a dependent whose re-examine item is closed by
+  a reaffirmation is no longer flagged for that premise by `premise_superseded`,
+  `premise_rejected`, `assumption_refuted` or `bet_failed`: the same item state that stops
+  `held_up` counting it on `verify`; a reaffirmation from before the change, or one the ledger
+  cannot place, closes nothing. No new event or read; an existing ledger shows it on the next
+  scan. `FindingKind` gains `PropagationUnfinished` (library callers with an exhaustive match),
+  and `dimensions_for` answers an empty list for it. (hivemind-ottw.6)
 - **`hivemind reaffirm` and `hivemind reexamine`: say a decision still holds after something it
   rests on changed, and list what is waiting for that. Needs the server and every client on a
   release that knows `decision.reaffirmed`.** `reaffirm "<decision>" --because "<reason>"`

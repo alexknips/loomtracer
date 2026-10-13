@@ -1029,6 +1029,18 @@ pub(crate) fn reexamine_entries_for(
 // Completeness
 // ---------------------------------------------------------------------------
 
+/// Whether a change made at `changed_at` is more than `window_days` old as of `now`: exactly the
+/// window is not yet past, one second more is. The one rule for "unfinished", shared by
+/// [`Propagation::unfinished`] and the attention finding of the same name, so the two never
+/// disagree about the same change.
+pub(crate) fn is_past_window(
+    changed_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+    window_days: u32,
+) -> bool {
+    now - changed_at > Duration::days(i64::from(window_days))
+}
+
 /// "N of M" for the items of one changed premise. `members` are `(shown, state)`: whether the
 /// dependent is in the asker's scope, and where its item stands; `scoped` says whether the
 /// request named a project at all.
@@ -1051,8 +1063,7 @@ fn summarize(
     // unfinished propagation.
     let any_open = open + not_shown_open > 0;
     let at_time = entry_view.change.at_time;
-    let unfinished =
-        any_open && at_time.is_some_and(|at| now - at > Duration::days(i64::from(window_days)));
+    let unfinished = any_open && at_time.is_some_and(|at| is_past_window(at, now, window_days));
     Propagation {
         premise_id: premise_id.to_owned(),
         premise_kind: entry_view.premise_kind,
@@ -1273,6 +1284,102 @@ impl ReexamineMarkers {
     /// out itself.
     pub(crate) fn of(&self, decision_id: &str) -> Option<ReexamineMarker> {
         self.markers.get(decision_id).copied()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// For the attention findings
+// ---------------------------------------------------------------------------
+
+/// A superseded decision with at least one open item: the part of the `propagation_unfinished`
+/// attention finding the grounding facts can say. Whether it fires waits on the supersession's
+/// date, which only an anchored read of `dated_by` gives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct OpenSupersession<'a> {
+    pub(crate) premise_id: &'a str,
+    /// The superseding decision whose time dates the change: the one superseded first, by ledger
+    /// offset (the rule [`Propagation`] dates its change by).
+    pub(crate) dated_by: &'a str,
+    /// M: the dependents that stood when the premise was superseded, plus those linked since --
+    /// less a decision that is the whole of the change (see [`ReexamineView::open_supersessions`]).
+    pub(crate) dependents_total: usize,
+    /// How many of them nobody has said still hold.
+    pub(crate) open: usize,
+}
+
+/// What the attention findings read of the re-examine state, derived from the same grounding facts
+/// and by the same rules as the items [`get_reexamine_items`] lists, so a finding and an item can
+/// never disagree about whether a dependent was looked at again. Costs no read of its own: the
+/// reaffirmations are already among the grounding facts.
+pub(crate) struct ReexamineView {
+    index: ReexamineIndex,
+}
+
+impl ReexamineView {
+    pub(crate) fn from_facts(facts: &GroundingFacts) -> Self {
+        Self {
+            index: ReexamineIndex::from_facts(facts),
+        }
+    }
+
+    /// Whether `dependent`'s item for `premise` is closed by a reaffirmation: the premise changed
+    /// and, at a later ledger offset, someone said the dependent still holds. A reaffirmation
+    /// whose offset is unknown, or that cannot be placed against the change, closes nothing (see
+    /// [`judge`]), so a finding is never dropped on a guess.
+    pub(crate) fn is_reaffirmed(&self, dependent: &str, premise: &str) -> bool {
+        // Items are in (dependent, premise, change offset) order, so a pair's items are adjacent.
+        let items = &self.index.items;
+        let start = items.partition_point(|item| {
+            (item.dependent.as_str(), item.premise.as_str()) < (dependent, premise)
+        });
+        items
+            .get(start..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|item| item.dependent == dependent && item.premise == premise)
+            .any(|item| matches!(item.judged.state, ItemState::Reaffirmed { .. }))
+    }
+
+    /// Every superseded decision with an open item, in premise order. A premise that was rejected
+    /// or is contested is left out: the graph states no time for either, so nothing about their
+    /// propagation can read as old (see [`Propagation::unfinished`]); a refuted hypothesis is not
+    /// a decision and has none to carry a finding.
+    ///
+    /// A decision that follows its premise and is the only one to have superseded it is the
+    /// change, not something resting on the premise that needs a second look, so it is not
+    /// counted: the rule the `premise_superseded` finding already follows. (A decision that is one
+    /// of several superseders is counted, as it is told about the others.)
+    pub(crate) fn open_supersessions(&self) -> Vec<OpenSupersession<'_>> {
+        // Per premise: the decision that dates the change, how many dependents, how many open.
+        let mut by_premise: BTreeMap<&str, (&str, usize, usize)> = BTreeMap::new();
+        for item in &self.index.items {
+            let change = &item.judged.change;
+            let (ChangeKind::Superseded, Some(dated_by)) =
+                (change.kind, change.dated_by.as_deref())
+            else {
+                continue;
+            };
+            if change.by_ids.iter().all(|by_id| *by_id == item.dependent) {
+                continue;
+            }
+            let counts = by_premise
+                .entry(item.premise.as_str())
+                .or_insert((dated_by, 0, 0));
+            counts.1 += 1;
+            counts.2 += usize::from(item.judged.state.is_open());
+        }
+        by_premise
+            .into_iter()
+            .filter(|(_, (_, _, open))| *open > 0)
+            .map(
+                |(premise_id, (dated_by, dependents_total, open))| OpenSupersession {
+                    premise_id,
+                    dated_by,
+                    dependents_total,
+                    open,
+                },
+            )
+            .collect()
     }
 }
 

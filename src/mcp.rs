@@ -1069,7 +1069,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "scan_decision_quality",
-            "description": "One page of attention findings: decisions that need a look now, derived from what the graph already states. Kinds: bet_past_check_date (a declared bet's check date has passed and nothing supports or refutes it), premise_superseded and premise_rejected (a decision it follows from was superseded or rejected), assumption_refuted and bet_failed (something it rests on was refuted), evidence_not_rechecked (the newest evidence linked to it is older than the window, 90 days by default). Each finding carries a stable finding_id (the same while its basis is unchanged, so consumers can dedupe), the flagged decision's own decision_title, the reason in words (naming every decision, bet, assumption or evidence item it mentions by its own title, statement or content, never by a bare id), the node ids it rests on, its basis_at time when the graph records one, and the dimensions it bears on with their levels and reasons. Only decisions that still stand (not superseded, not rejected) are flagged, one hop from what changed. Findings are ordered by decision id, not by priority; this is not a ranking or a grade. When truncated is true, pass data.next_cursor as cursor to continue. No LLM involved; works self-hosted.",
+            "description": "One page of attention findings: decisions that need a look now, derived from what the graph already states. Kinds: bet_past_check_date (a declared bet's check date has passed and nothing supports or refutes it), premise_superseded and premise_rejected (a decision it follows from was superseded or rejected), assumption_refuted and bet_failed (something it rests on was refuted), evidence_not_rechecked (the newest evidence linked to it is older than the window, 90 days by default), propagation_unfinished (it was superseded and a decision resting on it is still open for re-examination more than 14 days after; this one is flagged on the superseded decision itself, and a dependent that someone has recorded as still holding is no longer flagged for that premise by the other kinds). Each finding carries a stable finding_id (the same while its basis is unchanged, so consumers can dedupe), the flagged decision's own decision_title, the reason in words (naming every decision, bet, assumption or evidence item it mentions by its own title, statement or content, never by a bare id), the node ids it rests on, its basis_at time when the graph records one, and the dimensions it bears on with their levels and reasons. Only decisions that still stand (not superseded, not rejected) are flagged, one hop from what changed; propagation_unfinished is the exception, flagged on the superseded decision, and bears on no dimension. Findings are ordered by decision id, not by priority; this is not a ranking or a grade. When truncated is true, pass data.next_cursor as cursor to continue. No LLM involved; works self-hosted.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1083,10 +1083,11 @@ pub fn tool_definitions() -> Vec<Value> {
                                 "premise_rejected",
                                 "assumption_refuted",
                                 "bet_failed",
-                                "evidence_not_rechecked"
+                                "evidence_not_rechecked",
+                                "propagation_unfinished"
                             ]
                         },
-                        "description": "Only these kinds of finding. Omit for all six."
+                        "description": "Only these kinds of finding. Omit for all seven."
                     },
                     "evidence_window_days": {
                         "type": "integer",
@@ -1119,10 +1120,11 @@ pub fn tool_definitions() -> Vec<Value> {
                                 "premise_rejected",
                                 "assumption_refuted",
                                 "bet_failed",
-                                "evidence_not_rechecked"
+                                "evidence_not_rechecked",
+                                "propagation_unfinished"
                             ]
                         },
-                        "description": "Only these kinds of finding. Omit for all six."
+                        "description": "Only these kinds of finding. Omit for all seven."
                     },
                     "evidence_window_days": {
                         "type": "integer",
