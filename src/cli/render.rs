@@ -2240,16 +2240,18 @@ pub(crate) fn format_disagree_output(
 /// action just recorded on the leaf stands either way; `--json` carries the full `rests_on`.
 fn write_raise_upstream(rendered: &mut String, hints: &[RaiseUpstream]) {
     for hint in hints {
-        let others = match hint.other_dependents {
-            0 => "no other decision rests on it".to_owned(),
-            1 => "1 other decision rests on it".to_owned(),
-            n => format!("{n} other decisions rest on it"),
-        };
         let _ = write!(
             rendered,
-            "\nraise_upstream: {} \"{}\" ({others}; if the disagreement is with it, disagree or supersede that decision too)",
+            "\nraise_upstream: {} \"{}\" (",
             hint.premise_id, hint.label
         );
+        let _ = match hint.other_dependents {
+            0 => write!(rendered, "no other decision rests on it"),
+            1 => write!(rendered, "1 other decision rests on it"),
+            n => write!(rendered, "{n} other decisions rest on it"),
+        };
+        rendered
+            .push_str("; if the disagreement is with it, disagree or supersede that decision too)");
     }
 }
 
