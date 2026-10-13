@@ -13654,6 +13654,122 @@ fn supersede_floor_answers_body(backend: &TestBackend) -> CliTestResult {
     Ok(())
 }
 
+/// A `supersede` of `old_id` that clears the floor, with `options` as `--options`.
+fn supersede_args_with_options<'a>(
+    old_id: &'a str,
+    title: &'a str,
+    options: &'a str,
+) -> Vec<&'a str> {
+    vec![
+        "--actor",
+        "agent:claude:session-1",
+        "supersede",
+        "--old",
+        old_id,
+        "--title",
+        title,
+        "--rationale",
+        PROJECT_TEST_RATIONALE,
+        "--bet",
+        "--binds-nothing",
+        "--cheap-to-undo",
+        "--options",
+        options,
+    ]
+}
+
+fn supersede_slug_label_warning_body(backend: &TestBackend) -> CliTestResult {
+    let old = run_json_reply(backend, &capture_args_for("Use a single queue", &[]))?;
+    let old_id = old["value"]
+        .as_str()
+        .ok_or("the capture names its decision")?
+        .to_owned();
+
+    // Text mode: the line on stdout is what it was, the warning goes to the notices.
+    let (stdout, notices) = run_supersede_text(
+        backend,
+        &supersede_args_with_options(&old_id, "Use two queues", "direct-cli,Hosted API"),
+    )?;
+    ensure(
+        stdout.contains("new_decision_id=decision-") && !stdout.contains("warning"),
+        &format!("the stdout line carries no warning: {stdout}"),
+    )?;
+    ensure(
+        notices.contains("warning: option label \"direct-cli\" looks like a slug")
+            && notices.contains("\"Direct CLI\""),
+        &format!("the notices name the label and the words: {notices}"),
+    )?;
+
+    // JSON mode: `warnings` carries what the notices said, and the supersede is not refused.
+    let json = run_json_reply(
+        backend,
+        &supersede_args_with_options(&old_id, "Use three queues", "direct-cli,Hosted API"),
+    )?;
+    let warnings = json["warnings"]
+        .as_array()
+        .ok_or("the reply carries warnings")?;
+    ensure_eq(warnings.len(), 1, "one slug label, one warning")?;
+    ensure_eq(
+        warnings[0]["kind"].clone(),
+        serde_json::json!("option_label_looks_like_a_slug"),
+        "kind",
+    )?;
+    ensure_eq(
+        warnings[0]["option_label"].clone(),
+        serde_json::json!("direct-cli"),
+        "the label as sent",
+    )?;
+    ensure_eq(
+        warnings[0]["suggestion"].clone(),
+        serde_json::json!("Direct CLI"),
+        "the words",
+    )?;
+
+    // Nothing is rewritten: the ledger holds the label the caller sent.
+    let payloads = backend_proposal_payloads(backend);
+    ensure_eq(payloads.len(), 3, "the old decision and two replacements")?;
+    ensure_eq(
+        payloads[1]["option_labels"].clone(),
+        serde_json::json!(["direct-cli", "Hosted API"]),
+        "recorded as given",
+    )?;
+
+    // Words say nothing: no stderr line, no `warnings` key.
+    let (_, notices) = run_supersede_text(
+        backend,
+        &supersede_args_with_options(&old_id, "Use four queues", "Direct CLI,Hosted API"),
+    )?;
+    ensure(
+        !notices.contains("warning:"),
+        &format!("word labels earn no warning: {notices}"),
+    )?;
+    let json = run_json_reply(
+        backend,
+        &supersede_args_with_options(&old_id, "Use five queues", "Direct CLI,Hosted API"),
+    )?;
+    ensure(
+        json.get("warnings").is_none(),
+        "a clean supersede replies exactly as before",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn supersede_warns_when_an_option_label_looks_like_a_slug_and_records_it_as_given() -> CliTestResult
+{
+    supersede_slug_label_warning_body(&TestBackend::sqlite("supersede-slug-label-warning"))
+}
+
+#[test]
+fn supersede_warns_when_an_option_label_looks_like_a_slug_and_records_it_as_given_postgres(
+) -> CliTestResult {
+    let Some(backend) = TestBackend::postgres("supersede-slug-label-warning-pg") else {
+        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        return Ok(());
+    };
+    supersede_slug_label_warning_body(&backend)
+}
+
 #[test]
 fn supersede_records_the_floor_answers_and_refuses_a_missing_one() -> CliTestResult {
     supersede_floor_answers_body(&TestBackend::sqlite("supersede-floor-answers"))

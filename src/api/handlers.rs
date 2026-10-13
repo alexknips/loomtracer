@@ -848,6 +848,7 @@ pub(super) async fn supersede_handler(
             "raise_upstream": upstream.raise_upstream,
         });
         floor.reply().insert_into(&mut reply);
+        insert_warnings_into(&outcome.warnings, &mut reply);
         Ok(reply)
     })
     .await;

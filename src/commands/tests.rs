@@ -7598,6 +7598,140 @@ fn grounded_capture_with_word_labels_has_no_warnings() {
     assert!(proposal.warnings.is_empty(), "{:?}", proposal.warnings);
 }
 
+/// A replacement of `old_decision_id` with exactly `labels` as its options, choosing none.
+fn supersede_with_option_labels(
+    commands: &Commands<'_, InMemoryEventLedger>,
+    old_decision_id: &str,
+    labels: &[&str],
+) -> SupersedeOutcome {
+    let labels: Vec<String> = labels.iter().map(|label| (*label).to_owned()).collect();
+    commands
+        .supersede(SupersedeInput {
+            project: None,
+            actor_id: "human:alice",
+            old_decision_id,
+            new_title: "Decision B",
+            new_rationale: "New rationale that explains the replacement decision.",
+            topic_keys: &[],
+            option_labels: &labels,
+            chosen_option_label: None,
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            grounding: None,
+            expressed_confidence: None,
+            floor: FloorInput::NotAsked,
+        })
+        .expect("supersede succeeds")
+}
+
+#[test]
+fn supersede_warns_about_a_slug_option_label_and_records_it_as_given() {
+    // hivemind-1iowm: the same check, and the same warning, a capture returns (hivemind-ggoi).
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+
+    let outcome = supersede_with_option_labels(
+        &commands,
+        &old_decision_id,
+        &["direct-cli", "Hosted API", "sqlite"],
+    );
+
+    assert_eq!(
+        outcome.warnings.len(),
+        1,
+        "words and a lone lowercase word are fine: {:?}",
+        outcome.warnings
+    );
+    let warning = &outcome.warnings[0];
+    assert_eq!(
+        warning.kind,
+        crate::commands::OPTION_LABEL_LOOKS_LIKE_A_SLUG
+    );
+    assert_eq!(warning.option_label, "direct-cli");
+    assert_eq!(warning.suggestion, "Direct CLI");
+    assert!(
+        warning.message.contains("\"direct-cli\"") && warning.message.contains("\"Direct CLI\""),
+        "{}",
+        warning.message
+    );
+
+    // Nothing is refused and nothing is rewritten: the replacement carries the label as sent.
+    let recorded = proposal_payloads(&ledger);
+    assert_eq!(recorded.len(), 2, "the old decision and its replacement");
+    assert_eq!(
+        recorded[1]["option_labels"],
+        json!(["direct-cli", "Hosted API", "sqlite"])
+    );
+}
+
+#[test]
+fn supersede_with_word_labels_has_no_warnings() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+
+    let outcome =
+        supersede_with_option_labels(&commands, &old_decision_id, &["Direct CLI", "Hosted API"]);
+
+    assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+}
+
+#[test]
+fn an_identical_supersede_retry_warns_again_and_records_nothing_new() {
+    // The warning is a function of the input, so a retry that matches the recorded supersede is
+    // told the same thing the first call was.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+
+    let first = supersede_with_option_labels(&commands, &old_decision_id, &["direct-cli"]);
+    let events_after_first = ledger.read(0, 500).expect("read events").len();
+    let retry = supersede_with_option_labels(&commands, &old_decision_id, &["direct-cli"]);
+
+    assert_eq!(retry.new_decision_id, first.new_decision_id, "a retry");
+    assert_eq!(
+        ledger.read(0, 500).expect("read events").len(),
+        events_after_first,
+        "a retry writes nothing"
+    );
+    assert_eq!(retry.warnings, first.warnings);
+    assert_eq!(retry.warnings.len(), 1);
+}
+
+#[test]
+fn supersede_warns_when_the_chosen_label_stands_in_for_the_options_and_is_a_slug() {
+    // With no `option_labels` the chosen label is the one option written (`effective_option_labels`),
+    // so a slug there is a slug in the record.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let old_decision_id = propose_minimal_decision(&commands, "Decision A");
+
+    let outcome = commands
+        .supersede(SupersedeInput {
+            project: None,
+            actor_id: "human:alice",
+            old_decision_id: &old_decision_id,
+            new_title: "Decision B",
+            new_rationale: "New rationale that explains the replacement decision.",
+            topic_keys: &[],
+            option_labels: &[],
+            chosen_option_label: Some("scoped-service-tokens"),
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            grounding: None,
+            expressed_confidence: None,
+            floor: FloorInput::NotAsked,
+        })
+        .expect("supersede succeeds");
+
+    assert_eq!(outcome.warnings.len(), 1, "{:?}", outcome.warnings);
+    assert_eq!(outcome.warnings[0].option_label, "scoped-service-tokens");
+    assert_eq!(outcome.warnings[0].suggestion, "Scoped service tokens");
+}
+
 // ---------------------------------------------------------------------------
 // The decision floor (hivemind-bbnw.10): what a capture binds and what undoing it costs
 // ---------------------------------------------------------------------------

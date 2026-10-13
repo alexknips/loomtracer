@@ -2202,6 +2202,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
     let reminder = project_reminder(&project, &outcome.placement);
     announce_placement(cli, &outcome.placement, reminder.as_deref(), notices);
     floor::announce_below_floor(cli, &floor_reply, notices);
+    announce_warnings(cli, &outcome.warnings, notices);
     format_supersede_output(
         cli.json,
         &SupersedeCommandOutput {
@@ -2217,6 +2218,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
             placement: outcome.placement,
             rests_on: resolved.label(outcome.rests_on),
             premise_stale: outcome.premise_stale,
+            warnings: outcome.warnings,
             raise_upstream: upstream.raise_upstream,
             below_floor: floor_reply.below_floor(),
             below_floor_note: floor_reply.note(),

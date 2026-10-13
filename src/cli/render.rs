@@ -2951,6 +2951,9 @@ pub(crate) struct SupersedeCommandOutput {
     pub(crate) rests_on: Vec<RestsOn>,
     /// Premise decisions already superseded or rejected when named.
     pub(crate) premise_stale: Vec<String>,
+    /// Notes on how the replacement was written; see `SupersedeOutcome::warnings`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) warnings: Vec<CaptureWarning>,
     /// Prior decisions the replaced decision rests on that still stand: the supersession may be
     /// with one of them. (`rests_on` above is what the replacement rests on.)
     pub(crate) raise_upstream: Vec<RaiseUpstream>,

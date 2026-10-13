@@ -203,6 +203,10 @@ pub enum Command {
     /// that still holds, with how many other decisions rest on it (`--json`: `raise_upstream`).
     /// It is a hint: the replacement is recorded either way.
     ///
+    /// An option label written as a slug (`direct-cli`) is recorded as given, and the reply says
+    /// so: one `warning:` line on stderr per label with the words to write instead
+    /// (`Direct CLI`); `--json` lists them under `warnings`. Nothing is refused.
+    ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
     /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
     /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is

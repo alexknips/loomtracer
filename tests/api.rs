@@ -909,6 +909,81 @@ async fn supersede_takes_the_floor_answers_and_refuses_without_them() {
 }
 
 #[tokio::test]
+async fn supersede_warns_about_a_slug_option_label_and_records_it_as_given() {
+    let dir = test_ledger_dir();
+    let floor = serde_json::json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}});
+    let (status, old) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            floor_capture_body("Use a single queue", floor.clone()),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{old}"); // ubs:ignore
+    let old_id = old["decision_id"].as_str().unwrap().to_owned();
+    let uri = format!("/v1/decisions/{old_id}/supersessions");
+    let replacement = |title: &str, options: Value| {
+        let mut body = serde_json::json!({
+            "title": title,
+            "rationale": "Spelled out: the reasons are written here in full sentences.",
+            "grounding": [{"kind": "bet"}],
+            "options": options,
+        });
+        if let (Some(base), Some(floor)) = (body.as_object_mut(), floor.as_object()) {
+            base.extend(floor.clone());
+        }
+        body
+    };
+
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &uri,
+            replacement("Use two queues", serde_json::json!(["direct-cli", "REST"])),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "a warning is not a refusal: {body}"); // ubs:ignore
+    assert!(body["new_decision_id"].as_str().is_some(), "{body}"); // ubs:ignore
+    let warnings = body["warnings"].as_array().cloned().unwrap_or_default();
+    assert_eq!(warnings.len(), 1, "{body}"); // ubs:ignore
+    assert_eq!(warnings[0]["kind"], "option_label_looks_like_a_slug"); // ubs:ignore
+    assert_eq!(warnings[0]["option_label"], "direct-cli"); // ubs:ignore
+    assert_eq!(warnings[0]["suggestion"], "Direct CLI"); // ubs:ignore
+
+    // The label is stored as sent: the warning rewrites nothing.
+    let ledger = hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = hivemind::ledger::EventLedger::read(&ledger, 0, 128).expect("events read");
+    let replacement_proposal = events
+        .iter()
+        .filter(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+        .nth(1)
+        .expect("the replacement is recorded");
+    assert_eq!(
+        // ubs:ignore
+        replacement_proposal.payload["option_labels"],
+        serde_json::json!(["direct-cli", "REST"])
+    );
+
+    // Words say nothing: the reply has no `warnings` key at all.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &uri,
+            replacement(
+                "Use three queues",
+                serde_json::json!(["Direct CLI", "REST"]),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert!(body.get("warnings").is_none(), "{body}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn capture_evidence_validates_content() {
     let dir = test_ledger_dir();
 

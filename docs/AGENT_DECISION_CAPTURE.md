@@ -46,6 +46,9 @@ as sent, and the reply lists it under `warnings`: the `option_label`, the `sugge
 words readers show for it, `Direct CLI`) and a `message` (text mode: one `warning:` line per
 label on stderr). It is a shape check on the input, never a refusal, and a capture with no
 such label carries no `warnings` key. A lone lowercase word (`sqlite`) is a fine label.
+`supersede` (CLI, MCP `supersede_decision`, REST `POST /v1/decisions/{id}/supersessions`)
+checks its option labels the same way and replies with the same `warnings`. Raw
+`emit decision.proposed` is the low-level event path and is not checked.
 
 ## What the decision rests on
 

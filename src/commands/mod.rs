@@ -86,6 +86,12 @@
 //! - The capture verbs (CLI `emit decision.capture`, MCP `capture_decision`, REST
 //!   `POST /v1/decisions`) put the list in the reply as `warnings`, and only when it is not empty,
 //!   so a capture with nothing to warn about replies exactly as it did before.
+//! - `supersede` runs the same check (`option_label_warnings`, one copy of the wording) on the
+//!   labels it records and returns them as `SupersedeOutcome::warnings` (hivemind-1iowm): the
+//!   supersede verbs (CLI `supersede`, MCP `supersede_decision`, REST `POST
+//!   /v1/decisions/{id}/supersessions`) reply with the same `warnings`, under the same rules. An
+//!   idempotent retry warns again, since the warning is a function of the input. Raw `emit
+//!   decision.proposed` stays unwarned: it is the low-level event path.
 //!
 //! # Importer writes ahead of a proposal (`preflight_proposal`, hivemind-poum)
 //!
@@ -314,6 +320,7 @@ mod reaffirm;
 mod restatement;
 mod transcript;
 
+use capture_warning::option_label_warnings;
 pub use capture_warning::{insert_warnings_into, CaptureWarning, OPTION_LABEL_LOOKS_LIKE_A_SLUG};
 pub use ground_later::GroundedAddition;
 use grounding::{plan_grounding_nodes, IdMode};
@@ -619,6 +626,10 @@ pub struct SupersedeOutcome {
     /// Premise decisions that were already superseded or rejected when the new decision was
     /// captured (or, for an idempotent retry, are stale now).
     pub premise_stale: Vec<DecisionId>,
+    /// Notes on how the replacement was written, such as an option label that is a slug
+    /// (hivemind-1iowm). The replacement is recorded as given; this only tells the caller. The
+    /// same check as `GroundedProposal::warnings`.
+    pub warnings: Vec<CaptureWarning>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2691,6 +2702,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                 existing.rests_on = planned.rests_on(&plan.premise_decision_ids);
                 existing.premise_stale = self.stale_premises(&plan.premise_decision_ids)?;
             }
+            existing.warnings = option_label_warnings(&option_labels);
             return Ok(existing);
         }
 
@@ -2768,6 +2780,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             placement,
             rests_on,
             premise_stale: proposal_event_ids.premise_stale,
+            warnings: option_label_warnings(&option_labels),
         })
     }
 
@@ -3921,6 +3934,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     placement,
                     rests_on: Vec::new(),
                     premise_stale: Vec::new(),
+                    warnings: Vec::new(),
                 }));
             }
         }

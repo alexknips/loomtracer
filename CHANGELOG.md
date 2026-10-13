@@ -139,6 +139,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A supersede whose option label looks like a slug says so in its reply, like a capture.**
+  `supersede_decision`, `POST /v1/decisions/{id}/supersessions` and `supersede --json` list each
+  such label (`direct-cli`) under `warnings`, with the same `kind`, `option_label`, `suggestion`
+  (`Direct CLI`) and `message` a capture returns, from the same check (text mode prints one
+  `warning:` line per label on stderr). The replacement is recorded with the label as sent,
+  nothing is refused, and a supersede with no such label replies exactly as before, with no
+  `warnings` key. Raw `emit decision.proposed` stays unwarned: it is the low-level event path.
+  (hivemind-1iowm)
 - **A capture whose option label looks like a slug says so in its reply.** When a label is
   lowercase words joined by `-` or `_` (`direct-cli`, `name-a-upheld`), the reply of
   `capture_decision`, `POST /v1/decisions` and `emit decision.capture --json` lists it under

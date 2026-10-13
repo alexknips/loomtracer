@@ -1516,6 +1516,7 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
     });
     args.floor.reply().insert_into(&mut reply);
     insert_placement(&mut reply, &outcome.placement);
+    insert_warnings_into(&outcome.warnings, &mut reply);
     Ok(ToolOutput(reply))
 }
 
