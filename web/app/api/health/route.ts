@@ -1,20 +1,15 @@
-import { isDemoMode } from "@/lib/env";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
+import { isDemoMode, publicSupabaseEnv } from "@/lib/env";
 import { privateJson } from "@/lib/server/http";
-
 export const dynamic = "force-dynamic";
-
 export async function GET() {
-  if (isDemoMode()) return privateJson({ ok: true, mode: "demo", database: "not-checked" });
-  const required = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY", "OWNER_EMAIL", "APP_URL"];
-  const missing = required.filter((name) => !process.env[name]?.trim());
-  if (missing.length) return privateJson({ ok: false, configuration: "incomplete", missing }, { status: 503 });
+  if (isDemoMode()) return privateJson({ ok: true, mode: "demo" });
   try {
-    const admin = createAdminClient();
-    const { error } = await admin.from("workspaces").select("id", { head: true, count: "exact" }).limit(1);
-    if (error) throw error;
-    return privateJson({ ok: true, configuration: "ready", database: "reachable" });
-  } catch {
-    return privateJson({ ok: false, configuration: "ready", database: "unreachable" }, { status: 503 });
-  }
+    const env = publicSupabaseEnv();
+    const client = createClient(env.url, env.publishableKey, { auth: { persistSession: false } });
+    const [access, reasoning] = await Promise.all([client.rpc("beta_health"), client.rpc("reasoning_health")]);
+    const ready = !access.error && access.data === true && !reasoning.error && reasoning.data?.ready === true;
+    return privateJson({ ok: ready, architecture: "entry-connection", schemaVersion: "0.3.0",
+      mode: reasoning.error ? "unavailable" : reasoning.data?.mode ?? "unavailable" }, { status: ready ? 200 : 503 });
+  } catch { return privateJson({ ok: false }, { status: 503 }); }
 }

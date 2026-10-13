@@ -7,6 +7,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@reasoning": new URL("../packages/reasoning/src", import.meta.url).pathname,
       "@": new URL(".", import.meta.url).pathname,
     },
   },

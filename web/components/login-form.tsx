@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { BrandLogo } from "@/components/brand-logo";
 import { createClient } from "@/lib/supabase/client";
 
-export function LoginForm() {
+export function LoginForm({ next = "/graph" }: { next?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -14,8 +15,8 @@ export function LoginForm() {
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/graph`,
-        queryParams: { access_type: "offline", prompt: "consent" },
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        queryParams: { prompt: "select_account" },
       },
     });
     if (authError) {
@@ -26,7 +27,7 @@ export function LoginForm() {
 
   return (
     <div className="login-card">
-      <span className="brand-mark login-mark" aria-hidden="true"><i /><i /><i /></span>
+      <BrandLogo className="login-brand-logo" />
       <span className="eyebrow">Private decision graph</span>
       <h1>Return to the thread.</h1>
       <p>Trace decisions, inspect evidence, and review what your agents propose next.</p>
@@ -34,7 +35,7 @@ export function LoginForm() {
         <span aria-hidden="true">G</span>{pending ? "Opening Google…" : "Continue with Google"}
       </button>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <small>Access is restricted to the configured owner account.</small>
+      <small>New accounts require an invitation. Sign in with your invited Google account.</small>
     </div>
   );
 }

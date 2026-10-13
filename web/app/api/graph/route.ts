@@ -8,9 +8,12 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
     const owner = await requireOwnerApi();
-    const depth = Number(request.nextUrl.searchParams.get("depth") ?? 2);
+    const depthParam = request.nextUrl.searchParams.get("depth");
+    const depth = Number(depthParam ?? 1);
     const root = request.nextUrl.searchParams.get("root");
-    const payload = await getGraphPayload(owner.workspaceId, root, { depth });
+    const requestedView = request.nextUrl.searchParams.get("view");
+    const view = requestedView === "neighborhood" || depthParam !== null ? "neighborhood" : "all";
+    const payload = await getGraphPayload(owner.workspaceId, root, { view, depth, project: request.nextUrl.searchParams.get("project") ?? "all", includeInherited: request.nextUrl.searchParams.get("inherited") === "true" });
     return privateJson(payload);
   } catch (error) {
     return apiError(error);

@@ -1,0 +1,12 @@
+.env*
+.vercel/
+.next*/
+node_modules/
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo
+e2e/
+scripts/
+benchmarks/
+**/*.test.*

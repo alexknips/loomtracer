@@ -1,12 +1,6 @@
-import { AppShell } from "@/components/app-shell";
-import { ReviewQueue } from "@/components/review-queue";
-import { requireOwner } from "@/lib/server/auth";
-import { getReviewRecords } from "@/lib/server/data";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewPage() {
-  const owner = await requireOwner();
-  const records = await getReviewRecords(owner.workspaceId);
-  return <AppShell active="Review"><ReviewQueue initialRecords={records} /></AppShell>;
-}
+// Existing bookmarks open the new append-only review and commitment interface.
+export default function ReviewPage() { redirect("/graph"); }

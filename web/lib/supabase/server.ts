@@ -6,6 +6,7 @@ export async function createClient() {
   const cookieStore = await cookies();
   const env = publicSupabaseEnv();
   return createServerClient(env.url, env.publishableKey, {
+    global: { fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }) },
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll(cookiesToSet) {

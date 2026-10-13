@@ -1,7 +1,8 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { buildMcpServer } from "@/lib/server/mcp";
 import { PRIVATE_HEADERS, privateJson } from "@/lib/server/http";
-import { authenticatePat } from "@/lib/server/tokens";
+import { authenticateAgent, mcpResource } from "@/lib/server/agent-auth";
+import { readReasoningJson } from "@/lib/server/reasoning-http";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,14 +15,22 @@ export async function GET() { return methodNotAllowed(); }
 export async function DELETE() { return methodNotAllowed(); }
 
 export async function POST(request: Request) {
-  const pat = await authenticatePat(request);
-  if (!pat) return privateJson({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }, { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
-  const server = buildMcpServer(pat);
+  const agent = await authenticateAgent(request);
+  if (!agent) return privateJson({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null }, { status: 401, headers: { "WWW-Authenticate": `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/api/mcp", mcpResource()).href}"` } });
+  let boundedRequest: Request;
+  try {
+    const body = await readReasoningJson(request);
+    boundedRequest = new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(body) });
+  } catch (error) {
+    const tooLarge = error instanceof Error && error.message === "BUNDLE_TOO_LARGE";
+    return privateJson({ jsonrpc: "2.0", error: { code: -32600, message: tooLarge ? "Request exceeds 4 MB. Use an incremental delta." : "Invalid JSON request." }, id: null }, { status: tooLarge ? 413 : 400 });
+  }
+  const server = buildMcpServer(agent);
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   try {
     await server.connect(transport);
-    const response = await transport.handleRequest(request, {
-      authInfo: { token: pat.tokenId, clientId: pat.actor.id, scopes: pat.scopes },
+    const response = await transport.handleRequest(boundedRequest, {
+      authInfo: { token: agent.connectionId, clientId: agent.clientId, scopes: agent.scopes },
     });
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(PRIVATE_HEADERS)) headers.set(key, value);

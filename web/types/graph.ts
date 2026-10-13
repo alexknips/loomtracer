@@ -4,7 +4,6 @@ export type NodeKind =
   | "Evidence"
   | "Assumption"
   | "Attempt"
-  | "Actor"
   | "Artifact"
   | "Scope";
 
@@ -49,6 +48,20 @@ export interface GraphNodeRecord {
   updated_at: string;
   ratified_at: string | null;
   actor?: ActorRecord | null;
+  project_id?: string | null;
+  inheritance_mode?: "local" | "descendants";
+  inherited_from_project_id?: string;
+}
+
+export interface ProjectRecord {
+  id: string;
+  workspace_id: string;
+  ref: string;
+  name: string;
+  description: string;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface GraphEdgeRecord {
@@ -89,6 +102,17 @@ export interface GraphPayload {
   edges: GraphEdgeRecord[];
   audits: Record<string, AuditEventRecord[]>;
   truncated: boolean;
+  view?: "all" | "neighborhood";
+  depth?: number;
+  total_nodes?: number;
+  total_edges?: number;
+  projects?: ProjectRecord[];
+  project_filter?: string;
+  inherited_nodes?: GraphNodeRecord[];
+  include_inherited?: boolean;
+  cross_project_edges?: GraphEdgeRecord[];
+  related_nodes?: GraphNodeRecord[];
+  warnings?: string[];
 }
 
 export interface ReviewRecord extends GraphNodeRecord {

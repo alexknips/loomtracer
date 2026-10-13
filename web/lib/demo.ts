@@ -1,166 +1,98 @@
-import type { GraphPayload, ReviewRecord } from "@/types/graph";
+import chronicleGraph from "@/lib/project-chronicle-graph.json" with { type: "json" };
+import type { GraphPayload, ReviewRecord, ProjectRecord, GraphNodeRecord } from "@/types/graph";
 
-const workspaceId = "00000000-0000-0000-0000-000000000001";
-
-export const demoGraph: GraphPayload = {
-  root_id: "D-hosted",
-  truncated: false,
-  nodes: [
-    {
-      id: "D-hosted",
-      workspace_id: workspaceId,
-      type: "Decision",
-      status: "active",
-      title: "Use a hosted decision graph",
-      summary:
-        "Supabase becomes the shared source of truth while local SQLite remains a recoverable archive.",
-      body: "The hosted graph lets agents retrieve and contribute durable context across platforms.",
-      scope_type: "architecture",
-      scope_refs: ["supabase", "mcp", "hosted"],
-      confidence: "high",
-      reversibility: "high",
-      consequence: "high",
-      reconsider_conditions: ["Hosted operating cost exceeds demonstrated value"],
-      metadata: { chosen_option: "Supabase", rejected_options: ["Bidirectional sync"] },
-      created_by_actor_id: "actor-agent",
-      ratified_by_actor_id: null,
-      ratified_by_user_id: "owner",
-      created_at: "2026-08-24T16:00:00Z",
-      updated_at: "2026-08-24T16:10:00Z",
-      ratified_at: "2026-08-24T16:10:00Z",
-      actor: { id: "actor-agent", display_name: "Codex", kind: "agent", platform: "Codex" },
-    },
-    {
-      id: "E-platform",
-      workspace_id: workspaceId,
-      type: "Evidence",
-      status: "observation",
-      title: "Cross-platform access needs a network boundary",
-      summary: "A shared MCP endpoint lets stdio-only and HTTP-native clients use the same graph.",
-      body: "",
-      scope_type: "architecture",
-      scope_refs: ["mcp", "transport"],
-      confidence: "high",
-      reversibility: null,
-      consequence: null,
-      reconsider_conditions: [],
-      metadata: { source_ref: "architecture review" },
-      created_by_actor_id: "actor-agent",
-      ratified_by_actor_id: null,
-      ratified_by_user_id: null,
-      created_at: "2026-08-24T15:30:00Z",
-      updated_at: "2026-08-24T15:30:00Z",
-      ratified_at: null,
-      actor: { id: "actor-agent", display_name: "Codex", kind: "agent", platform: "Codex" },
-    },
-    {
-      id: "A-privacy",
-      workspace_id: workspaceId,
-      type: "Assumption",
-      status: "accepted",
-      title: "Private single-user access is sufficient",
-      summary: "Workspace-ready fields are retained without exposing multi-user governance in v1.",
-      body: "",
-      scope_type: "product",
-      scope_refs: ["auth", "workspace"],
-      confidence: "medium",
-      reversibility: "high",
-      consequence: "medium",
-      reconsider_conditions: ["A collaborator needs access"],
-      metadata: {},
-      created_by_actor_id: "actor-agent",
-      ratified_by_actor_id: null,
-      ratified_by_user_id: "owner",
-      created_at: "2026-08-24T15:40:00Z",
-      updated_at: "2026-08-24T16:08:00Z",
-      ratified_at: "2026-08-24T16:08:00Z",
-      actor: { id: "actor-agent", display_name: "Codex", kind: "agent", platform: "Codex" },
-    },
-    {
-      id: "D-local",
-      workspace_id: workspaceId,
-      type: "Decision",
-      status: "superseded",
-      title: "Use local SQLite only",
-      summary: "The original prototype stayed dependency-light while validating the workflow.",
-      body: "",
-      scope_type: "architecture",
-      scope_refs: ["sqlite", "local-first"],
-      confidence: "high",
-      reversibility: "high",
-      consequence: "medium",
-      reconsider_conditions: ["A hosted multi-user product becomes the target"],
-      metadata: { superseded_by: "D-hosted" },
-      created_by_actor_id: "actor-import",
-      ratified_by_actor_id: null,
-      ratified_by_user_id: "owner",
-      created_at: "2026-05-26T15:36:32Z",
-      updated_at: "2026-08-24T16:10:00Z",
-      ratified_at: "2026-05-26T15:36:35Z",
-      actor: { id: "actor-import", display_name: "Legacy import", kind: "import", platform: null },
-    },
-  ],
-  edges: [
-    {
-      id: "EDGE-support",
-      workspace_id: workspaceId,
-      source_id: "E-platform",
-      edge_type: "supports",
-      target_id: "D-hosted",
-      summary: "Shared access is the primary reason for hosting.",
-      metadata: {},
-      created_at: "2026-08-24T16:00:00Z",
-    },
-    {
-      id: "EDGE-assumption",
-      workspace_id: workspaceId,
-      source_id: "D-hosted",
-      edge_type: "based_on_assumption",
-      target_id: "A-privacy",
-      summary: "The initial permission model remains deliberately narrow.",
-      metadata: {},
-      created_at: "2026-08-24T16:00:00Z",
-    },
-    {
-      id: "EDGE-supersedes",
-      workspace_id: workspaceId,
-      source_id: "D-hosted",
-      edge_type: "supersedes",
-      target_id: "D-local",
-      summary: "The product boundary expanded beyond repo-local use.",
-      metadata: {},
-      created_at: "2026-08-24T16:10:00Z",
-    },
-  ],
-  audits: {
-    "D-hosted": [
-      {
-        id: "audit-1",
-        action: "ratified",
-        actor_label: "Owner",
-        reason: null,
-        created_at: "2026-08-24T16:10:00Z",
-      },
-      {
-        id: "audit-2",
-        action: "created",
-        actor_label: "Codex",
-        reason: null,
-        created_at: "2026-08-24T16:00:00Z",
-      },
-    ],
-  },
-};
-
-export const demoReview: ReviewRecord[] = [
-  {
-    ...demoGraph.nodes[0],
-    id: "D-review",
-    status: "candidate",
-    title: "Keep raw transcript capture out of the hosted MVP",
-    summary: "Retain source references while privacy, redaction, and retention are designed separately.",
-    reconsider_conditions: ["A tested redaction and retention policy exists"],
-    ratified_by_user_id: null,
-    ratified_at: null,
-  },
+const workspace = chronicleGraph.nodes[0].workspace_id;
+const now = "2026-09-11T00:00:00Z";
+export const demoProjects: ProjectRecord[] = [
+  ["10000000-0000-4000-8000-000000000001", "project:neurofilament", "Neurofilament", null],
+  ["10000000-0000-4000-8000-000000000002", "project:worldspring", "Worldspring", null],
+  ["10000000-0000-4000-8000-000000000003", "project:echeasea", "Echeasea", null],
+  ["10000000-0000-4000-8000-000000000004", "project:echeasea/hush", "Hush", "10000000-0000-4000-8000-000000000003"],
+  ["10000000-0000-4000-8000-000000000005", "project:echeasea/haunted-manor", "Haunted Manor", "10000000-0000-4000-8000-000000000003"],
+].map(([id, ref, name, parent_id]) => ({ id: id!, ref: ref!, name: name!, parent_id, workspace_id: workspace, description: "", created_at: now, updated_at: now }));
+const example = chronicleGraph.nodes[0] as GraphNodeRecord;
+const demoContent: GraphNodeRecord[] = [
+  { ...example, id: "D-demo-setting", type: "Decision", status: "active", title: "Preserve player choice across Echeasea adventures", summary: "Demo inherited guidance: offer meaningful alternatives.", body: "Demo fixture only.", scope_refs: [], project_id: demoProjects[2].id, inheritance_mode: "descendants", metadata: {} },
+  { ...example, id: "D-demo-hush", type: "Decision", status: "active", title: "Hush keeps its peaceful resolution", summary: "Demo local decision.", body: "Demo fixture only.", scope_refs: ["artifact:hush"], project_id: demoProjects[3].id, inheritance_mode: "local", metadata: {} },
+  { ...example, id: "D-demo-manor", type: "Decision", status: "candidate", title: "Haunted Manor opens with an invitation", summary: "Demo candidate awaiting owner review.", body: "Demo fixture only.", scope_refs: ["artifact:haunted-manor"], project_id: demoProjects[4].id, inheritance_mode: "local", metadata: {} },
 ];
+export const demoGraph: GraphPayload = { ...(chronicleGraph as GraphPayload), projects: demoProjects,
+  nodes: [...chronicleGraph.nodes.map(n => ({ ...n, project_id: demoProjects[0].id, inheritance_mode: "local" }) as GraphNodeRecord), ...demoContent] };
+
+export function getDemoGraph(
+  requestedRoot?: string | null,
+  options: { view?: "all" | "neighborhood"; depth?: number; maxNodes?: number; maxEdges?: number } = {},
+): GraphPayload {
+  const rootId = requestedRoot && demoGraph.nodes.some((node) => node.id === requestedRoot)
+    ? requestedRoot
+    : demoGraph.root_id;
+  if (!rootId) return { root_id: null, nodes: [], edges: [], audits: {}, truncated: false, view: "all", total_nodes: 0, total_edges: 0 };
+
+  const view = options.view ?? (options.depth === undefined ? "all" : "neighborhood");
+  if (view === "all") {
+    return {
+      ...demoGraph,
+      root_id: rootId,
+      view,
+      depth: undefined,
+      total_nodes: demoGraph.nodes.length,
+      total_edges: demoGraph.edges.length,
+    };
+  }
+
+  const depth = Math.min(Math.max(options.depth ?? demoGraph.depth ?? 2, 0), 5);
+  const maxNodes = Math.min(Math.max(options.maxNodes ?? 200, 1), 200);
+  const maxEdges = Math.min(Math.max(options.maxEdges ?? 400, 0), 400);
+  const visible = new Set<string>([rootId]);
+  let frontier = [rootId];
+
+  for (let hop = 0; hop < depth && frontier.length > 0 && visible.size < maxNodes; hop += 1) {
+    const next: string[] = [];
+    for (const currentId of frontier) {
+      for (const edge of demoGraph.edges) {
+        const other = edge.source_id === currentId
+          ? edge.target_id
+          : edge.target_id === currentId
+            ? edge.source_id
+            : null;
+        if (!other || visible.has(other)) continue;
+        visible.add(other);
+        next.push(other);
+        if (visible.size >= maxNodes) break;
+      }
+      if (visible.size >= maxNodes) break;
+    }
+    frontier = next;
+  }
+
+  const nodes = demoGraph.nodes.filter((node) => visible.has(node.id)).slice(0, maxNodes);
+  const retainedIds = new Set(nodes.map((node) => node.id));
+  const matchingEdges = demoGraph.edges.filter(
+    (edge) => retainedIds.has(edge.source_id) && retainedIds.has(edge.target_id),
+  );
+  const edges = matchingEdges.slice(0, maxEdges);
+  const audits = Object.fromEntries(
+    Object.entries(demoGraph.audits).filter(([nodeId]) => retainedIds.has(nodeId)),
+  );
+  return {
+    root_id: rootId,
+    nodes,
+    edges,
+    audits,
+    view,
+    depth,
+    total_nodes: demoGraph.nodes.length,
+    total_edges: demoGraph.edges.length,
+    truncated: visible.size > maxNodes || matchingEdges.length > maxEdges,
+  };
+}
+
+export const demoReview: ReviewRecord[] = demoGraph.nodes
+  .filter((node) => (node.type === "Decision" && node.status === "candidate")
+    || (node.type === "Assumption" && node.status === "proposed"))
+  .map((node) => ({
+    ...node,
+    proposed_supersedes: typeof node.metadata.proposed_supersedes === "string"
+      ? demoGraph.nodes.find((candidate) => candidate.id === node.metadata.proposed_supersedes) ?? null
+      : null,
+  }));

@@ -15,11 +15,6 @@ export function publicSupabaseEnv() {
   };
 }
 
-export function serverEnv() {
-  return {
-    ...publicSupabaseEnv(),
-    secretKey: read("SUPABASE_SECRET_KEY"),
-    ownerEmail: read("OWNER_EMAIL").toLowerCase(),
-    appUrl: read("APP_URL").replace(/\/$/, ""),
-  };
+export function appOrigin() {
+  return new URL(read("APP_URL")).origin;
 }

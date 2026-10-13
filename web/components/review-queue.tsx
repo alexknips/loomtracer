@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { ReviewRecord } from "@/types/graph";
+import type { ProjectRecord, ReviewRecord } from "@/types/graph";
+import { projectPath } from "@/lib/projects";
 
 type Action = { kind: "ratify" | "reject"; node: ReviewRecord } | null;
 
-export function ReviewQueue({ initialRecords }: { initialRecords: ReviewRecord[] }) {
+export function ReviewQueue({ initialRecords, projects = [] }: { initialRecords: ReviewRecord[]; projects?: ProjectRecord[] }) {
   const [records, setRecords] = useState(initialRecords);
   const [action, setAction] = useState<Action>(null);
   const [conditions, setConditions] = useState("");
@@ -33,10 +34,11 @@ export function ReviewQueue({ initialRecords }: { initialRecords: ReviewRecord[]
     }
     setPending(true);
     setError(null);
+    try {
     const response = await fetch(`/api/review/${encodeURIComponent(action.node.id)}/${action.kind}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(action.kind === "ratify" ? { reconsider_conditions: reconsider } : { reason: reason.trim() }),
+      body: JSON.stringify({ expected_updated_at: action.node.updated_at, ...(action.kind === "ratify" ? { reconsider_conditions: reconsider } : { reason: reason.trim() }) }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -46,6 +48,9 @@ export function ReviewQueue({ initialRecords }: { initialRecords: ReviewRecord[]
     }
     setRecords((current) => current.filter((record) => record.id !== action.node.id));
     setAction(null);
+    } catch {
+      setError("The review could not be saved. Check your connection and try again.");
+    }
     setPending(false);
   }
 
@@ -53,19 +58,27 @@ export function ReviewQueue({ initialRecords }: { initialRecords: ReviewRecord[]
     <main className="content-page review-page">
       <header className="page-heading">
         <div><span className="eyebrow">Human checkpoint</span><h1>Review queue</h1></div>
-        <p>Agents can suggest durable guidance. Only you can decide what becomes authoritative.</p>
+        <p>Agents suggest durable guidance. Human teammates decide what becomes authoritative, with each approval attributed to its reviewer.</p>
       </header>
       <div className="review-summary"><b>{records.length}</b><span>items awaiting judgment</span></div>
       <section className="review-list" aria-label="Entries awaiting review">
         {records.map((node) => (
-          <article className="review-card" key={node.id}>
+          <article className="review-card" key={node.id} id={node.id}>
             <div className="review-card-top">
               <div><span className="kind-label">{node.type}</span><span className={`status status-${node.status}`}>{node.status}</span></div>
               <time>{new Date(node.created_at).toLocaleString()}</time>
             </div>
             <h2>{node.title}</h2>
             <p>{node.summary || node.body || "No summary provided."}</p>
+            <details>
+              <summary>Full record and evidence</summary>
+              <p style={{ whiteSpace: "pre-wrap" }}>{node.body || "No additional body."}</p>
+              <p><b>Evidence:</b> {String(node.metadata.evidence_summary || "Not supplied")}</p>
+              <p><b>Source:</b> {String(node.metadata.source_ref || "Not supplied")}</p>
+              <p><b>Record ID:</b> {node.id}</p>
+            </details>
             <dl className="review-meta">
+              <div><dt>Project</dt><dd>{projectPath(projects, node.project_id)}</dd></div>
               <div><dt>Proposed by</dt><dd>{node.actor?.display_name ?? "Unknown agent"}</dd></div>
               <div><dt>Scope</dt><dd>{[node.scope_type, ...node.scope_refs].filter(Boolean).join(" · ") || "Unspecified"}</dd></div>
             </dl>
