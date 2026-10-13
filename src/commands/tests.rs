@@ -7503,6 +7503,101 @@ fn a_cited_id_that_matches_no_decision_or_several_is_not_reported() {
     );
 }
 
+/// `propose_grounded_decision` for a bet-grounded capture with one option per label.
+fn capture_with_option_labels(
+    ledger: &InMemoryEventLedger,
+    labels: &[&str],
+) -> crate::commands::GroundedProposal {
+    let commands = Commands::new(ledger);
+    let labels: Vec<String> = labels.iter().map(|label| (*label).to_owned()).collect();
+    let option_ids: Vec<String> = labels
+        .iter()
+        .map(|label| {
+            commands
+                .record_option("actor:alice", label, "An option")
+                .expect("option")
+        })
+        .collect();
+    let topics = ["topic".to_owned()];
+    commands
+        .propose_grounded_decision(
+            DecisionProposalInput {
+                option_ids: &option_ids,
+                option_labels: &labels,
+                ..grounded_input(&option_ids[0], &labels, &topics, "Pick the entry point")
+            },
+            &GroundingPlan {
+                bet: Some(NewBet::default()),
+                ..GroundingPlan::default()
+            },
+        )
+        .expect("the capture is recorded")
+}
+
+#[test]
+fn grounded_capture_warns_about_a_slug_option_label_and_records_it_as_given() {
+    let ledger = InMemoryEventLedger::new();
+    let proposal = capture_with_option_labels(&ledger, &["direct-cli", "Hosted API", "sqlite"]);
+
+    assert_eq!(
+        proposal.warnings.len(),
+        1,
+        "words and a lone lowercase word are fine: {:?}",
+        proposal.warnings
+    );
+    let warning = &proposal.warnings[0];
+    assert_eq!(
+        warning.kind,
+        crate::commands::OPTION_LABEL_LOOKS_LIKE_A_SLUG
+    );
+    assert_eq!(warning.option_label, "direct-cli");
+    assert_eq!(warning.suggestion, "Direct CLI");
+    assert!(
+        warning.message.contains("\"direct-cli\"") && warning.message.contains("\"Direct CLI\""),
+        "{}",
+        warning.message
+    );
+
+    // Nothing is refused and nothing is rewritten: the ledger holds the label the caller sent.
+    let recorded = proposal_payloads(&ledger);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(
+        recorded[0]["option_labels"],
+        json!(["direct-cli", "Hosted API", "sqlite"])
+    );
+}
+
+#[test]
+fn grounded_capture_suggests_the_words_the_readers_will_show_for_a_lettered_set() {
+    let ledger = InMemoryEventLedger::new();
+    let proposal = capture_with_option_labels(
+        &ledger,
+        &["name-a-upheld", "name-b-standing", "name-c-decisis"],
+    );
+
+    let suggestions: Vec<(&str, &str)> = proposal
+        .warnings
+        .iter()
+        .map(|warning| (warning.option_label.as_str(), warning.suggestion.as_str()))
+        .collect();
+    assert_eq!(
+        suggestions,
+        vec![
+            ("name-a-upheld", "Upheld"),
+            ("name-b-standing", "Standing"),
+            ("name-c-decisis", "Decisis"),
+        ]
+    );
+}
+
+#[test]
+fn grounded_capture_with_word_labels_has_no_warnings() {
+    let ledger = InMemoryEventLedger::new();
+    let proposal = capture_with_option_labels(&ledger, &["Direct CLI", "Hosted API"]);
+
+    assert!(proposal.warnings.is_empty(), "{:?}", proposal.warnings);
+}
+
 // ---------------------------------------------------------------------------
 // The decision floor (hivemind-bbnw.10): what a capture binds and what undoing it costs
 // ---------------------------------------------------------------------------

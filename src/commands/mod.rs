@@ -73,6 +73,20 @@
 //! - The answers are part of "the same supersede": a retry that answers differently is a new
 //!   supersession, never a silent match that would report answers the ledger does not hold.
 //!
+//! # Capture warnings (`CaptureWarning`, hivemind-ggoi)
+//!
+//! `propose_grounded_decision` returns `GroundedProposal::warnings`, notes on how the capture was
+//! written. Today that is one warning per option label written as a slug (`direct-cli`), carrying
+//! the words a reader will show for it (`Direct CLI`); tested in `commands/tests.rs`:
+//!
+//! - A warning is a shape check on the input, computed from the option labels alone: no ledger
+//!   read, no similarity, no ranking.
+//! - A warning never refuses and never rewrites: the decision and its options are written as sent,
+//!   with or without warnings.
+//! - The capture verbs (CLI `emit decision.capture`, MCP `capture_decision`, REST
+//!   `POST /v1/decisions`) put the list in the reply as `warnings`, and only when it is not empty,
+//!   so a capture with nothing to warn about replies exactly as it did before.
+//!
 //! # Importer writes ahead of a proposal (`preflight_proposal`, hivemind-poum)
 //!
 //! An importer (Slack thread import, document import) writes an ask, evidence or hypotheses
@@ -292,6 +306,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+mod capture_warning;
 mod ground_later;
 mod grounding;
 mod question;
@@ -299,6 +314,7 @@ mod reaffirm;
 mod restatement;
 mod transcript;
 
+pub use capture_warning::{insert_warnings_into, CaptureWarning, OPTION_LABEL_LOOKS_LIKE_A_SLUG};
 pub use ground_later::GroundedAddition;
 use grounding::{plan_grounding_nodes, IdMode};
 pub use grounding::{

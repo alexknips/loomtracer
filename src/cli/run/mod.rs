@@ -17,8 +17,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::commands::{
-    CommandContext, Commands, DecisionPlacement, DecisionProposalInput, DeterminedProject,
-    FloorInput, Grounding, SupersedeInput,
+    CaptureWarning, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
+    DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
 use crate::error::CliError;
 use crate::events::{
@@ -1525,6 +1525,7 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                 &proposal.cited_not_linked,
                 notices,
             );
+            announce_warnings(cli, &proposal.warnings, notices);
             return format_capture_output(
                 cli.json,
                 &CaptureCommandOutput {
@@ -1537,6 +1538,7 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                     rests_on: resolved.label(proposal.rests_on),
                     premise_stale: proposal.premise_stale,
                     cited_not_linked: proposal.cited_not_linked,
+                    warnings: proposal.warnings,
                     question_id: proposal.question.map(|question| question.question_id),
                     below_floor: floor_reply.below_floor(),
                     below_floor_note: floor_reply.note(),
@@ -1751,6 +1753,17 @@ fn announce_cited_not_linked<W: IoWrite>(
             notices,
             "cited_not_linked: {cited_id} (the rationale names it, but the decision does not rest on it; if it follows from it: hivemind ground --id {decision_id} --rests-on-decision {cited_id})"
         );
+    }
+}
+
+/// Text mode only: one line per warning on `notices` (stderr in the CLI), so the bare id on stdout
+/// stays what scripts parse. The capture is recorded either way. JSON replies carry `warnings`.
+fn announce_warnings<W: IoWrite>(cli: &Cli, warnings: &[CaptureWarning], notices: &mut W) {
+    if cli.json {
+        return;
+    }
+    for warning in warnings {
+        let _ = writeln!(notices, "warning: {}", warning.message);
     }
 }
 

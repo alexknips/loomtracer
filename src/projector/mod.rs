@@ -21,6 +21,7 @@ use crate::ledger::EventLedger;
 use crate::Result;
 
 use batch_times::{ClassifiedSession, ReceivedBatches};
+pub(crate) use option_labels::slug_labels_with_words;
 use option_labels::{readable_option_labels, FoundLabel};
 
 pub mod arrow;

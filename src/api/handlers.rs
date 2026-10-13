@@ -12,7 +12,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::{
-    CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding, SupersedeInput,
+    insert_warnings_into, CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding,
+    SupersedeInput,
 };
 use crate::events::{CaptureItem, EventProvenance, IngestTurn};
 use crate::floor::FloorAnswers;
@@ -540,6 +541,7 @@ fn capture_decision_blocking(
             );
         }
     }
+    insert_warnings_into(&proposal.warnings, &mut reply);
     if let Some(question) = proposal.question {
         reply["question_id"] = serde_json::json!(question.question_id);
     }

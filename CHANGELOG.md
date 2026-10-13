@@ -139,6 +139,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A capture whose option label looks like a slug says so in its reply.** When a label is
+  lowercase words joined by `-` or `_` (`direct-cli`, `name-a-upheld`), the reply of
+  `capture_decision`, `POST /v1/decisions` and `emit decision.capture --json` lists it under
+  `warnings`, each entry with `kind` (`option_label_looks_like_a_slug`), the `option_label` as
+  sent, the `suggestion` (the words every reader shows for it, `Direct CLI`) and a `message`
+  (text mode prints one `warning:` line per label on stderr, so the id on stdout stays what scripts
+  read). It is a shape check on the input: the capture is recorded with the label as sent,
+  nothing is refused and nothing is rewritten, and a capture with no such label replies exactly
+  as before, with no `warnings` key. A lone lowercase word (`sqlite`) is a fine label and says
+  nothing. (hivemind-ggoi)
 - **The attention list says when a superseded premise was never followed up, and stops flagging
   decisions someone has said still hold.** A new finding kind, `propagation_unfinished`
   (`scan_decision_quality`, `get_suggestions`, `hivemind quality-scan --kind`), is flagged on a

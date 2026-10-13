@@ -778,6 +778,78 @@ fn capture_decision_takes_a_question_alone_and_two_captures_share_its_node() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn capture_decision_warns_about_a_slug_option_label_and_records_it_as_given() {
+    let dir = unique_dir("slug-option-label");
+    let config = McpConfig::new(&dir).with_session_id("scribe-session");
+    let capture = |id: u64, title: &str, options: Value| {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": {
+                "name": "capture_decision",
+                "arguments": {
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
+                    "grounding": [{"kind": "bet"}],
+                    "actor_id": "agent:claude:hivemind-crew",
+                    "title": title,
+                    "rationale": "Spelled out in full sentences so the capture reads well",
+                    "topic_keys": ["onboarding"],
+                    "options": options,
+                    "chosen_option_label": "Hosted API"
+                }
+            }
+        })
+        .to_string()
+    };
+    let slug = capture(
+        1,
+        "Pick the entry point",
+        json!([{"label": "direct-cli"}, {"label": "Hosted API"}]),
+    );
+    let words = capture(
+        2,
+        "Pick the entry point, in words",
+        json!([{"label": "Direct CLI"}, {"label": "Hosted API"}]),
+    );
+    let responses = drive(&config, &[slug.as_str(), words.as_str()]);
+
+    assert_eq!(
+        responses[0]["result"]["isError"],
+        Value::Bool(false),
+        "a warning never refuses the capture: {:?}",
+        responses[0]
+    );
+    let warnings = &responses[0]["result"]["structuredContent"]["warnings"];
+    assert_eq!(warnings.as_array().map(Vec::len), Some(1), "{warnings}");
+    assert_eq!(warnings[0]["kind"], "option_label_looks_like_a_slug");
+    assert_eq!(warnings[0]["option_label"], "direct-cli");
+    assert_eq!(warnings[0]["suggestion"], "Direct CLI");
+    assert!(
+        responses[1]["result"]["structuredContent"]
+            .get("warnings")
+            .is_none(),
+        "word labels say nothing: {:?}",
+        responses[1]
+    );
+
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = crate::ledger::EventLedger::read(&ledger, 0, 64).expect("events read");
+    let first_proposal = events
+        .iter()
+        .find(|event| event.event_type == crate::events::EventType::DecisionProposed)
+        .expect("the capture is recorded");
+    assert_eq!(
+        first_proposal.payload["option_labels"],
+        json!(["direct-cli", "Hosted API"]),
+        "the label is recorded as the caller sent it"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A `capture_decision` request whose rationale carries `rationale_note`, grounded on `grounding`.
 fn capture_with_rationale_note(id: u64, title: &str, note: &str, grounding: Value) -> String {
     json!({

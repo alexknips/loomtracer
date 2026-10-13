@@ -15,9 +15,11 @@ use crate::ledger::EventLedger;
 use crate::util::require_non_empty;
 use crate::Result;
 
+use super::capture_warning::option_label_warnings;
 use super::{
-    bet_statement, generate_entity_id, require_optional_non_empty, AnsweredQuestion, Commands,
-    DecisionId, DecisionPlacement, DecisionProposalInput, EvidenceId, Grounding, HypothesisId,
+    bet_statement, generate_entity_id, require_optional_non_empty, AnsweredQuestion,
+    CaptureWarning, Commands, DecisionId, DecisionPlacement, DecisionProposalInput, EvidenceId,
+    Grounding, HypothesisId,
 };
 
 /// The refusal for a capture that names nothing it rests on. The verbs wrap this with the four
@@ -108,6 +110,9 @@ pub struct GroundedProposal {
     /// premises (hivemind-dy6b8). A hint for the caller, who can add the link with `ground`:
     /// the capture is recorded either way and nothing is linked on the caller's behalf.
     pub cited_not_linked: Vec<DecisionId>,
+    /// Notes on how the capture was written, such as an option label that is a slug
+    /// (hivemind-ggoi). The capture is recorded as given; this only tells the caller.
+    pub warnings: Vec<CaptureWarning>,
     /// The question the decision answers, when the capture named one.
     pub question: Option<AnsweredQuestion>,
 }
@@ -408,6 +413,7 @@ impl<L: EventLedger> Commands<'_, L> {
             rests_on: planned.rests_on(&plan.premise_decision_ids),
             premise_stale: event_ids.premise_stale,
             cited_not_linked,
+            warnings: option_label_warnings(input.option_labels),
             question: event_ids.question,
         })
     }

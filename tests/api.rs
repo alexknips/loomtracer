@@ -681,6 +681,43 @@ fn floor_capture_body(title: &str, floor: Value) -> Value {
 }
 
 #[tokio::test]
+async fn capture_warns_about_a_slug_option_label_and_records_it_as_given() {
+    let dir = test_ledger_dir();
+    let floor = serde_json::json!({"binds": {"level": "nothing"}, "undo_cost": {"level": "cheap"}});
+
+    let mut slug = floor_capture_body("Pick the entry point", floor.clone());
+    slug["options"] = serde_json::json!([{"label": "direct-cli"}, {"label": "REST"}]);
+    let (status, body) = call(app(dir.clone()), post_json("/v1/decisions", slug)).await;
+    assert_eq!(status, StatusCode::OK, "a warning is not a refusal: {body}"); // ubs:ignore
+    assert!(body["decision_id"].as_str().is_some(), "{body}"); // ubs:ignore
+    let warnings = body["warnings"].as_array().cloned().unwrap_or_default();
+    assert_eq!(warnings.len(), 1, "{body}"); // ubs:ignore
+    assert_eq!(warnings[0]["kind"], "option_label_looks_like_a_slug"); // ubs:ignore
+    assert_eq!(warnings[0]["option_label"], "direct-cli"); // ubs:ignore
+    assert_eq!(warnings[0]["suggestion"], "Direct CLI"); // ubs:ignore
+
+    // The label is stored as sent: the warning rewrites nothing.
+    let ledger = hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = hivemind::ledger::EventLedger::read(&ledger, 0, 64).expect("events read");
+    let proposal = events
+        .iter()
+        .find(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+        .expect("the capture is recorded");
+    assert_eq!(
+        // ubs:ignore
+        proposal.payload["option_labels"],
+        serde_json::json!(["direct-cli", "REST"])
+    );
+
+    // Words say nothing: the reply has no `warnings` key at all.
+    let words = floor_capture_body("Pick the entry point, in words", floor);
+    let (status, body) = call(app(dir.clone()), post_json("/v1/decisions", words)).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert!(body.get("warnings").is_none(), "{body}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn capture_refuses_a_call_that_leaves_a_floor_answer_out_with_400_and_writes_nothing() {
     let dir = test_ledger_dir();
 

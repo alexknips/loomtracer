@@ -44,6 +44,27 @@ pub(super) fn readable_option_labels(found: &[Option<FoundLabel>]) -> Vec<Option
         .collect()
 }
 
+/// The labels of one capture that are written as slugs, each with the words every reader will
+/// show for it (`direct-cli` reads `Direct CLI`), in the labels' order. The same reading as
+/// `readable_option_labels`, asked at capture time so the capturer can write the words instead.
+pub(crate) fn slug_labels_with_words(labels: &[String]) -> Vec<(&str, String)> {
+    let found: Vec<Option<FoundLabel>> = labels
+        .iter()
+        .map(|text| {
+            Some(FoundLabel {
+                text: text.clone(),
+                recovered_from_id: false,
+            })
+        })
+        .collect();
+    labels
+        .iter()
+        .zip(readable_option_labels(&found))
+        .filter(|(label, _)| is_slug_shaped(label))
+        .filter_map(|(label, words)| Some((label.as_str(), words?)))
+        .collect()
+}
+
 /// Words a slug only carries in lowercase but that are written in capitals wherever they appear:
 /// `mcp-registry-first` reads `MCP registry first`, `direct-cli` reads `Direct CLI`.
 const ACRONYMS: [&str; 10] = [

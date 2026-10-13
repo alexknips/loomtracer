@@ -35,8 +35,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Map, Value};
 
 use crate::commands::{
-    CommandContext, Commands, DecisionPlacement, DecisionProposalInput, DeterminedProject,
-    FloorInput, Grounding, SupersedeInput,
+    insert_warnings_into, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
+    DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, HivemindError};
 use crate::events::{AckAction, EventProvenance, ProjectSource, TenantId};
@@ -639,6 +639,7 @@ pub(crate) fn capture_decision<P: LedgerProvider>(
             );
         }
     }
+    insert_warnings_into(&proposal.warnings, &mut reply);
     if let Some(question) = proposal.question {
         reply["question_id"] = json!(question.question_id);
     }

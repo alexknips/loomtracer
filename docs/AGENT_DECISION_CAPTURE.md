@@ -40,6 +40,13 @@ inside one label, and trimming would record its halves as two options. The same
 two flags work on `decision.proposed` and `supersede`. MCP `capture_decision` and
 REST `POST /v1/decisions` take options as an array, so a comma never splits them.
 
+A label is a short phrase, not a slug. When a capture's option label is lowercase words
+joined by `-` or `_` (`direct-cli`, `name-a-upheld`), the capture is recorded with the label
+as sent, and the reply lists it under `warnings`: the `option_label`, the `suggestion` (the
+words readers show for it, `Direct CLI`) and a `message` (text mode: one `warning:` line per
+label on stderr). It is a shape check on the input, never a refusal, and a capture with no
+such label carries no `warnings` key. A lone lowercase word (`sqlite`) is a fine label.
+
 ## What the decision rests on
 
 Every `decision.capture` (and `supersede`) answers "what does this decision rest

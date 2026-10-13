@@ -5,8 +5,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::commands::{
-    DecisionMoveOutcome, DecisionPlacement, DecisionRetitleOutcome, ProjectTopicDeclaration,
-    RestatedCapture, RestsOn, RestsOnKind,
+    CaptureWarning, DecisionMoveOutcome, DecisionPlacement, DecisionRetitleOutcome,
+    ProjectTopicDeclaration, RestatedCapture, RestsOn, RestsOnKind,
 };
 use crate::error::{CliError, CommandError};
 use crate::events::{EventId, EventType, ModelDimension};
@@ -2984,6 +2984,9 @@ pub(crate) struct CaptureCommandOutput {
     /// `GroundedProposal::cited_not_linked`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) cited_not_linked: Vec<String>,
+    /// Notes on how the capture was written; see `GroundedProposal::warnings`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) warnings: Vec<CaptureWarning>,
     /// The question node the decision was linked to, when the capture named a question.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) question_id: Option<String>,
