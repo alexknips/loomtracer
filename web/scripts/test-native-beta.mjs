@@ -1,6 +1,6 @@
 /** Native GoTrue + PostgREST + browser OAuth. Only the disposable loopback stack. */
 import assert from 'node:assert/strict';
-import {readFileSync,writeFileSync} from 'node:fs';
+import {readFileSync,writeFileSync,readdirSync} from 'node:fs';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -8,13 +8,16 @@ import {createClient} from '@supabase/supabase-js';
 import {createServerClient} from '@supabase/ssr';
 import {chromium,expect} from '@playwright/test';
 
-const dir=new URL('../../.neurofilament/local-beta/',import.meta.url);
+// The isolated option has separate ports, container names and data. It never
+// resets or reuses the older developer stack.
+const isolated=process.env.NATIVE_REASONING_ISOLATED==='1';
+const dir=new URL(isolated?'../../.neurofilament/reasoning-native/':'../../.neurofilament/local-beta/',import.meta.url);
 const credentials=JSON.parse(readFileSync(new URL('stack.json',dir),'utf8'));
-const base=credentials.API_URL, app='http://127.0.0.1:3108', resource=app+'/api/mcp';
-assert.equal(base,'http://127.0.0.1:55421','Refusing a non-local target');
+const base=credentials.API_URL, app=isolated?'http://127.0.0.1:3118':'http://127.0.0.1:3108', resource=app+'/api/mcp';
+assert.equal(base,isolated?'http://127.0.0.1:58421':'http://127.0.0.1:55421','Refusing a non-local target');
 const key=credentials.PUBLISHABLE_KEY??credentials.ANON_KEY;
 const docker=process.env.DOCKER_BIN??'/opt/homebrew/bin/docker';
-const context='colima-neurofilament',container='supabase_db_neurofilament-beta-test';
+const context='colima-neurofilament',container=isolated?'supabase_db_loomtracer-reasoning-native':'supabase_db_neurofilament-beta-test';
 const literal=s=>"'"+String(s).replaceAll("'","''")+"'";
 function sql(statement) {
  const result=spawnSync(docker,['--context',context,'exec','-i',container,'psql','-U','postgres','-d','postgres','-Atq','-v','ON_ERROR_STOP=1'],{input:statement,encoding:'utf8'});
@@ -30,9 +33,51 @@ async function json(url,options={}) {
 }
 const client=token=>createClient(base,key,{accessToken:async()=>token,auth:{persistSession:false,autoRefreshToken:false}});
 const checked=({data,error})=>{if(error)throw new Error(error.message);return data;};
+const nativeTools=['list_projects','get_reasoning_brief','list_reasoning_datasets','search_reasoning','expand_reasoning','get_reconstruction_packet','capture_reasoning','revise_extraction','change_commitment'].sort();
+async function mcpCall(agent,name,args) {
+ const result=await json(resource,{method:'POST',headers:{Authorization:`Bearer ${agent.tokens.access_token}`,Accept:'application/json, text/event-stream','Content-Type':'application/json','MCP-Protocol-Version':'2025-06-18'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args}})});
+ return {...result,call:result.body.result,value:result.body.result?.structuredContent?.result};
+}
+async function nativeDiscovery(u) {
+ const result=await json(resource,{method:'POST',headers:{Authorization:`Bearer ${u.agent.tokens.access_token}`,Accept:'application/json, text/event-stream','Content-Type':'application/json','MCP-Protocol-Version':'2025-06-18'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})});
+ assert.equal(result.response.status,200);assert.deepEqual(result.body.result.tools.map(tool=>tool.name).sort(),nativeTools);
+ check(`User ${u.label}: fresh discovery exposes only native reasoning tools`,true);
+}
+function nativeDelta(stored,actor,content) {
+ const key=`native:${randomUUID()}`,now=new Date().toISOString(),sourceId=`${key}:source`,contextId=`${key}:context`,entryId=`${key}:entry`;
+ return {actors:[stored.bundle.actors.find(item=>item.id===actor.id)??actor],contexts:[{id:contextId,title:'Disposable native authorization test',kind:'discussion'}],
+  sources:[{id:sourceId,originalId:sourceId,actorId:actor.id,role:actor.kind==='human'?'user':'assistant',content,occurredAt:now,loggedAt:now,order:Math.max(0,...stored.bundle.sources.map(source=>source.order))+1,sourceRef:key,attachmentIds:[],active:true,provenance:{kind:'authored'}}],
+  entries:[{id:entryId,logicalId:entryId,version:1,contextId,labels:['observation'],provenance:{expressedBy:actor.id,recordedBy:actor.id,occurredAt:now,recordedAt:now,basis:'direct',sourceSpans:[{messageId:sourceId,start:0,end:content.length}]}}],
+  run:{id:`${key}:run`,createdAt:now,recordedBy:actor.id,notes:'Disposable native capture; no commitment authorized.'}};
+}
+function datasetArgs(u,project=u.project) {return {target_workspace_id:u.workspace,target_project_id:project.id,target_dataset_id:`legacy:${u.workspace}:${project.id}`};}
+async function readNative(u,project=u.project) {return checked(await u.db.rpc('reasoning_read_bundle',datasetArgs(u,project)));}
+function importLocalLegacy(users) {
+ const workspaceFilter=users.map(u=>literal(u.workspace)).join(',');
+ sql("select private.reasoning_set_mode('read_only')");sql("select private.reasoning_set_mode('frozen')");
+ const tables=['nodes','edges','actors','projects','audit_events'];
+ const contents=JSON.parse(sql(`select jsonb_build_object(${tables.map(table=>`${literal(table)},(select coalesce(jsonb_agg(to_jsonb(t) order by t.id),'[]') from public.${table} t where workspace_id in (${workspaceFilter}))`).join(',')})`));
+ const snapshot={snapshotId:`native-auth:${randomUUID()}`,createdAt:new Date().toISOString(),tables:contents};
+ const snapshotPath=fileURLToPath(new URL(`reasoning-${randomUUID()}.json`,dir)),convertedPath=fileURLToPath(new URL(`reasoning-${randomUUID()}/`,dir));
+ writeFileSync(snapshotPath,JSON.stringify(snapshot),{mode:0o600});
+ const converted=spawnSync(process.execPath,['--experimental-strip-types',fileURLToPath(new URL('../../scripts/reasoning-convert.mjs',import.meta.url)),snapshotPath,convertedPath],{encoding:'utf8'});
+ assert.equal(converted.status,0,'Local legacy converter failed: '+converted.stderr);
+ for(const name of readdirSync(convertedPath).filter(name=>name.endsWith('.bundle.json'))) {
+  const bundle=JSON.parse(readFileSync(`${convertedPath}/${name}`,'utf8')),wid=literal(bundle.namespace.workspaceId),pid=literal(bundle.namespace.projectId);
+  sql(`select private.reasoning_import_legacy(${wid},${pid},${literal(JSON.stringify(bundle))}::jsonb,private.reasoning_legacy_fingerprint(${wid},${pid}),${literal(snapshot.snapshotId+':'+bundle.id)})`);
+ }
+ const preserved=JSON.parse(sql(`select coalesce(jsonb_agg(to_jsonb(t) order by t.id),'[]') from public.nodes t where workspace_id in (${workspaceFilter})`));
+ assert.deepEqual(preserved,contents.nodes,'Local migration changed an original human or agent decision');
+ sql("select private.reasoning_set_mode('reasoning_open')");
+ check('Local-only frozen conversion preserves legacy decisions and opens native reasoning',true);
+}
 const fixtures=['A','B'].map(label=>({id:randomUUID(),email:`native-${label.toLowerCase()}-${randomUUID()}@example.test`,password:randomBytes(32).toString('base64url'),label}));
 let browser;
 try {
+ // Preserve the legacy authorization regression before this test's explicit
+ // cutover. Never reset a stack that already contains new reasoning history.
+ assert.equal(sql('select count(*) from public.reasoning_datasets'),'0','Use a fresh disposable local stack; existing reasoning history must not be overwritten.');
+ assert.equal(sql('select mode from private.reasoning_control where singleton'),'legacy_open','Native test must start before local reasoning cutover.');
  sql(`update private.beta_config set agents_enabled=true,invitations_enabled=true,mcp_resource=${literal(resource)};
  ${fixtures.map(u=>`insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at,confirmation_token,recovery_token,email_change,email_change_token_new,raw_app_meta_data,raw_user_meta_data)
  values(${literal(u.id)},'00000000-0000-0000-0000-000000000000','authenticated','authenticated',${literal(u.email)},extensions.crypt(${literal(u.password)},extensions.gen_salt('bf')),now(),now(),now(),'','','','','{"provider":"google","providers":["google"]}','{}');
@@ -193,6 +238,8 @@ try {
    writeFileSync(new URL('consent-failure.txt',dir),await u.page.locator('body').innerText(),{mode:0o600});
    throw error;
   }
+  await expect(u.page.getByRole('checkbox',{name:'Allow reasoning capture'})).toBeVisible();
+  await expect(u.page.getByText('This connection alone does not authorize commitments.',{exact:false})).toContainText('A workspace owner can separately grant this named agent');
   const authorizationId=new URL(u.page.url()).searchParams.get('authorization_id');
   const beforeGrant=checked(await u.db.from('agent_connections').select('id,granted_at,revoked_at').eq('client_id',registration.client_id));
   const wrongWorkspace=await u.context.request.post(app+'/api/oauth/consent',{headers:{origin:app},data:{authorizationId,approve:true,allowWrites,expectedUserId:u.id,expectedWorkspaceId:randomUUID()}});
@@ -264,10 +311,9 @@ try {
   const response=await u.context.request.get(app+'/api/export?format=jsonl');
   const text=await response.text();
   check(`User ${u.label}: website export isolation`,response.status()===200&&text.includes(`PRIVATE-${u.label}-SENTINEL`)&&!text.includes(`PRIVATE-${u.label==='A'?'B':'A'}-SENTINEL`));
-  const mcp=await json(resource,{method:'POST',headers:{Authorization:`Bearer ${u.agent.tokens.access_token}`,Accept:'application/json, text/event-stream','Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'get_relevant_context',arguments:{task:'PRIVATE SENTINEL',project_ref:'project:same'}}})});
-  check(`User ${u.label}: signed OAuth MCP isolation`,mcp.response.status===200&&JSON.stringify(mcp.body).includes(`PRIVATE-${u.label}-SENTINEL`)&&!JSON.stringify(mcp.body).includes(`PRIVATE-${u.label==='A'?'B':'A'}-SENTINEL`));
-  const brief=await json(resource,{method:'POST',headers:{Authorization:`Bearer ${u.agent.tokens.access_token}`,Accept:'application/json, text/event-stream','Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'get_task_brief',arguments:{task:'Inherited private guidance',project_ref:'project:child'}}})});
-  check(`User ${u.label}: inherited task brief private`,brief.response.status===200&&JSON.stringify(brief.body).includes(`PRIVATE-${u.label}-SENTINEL`)&&!JSON.stringify(brief.body).includes(`PRIVATE-${u.label==='A'?'B':'A'}-SENTINEL`));
+  await nativeDiscovery(u);
+  const brief=await mcpCall(u.agent,'get_reasoning_brief',{task:'Inherited private guidance before local migration',project_ref:'project:child'});
+  check(`User ${u.label}: pre-cutover native brief cannot report complete empty guidance`,brief.response.status===200&&!brief.call.isError&&brief.value.complete===false&&brief.value.coverage_complete===false&&brief.value.warnings.some(warning=>warning.includes('legacy_open')));
   for(const path of ['/api/graph','/api/search?q=PRIVATE','/api/export?format=markdown']) {
    const response=await u.context.request.get(app+path+(path.includes('?')?'&':'?')+'workspace_id='+fixtures.find(other=>other!==u).workspace);
    const text=await response.text();
@@ -278,10 +324,11 @@ try {
   const forged=await json(resource,{method:'POST',headers:{Authorization:`Bearer ${forgedParts.join('.')}`,'Content-Type':'application/json'},body:'{}'});
   check(`User ${u.label}: forged foreign-identity token rejected`,forged.response.status===401);
  }
+ async function verifyAccountSwitch() {
  const switchContext=await browser.newContext();
  await switchContext.addCookies(a.cookies);
  const switchPage=await switchContext.newPage();
- await switchPage.goto(app+'/graph');
+ await switchPage.goto(app+'/graph?project=project:same');
  await expect(switchPage.getByText('PRIVATE-A-SENTINEL',{exact:true}).first()).toBeVisible();
  await switchPage.goto(app+'/projects');
  const switchAuth=createClient(base,key,{auth:{persistSession:false,autoRefreshToken:false}});
@@ -291,14 +338,21 @@ try {
  checked(await switchSsr.auth.setSession(switchSession));
  await switchContext.clearCookies();await switchContext.addCookies(switchCookies.map(c=>({name:c.name,value:c.value,url:app,httpOnly:false,sameSite:'Lax'})));
  await switchPage.goBack();
- await expect(switchPage.getByText('PRIVATE-B-SENTINEL',{exact:true}).first()).toBeVisible();
+ await expect(switchPage.getByRole('combobox',{name:'Reasoning project',exact:true})).toBeVisible();
+ assert.equal((await (await switchContext.request.get(app+'/api/session')).json()).userId,b.id);
  await expect(switchPage.getByText('PRIVATE-A-SENTINEL',{exact:true}).first()).not.toBeVisible();
+ // Account changes clear the selected project; deliberately select the new
+ // account's canonical reference before expecting its private history.
+ await switchPage.goto(app+'/graph?project=project:same');
+ try {await expect(switchPage.getByText('PRIVATE-B-SENTINEL',{exact:true}).first()).toBeVisible();}
+ catch(error) {writeFileSync(new URL('account-switch-failure.json',dir),JSON.stringify({url:switchPage.url(),body:await switchPage.locator('body').innerText(),session:await (await switchContext.request.get(app+'/api/session')).json(),datasets:await (await switchContext.request.get(app+'/api/reasoning?project_ref=project:same')).json()}),{mode:0o600});throw error;}
  check('Account switch and browser Back hide the previous graph',true);
  await switchContext.request.post(app+'/auth/signout',{headers:{origin:app}});
  await switchPage.reload();
  await expect(switchPage.getByText('PRIVATE-B-SENTINEL',{exact:true}).first()).not.toBeVisible();
  check('Logout cannot redisplay a cached private graph',true);
  await switchContext.close();
+ }
  async function refresh(agent) {
   return json(metadata.token_endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:agent.registration.client_id,refresh_token:agent.tokens.refresh_token,resource})});
  }
@@ -348,9 +402,83 @@ try {
  const freshNode=checked(await member.db.from('nodes').select('*').eq('id',memberNode.id).single());
  const memberReview=checked(await member.db.rpc('ratify_node',{target_workspace_id:a.workspace,target_node_id:memberNode.id,supplied_reconsider_conditions:['Changed'],expected_updated_at:freshNode.updated_at}));
  check('Reviewer human review records exact identity',memberReview.ratified_by_user_id===member.id&&Boolean(memberReview.ratified_by_actor_id));
+ // All preceding node writes are deliberate pre-cutover fixtures. Exercise the
+ // production migration boundary before relying on the native application.
+ importLocalLegacy(fixtures);
+ a.agent=await authorize(a,true);
+ for(const u of fixtures) {
+  await nativeDiscovery(u);
+  const search=await mcpCall(u.agent,'search_reasoning',{project_ref:'project:same',query:'PRIVATE',limit:1});
+  check(`User ${u.label}: signed native search is bounded and workspace-private`,search.response.status===200&&!search.call.isError&&search.value.matches.length===1&&JSON.stringify(search.value).includes(`PRIVATE-${u.label}-SENTINEL`)&&!JSON.stringify(search.value).includes(`PRIVATE-${u.label==='A'?'B':'A'}-SENTINEL`));
+  const brief=await mcpCall(u.agent,'get_reasoning_brief',{project_ref:'project:child',task:'Inherited private guidance'});
+  check(`User ${u.label}: native brief retains approved ancestor guidance`,brief.response.status===200&&!brief.call.isError&&brief.value.complete&&brief.value.coverage_complete&&JSON.stringify(brief.value).includes(`PRIVATE-${u.label}-SENTINEL`)&&!JSON.stringify(brief.value).includes(`PRIVATE-${u.label==='A'?'B':'A'}-SENTINEL`));
+  const refreshed=await mcpCall(u.agent,'get_reasoning_brief',{project_ref:'project:child',task:'Inherited private guidance',previous_fingerprint:brief.value.fingerprint});
+  check(`User ${u.label}: unchanged native brief fingerprint is stable`,refreshed.value.changed===false);
+  const api=await u.context.request.get(app+'/api/reasoning?'+new URLSearchParams({project_ref:'project:same',dataset_id:datasetArgs(u).target_dataset_id}));
+  const apiText=await api.text();
+  check(`User ${u.label}: authenticated reasoning bundle remains private and uncached`,api.status()===200&&apiText.includes(`PRIVATE-${u.label}-SENTINEL`)&&!apiText.includes(`PRIVATE-${u.label==='A'?'B':'A'}-SENTINEL`)&&api.headers()['cache-control'].includes('private, no-store'));
+  const stored=await readNative(u),context=checked(await client(u.agent.tokens.access_token).rpc('agent_request_context'));
+  const actor={id:'agent:'+context.actor.id,name:context.actor.display_name,kind:'agent'};
+  const text=`PRIVATE-${u.label}-NATIVE qualified observation: this synthetic result does not establish product reliability.`;
+  const delta=nativeDelta(stored,actor,text),args={project_ref:'project:same',dataset_id:stored.bundle.id,delta,expected_head:stored.head,operation_id:randomUUID()};
+  const captured=await mcpCall(u.agent,'capture_reasoning',args),repeated=await mcpCall(u.agent,'capture_reasoning',args);
+  check(`User ${u.label}: native incremental capture succeeds without authority`,!captured.call.isError&&captured.value.authorityChanged===false);
+  assert.deepEqual(repeated.value,captured.value,'Idempotent native capture must preserve exact result');
+  const expanded=await mcpCall(u.agent,'expand_reasoning',{project_ref:'project:same',dataset_id:stored.bundle.id,record_id:delta.entries[0].id});
+  check(`User ${u.label}: native readback preserves exact qualified text and authenticated recorder`,expanded.value.entry.content===text&&expanded.value.sources[0].content===text&&expanded.value.serverCapture.actorId===actor.id&&expanded.value.commitments.length===0);
+  const updated=await readNative(u);
+  check(`User ${u.label}: native retry adds exactly one contribution`,updated.bundle.entries.length===stored.bundle.entries.length+1&&updated.commitments.length===stored.commitments.length);
+  const historical=await mcpCall(u.agent,'get_reconstruction_packet',{project_ref:'project:same',dataset_id:stored.bundle.id,run_id:stored.bundle.runs.at(-1).id,entry_ids:[stored.bundle.entries.find(entry=>entry.logicalId==='legacy:nodes:D-same').id]});
+  check(`User ${u.label}: historical native packet excludes later capture`,!historical.call.isError&&!JSON.stringify(historical.value).includes(text)&&JSON.stringify(historical.value).includes(`PRIVATE-${u.label}-SENTINEL`));
+  const denied=await mcpCall(u.agent,'change_commitment',{project_ref:'project:same',dataset_id:stored.bundle.id,action:'adopt',entry_id:delta.entries[0].id,prior_receipt_id:null,rationale:'Unassigned agent must not gain authority from capture.',expected_head:updated.head,operation_id:randomUUID()});
+  check(`User ${u.label}: ungranted native agent commitment denied`,denied.call.isError===true&&JSON.stringify(denied.call).includes('FORBIDDEN'));
+  const foreign=fixtures.find(other=>other!==u);
+  for(const db of [u.db,client(u.agent.tokens.access_token)]) {
+   for(const table of ['reasoning_datasets','reasoning_records','reasoning_revisions','reasoning_commitments','reasoning_authority_events']) check(`User ${u.label}: native ${table} RLS isolation (${report.checks.length})`,checked(await db.from(table).select('workspace_id')).every(row=>row.workspace_id===u.workspace));
+   check(`User ${u.label}: foreign native dataset denied (${report.checks.length})`,Boolean((await db.rpc('reasoning_read_bundle',datasetArgs(foreign))).error));
+  }
+  check(`User ${u.label}: retired capture RPC blocked after cutover`,Boolean((await client(u.agent.tokens.access_token).rpc('capture_oauth_node',{target_node_id:'D-post-cutover-denied',target_type:'Decision',target_status:'candidate',target_title:'Denied',target_summary:'',target_body:'',target_scope_type:null,target_scope_refs:[],target_confidence:null,target_reversibility:null,target_consequence:null,target_reconsider_conditions:[],target_metadata:{},target_project_id:u.project.id})).error));
+ }
+ const readonlyStored=await readNative(a),readonlyContext=checked(await client(reconnect.tokens.access_token).rpc('agent_request_context'));
+ const readonlyDelta=nativeDelta(readonlyStored,{id:'agent:'+readonlyContext.actor.id,name:'Read-only fixture',kind:'agent'},'Read-only denial fixture');
+ const readonlyCapture=await mcpCall(reconnect,'capture_reasoning',{project_ref:'project:same',dataset_id:readonlyStored.bundle.id,delta:readonlyDelta,expected_head:readonlyStored.head,operation_id:randomUUID()});
+ check('Read-only OAuth connection cannot capture native reasoning',readonlyCapture.call.isError===true&&JSON.stringify(readonlyCapture.call).includes('FORBIDDEN'));
+ const nativeRefreshed=await refresh(a.agent);assert.equal(nativeRefreshed.response.status,200);
+ const nativeClaims=JSON.parse(Buffer.from(nativeRefreshed.body.access_token.split('.')[1],'base64url'));
+ check('Post-cutover native refresh preserves exact audience and connection generation',nativeClaims.aud===resource&&nativeClaims.nf_connection_id===a.agent.claims.nf_connection_id);
+ a.agent.tokens=nativeRefreshed.body;
+ check('Refreshed OAuth access token reads the native reasoning service',!(await mcpCall(a.agent,'list_reasoning_datasets',{project_ref:'project:same'})).call.isError);
+ const peerBefore=await readNative(member,memberProject),peerContext=checked(await memberAgent.rpc('agent_request_context'));
+ const peerActor={id:'agent:'+peerContext.actor.id,name:peerContext.actor.display_name,kind:'agent'},peerDelta=nativeDelta(peerBefore,peerActor,'Shared native team proposal; original human decision remains inspectable.');
+ const peerCaptured=await mcpCall(member.agent,'capture_reasoning',{project_ref:memberProject.ref,dataset_id:peerBefore.bundle.id,delta:peerDelta,expected_head:peerBefore.head,operation_id:randomUUID()});
+ check('Reviewer-owned native agent records independent attribution',!peerCaptured.call.isError&&(await readNative(member,memberProject)).captureMetadata[peerDelta.entries[0].id].actorId===peerActor.id);
+ const commitmentArgs={...datasetArgs(member,memberProject),action:'adopt',contribution_id:peerDelta.entries[0].id,prior_receipt_id:null,rationale:'Synthetic teammate approval test',operation_id:randomUUID()};
+ const nativeStale=await member.db.rpc('reasoning_commit',{...commitmentArgs,expected_head:peerBefore.head});
+ check('Stale native teammate commitment is rejected',Boolean(nativeStale.error)&&nativeStale.error.message.includes('STALE'));
+ const peerCurrent=await readNative(member,memberProject);
+ checked(await member.db.rpc('reasoning_commit',{...commitmentArgs,expected_head:peerCurrent.head}));
+ const peerApproved=await readNative(member,memberProject),peerReceipt=peerApproved.commitments.find(receipt=>receipt.entryId===peerDelta.entries[0].id);
+ check('Reviewer native commitment retains exact human identity',peerReceipt.actorId==='human:'+member.id);
+ check('Reviewer cannot grant native agent authority',Boolean((await member.db.rpc('reasoning_grant_authority',{target_workspace_id:a.workspace,target_project_id:memberProject.id,target_connection_id:member.agent.claims.nf_connection_id})).error));
+ check('Reviewer standalone withdrawal remains owner-only',Boolean((await member.db.rpc('reasoning_commit',{...commitmentArgs,action:'withdraw',prior_receipt_id:peerReceipt.id,expected_head:peerApproved.head,operation_id:randomUUID()})).error));
+ const grant=checked(await a.db.rpc('reasoning_grant_authority',{target_workspace_id:a.workspace,target_project_id:memberProject.id,target_connection_id:member.agent.claims.nf_connection_id}));
+ const revisionDelta=nativeDelta(peerApproved,peerActor,'Granted agent revision of the synthetic human commitment; originals retained.');
+ const revisionCapture=await mcpCall(member.agent,'capture_reasoning',{project_ref:memberProject.ref,dataset_id:peerApproved.bundle.id,delta:revisionDelta,expected_head:peerApproved.head,operation_id:randomUUID()});
+ const revision=await mcpCall(member.agent,'change_commitment',{project_ref:memberProject.ref,dataset_id:peerApproved.bundle.id,action:'revise',entry_id:revisionDelta.entries[0].id,prior_receipt_id:peerReceipt.id,rationale:'Explicit disposable project grant covers this revision.',expected_head:revisionCapture.value.head,operation_id:randomUUID()});
+ check('Named agent may revise a human commitment with a current project grant',!revision.call.isError);
+ const peerRevised=await readNative(member,memberProject),agentReceipt=peerRevised.commitments.find(receipt=>receipt.entryId===revisionDelta.entries[0].id);
+ assert.deepEqual(peerRevised.commitments.find(receipt=>receipt.id===peerReceipt.id),peerReceipt,'Human approval receipt must remain unchanged');
+ assert.deepEqual(peerRevised.bundle.entries.find(entry=>entry.id===peerDelta.entries[0].id),peerApproved.bundle.entries.find(entry=>entry.id===peerDelta.entries[0].id),'Original human-approved contribution must remain unchanged');
+ check('Granted revision records the exact prior human receipt and grant',agentReceipt.priorReceiptId===peerReceipt.id&&agentReceipt.grantId===grant.id);
+ checked(await a.db.rpc('reasoning_revoke_authority',{target_workspace_id:a.workspace,target_project_id:memberProject.id,target_grant_id:grant.id}));
+ const revoked=await mcpCall(member.agent,'change_commitment',{project_ref:memberProject.ref,dataset_id:peerRevised.bundle.id,action:'withdraw',entry_id:agentReceipt.entryId,prior_receipt_id:agentReceipt.id,rationale:'Revoked grant must deny future action.',expected_head:peerRevised.head,operation_id:randomUUID()});
+ check('Revoked native grant blocks future actions without changing past receipts',revoked.call.isError===true&&(await readNative(member,memberProject)).commitments.some(receipt=>receipt.id===agentReceipt.id));
+ await verifyAccountSwitch();
  check('Reviewer cannot remove owner',Boolean((await member.db.rpc('remove_workspace_member',{target_user_id:a.id})).error));
  check('Owner cannot remove sole owner',Boolean((await a.db.rpc('remove_workspace_member',{target_user_id:a.id})).error));
  checked(await a.db.rpc('remove_workspace_member',{target_user_id:member.id}));
+ check('Removed member human JWT cannot expand hosted reasoning',Boolean((await member.db.rpc('reasoning_read_bundle',datasetArgs(member,memberProject))).error));
+ check('Removed member OAuth cannot discover native tools',(await mcpCall(member.agent,'list_projects',{})).response.status===401);
  check('Removed member existing human JWT cannot read',checked(await member.db.from('nodes').select('*')).length===0);
  check('Removed member cannot bootstrap fresh workspace',Boolean((await member.db.rpc('bootstrap_personal_workspace')).error));
  check('Removed member agent access fails',checked(await memberAgent.from('nodes').select('*')).length===0);
@@ -358,6 +486,8 @@ try {
  check('Removed member audit attribution is retained',checked(await a.db.from('nodes').select('ratified_by_user_id').eq('id',memberNode.id).single()).ratified_by_user_id===member.id);
  await member.context.close();
  checked(await a.db.rpc('set_account_status',{target_user_id:b.id,new_status:'suspended'}));
+ check('Suspension blocks native reasoning with existing human JWT',Boolean((await b.db.rpc('reasoning_read_bundle',datasetArgs(b))).error));
+ check('Suspension blocks existing native agent access',(await mcpCall(b.agent,'list_projects',{})).response.status===401);
  check('Suspension blocks existing human JWT',checked(await b.db.from('nodes').select('*')).length===0);
  check('Suspension blocks agent refresh',(await refresh(b.agent)).response.status!==200);
  report.result='passed';
