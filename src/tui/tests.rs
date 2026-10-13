@@ -97,3 +97,54 @@ fn dot_export_renders_node_statuses_and_relation_labels() {
     assert!(dot.contains("status: refuted"));
     assert!(dot.contains("[label=\"rests on\"]"));
 }
+
+#[test]
+fn results_and_the_open_decision_say_whether_a_premise_was_looked_at_again() {
+    use crate::queries::test_fixtures::reexamine_scenario;
+
+    let scenario = reexamine_scenario().expect("scenario");
+    let graph = scenario.graph().expect("graph");
+    let mut app = DecisionSearchApp::new(TuiConfig {
+        query: None,
+        topic_keys: vec!["grounding".to_owned()],
+        statuses: Vec::new(),
+        actor_ids: Vec::new(),
+        sources: Vec::new(),
+        limit: 200,
+        dot_output: PathBuf::from("out.dot"),
+    });
+    app.refresh(&graph);
+
+    let badge_of = |id: &str| -> Option<String> {
+        app.results
+            .iter()
+            .find(|result| result.decision.id == id)
+            .map(|result| {
+                result
+                    .graph_context
+                    .reexamine
+                    .as_ref()
+                    .map_or_else(String::new, reexamine_badge)
+            })
+    };
+    // A change nobody covered is flagged and counted; a contested premise is counted but is
+    // not stale; one that was reaffirmed carries no badge (the open decision shows who).
+    assert_eq!(badge_of("d:open").as_deref(), Some(" !stale re-examine:1"));
+    assert_eq!(badge_of("d:on-cont").as_deref(), Some(" re-examine:1"));
+    assert_eq!(badge_of("d:twice").as_deref(), Some(""));
+    assert_eq!(badge_of("d:p-sup").as_deref(), Some(""));
+
+    app.open_decision_id(&graph, "d:open", false);
+    assert!(app.error_message.is_none(), "{:?}", app.error_message);
+    assert_eq!(app.reexamine.len(), 1);
+    assert!(app.reexamine[0]
+        .describe()
+        .starts_with("re-examine open: premise"));
+    assert_eq!(app.reexamine[0].state.status(), Some(ReexamineStatus::Open));
+
+    app.open_decision_id(&graph, "d:twice", false);
+    assert_eq!(
+        app.reexamine[0].state.status(),
+        Some(ReexamineStatus::Reaffirmed)
+    );
+}

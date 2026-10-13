@@ -60,6 +60,9 @@ Reasons:
 - Superseded by org:remote-db:decision:service-owned-writes (4 ledger events later)
 - Premised on refuted hypothesis org:remote-db:hypothesis:embedded-sufficient
 
+Re-examination:
+- re-examine closed: hypothesis "A local embedded store is enough for the first shared pilot." was refuted 2026-01-02; this decision was itself superseded by org:remote-db:decision:service-owned-writes
+
 Supersedes: None recorded.
 Superseded by: [Move writes behind a shared remote service](../../human-architect/decisions/2026-01-02-move-writes-behind-a-shared-remote-service-orgremot.md)
 

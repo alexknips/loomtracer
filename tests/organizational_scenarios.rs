@@ -146,7 +146,7 @@ fn organizational_queries_preserve_final_decision_context() -> TestResult<()> {
             relevant
                 .data
                 .iter()
-                .any(|decision| decision.id == scenario.final_decision_id),
+                .any(|decision| decision.decision.id == scenario.final_decision_id),
             "{} accepted topic filter should include final decision",
             scenario.name
         );
@@ -179,7 +179,7 @@ fn organizational_queries_surface_contested_rejected_and_superseded_paths() -> T
                 filtered
                     .data
                     .iter()
-                    .any(|decision| decision.id == decision_id),
+                    .any(|decision| decision.decision.id == decision_id),
                 "{} contested topic filter should include {}",
                 scenario.name,
                 decision_id
@@ -205,7 +205,7 @@ fn organizational_queries_surface_contested_rejected_and_superseded_paths() -> T
                 filtered
                     .data
                     .iter()
-                    .any(|decision| decision.id == decision_id),
+                    .any(|decision| decision.decision.id == decision_id),
                 "{} rejected topic filter should include {}",
                 scenario.name,
                 decision_id

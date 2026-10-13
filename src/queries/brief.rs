@@ -30,6 +30,9 @@ use super::grounding::{grounding_of_at, GroundingItem, GroundingState, Unchecked
 use super::outcome::{get_decision_outcome_with_labels, OutcomeReason};
 use super::project_label::ProjectLabels;
 use super::question::{earliest_ask, other_answers, QuestionAnswer};
+use super::reexamine::{
+    propagation_of_decision, Propagation, ReexamineEntry, DEFAULT_PROPAGATION_WINDOW_DAYS,
+};
 use super::shared::{
     node_row, optional_datetime, optional_string, optional_string_list, query_error,
     query_timer_start,
@@ -119,6 +122,12 @@ pub struct StillHolds {
     /// `held_up` is unaffected.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unchecked: Vec<UncheckedBet>,
+    /// The premises this decision rests on that changed (superseded, rejected, contested,
+    /// refuted), each open or closed: whether anyone has looked again, and if so who, when and
+    /// why. Empty when none changed. `held_up` follows them (hivemind-ottw.2): a change someone
+    /// reaffirmed no longer reads as stale, a contested premise opens an item but never flips it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reexamine: Vec<ReexamineEntry>,
 }
 
 /// Leads with the decision, then why, who decided, and whether it still holds. IDs are output
@@ -187,6 +196,12 @@ pub struct DecisionBrief {
     pub expressed_confidence: Option<String>,
     /// How many other decisions follow from this one.
     pub dependents_count: usize,
+    /// When this decision itself changed (superseded, rejected or contested): how many of the
+    /// decisions that rest on it have been looked at again, and how many are still open. Absent
+    /// for a decision that has not changed, and for one nothing rested on when it did. Never
+    /// names an actor (hivemind-ottw.3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub propagation: Option<Propagation>,
     pub still_holds: StillHolds,
     pub topic_keys: Vec<String>,
     pub status: DecisionStatus,
@@ -252,6 +267,13 @@ pub(crate) fn get_decision_brief_with_labels(
     };
     let grounding = grounding_of_at(graph, decision_id, now)?;
     let days_held = days_held(graph, occurred_at, &outcome.reasons, now)?;
+    // Only a decision that changed has a propagation to report; any other reads nothing extra.
+    let propagation = match decision.status {
+        DecisionStatus::Superseded | DecisionStatus::Rejected | DecisionStatus::Contested => {
+            propagation_of_decision(graph, decision_id, DEFAULT_PROPAGATION_WINDOW_DAYS, now)?
+        }
+        DecisionStatus::Proposed | DecisionStatus::Accepted => None,
+    };
     let (other_answers, asked_at) = match &decision.question_id {
         Some(question_id) => (
             other_answers(graph, decision_id)?,
@@ -311,11 +333,13 @@ pub(crate) fn get_decision_brief_with_labels(
         grounding_state: grounding.state,
         expressed_confidence,
         dependents_count: grounding.dependents_count,
+        propagation,
         still_holds: StillHolds {
             held_up: outcome.held_up,
             days_held,
             reasons: outcome.reasons,
             unchecked: outcome.unchecked,
+            reexamine: outcome.reexamine,
         },
         topic_keys: decision.topic_keys,
         status: decision.status,

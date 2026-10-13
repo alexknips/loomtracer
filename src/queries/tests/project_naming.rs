@@ -322,11 +322,11 @@ fn search_relevant_and_situational_name_the_project_on_every_decision() -> Resul
     let agent = relevant
         .data
         .iter()
-        .find(|view| view.id == s.personal_agent)
+        .find(|view| view.decision.id == s.personal_agent)
         .ok_or_else(|| query_error("agent decision relevant"))?;
     assert_names(
-        agent.project.as_deref(),
-        &agent.project_label,
+        agent.decision.project.as_deref(),
+        &agent.decision.project_label,
         "personal:agent:claude",
         "claude agents' personal project",
     );

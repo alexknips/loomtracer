@@ -506,6 +506,44 @@ pub fn recall_decisions(
         );
     }
 
+    // A decision whose premise changed reads like any other in a digest of its own title and
+    // rationale, so the digest says which ones to look at again before relying on them. Recall
+    // carried no outcome before; this closes that gap (hivemind-ottw.3).
+    let stale: Vec<String> = search_data
+        .items
+        .iter()
+        .filter_map(|item| {
+            let marker = item.graph_context.reexamine?;
+            marker
+                .stale
+                .then(|| format!("{} ({} open)", item.decision.id, marker.open))
+        })
+        .collect();
+    if !stale.is_empty() {
+        let _ = write!(
+            digest.summary,
+            "\n\nStale (a premise they rest on changed and nobody has said they still hold): {}.",
+            stale.join("; ")
+        );
+    }
+    let contested_premise: Vec<&str> = search_data
+        .items
+        .iter()
+        .filter(|item| {
+            item.graph_context
+                .reexamine
+                .is_some_and(|marker| !marker.stale && marker.open > 0)
+        })
+        .map(|item| item.decision.id.as_str())
+        .collect();
+    if !contested_premise.is_empty() {
+        let _ = write!(
+            digest.summary,
+            "\n\nRe-examine open (a premise they rest on is contested): {}.",
+            contested_premise.join(", ")
+        );
+    }
+
     // A decision recorded more than once reads as one item, so the digest says where the rest are.
     let recorded_again: Vec<String> = search_data
         .items

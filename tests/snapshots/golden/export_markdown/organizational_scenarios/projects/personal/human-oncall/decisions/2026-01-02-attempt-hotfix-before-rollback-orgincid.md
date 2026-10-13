@@ -63,6 +63,9 @@ Reasons:
 - Premised on refuted hypothesis org:incident:hypothesis:hotfix-fast-enough
 - Contested
 
+Re-examination:
+- re-examine closed: hypothesis "A hotfix can land before customer impact expands." was refuted 2026-01-02; this decision was itself superseded by org:incident:decision:rollback
+
 Supersedes: None recorded.
 Superseded by: [Rollback pricing flag and queue remediation](../../agent-sre/decisions/2026-01-02-rollback-pricing-flag-and-queue-remediation-orgincid.md)
 

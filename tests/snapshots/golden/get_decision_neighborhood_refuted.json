@@ -286,6 +286,22 @@
             "hypothesis_id": "hypothesis-001",
             "kind": "premised_on_refuted"
           }
+        ],
+        "reexamine": [
+          {
+            "change": {
+              "at_offset": 49,
+              "at_time": "2026-01-01T00:00:04Z",
+              "by_ids": [
+                "evidence-004"
+              ],
+              "kind": "refuted"
+            },
+            "premise_id": "hypothesis-001",
+            "premise_kind": "hypothesis",
+            "premise_label": "The embedded graph projection remains deterministic after replay",
+            "state": "open"
+          }
         ]
       },
       "title": "Seed decision 005",

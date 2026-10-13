@@ -191,6 +191,15 @@ source-and-target pair, cannot span; and every relation kind costs the bulk read
 graph query per call. A reader takes the nodes in bulk and matches `decision_id` and
 `premise_id`. Nothing else is written or moved by the event.
 
+A view that draws edges would show the node alone, so the two graph views (`GET /v1/graph`
+and the DOT export, both through `queries::reaffirmation_arrows`) add two *derived* lines read
+from the node's own properties: `REAFFIRMS` ("reaffirms") to the dependent decision and
+`REAFFIRMED_AFTER` ("after the change to") to the premise, which is a decision or a hypothesis.
+A reaffirmation is recorded after both ends exist, so each line runs from it, newer to older,
+like every arrow. `GET /v1/graph` marks them `"derived": true`; a stored edge carries no such
+key. They are not edges: no query returns them, `RelationKind` has no variant for them, and a
+line is left out when the node it names is not in the graph.
+
 A `Notification` node is created by `notification.sent` (about a blocker, with a
 `NOTIFICATION_FOR_BLOCKER` edge) or by `suggestion.surfaced` (about a finding: it carries
 `finding_id` and `decision_id` and has only the `NOTIFICATION_RECIPIENT` edge, never a

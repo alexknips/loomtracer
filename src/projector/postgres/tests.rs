@@ -2769,3 +2769,109 @@ fn reexamine_items_match_memory() -> Result<()> {
         assert_reexamine_scenario(&scenario, pg)
     })
 }
+
+// What the surfaces add on top of the re-examine items (hivemind-ottw.3): the brief's entries and
+// propagation, the marker on a match and on a topic lookup, the compact view, and the lines that
+// tie a reaffirmation to its decision. Each reads the same facts on Postgres as in memory.
+
+#[test]
+fn reexamine_surfaces_match_memory() -> Result<()> {
+    use crate::queries::test_fixtures::{reexamine_scenario, ts, REEXAMINE_NOW};
+    use crate::queries::{
+        get_compact_view_at, get_decision_brief_at, get_relevant_decisions, reaffirmation_arrows,
+        search_decisions, SearchDecisionRequest,
+    };
+
+    // `elided.event_origins` is how the compact view lists the edges it left out, and memory and
+    // Postgres do not list the same origins for a supersession edge (memory: none, Postgres: the
+    // event). That is outside what this test is about, so it is left out of the comparison.
+    fn compact_view_text(
+        graph: &impl crate::projector::GraphView,
+        decision_id: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<String> {
+        let mut view = get_compact_view_at(graph, decision_id, now)?.data;
+        if let Some(view) = view.as_mut() {
+            view.elided.event_origins.clear();
+        }
+        Ok(format!("{view:?}"))
+    }
+
+    with_postgres_graph("reexamine-surfaces-parity", |pg| {
+        let scenario = reexamine_scenario()?;
+        let memory = scenario.graph()?;
+        project_from_ledger(scenario.ledger(), pg, 0)?;
+        let now = ts(REEXAMINE_NOW);
+
+        let same = |what: &str, memory_value: String, pg_value: String| -> Result<()> {
+            if memory_value == pg_value {
+                Ok(())
+            } else {
+                Err(test_error(format!(
+                    "{what} mismatch: memory={memory_value} pg={pg_value}"
+                )))
+            }
+        };
+
+        for decision_id in [
+            "d:open",
+            "d:twice",
+            "d:on-cont",
+            "d:after-sup",
+            "d:on-bet",
+            "d:on-assumption",
+            "d:p-sup",
+            "d:p-rej",
+            "d:p-cont",
+            "d:p-edge-over",
+        ] {
+            same(
+                &format!("brief {decision_id}"),
+                format!(
+                    "{:?}",
+                    get_decision_brief_at(&memory, decision_id, now)?.data
+                ),
+                format!("{:?}", get_decision_brief_at(pg, decision_id, now)?.data),
+            )?;
+            same(
+                &format!("compact view {decision_id}"),
+                compact_view_text(&memory, decision_id, now)?,
+                compact_view_text(pg, decision_id, now)?,
+            )?;
+        }
+
+        let request = SearchDecisionRequest {
+            topic_keys: vec!["grounding".to_owned()],
+            limit: 500,
+            ..SearchDecisionRequest::default()
+        };
+        let markers = |results: crate::queries::DecisionSearchResults| -> String {
+            format!(
+                "{:?}",
+                results
+                    .items
+                    .iter()
+                    .map(|item| (item.decision.id.clone(), item.graph_context.reexamine))
+                    .collect::<Vec<_>>()
+            )
+        };
+        same(
+            "search markers",
+            markers(search_decisions(&memory, &request)?.data),
+            markers(search_decisions(pg, &request)?.data),
+        )?;
+        same(
+            "topic lookup",
+            format!(
+                "{:?}",
+                get_relevant_decisions(&memory, "grounding", None)?.data
+            ),
+            format!("{:?}", get_relevant_decisions(pg, "grounding", None)?.data),
+        )?;
+        same(
+            "reaffirmation arrows",
+            format!("{:?}", reaffirmation_arrows(&memory)?),
+            format!("{:?}", reaffirmation_arrows(pg)?),
+        )
+    })
+}

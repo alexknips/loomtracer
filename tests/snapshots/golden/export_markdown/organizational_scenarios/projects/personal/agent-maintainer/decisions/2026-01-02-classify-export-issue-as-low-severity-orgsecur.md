@@ -60,6 +60,9 @@ Reasons:
 - Superseded by org:security:decision:severity-critical (4 ledger events later)
 - Premised on refuted hypothesis org:security:hypothesis:auth-required
 
+Re-examination:
+- re-examine closed: hypothesis "The export endpoint still requires tenant authentication." was refuted 2026-01-02; this decision was itself superseded by org:security:decision:severity-critical
+
 Supersedes: None recorded.
 Superseded by: [Escalate export issue to critical severity](../../human-security/decisions/2026-01-02-escalate-export-issue-to-critical-severity-orgsecur.md)
 

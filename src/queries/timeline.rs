@@ -97,11 +97,18 @@ pub enum TimelineFact {
     PremiseRejected {
         decision_id: String,
     },
+    /// Someone said this decision still holds after the premise (a decision or a hypothesis)
+    /// changed (`decision.reaffirmed`), and why. The actor is the entry's own.
+    Reaffirmed {
+        premise_id: String,
+        reason: String,
+    },
 }
 
 impl TimelineFact {
     /// Whether this fact revised the decision or changed whether it still stands: superseded,
-    /// retitled, moved, or a premise no longer standing. Asking, recording, accepting and
+    /// retitled, moved, a premise no longer standing, or someone saying it still holds after one
+    /// did. Asking, recording, accepting and
     /// rejecting are the decision's ordinary life (a rejection shows in `get_contested_decisions`).
     pub fn is_revision(&self) -> bool {
         matches!(
@@ -112,6 +119,7 @@ impl TimelineFact {
                 | Self::PremiseRefuted { .. }
                 | Self::PremiseSuperseded { .. }
                 | Self::PremiseRejected { .. }
+                | Self::Reaffirmed { .. }
         )
     }
 
@@ -304,6 +312,7 @@ const FACT_EVENT_TYPES: &[EventType] = &[
     EventType::DecisionSuperseded,
     EventType::DecisionRetitled,
     EventType::DecisionMoved,
+    EventType::DecisionReaffirmed,
     EventType::RelationAdded,
 ];
 
@@ -442,6 +451,13 @@ fn ledger_facts(events: &[Event]) -> Result<Vec<LedgerFact>> {
                     from: moved.from,
                     to: moved.to,
                     reason: moved.reason,
+                },
+            ),
+            EventPayload::DecisionReaffirmed(reaffirmed) => push(
+                &reaffirmed.decision_id,
+                TimelineFact::Reaffirmed {
+                    premise_id: reaffirmed.premise_id,
+                    reason: reaffirmed.reason,
                 },
             ),
             EventPayload::RelationAdded(relation) => match relation.relation {

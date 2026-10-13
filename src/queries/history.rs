@@ -134,6 +134,11 @@ pub enum HistoryChangeKind {
     /// distinguishable in history without inspecting the raw event (mirrors
     /// `ProjectMoved`'s treatment; hivemind-ydmp).
     TitleChanged,
+    /// Someone said a decision still holds after a premise it rests on changed
+    /// (`decision.reaffirmed`). Its own kind, not folded into `ContextChange`, so a "still holds"
+    /// is never dropped by compaction and is always distinguishable in history without
+    /// inspecting the raw event (mirrors `ProjectMoved` and `TitleChanged`; hivemind-ottw.3).
+    Reaffirmed,
     ContextChange,
 }
 
@@ -162,6 +167,17 @@ pub struct ProjectMove {
     pub to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+/// What a `decision.reaffirmed` said: the premise the decision still holds after, and why. Carried
+/// on the history row of a [`HistoryChangeKind::Reaffirmed`] change next to the row's own
+/// `actor_id` and `ts`, so "reaffirmed after <premise> changed, by <actor> on <date>: <reason>" is
+/// answerable from the row alone. `None` on every other kind of change.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ReaffirmedPremise {
+    /// A decision or a hypothesis id.
+    pub premise_id: String,
+    pub reason: String,
 }
 
 /// Where a `decision.retitled` took a decision's title. Carried on the history row of a
@@ -209,6 +225,8 @@ pub struct ActivityRow {
     pub project_move: Option<ProjectMove>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_change: Option<TitleChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reaffirmed_premise: Option<ReaffirmedPremise>,
     pub citation_id: String,
 }
 
@@ -307,6 +325,8 @@ pub struct DecisionChangeRow {
     pub project_move: Option<ProjectMove>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_change: Option<TitleChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reaffirmed_premise: Option<ReaffirmedPremise>,
     pub citation_id: String,
 }
 
@@ -377,6 +397,8 @@ pub struct DecisionChange {
     pub project_move: Option<ProjectMove>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title_change: Option<TitleChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reaffirmed_premise: Option<ReaffirmedPremise>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -890,6 +912,7 @@ pub fn get_decisions_added_since(
                 affected_nodes,
                 project_move: project_move_for_payload(&payload),
                 title_change: title_change_for_payload(&payload),
+                reaffirmed_premise: reaffirmed_premise_for_payload(&payload),
             });
         }
 
@@ -1838,6 +1861,7 @@ fn activity_row(event: &Event, index: &DecisionIndex) -> Result<ActivityRow> {
         affected_nodes,
         project_move: project_move_for_payload(&payload),
         title_change: title_change_for_payload(&payload),
+        reaffirmed_premise: reaffirmed_premise_for_payload(&payload),
         citation_id: citation.citation_id,
     })
 }
@@ -1863,6 +1887,7 @@ fn decision_change_row(event: &Event, index: &DecisionIndex) -> Result<DecisionC
         affected_nodes,
         project_move: project_move_for_payload(&payload),
         title_change: title_change_for_payload(&payload),
+        reaffirmed_premise: reaffirmed_premise_for_payload(&payload),
         citation_id: citation.citation_id,
     })
 }
@@ -1923,6 +1948,18 @@ fn title_change_for_payload(payload: &EventPayload) -> Option<TitleChange> {
     }
 }
 
+fn reaffirmed_premise_for_payload(payload: &EventPayload) -> Option<ReaffirmedPremise> {
+    match payload {
+        EventPayload::DecisionReaffirmed(DecisionReaffirmedPayload {
+            premise_id, reason, ..
+        }) => Some(ReaffirmedPremise {
+            premise_id: premise_id.clone(),
+            reason: reason.clone(),
+        }),
+        _ => None,
+    }
+}
+
 fn change_kind_for_payload(payload: &EventPayload) -> HistoryChangeKind {
     match payload {
         EventPayload::DecisionProposed(_) => HistoryChangeKind::NewDecision,
@@ -1932,9 +1969,7 @@ fn change_kind_for_payload(payload: &EventPayload) -> HistoryChangeKind {
         EventPayload::DecisionSuperseded(_) => HistoryChangeKind::Supersession,
         EventPayload::DecisionMoved(_) => HistoryChangeKind::ProjectMoved,
         EventPayload::DecisionRetitled(_) => HistoryChangeKind::TitleChanged,
-        // A "still holds" is context on the dependent until the surfaces that show it give it
-        // its own kind (hivemind-ottw.3).
-        EventPayload::DecisionReaffirmed(_) => HistoryChangeKind::ContextChange,
+        EventPayload::DecisionReaffirmed(_) => HistoryChangeKind::Reaffirmed,
         EventPayload::EvidenceRecorded(_) => HistoryChangeKind::NewEvidence,
         EventPayload::RelationAdded(payload) => match payload.relation {
             EventRelationKind::BasedOn | EventRelationKind::Supports => {

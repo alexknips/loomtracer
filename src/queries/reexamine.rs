@@ -75,7 +75,8 @@ use crate::Result;
 
 use super::decision::get_hypothesis_statement;
 use super::grounding_facts::{
-    get_grounding_facts, reaffirmation_records, GroundingFacts, ReaffirmationRecord,
+    get_grounding_facts, get_reexamine_facts, reaffirmation_records, GroundingFacts,
+    ReaffirmationRecord,
 };
 use super::project_label::ProjectLabels;
 use super::project_scope::{project_scope, ProjectScope, ScopeNote};
@@ -83,7 +84,7 @@ use super::shared::{
     neighbor_edges_with_origin, node_row, node_rows, optional_datetime, optional_string,
     query_timer_start, Direction, MAX_QUERY_RESULTS,
 };
-use super::status::{DecisionStatus, StandingSummary};
+use super::status::{DecisionStandings, DecisionStatus, StandingSummary};
 use super::{QueryContext, QueryResponse};
 
 /// How long an item may stay open after its premise changed before the change reads as
@@ -174,6 +175,95 @@ impl ItemState {
     pub fn is_open(&self) -> bool {
         matches!(self, Self::Open)
     }
+
+    /// Where the item stands in one word, for the readers that show no more. `None` when the
+    /// dependent went out itself (superseded or rejected after the change): nothing is left to
+    /// re-examine, and a reader that only shows "open or looked at" has nothing to say.
+    pub fn status(&self) -> Option<ReexamineStatus> {
+        match self {
+            Self::Open => Some(ReexamineStatus::Open),
+            Self::Reaffirmed { .. } => Some(ReexamineStatus::Reaffirmed),
+            Self::DependentSuperseded { .. } | Self::DependentRejected => None,
+        }
+    }
+}
+
+/// An item's standing in one word: whether anyone has looked again.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReexamineStatus {
+    /// Nobody has said the decision still holds, and it still stands.
+    Open,
+    /// Someone said it still holds, after the change.
+    Reaffirmed,
+}
+
+/// A decision's re-examination at a glance: what recall and the topic lookup show beside a match,
+/// which carry no outcome of their own. It is the count of the same items `DecisionOutcome::reexamine`
+/// lists, derived by the same rules, so the marker and the outcome never disagree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct ReexamineMarker {
+    /// A premise it rests on was superseded, rejected or refuted and nobody has said this
+    /// decision still holds: the decision reads as stale. A contested premise opens an item but
+    /// never sets this (a live disagreement is not a verdict; the same rule as `held_up`).
+    pub stale: bool,
+    /// Items still open, a contested premise's included.
+    pub open: usize,
+    /// Items closed by someone saying the decision still holds.
+    pub reaffirmed: usize,
+}
+
+impl ReexamineMarker {
+    /// The marker for items given as `(change, state)`; `None` when none is open or reaffirmed
+    /// (nothing changed under the decision, or it went out itself).
+    fn tally<'a>(
+        items: impl IntoIterator<Item = (&'a PremiseChange, &'a ItemState)>,
+    ) -> Option<Self> {
+        let mut marker = Self {
+            stale: false,
+            open: 0,
+            reaffirmed: 0,
+        };
+        for (change, state) in items {
+            match state.status() {
+                Some(ReexamineStatus::Open) => {
+                    marker.open += 1;
+                    marker.stale |= change.kind != ChangeKind::Contested;
+                }
+                Some(ReexamineStatus::Reaffirmed) => marker.reaffirmed += 1,
+                None => {}
+            }
+        }
+        (marker.open + marker.reaffirmed > 0).then_some(marker)
+    }
+}
+
+impl PremiseChange {
+    /// The clause that follows the premise's name: `was superseded 2026-09-12`, dated when the
+    /// graph dates the change; `is contested (a live disagreement, not a verdict)`.
+    pub fn describe(&self) -> String {
+        let dated = |verb: &str| match self.at_time {
+            Some(at) => format!("was {verb} {}", at.format("%Y-%m-%d")),
+            None => format!("was {verb}"),
+        };
+        match self.kind {
+            ChangeKind::Superseded => dated("superseded"),
+            ChangeKind::Rejected => dated("rejected"),
+            ChangeKind::Contested => "is contested (a live disagreement, not a verdict)".to_owned(),
+            ChangeKind::Refuted => dated("refuted"),
+        }
+    }
+}
+
+/// A label on one line: a premise's title or a reaffirmation's reason may hold line breaks or
+/// tabs, which would break a text surface.
+fn on_one_line(text: &str) -> String {
+    text.chars()
+        .map(|ch| match ch {
+            '\t' | '\n' | '\r' => ' ',
+            other => other,
+        })
+        .collect()
 }
 
 /// What a decision's re-examination of one premise comes to: the item minus the words that name
@@ -191,6 +281,72 @@ pub struct ReexamineEntry {
     /// Reaffirmations recorded *before* the latest change: history that no longer closes it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub earlier_reaffirmations: Vec<ReaffirmationSummary>,
+    /// What a person calls the project the premise decision is filed under, set only when that is
+    /// another project than the dependent's: the change crossed a link, and the text says where
+    /// it came from (hivemind-ottw.3). Absent for a premise in the same project, a premise with
+    /// no project recorded, and every hypothesis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crossed_from: Option<String>,
+}
+
+impl ReexamineEntry {
+    /// The entry as a sentence: what changed, and whether anyone looked again. A reaffirmation
+    /// names the actor who said it still holds, with the date and the reason they gave
+    /// (attributed: any actor, human or agent, may say so). The same words in every text surface.
+    pub fn describe(&self) -> String {
+        let subject = match self.premise_kind {
+            PremiseKind::Decision => "premise",
+            PremiseKind::Hypothesis => "hypothesis",
+        };
+        let from = self
+            .crossed_from
+            .as_deref()
+            .map_or_else(String::new, |label| format!(" (in {})", on_one_line(label)));
+        let premise = format!(
+            "{subject} \"{}\"{from} {}",
+            on_one_line(&self.premise_label),
+            self.change.describe()
+        );
+        let earlier = match self.earlier_reaffirmations.len() {
+            0 => String::new(),
+            1 => {
+                " (an earlier reaffirmation came before the latest change and no longer covers it)"
+                    .to_owned()
+            }
+            n => format!(
+                " ({n} earlier reaffirmations came before the latest change and no longer cover it)"
+            ),
+        };
+        match &self.state {
+            ItemState::Open => format!(
+                "re-examine open: {premise}; nobody has said this decision still holds{earlier}"
+            ),
+            ItemState::Reaffirmed { reaffirmations } => {
+                let said = reaffirmations.last().map_or_else(String::new, |latest| {
+                    let when = latest
+                        .at
+                        .map_or_else(String::new, |at| format!(" {}", at.format("%Y-%m-%d")));
+                    format!(
+                        "; re-examined{when} by {}: \"{}\"",
+                        latest.actor_id,
+                        on_one_line(&latest.reason)
+                    )
+                });
+                let more = match reaffirmations.len() {
+                    0 | 1 => String::new(),
+                    2 => " (1 more reaffirmation since)".to_owned(),
+                    n => format!(" ({} more reaffirmations since)", n - 1),
+                };
+                format!("re-examined: {premise}{said}{more}{earlier}")
+            }
+            ItemState::DependentSuperseded { by_id } => format!(
+                "re-examine closed: {premise}; this decision was itself superseded by {by_id}"
+            ),
+            ItemState::DependentRejected => {
+                format!("re-examine closed: {premise}; this decision was itself rejected")
+            }
+        }
+    }
 }
 
 /// The decision that has to be re-examined.
@@ -248,6 +404,36 @@ pub struct Propagation {
     /// Of those, how many are still open. Absent when the request named no project.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_shown_open: Option<usize>,
+}
+
+impl Propagation {
+    /// `3 of 5 dependents re-examined; 2 open since 2026-09-12 [UNFINISHED]`. Counts, never a
+    /// person: the line names no actor.
+    pub fn describe(&self) -> String {
+        let noun = if self.dependents_total == 1 {
+            "dependent"
+        } else {
+            "dependents"
+        };
+        let mut line = format!(
+            "{} of {} {noun} re-examined",
+            self.reexamined, self.dependents_total
+        );
+        if self.open > 0 {
+            match self.oldest_open_since {
+                Some(since) => line.push_str(&format!(
+                    "; {} open since {}",
+                    self.open,
+                    since.format("%Y-%m-%d")
+                )),
+                None => line.push_str(&format!("; {} open", self.open)),
+            }
+        }
+        if self.unfinished {
+            line.push_str(" [UNFINISHED]");
+        }
+        line
+    }
 }
 
 /// Which items to page through.
@@ -657,13 +843,35 @@ fn premise_label(
     Ok(label.unwrap_or_else(|| premise_id.to_owned()))
 }
 
-/// A judged pair in words, with the change dated.
+/// Where the dependent is filed, and the labels that name projects: what an entry needs to say
+/// that its premise came from another project.
+#[derive(Clone, Copy)]
+struct Placement<'a> {
+    labels: &'a ProjectLabels,
+    dependent_project: Option<&'a str>,
+}
+
+/// A judged pair in words, with the change dated. With a `placement`, a premise decision filed
+/// under another project than the dependent's names that project (`crossed_from`).
 fn entry_of(
     graph: &impl GraphView,
     decisions: &mut DecisionLookup<'_, impl GraphView>,
     premise_id: &str,
     judged: Judged,
+    placement: Option<Placement<'_>>,
 ) -> Result<ReexamineEntry> {
+    let crossed_from = match (judged.premise_kind, placement) {
+        (PremiseKind::Decision, Some(placement)) => {
+            let premise_project = decisions.project(premise_id)?;
+            match (premise_project.as_deref(), placement.dependent_project) {
+                (Some(premise), Some(dependent)) if premise != dependent => {
+                    Some(placement.labels.label_of(Some(premise)))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    };
     let mut change = judged.change;
     change.at_time = change_time(graph, &change)?;
     Ok(ReexamineEntry {
@@ -673,6 +881,7 @@ fn entry_of(
         change,
         state: judged.state,
         earlier_reaffirmations: judged.earlier,
+        crossed_from,
     })
 }
 
@@ -735,13 +944,19 @@ fn reaffirmations_of<'a>(
 /// costs the same on a graph of ten decisions or ten thousand.
 pub(crate) fn reexamine_entries_for(
     graph: &impl GraphView,
+    labels: &ProjectLabels,
     decision_id: &str,
+    dependent_project: Option<&str>,
     changed_decision_premises: &[String],
     refuted_hypotheses: &[String],
 ) -> Result<Vec<ReexamineEntry>> {
     if changed_decision_premises.is_empty() && refuted_hypotheses.is_empty() {
         return Ok(Vec::new());
     }
+    let placement = Some(Placement {
+        labels,
+        dependent_project,
+    });
     let reaffirmations: Vec<ReaffirmationRecord> = reaffirmation_records(graph)?
         .into_iter()
         .filter(|record| record.decision_id == decision_id)
@@ -767,7 +982,13 @@ pub(crate) fn reexamine_entries_for(
             change,
             &reaffirmations_of(&reaffirmations, premise_id),
         ) {
-            entries.push(entry_of(graph, &mut decisions, premise_id, judged)?);
+            entries.push(entry_of(
+                graph,
+                &mut decisions,
+                premise_id,
+                judged,
+                placement,
+            )?);
         }
     }
 
@@ -792,7 +1013,13 @@ pub(crate) fn reexamine_entries_for(
             change,
             &reaffirmations_of(&reaffirmations, hypothesis_id),
         ) {
-            entries.push(entry_of(graph, &mut decisions, hypothesis_id, judged)?);
+            entries.push(entry_of(
+                graph,
+                &mut decisions,
+                hypothesis_id,
+                judged,
+                placement,
+            )?);
         }
     }
     Ok(entries)
@@ -908,6 +1135,7 @@ fn propagation_of(
             earlier: Vec::new(),
             ..first.judged.clone()
         },
+        None,
     )?;
     Ok(Some(summarize(
         premise_id,
@@ -917,6 +1145,134 @@ fn propagation_of(
         now,
         window_days,
     )))
+}
+
+/// How complete the propagation of one changed *decision* is, as of `now`, for the one decision a
+/// brief is about: `None` when it has not changed, or no dependent stood when it did. Where
+/// [`get_propagation_at`] reads the whole graph's grounding facts, this reads the decision's
+/// dependents anchored on it plus the position edges and the reaffirmation nodes in bulk, so a
+/// brief of a changed decision costs the same few reads whatever the size of the graph.
+pub(crate) fn propagation_of_decision(
+    graph: &impl GraphView,
+    decision_id: &str,
+    window_days: u32,
+    now: DateTime<Utc>,
+) -> Result<Option<Propagation>> {
+    let standings = DecisionStandings::load(graph)?;
+    let Some(change) = decision_change(&standings.summary_of(decision_id)) else {
+        return Ok(None);
+    };
+    // A decision that follows itself rests on nothing but itself (see `ReexamineIndex`).
+    let mut dependents: Vec<String> = neighbor_edges_with_origin(
+        graph,
+        NodeKind::Decision,
+        decision_id,
+        RelationKind::FollowsFrom,
+        NodeKind::Decision,
+        Direction::Incoming,
+    )?
+    .into_iter()
+    .map(|(dependent, _)| dependent)
+    .filter(|dependent| dependent != decision_id)
+    .collect();
+    dependents.sort();
+    dependents.dedup();
+    if dependents.is_empty() {
+        return Ok(None);
+    }
+
+    let reaffirmations: Vec<ReaffirmationRecord> = reaffirmation_records(graph)?
+        .into_iter()
+        .filter(|record| record.premise_id == decision_id)
+        .collect();
+    let mut states = Vec::with_capacity(dependents.len());
+    for dependent in &dependents {
+        let pair: Vec<&ReaffirmationRecord> = reaffirmations
+            .iter()
+            .filter(|record| &record.decision_id == dependent)
+            .collect();
+        if let Some(judged) = judge(
+            &standings.summary_of(dependent),
+            PremiseKind::Decision,
+            change.clone(),
+            &pair,
+        ) {
+            states.push(judged.state);
+        }
+    }
+    if states.is_empty() {
+        return Ok(None);
+    }
+
+    let mut decisions = DecisionLookup::anchored(graph);
+    let entry_view = entry_of(
+        graph,
+        &mut decisions,
+        decision_id,
+        Judged {
+            premise_kind: PremiseKind::Decision,
+            change,
+            state: ItemState::Open,
+            earlier: Vec::new(),
+        },
+        None,
+    )?;
+    let members: Vec<(bool, &ItemState)> = states.iter().map(|state| (true, state)).collect();
+    Ok(Some(summarize(
+        decision_id,
+        &entry_view,
+        &members,
+        false,
+        now,
+        window_days,
+    )))
+}
+
+// ---------------------------------------------------------------------------
+// At a glance: one marker per decision
+// ---------------------------------------------------------------------------
+
+/// [`ReexamineMarker`] of every decision that has one, derived from the same items
+/// [`get_reexamine_items`] lists. Reads the grounding facts in bulk, less the evidence reads the
+/// items never use ([`REEXAMINE_FACT_READS`](super::REEXAMINE_FACT_READS), one fixed set of
+/// reads however many decisions are asked about), for the readers that show a page of decisions.
+pub(crate) struct ReexamineMarkers {
+    markers: BTreeMap<String, ReexamineMarker>,
+}
+
+impl ReexamineMarkers {
+    pub(crate) fn load(graph: &impl GraphView) -> Result<Self> {
+        let facts = get_reexamine_facts(graph)?;
+        Ok(Self::from_index(&ReexamineIndex::from_facts(&facts)))
+    }
+
+    fn from_index(index: &ReexamineIndex) -> Self {
+        let mut by_dependent: BTreeMap<&str, Vec<&IndexedItem>> = BTreeMap::new();
+        for item in &index.items {
+            by_dependent
+                .entry(item.dependent.as_str())
+                .or_default()
+                .push(item);
+        }
+        let markers = by_dependent
+            .into_iter()
+            .filter_map(|(dependent, items)| {
+                let marker = ReexamineMarker::tally(
+                    items
+                        .iter()
+                        .map(|item| (&item.judged.change, &item.judged.state)),
+                )?;
+                Some((dependent.to_owned(), marker))
+            })
+            .collect();
+        Self { markers }
+    }
+
+    /// The marker of one decision; `None` when nothing it rests on changed, or the decision went
+    /// out itself.
+    pub(crate) fn of(&self, decision_id: &str) -> Option<ReexamineMarker> {
+        self.markers.get(decision_id).copied()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,7 +1463,16 @@ fn word_item(
     title: Option<String>,
     project: Option<String>,
 ) -> Result<ReexamineItem> {
-    let entry = entry_of(graph, decisions, &item.premise, item.judged.clone())?;
+    let entry = entry_of(
+        graph,
+        decisions,
+        &item.premise,
+        item.judged.clone(),
+        Some(Placement {
+            labels,
+            dependent_project: project.as_deref(),
+        }),
+    )?;
     let (premise_project, premise_project_label) = match item.judged.premise_kind {
         PremiseKind::Decision => {
             let project = decisions.project(&item.premise)?;
@@ -1130,5 +1495,7 @@ fn word_item(
     })
 }
 
+#[cfg(test)]
+mod surfaces;
 #[cfg(test)]
 mod tests;

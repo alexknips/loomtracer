@@ -371,7 +371,9 @@ fn derive_outcome(
     // --- Re-examination: did the change to a premise travel to this decision? ---
     let reexamine = reexamine_entries_for(
         graph,
+        labels,
         decision_id,
+        project.as_deref(),
         &changed_premises,
         &refuted_hypothesis_ids,
     )?;

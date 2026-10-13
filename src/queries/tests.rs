@@ -788,6 +788,11 @@ impl GraphView for FixtureGraph {
             if cypher.contains("`Question`") {
                 return Ok(Vec::new());
             }
+            // Nor reaffirmations: no one in the fixture said a decision still holds
+            // (hivemind-ottw.3, whose markers read them for every page of matches).
+            if cypher.contains("`Reaffirmation`") {
+                return Ok(Vec::new());
+            }
         }
 
         if cypher.contains("RETURN from.id AS from_id, to.id AS to_id") {
@@ -1058,8 +1063,8 @@ fn get_relevant_decisions_filters_by_status() -> Result<()> {
     let response = get_relevant_decisions(&graph, "infra", Some(DecisionStatus::Rejected))?;
     assert_eq!(response.result_count, 1);
     assert_eq!(response.data.len(), 1);
-    assert_eq!(response.data[0].id, "d2");
-    assert_eq!(response.data[0].status, DecisionStatus::Rejected);
+    assert_eq!(response.data[0].decision.id, "d2");
+    assert_eq!(response.data[0].decision.status, DecisionStatus::Rejected);
     Ok(())
 }
 
@@ -5616,15 +5621,24 @@ fn a_decision_below_the_floor_is_still_found_by_search_recall_and_topic_reads() 
     // The topic read lists all four, the below-floor one included, each with its floor.
     let relevant = get_relevant_decisions(&graph, "floor-reads", None)?;
     assert_eq!(
-        ids(relevant.data.iter().map(|d| d.id.clone()).collect()),
+        ids(relevant
+            .data
+            .iter()
+            .map(|d| d.decision.id.clone())
+            .collect()),
         everything
     );
     for decision in &relevant.data {
         let expected = expected_floor_reads()
             .into_iter()
-            .find(|(id, _)| *id == decision.id)
+            .find(|(id, _)| *id == decision.decision.id)
             .map(|(_, expected)| expected);
-        assert_eq!(Some(floor_json_of(decision)), expected, "{}", decision.id);
+        assert_eq!(
+            Some(floor_json_of(decision)),
+            expected,
+            "{}",
+            decision.decision.id
+        );
     }
 
     // Graph search by topic: unfiltered, nothing hidden for being below the floor.

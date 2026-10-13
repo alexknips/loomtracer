@@ -8,7 +8,7 @@ use crate::projector::arrow::{orient, Arrow, NodeTime};
 use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::Result;
 
-use super::shared::{node_row, node_rows, optional_int, relation_edges};
+use super::shared::{node_row, node_rows, optional_int, optional_string, relation_edges};
 
 /// Recorded times of nodes (the `event_origin` that created each), fetched on demand and
 /// remembered for the rest of one read.
@@ -85,6 +85,80 @@ pub fn oriented_edges(graph: &impl GraphView) -> Result<Vec<Arrow>> {
         }
         for (from, to) in edges {
             arrows.push(times.arrow(graph, relation, &from, &to)?);
+        }
+    }
+    Ok(arrows)
+}
+
+/// A line a graph view draws that the graph does not store as an edge. Drawn from the newer node
+/// to the older one like every arrow (`docs/GRAPH_CONTRACT.md`); a reader that draws it says it is
+/// derived, so no one mistakes it for a relation the ledger recorded.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct DerivedArrow {
+    /// What the line means, in the same upper-case spelling the stored relations use.
+    pub relation: &'static str,
+    /// The line read along the arrow, an active phrase.
+    pub label: &'static str,
+    pub from_kind: NodeKind,
+    pub from_id: String,
+    pub to_kind: NodeKind,
+    pub to_id: String,
+}
+
+/// The decision a `Reaffirmation` is about.
+pub const REAFFIRMS: &str = "REAFFIRMS";
+/// The premise whose change a `Reaffirmation` answers.
+pub const REAFFIRMED_AFTER: &str = "REAFFIRMED_AFTER";
+
+/// The lines that tie each `Reaffirmation` node to the decision it concerns and the premise that
+/// changed. The node has no edges in the graph, deliberately (`docs/GRAPH_CONTRACT.md`: a second
+/// reaffirmation of one pair would collapse into the first on Postgres and Kuzu), so a view that
+/// draws edges would show it alone. These two lines are read from its own properties, never
+/// stored, and a line is left out when the node it names is not in the graph. A reaffirmation is
+/// always newer than both ends (the command refuses one whose ends do not exist yet), so every
+/// line runs from it.
+pub fn reaffirmation_arrows(graph: &impl GraphView) -> Result<Vec<DerivedArrow>> {
+    let reaffirmations = node_rows(graph, NodeKind::Reaffirmation)?;
+    if reaffirmations.is_empty() {
+        return Ok(Vec::new());
+    }
+    let decisions: BTreeSet<String> = node_rows(graph, NodeKind::Decision)?.into_keys().collect();
+    let hypotheses: BTreeSet<String> = node_rows(graph, NodeKind::Hypothesis)?
+        .into_keys()
+        .collect();
+
+    let mut arrows = Vec::new();
+    for (id, row) in &reaffirmations {
+        if let Some(decision_id) = optional_string(row, "decision_id") {
+            if decisions.contains(&decision_id) {
+                arrows.push(DerivedArrow {
+                    relation: REAFFIRMS,
+                    label: "reaffirms",
+                    from_kind: NodeKind::Reaffirmation,
+                    from_id: id.clone(),
+                    to_kind: NodeKind::Decision,
+                    to_id: decision_id,
+                });
+            }
+        }
+        if let Some(premise_id) = optional_string(row, "premise_id") {
+            let to_kind = if decisions.contains(&premise_id) {
+                Some(NodeKind::Decision)
+            } else if hypotheses.contains(&premise_id) {
+                Some(NodeKind::Hypothesis)
+            } else {
+                None
+            };
+            if let Some(to_kind) = to_kind {
+                arrows.push(DerivedArrow {
+                    relation: REAFFIRMED_AFTER,
+                    label: "after the change to",
+                    from_kind: NodeKind::Reaffirmation,
+                    from_id: id.clone(),
+                    to_kind,
+                    to_id: premise_id,
+                });
+            }
         }
     }
     Ok(arrows)

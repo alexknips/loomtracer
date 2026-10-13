@@ -14,7 +14,7 @@ use crate::projector::{
     memory::MemoryGraph, project_from_ledger_for_tenant_reporting, GraphParams, GraphRow,
     GraphValue, GraphView, NodeKind,
 };
-use crate::queries::{oriented_edges, DecisionStandings};
+use crate::queries::{oriented_edges, reaffirmation_arrows, DecisionStandings};
 
 use super::auth::extract_ctx;
 use super::{
@@ -59,6 +59,10 @@ struct GraphEdge {
     label: &'static str,
     /// True when the arrow runs against the relation's stored direction.
     reversed: bool,
+    /// True for a line drawn from a node's own properties that the graph does not store as an
+    /// edge (a `Reaffirmation` to the decision it concerns and the premise that changed).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    derived: bool,
 }
 
 /// Full decision graph for a tenant, in the shape expected by the SPA. Each entry of
@@ -123,7 +127,13 @@ fn graph_blocking(
                 .or_else(|| string_field("statement"))
                 .or_else(|| string_field("content"))
                 .or_else(|| string_field("display_name"))
-                .or_else(|| string_field("handle"));
+                .or_else(|| string_field("handle"))
+                // A reaffirmation reads as its one-line reason.
+                .or_else(|| {
+                    matches!(kind, NodeKind::Reaffirmation)
+                        .then(|| string_field("reason"))
+                        .flatten()
+                });
             // The capture event's timestamp (`occurred_at` on the projected node) read
             // under the response's `decided_at` name (docs/GRAPH_CONTRACT.md).
             let decided_at = matches!(kind, NodeKind::Decision)
@@ -186,7 +196,23 @@ fn graph_blocking(
             relation: arrow.relation.table_name().into(),
             label: arrow.label,
             reversed: arrow.reversed,
+            derived: false,
         })
+        .chain(
+            // A reaffirmation has no stored edge; drawn alone it would float free of the
+            // decision it is about. These lines are read from its own properties.
+            reaffirmation_arrows(graph.as_ref())
+                .map_err(graph_err)?
+                .into_iter()
+                .map(|arrow| GraphEdge {
+                    from: [arrow.from_kind.table_name(), ":", &arrow.from_id].concat(),
+                    to: [arrow.to_kind.table_name(), ":", &arrow.to_id].concat(),
+                    relation: arrow.relation.into(),
+                    label: arrow.label,
+                    reversed: false,
+                    derived: true,
+                }),
+        )
         .collect();
 
     let data = GraphData {

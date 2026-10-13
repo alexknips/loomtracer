@@ -23,16 +23,17 @@ use crate::quality_profile::{
 };
 use crate::queries::{
     annotate_resolution, derive_decision_status, derive_hypothesis_status, option_label_unit,
-    oriented_edges, BlockerNotificationCandidates, ChangedDecisionsResults, CompactView, Contest,
-    ContestedDecisionsResults, DecidedBy, DecisionBlockerResults, DecisionBrief,
-    DecisionSearchResults, DecisionStatus, DecisionTimeline, DecisionView,
+    oriented_edges, reaffirmation_arrows, BlockerNotificationCandidates, ChangedDecisionsResults,
+    CompactView, Contest, ContestedDecisionsResults, DecidedBy, DecisionBlockerResults,
+    DecisionBrief, DecisionSearchResults, DecisionStatus, DecisionTimeline, DecisionView,
     DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom, GroundingAdded,
     GroundingItem, GroundingItemState, GroundingKind, GroundingState, HistoryChangeKind,
     HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults, OpenWhyView,
     OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage, ProjectListResults,
     ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse, QuestionAnswer, ReadOnlyExport,
-    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind,
-    RecentActivityResults, RecentDecisionsResults, ResolveOutcome, ResolvedCandidate, ReviewShape,
+    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind, ReaffirmedPremise,
+    RecentActivityResults, RecentDecisionsResults, ReexamineEntry, ReexamineMarker,
+    ReexamineStatus, RelevantDecision, ResolveOutcome, ResolvedCandidate, ReviewShape,
     SituationalResults, StillHolds, SupersessionChain, TimelineEntry, TimelineFact, TitleChange,
     WaitingRequestsResults, POLARITY_REASON,
 };
@@ -80,19 +81,40 @@ pub(crate) fn render_compact_view_summary(view: &Option<CompactView>) -> String 
     }
     out.push_str(&format!("  {}\n", compact_rests_on(v)));
     for premise in &v.premises {
+        let state = premise.reexamine.map(reexamine_status_note);
         if matches!(
             premise.status,
             DecisionStatus::Superseded | DecisionStatus::Rejected
         ) {
             out.push_str(&format!(
-                "  STALE: follows from {}, which is {}\n",
+                "  STALE: follows from {}, which is {}{}\n",
                 premise.decision_id,
-                decision_status_label(premise.status)
+                decision_status_label(premise.status),
+                state.map_or_else(String::new, |state| format!(" ({state})"))
+            ));
+        } else if let (DecisionStatus::Contested, Some(state)) = (premise.status, state) {
+            // A live disagreement is not a verdict: not STALE, but a decision resting on it has
+            // an item to look at.
+            out.push_str(&format!(
+                "  CONTESTED PREMISE: follows from {}, which is contested ({state})\n",
+                premise.decision_id
+            ));
+        }
+    }
+    for hypothesis in &v.hypotheses {
+        if let Some(state) = hypothesis.reexamine {
+            out.push_str(&format!(
+                "  REFUTED: rests on {}, which was refuted ({})\n",
+                hypothesis.id,
+                reexamine_status_note(state)
             ));
         }
     }
     if v.dependents_count > 0 {
         out.push_str(&format!("  {}\n", dependents_line(v.dependents_count)));
+    }
+    if let Some(propagation) = &v.propagation {
+        out.push_str(&format!("  propagation: {}\n", propagation.describe()));
     }
     out.push_str(&format!("  hypotheses: {}\n", v.hypotheses.len()));
     out.push_str(&format!("  evidence_ids: {}\n", v.evidence_ids.len()));
@@ -151,9 +173,10 @@ pub(crate) fn render_recent_activity_summary(results: &RecentActivityResults) ->
             item.decision_ids.join(","),
             item.citation_id,
             format_args!(
-                "{}{}",
+                "{}{}{}",
                 project_move_suffix(item.project_move.as_ref(), item.ts),
-                title_change_suffix(item.title_change.as_ref(), item.ts)
+                title_change_suffix(item.title_change.as_ref(), item.ts),
+                reaffirmed_suffix(item.reaffirmed_premise.as_ref(), item.ts)
             )
         );
     }
@@ -178,9 +201,10 @@ pub(crate) fn render_changed_since_summary(results: &DecisionsChangedSinceResult
             item.decision_ids.join(","),
             item.citation_id,
             format_args!(
-                "{}{}",
+                "{}{}{}",
                 project_move_suffix(item.project_move.as_ref(), item.ts),
-                title_change_suffix(item.title_change.as_ref(), item.ts)
+                title_change_suffix(item.title_change.as_ref(), item.ts),
+                reaffirmed_suffix(item.reaffirmed_premise.as_ref(), item.ts)
             )
         );
     }
@@ -210,6 +234,21 @@ fn title_change_suffix(title_change: Option<&TitleChange>, ts: Option<DateTime<U
     format!(
         "\tretitled={}->{}\tat={retitled_at}",
         title_change.from, title_change.to
+    )
+}
+
+/// The tail of a `reaffirmed` history line: the premise the decision still holds after, when, and
+/// the reason given (mirrors `title_change_suffix`; hivemind-ottw.3). Empty for every other kind
+/// of change. The actor is already in the line.
+fn reaffirmed_suffix(reaffirmed: Option<&ReaffirmedPremise>, ts: Option<DateTime<Utc>>) -> String {
+    let Some(reaffirmed) = reaffirmed else {
+        return String::new();
+    };
+    let at = ts.map_or_else(|| "unknown".to_owned(), |ts| ts.to_rfc3339());
+    format!(
+        "\tpremise={}\treason={}\tat={at}",
+        reaffirmed.premise_id,
+        summary_cell(&reaffirmed.reason)
     )
 }
 
@@ -410,19 +449,25 @@ pub(crate) fn render_decision_summary(decision: &Option<DecisionView>) -> String
     };
 
     let mut output = String::new();
-    write_decision_summary_row(&mut output, "decision", decision, false);
+    write_decision_summary_row(&mut output, "decision", decision, false, None);
     write_floor_lines(&mut output, &decision.floor);
     output.trim_end().to_owned()
 }
 
-pub(crate) fn render_decision_list_summary(decisions: &[DecisionView]) -> String {
+pub(crate) fn render_decision_list_summary(decisions: &[RelevantDecision]) -> String {
     if decisions.is_empty() {
         return "No decisions found".to_owned();
     }
 
     let mut output = String::new();
-    for decision in decisions {
-        write_decision_summary_row(&mut output, "decision", decision, true);
+    for item in decisions {
+        write_decision_summary_row(
+            &mut output,
+            "decision",
+            &item.decision,
+            true,
+            item.reexamine.as_ref(),
+        );
     }
     output.trim_end().to_owned()
 }
@@ -446,6 +491,7 @@ pub(crate) fn render_search_summary(results: &DecisionSearchResults) -> String {
             item.matched_fields.join(",")
         );
         write_floor_field(&mut output, &item.decision.floor);
+        write_reexamine_fields(&mut output, item.graph_context.reexamine.as_ref());
         output.push('\n');
     }
     output.trim_end().to_owned()
@@ -470,12 +516,21 @@ pub(crate) fn render_situational_summary(results: &SituationalResults) -> String
         let _ = writeln!(output, "scope\t{}", summary_cell(&scope.note));
     }
     for item in &results.matches {
+        // Whether anyone looked again rides in the cell too: STALE(premise superseded,
+        // re-examine open), holds(re-examined), holds(re-examine open) for a contested premise.
+        let reexamine = reexamine_cell_note(&item.outcome.reexamine);
         let held_up = if item.outcome.held_up {
-            "holds".to_owned()
+            match reexamine {
+                Some(note) => format!("holds({note})"),
+                None => "holds".to_owned(),
+            }
         } else {
             // The reason rides inside the cell: STALE(premise superseded), STALE(assumption
             // refuted), STALE(superseded), ...
-            let labels = still_holds_labels(&item.outcome.reasons);
+            let mut labels = still_holds_labels(&item.outcome.reasons);
+            if let Some(note) = reexamine {
+                labels.push(note);
+            }
             if labels.is_empty() {
                 "STALE".to_owned()
             } else {
@@ -596,6 +651,8 @@ pub(crate) fn render_recall_summary(response: &crate::summarize::RecallResponse)
             let _ = write!(output, "\talso_recorded_as={}", copies.join(","));
         }
         write_floor_field(&mut output, &item.decision.floor);
+        // What it rests on changed: recall never carried an outcome, so it says so here.
+        write_reexamine_fields(&mut output, item.graph_context.reexamine.as_ref());
         output.push('\n');
     }
     output.trim_end().to_owned()
@@ -961,10 +1018,14 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief, quality: &Qu
         );
     } else {
         let labels = still_holds_labels(&brief.still_holds.reasons);
+        // Whether anyone looked again follows the reasons: `NO: premise superseded; re-examine
+        // open since 2026-09-12`.
+        let open = open_reexamine_note(&brief.still_holds.reexamine)
+            .map_or_else(String::new, |note| format!("; {note}"));
         if labels.is_empty() {
-            let _ = writeln!(output, "  still holds: NO");
+            let _ = writeln!(output, "  still holds: NO{open}");
         } else {
-            let _ = writeln!(output, "  still holds: NO: {}", labels.join(", "));
+            let _ = writeln!(output, "  still holds: NO: {}{open}", labels.join(", "));
         }
     }
     for reason in &brief.still_holds.reasons {
@@ -973,6 +1034,9 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief, quality: &Qu
             "    - {}",
             format_outcome_reason(reason, &brief.rests_on, &brief.other_answers)
         );
+    }
+    for entry in &brief.still_holds.reexamine {
+        let _ = writeln!(output, "    - {}", entry.describe());
     }
     if !brief.still_holds.held_up {
         if let Some(days) = brief.still_holds.days_held {
@@ -1015,6 +1079,9 @@ fn write_decision_brief(output: &mut String, brief: &DecisionBrief, quality: &Qu
     if brief.dependents_count > 0 {
         let _ = writeln!(output, "  {}", dependents_line(brief.dependents_count));
     }
+    if let Some(propagation) = &brief.propagation {
+        let _ = writeln!(output, "  propagation: {}", propagation.describe());
+    }
     write_quality_lines(output, quality);
     if !brief.topic_keys.is_empty() {
         let _ = writeln!(output, "  topics: {}", brief.topic_keys.join(","));
@@ -1036,9 +1103,33 @@ fn day_count(days: u32) -> String {
 /// What follows `still holds: yes —`: how long it has held, when the record can say, and what
 /// "holds" covers.
 fn held_up_clause(still_holds: &StillHolds) -> String {
-    let covers = format!(
-        "nothing in the graph has superseded, contested or rejected it, or undercut what it rests on ({NOT_CARRIED_OUT})"
-    );
+    // A premise that changed does not read as undercutting the decision when it was reaffirmed
+    // or is only contested (a live disagreement is not a verdict), but the clause cannot say
+    // "nothing" changed under it: the entries below say what did.
+    let status = |wanted: ReexamineStatus| {
+        still_holds
+            .reexamine
+            .iter()
+            .any(|entry| entry.state.status() == Some(wanted))
+    };
+    let covers = match (status(ReexamineStatus::Reaffirmed), status(ReexamineStatus::Open)) {
+        (false, false) => format!(
+            "nothing in the graph has superseded, contested or rejected it, or undercut what it rests on ({NOT_CARRIED_OUT})"
+        ),
+        (true, false) => format!(
+            "a premise it rests on changed and someone said it still holds (below); nothing else in the graph has superseded, contested or rejected it ({NOT_CARRIED_OUT})"
+        ),
+        (reaffirmed, true) => {
+            let looked = if reaffirmed {
+                "a premise it rests on changed and someone said it still holds, and another is contested"
+            } else {
+                "a premise it rests on is contested"
+            };
+            format!(
+                "{looked} (below), a live disagreement and not a verdict; nothing else in the graph has superseded, contested or rejected it ({NOT_CARRIED_OUT})"
+            )
+        }
+    };
     match still_holds.days_held {
         Some(days) => format!("held {}; {covers}", day_count(days)),
         None => covers,
@@ -1333,6 +1424,52 @@ fn format_outcome_reason(
             )
         }
     }
+}
+
+/// A date as the surfaces say it, matching the check dates beside it.
+fn day_of(at: DateTime<Utc>) -> String {
+    at.format("%Y-%m-%d").to_string()
+}
+
+/// Whether anyone has looked again, in a few words, for a cell that shows no more.
+fn reexamine_status_note(status: ReexamineStatus) -> &'static str {
+    match status {
+        ReexamineStatus::Open => "re-examine open",
+        ReexamineStatus::Reaffirmed => "re-examined",
+    }
+}
+
+/// What a one-cell reading of a decision's re-examine entries adds: `re-examine open` while any
+/// item is open, `re-examined` when every item that remains was reaffirmed, nothing otherwise.
+fn reexamine_cell_note(entries: &[ReexamineEntry]) -> Option<&'static str> {
+    let mut note = None;
+    for entry in entries {
+        match entry.state.status() {
+            Some(ReexamineStatus::Open) => {
+                return Some(reexamine_status_note(ReexamineStatus::Open))
+            }
+            Some(ReexamineStatus::Reaffirmed) => {
+                note = Some(reexamine_status_note(ReexamineStatus::Reaffirmed));
+            }
+            None => {}
+        }
+    }
+    note
+}
+
+/// `re-examine open since 2026-09-12` (the oldest change an open item waits on, when the graph
+/// dates it), `re-examine open` when it does not; nothing when no item is open.
+fn open_reexamine_note(entries: &[ReexamineEntry]) -> Option<String> {
+    let mut open = entries
+        .iter()
+        .filter(|entry| entry.state.is_open())
+        .peekable();
+    open.peek()?;
+    let since = open.filter_map(|entry| entry.change.at_time).min();
+    Some(match since {
+        Some(since) => format!("re-examine open since {}", day_of(since)),
+        None => "re-examine open".to_owned(),
+    })
 }
 
 /// `N decisions rest on this` (`1 decision rests on this`).
@@ -1829,6 +1966,13 @@ fn timeline_fact_summary(fact: &TimelineFact) -> (&'static str, String) {
             "premise rejected",
             format!("decision {decision_id} rejected"),
         ),
+        TimelineFact::Reaffirmed { premise_id, reason } => (
+            "reaffirmed",
+            format!(
+                "still holds after {premise_id} changed: {}",
+                summary_cell(reason)
+            ),
+        ),
     }
 }
 
@@ -1882,6 +2026,7 @@ fn write_decision_summary_row(
     prefix: &str,
     decision: &DecisionView,
     mark_floor: bool,
+    reexamine: Option<&ReexamineMarker>,
 ) {
     let _ = write!(
         output,
@@ -1896,7 +2041,26 @@ fn write_decision_summary_row(
     if mark_floor {
         write_floor_field(output, &decision.floor);
     }
+    write_reexamine_fields(output, reexamine);
     output.push('\n');
+}
+
+/// Trailing fields on a tab-separated row for a decision whose premise changed: `stale=yes` when
+/// the change stands uncovered, the count of open re-examine items, and the count of those since
+/// reaffirmed. Nothing for a decision no premise changed under, so its row is unchanged.
+fn write_reexamine_fields(output: &mut String, marker: Option<&ReexamineMarker>) {
+    let Some(marker) = marker else {
+        return;
+    };
+    if marker.stale {
+        output.push_str("\tstale=yes");
+    }
+    if marker.open > 0 {
+        let _ = write!(output, "\treexamine_open={}", marker.open);
+    }
+    if marker.reaffirmed > 0 {
+        let _ = write!(output, "\treaffirmed={}", marker.reaffirmed);
+    }
 }
 
 /// A trailing `floor=below` field on a tab-separated row, only for a decision below the floor.
@@ -1996,6 +2160,7 @@ fn change_kind_label(kind: HistoryChangeKind) -> &'static str {
         HistoryChangeKind::Supersession => "supersession",
         HistoryChangeKind::ProjectMoved => "project_moved",
         HistoryChangeKind::TitleChanged => "title_changed",
+        HistoryChangeKind::Reaffirmed => "reaffirmed",
         HistoryChangeKind::ContextChange => "context_change",
     }
 }
@@ -2408,6 +2573,9 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
             NodeKind::Blocker => graph_property_string(properties, "reason")
                 .map(|reason| prefixed_dot_label("Blocker", &reason))
                 .unwrap_or_else(|| id.clone()),
+            NodeKind::Reaffirmation => graph_property_string(properties, "reason")
+                .map(|reason| prefixed_dot_label("Still holds", &reason))
+                .unwrap_or_else(|| id.clone()),
             NodeKind::Notification => graph_property_string(properties, "channel")
                 .map(|channel| prefixed_dot_label("Notification", &channel))
                 .unwrap_or_else(|| id.clone()),
@@ -2433,6 +2601,17 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
             node_key(edge.from_kind, &edge.from_id),
             node_key(edge.to_kind, &edge.to_id),
             edge.label
+        );
+    }
+    // A reaffirmation has no stored edge; these dashed lines are read from its own properties so
+    // it is drawn with the decision it is about (and the premise that changed), not alone.
+    for arrow in reaffirmation_arrows(graph)? {
+        let _ = writeln!(
+            dot,
+            "  \"{}\" -> \"{}\" [label=\"{}\", style=dashed];",
+            node_key(arrow.from_kind, &arrow.from_id),
+            node_key(arrow.to_kind, &arrow.to_id),
+            arrow.label
         );
     }
 

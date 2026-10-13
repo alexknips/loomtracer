@@ -2,11 +2,14 @@
 
 use std::time::Instant;
 
+use serde::Serialize;
+
 use crate::projector::{GraphParams, GraphValue, GraphView};
 use crate::Result;
 
 use super::decision::DecisionView;
 use super::project_label::ProjectLabels;
+use super::reexamine::{ReexamineMarker, ReexamineMarkers};
 use super::shared::{
     optional_string, optional_string_list, query_error, read_count, recorded_floor_of,
     required_string, MAX_QUERY_RESULTS,
@@ -14,11 +17,24 @@ use super::shared::{
 use super::status::{derive_decision_status, DecisionStatus};
 use super::QueryResponse;
 
+/// A decision a topic lookup returns: the shallow view, and whether what it rests on changed. The
+/// lookup answers by status alone, so without the marker a decision whose premise was superseded
+/// would read exactly like one that stands (hivemind-ottw.3).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RelevantDecision {
+    #[serde(flatten)]
+    pub decision: DecisionView,
+    /// The stale marker and the count of open re-examine items. Absent when no premise changed
+    /// under the decision. `verify` shows the detail: which premise, who looked again, when, why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reexamine: Option<ReexamineMarker>,
+}
+
 pub fn get_relevant_decisions(
     graph: &impl GraphView,
     topic: &str,
     status_filter: Option<DecisionStatus>,
-) -> Result<QueryResponse<Vec<DecisionView>>> {
+) -> Result<QueryResponse<Vec<RelevantDecision>>> {
     let started = Instant::now();
     let topic = topic.trim();
     if topic.is_empty() {
@@ -51,29 +67,40 @@ pub fn get_relevant_decisions(
         }
 
         let project = optional_string(&row, "project");
-        decisions.push(DecisionView {
-            id,
-            title: optional_string(&row, "title").unwrap_or_default(),
-            rationale: optional_string(&row, "rationale").unwrap_or_default(),
-            topic_keys: optional_string_list(&row, "topic_keys"),
-            status,
-            project_label: labels.label_of(project.as_deref()),
-            project,
-            chosen_option_id: None,
-            option_ids: Vec::new(),
-            evidence_ids: Vec::new(),
-            hypotheses: Vec::new(),
-            premise_decision_ids: Vec::new(),
-            // Shallow view like the other fields above this query doesn't fetch
-            // (option_ids/evidence_ids/hypotheses/premise_decision_ids) — callers needing
-            // quote/question or what the decision rests on follow up with get_decision.
-            quote: None,
-            question: None,
-            question_id: None,
-            // The floor answers ride in the same row, so a shallow view still says where the
-            // decision stands against the floor: it is not a "not asked" by omission.
-            floor: recorded_floor_of(&row),
+        decisions.push(RelevantDecision {
+            reexamine: None,
+            decision: DecisionView {
+                id,
+                title: optional_string(&row, "title").unwrap_or_default(),
+                rationale: optional_string(&row, "rationale").unwrap_or_default(),
+                topic_keys: optional_string_list(&row, "topic_keys"),
+                status,
+                project_label: labels.label_of(project.as_deref()),
+                project,
+                chosen_option_id: None,
+                option_ids: Vec::new(),
+                evidence_ids: Vec::new(),
+                hypotheses: Vec::new(),
+                premise_decision_ids: Vec::new(),
+                // Shallow view like the other fields above this query doesn't fetch
+                // (option_ids/evidence_ids/hypotheses/premise_decision_ids) — callers needing
+                // quote/question or what the decision rests on follow up with get_decision.
+                quote: None,
+                question: None,
+                question_id: None,
+                // The floor answers ride in the same row, so a shallow view still says where the
+                // decision stands against the floor: it is not a "not asked" by omission.
+                floor: recorded_floor_of(&row),
+            },
         });
+    }
+
+    // One fixed set of bulk reads for the whole answer, and none for an answer with no decisions.
+    if !decisions.is_empty() {
+        let markers = ReexamineMarkers::load(graph)?;
+        for item in &mut decisions {
+            item.reexamine = markers.of(&item.decision.id);
+        }
     }
 
     Ok(QueryResponse {

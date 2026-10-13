@@ -131,8 +131,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   do (`reaffirm`, `reexamine`, MCP `reaffirm_decision`) land after this is live, and no existing
   event changes, so an existing ledger replays unchanged. The graph gains one node kind,
   `Reaffirmation` (id: the event's uuid; `decision_id`, `premise_id`, `reason`, `reaffirmed_by`,
-  `reaffirmed_at`), and no new relation kind; `GET /v1/graph` lists it as an unlabelled node
-  with no edge, like a `Question`. `Commands::reaffirm_decision` and
+  `reaffirmed_at`), and no new relation kind; `GET /v1/graph` draws it with the decision it is
+  about (see the surfaces entry below). `Commands::reaffirm_decision` and
   `reaffirm_decision_with_uuid` (library callers) append exactly one event and touch nothing
   else; its invariants are written in the `commands` module header.
   (hivemind-ottw.1)
@@ -166,6 +166,36 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   when no local ledger exists and otherwise name the ledger they used, like the other verbs
   that open one. `hivemind-context` gains `reaffirm` and `reexamine` commands and scripts; an
   older CLI says it has no such command. (hivemind-ottw.4)
+- **The places that show a decision now say when what it rests on changed, and whether anyone
+  looked again.** `verify` (and `brief`, and the `why` brief) prints the open or closed
+  re-examine entries under `still holds:` (`NO: premise superseded; re-examine open since
+  2026-09-12`, or `yes — … someone said it still holds (below)` with who, when and the reason
+  they gave), and `still_holds.reexamine` carries the same entries in JSON. A decision that
+  itself changed (superseded, rejected, contested) gains `propagation`: `3 of 5 dependents
+  re-examined; 2 open since 2026-09-12 [UNFINISHED]` — counts, never an actor. `recall`,
+  `search` and the topic lookup `get_relevant_decisions` gain a marker on each match
+  (`graph_context.reexamine` / `reexamine`: `{stale, open, reaffirmed}`; `stale=yes`,
+  `reexamine_open=N` and `reaffirmed=N` in `--summary`), and the recall digest lists the stale
+  matches, which closes a gap: recall used to carry no outcome, so a decision whose premise had
+  been superseded read exactly like one that stands. The `situational` STALE cell reads
+  `STALE(premise superseded, re-examine open)`, `holds(re-examined)` or `holds(re-examine open)`.
+  The compact view carries `reexamine` on each premise and refuted hypothesis and `propagation`
+  on a rejected or contested decision. The history rows (`recent_activity`,
+  `decisions_changed_since`) give `decision.reaffirmed` its own kind `reaffirmed` with
+  `reaffirmed_premise: {premise_id, reason}`, where it was a `context_change` for a moment, and
+  `why`/`chain` timelines get a `reaffirmed` fact. The Markdown decision log writes a
+  "Re-examination" list and a "Propagation" line in the Outcome section (without the UNFINISHED
+  mark, which depends on today's date, so the same ledger exports the same file), and the TUI
+  flags `!stale re-examine:N` on a result and prints the entries on the open decision.
+  `GET /v1/graph` and `export --format dot` no longer show a `Reaffirmation` alone: it is
+  labelled with its reason and tied to the decision it concerns (`REAFFIRMS`) and the premise
+  that changed (`REAFFIRMED_AFTER`) by two lines read from its own properties, marked
+  `"derived": true` in the JSON because the graph stores no such edge. Default-on, no flag.
+  A page of matches reads the grounding facts in bulk once (13 reads, however many decisions
+  there are) and a request with no matches reads nothing extra; a brief of a changed decision
+  reads a handful. `HistoryChangeKind` gains `Reaffirmed` and `TimelineFact` gains `Reaffirmed`
+  (library callers with an exhaustive match); `get_relevant_decisions` returns
+  `RelevantDecision` (the decision plus its marker, serialized flat). (hivemind-ottw.3)
 - **A decision that rests on something that changed now says whether anyone looked again, and a
   "still holds" counts.** When a premise a decision rests on changes (a prior decision it
   follows from is superseded, rejected or contested; an assumption or bet it rests on is

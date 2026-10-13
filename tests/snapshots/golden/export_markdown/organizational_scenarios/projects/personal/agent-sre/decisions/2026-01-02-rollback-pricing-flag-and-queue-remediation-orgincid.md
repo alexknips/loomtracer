@@ -63,6 +63,9 @@ Still holds: **no**
 Reasons:
 - Premised on refuted hypothesis org:incident:hypothesis:hotfix-fast-enough
 
+Re-examination:
+- re-examine open: hypothesis "A hotfix can land before customer impact expands." was refuted 2026-01-02; nobody has said this decision still holds
+
 Supersedes: [Attempt hotfix before rollback](../../human-oncall/decisions/2026-01-02-attempt-hotfix-before-rollback-orgincid.md)
 Superseded by: None recorded.
 

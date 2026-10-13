@@ -83,3 +83,4 @@ src/replay/tests.rs
 src/importance/tests.rs
 src/queries/importance_facts/tests.rs
 src/queries/reexamine/tests.rs
+src/queries/reexamine/surfaces.rs

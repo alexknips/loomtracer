@@ -1,6 +1,6 @@
 //! Compact decision summaries for agent consumption: bounded, provenance-stripped view.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
@@ -15,6 +15,10 @@ use super::decision::{get_decision_with_labels, get_hypothesis_statement, Decisi
 use super::grounding::GroundingState;
 use super::neighborhood::{neighborhood_structure, NeighborhoodRequest};
 use super::project_label::ProjectLabels;
+use super::reexamine::{
+    propagation_of_decision, reexamine_entries_for, Propagation, ReexamineStatus,
+    DEFAULT_PROPAGATION_WINDOW_DAYS,
+};
 use super::shared::{query_error, MAX_QUERY_RESULTS};
 use super::status::{DecisionStatus, HypothesisStatus};
 use super::supersession::get_supersession_chain;
@@ -39,6 +43,11 @@ pub struct CompactView {
     pub grounding_state: GroundingState,
     /// How many other decisions follow from this one.
     pub dependents_count: usize,
+    /// When this decision itself changed (rejected or contested): how many of the decisions that
+    /// rest on it have been looked at again, how many are still open (hivemind-ottw.3). Absent
+    /// when it has not changed, or nothing rested on it when it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub propagation: Option<Propagation>,
     pub active_blockers: Vec<BlockerSummary>,
     pub elided: ElidedSummary,
 }
@@ -47,6 +56,10 @@ pub struct CompactView {
 pub struct PremiseSummaryView {
     pub decision_id: String,
     pub status: DecisionStatus,
+    /// Whether anyone has said this decision still holds after the premise changed. Absent while
+    /// the premise stands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reexamine: Option<ReexamineStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -75,6 +88,10 @@ pub struct HypothesisSummaryView {
     pub refuting_evidence_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supporting_evidence_ids: Option<Vec<String>>,
+    /// Whether anyone has said the decision still holds after this hypothesis was refuted. Absent
+    /// unless it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reexamine: Option<ReexamineStatus>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -101,6 +118,16 @@ pub struct ElidedSummary {
 pub fn get_compact_view(
     graph: &impl GraphView,
     decision_id: &str,
+) -> Result<QueryResponse<Option<CompactView>>> {
+    get_compact_view_at(graph, decision_id, Utc::now())
+}
+
+/// [`get_compact_view`] as of `now`, which only decides what reads as unfinished in the
+/// propagation of a decision that changed.
+pub fn get_compact_view_at(
+    graph: &impl GraphView,
+    decision_id: &str,
+    now: DateTime<Utc>,
 ) -> Result<QueryResponse<Option<CompactView>>> {
     let started = Instant::now();
     let decision_id = decision_id.trim();
@@ -212,6 +239,44 @@ pub fn get_compact_view(
         .count();
 
     // -----------------------------------------------------------------------
+    // Re-examination: what the decision rests on that changed, and whether anyone looked again.
+    // Anchored reads, and none at all when nothing it rests on changed.
+    // -----------------------------------------------------------------------
+    let changed_premises: Vec<String> = neighborhood
+        .edges
+        .iter()
+        .filter(|e| e.relation == RelationKind::FollowsFrom && e.stored_source() == terminal_id)
+        .filter(|e| {
+            neighborhood
+                .nodes
+                .iter()
+                .find(|node| node.id == e.stored_target())
+                .and_then(|node| node.decision_status)
+                .is_some_and(|status| {
+                    status != DecisionStatus::Proposed && status != DecisionStatus::Accepted
+                })
+        })
+        .map(|e| e.stored_target().to_owned()) // ubs:ignore: owned id; the neighborhood is only borrowed
+        .collect();
+    let refuted_hypotheses: Vec<String> = terminal_decision
+        .hypotheses
+        .iter()
+        .filter(|hyp| hyp.status == HypothesisStatus::Refuted)
+        .map(|hyp| hyp.id.clone()) // ubs:ignore: owned id; the decision view is only borrowed
+        .collect();
+    let reexamine_of: BTreeMap<String, ReexamineStatus> = reexamine_entries_for(
+        graph,
+        &labels,
+        &terminal_id,
+        terminal_decision.project.as_deref(),
+        &changed_premises,
+        &refuted_hypotheses,
+    )?
+    .into_iter()
+    .filter_map(|entry| Some((entry.premise_id, entry.state.status()?)))
+    .collect();
+
+    // -----------------------------------------------------------------------
     // Hypotheses: build summaries with evidence IDs from neighborhood hop-2
     // -----------------------------------------------------------------------
     let mut hypotheses = Vec::with_capacity(terminal_decision.hypotheses.len());
@@ -252,6 +317,7 @@ pub fn get_compact_view(
             statement,
             refuting_evidence_ids,
             supporting_evidence_ids,
+            reexamine: reexamine_of.get(&hyp.id).copied(),
         });
     }
 
@@ -272,6 +338,7 @@ pub fn get_compact_view(
                 .map(|status| PremiseSummaryView {
                     decision_id: e.stored_target().to_owned(), // ubs:ignore: owned id for the view; the neighborhood is only borrowed
                     status,
+                    reexamine: reexamine_of.get(e.stored_target()).copied(),
                 })
         })
         .collect();
@@ -283,6 +350,12 @@ pub fn get_compact_view(
         .collect::<BTreeSet<_>>()
         .len();
     let grounding_state = terminal_decision.grounding_state();
+    let propagation = match terminal_decision.status {
+        DecisionStatus::Superseded | DecisionStatus::Rejected | DecisionStatus::Contested => {
+            propagation_of_decision(graph, &terminal_id, DEFAULT_PROPAGATION_WINDOW_DAYS, now)?
+        }
+        DecisionStatus::Proposed | DecisionStatus::Accepted => None,
+    };
 
     // -----------------------------------------------------------------------
     // Active blockers summary
@@ -352,6 +425,7 @@ pub fn get_compact_view(
             premises,
             grounding_state,
             dependents_count,
+            propagation,
             active_blockers,
             elided,
         }),

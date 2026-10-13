@@ -4,7 +4,7 @@ use crate::projector::memory::MemoryGraph;
 use crate::queries::test_fixtures::{
     assert_reexamine_scenario, reexamine_scenario, ts, CountingGraph, Scenario, REEXAMINE_NOW,
 };
-use crate::queries::GROUNDING_FACT_READS;
+use crate::queries::{GROUNDING_FACT_READS, REEXAMINE_FACT_READS};
 use crate::Result;
 
 use super::*;
@@ -524,11 +524,12 @@ fn a_decisions_own_entries_cost_nothing_until_a_premise_changed_and_never_grow_w
 ) -> Result<()> {
     let small_graph = reexamine_scenario()?.graph()?;
     let large_graph = with_fillers(300)?;
+    let labels = ProjectLabels::from_graph(&small_graph)?;
 
     let entry_reads =
         |graph: &MemoryGraph, decision_id: &str, changed: &[String]| -> Result<usize> {
             let counting = CountingGraph::new(graph);
-            reexamine_entries_for(&counting, decision_id, changed, &[])?;
+            reexamine_entries_for(&counting, &labels, decision_id, None, changed, &[])?;
             Ok(counting.queries())
         };
     let changed = ["d:p-sup".to_owned()];
@@ -546,6 +547,98 @@ fn a_decisions_own_entries_cost_nothing_until_a_premise_changed_and_never_grow_w
         Ok(counting.queries())
     };
     assert_eq!(outcome_reads(&small_graph)?, outcome_reads(&large_graph)?);
+    Ok(())
+}
+
+#[test]
+fn what_a_surface_adds_costs_the_same_however_large_the_graph_is() -> Result<()> {
+    let small_graph = reexamine_scenario()?.graph()?;
+    let large_graph = with_fillers(300)?;
+
+    // A page of matches carries a marker each from one fixed set of bulk reads.
+    let marker_reads = |graph: &MemoryGraph| -> Result<usize> {
+        let counting = CountingGraph::new(graph);
+        ReexamineMarkers::load(&counting)?;
+        Ok(counting.queries())
+    };
+    assert_eq!(marker_reads(&small_graph)?, REEXAMINE_FACT_READS);
+    assert_eq!(marker_reads(&large_graph)?, REEXAMINE_FACT_READS);
+    const { assert!(REEXAMINE_FACT_READS < GROUNDING_FACT_READS) };
+
+    // A brief of a changed decision reads its dependents anchored and the position edges in bulk:
+    // a handful of reads, none of which grow with the graph.
+    let propagation_reads = |graph: &MemoryGraph| -> Result<usize> {
+        let counting = CountingGraph::new(graph);
+        let propagation =
+            propagation_of_decision(&counting, "d:p-sup", DEFAULT_PROPAGATION_WINDOW_DAYS, now())?;
+        assert!(propagation.is_some());
+        Ok(counting.queries())
+    };
+    let small_cost = propagation_reads(&small_graph)?;
+    assert_eq!(small_cost, propagation_reads(&large_graph)?);
+    assert!(
+        small_cost < GROUNDING_FACT_READS * 3,
+        "a brief reads a handful of facts, not the graph's: {small_cost}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_lean_facts_derive_the_same_items_as_the_full_ones() -> Result<()> {
+    // One piece of evidence behind a decision, so the reads the lean facts skip have something to
+    // return.
+    let scenario = reexamine_scenario()?;
+    scenario.evidence(
+        "e:lean",
+        "A benchmark run behind the premise",
+        Some("bench run 2026-09-01"),
+        "2026-09-01T13:00:00Z",
+    )?;
+    scenario.relation(
+        "BASED_ON",
+        "d:p-sup",
+        "e:lean",
+        "human:alex",
+        None,
+        "2026-09-01T13:00:01Z",
+    )?;
+    let graph = scenario.graph()?;
+
+    let full = get_grounding_facts(&graph)?;
+    let lean = get_reexamine_facts(&graph)?;
+
+    // What the evidence reads would have added is the only difference between them.
+    assert!(!full.evidence_links.is_empty() && lean.evidence_links.is_empty());
+    assert_eq!(full.premise_links, lean.premise_links);
+    assert_eq!(full.hypothesis_links, lean.hypothesis_links);
+    assert_eq!(full.reaffirmations, lean.reaffirmations);
+    assert_eq!(
+        format!("{:?}", full.hypotheses),
+        format!("{:?}", lean.hypotheses)
+    );
+
+    let from_full = ReexamineIndex::from_facts(&full);
+    let from_lean = ReexamineIndex::from_facts(&lean);
+    let positions = |index: &ReexamineIndex| -> Vec<(String, String, Option<i64>, String)> {
+        index
+            .items
+            .iter()
+            .map(|item| {
+                (
+                    item.dependent.clone(),
+                    item.premise.clone(),
+                    item.judged.change.at_offset,
+                    format!("{:?}", item.judged.state),
+                )
+            })
+            .collect()
+    };
+    assert!(!from_full.items.is_empty());
+    assert_eq!(positions(&from_full), positions(&from_lean));
+    assert_eq!(
+        ReexamineMarkers::from_index(&from_full).markers,
+        ReexamineMarkers::from_index(&from_lean).markers
+    );
     Ok(())
 }
 

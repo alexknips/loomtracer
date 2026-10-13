@@ -62,6 +62,9 @@ Reasons:
 - Premised on refuted hypothesis org:launch:hypothesis:launch-ready
 - Rejected by human:legal and accepted by no one
 
+Re-examination:
+- re-examine closed: hypothesis "The full public launch is ready this week." was refuted 2026-01-02; this decision was itself rejected
+
 Supersedes: None recorded.
 Superseded by: None recorded.
 

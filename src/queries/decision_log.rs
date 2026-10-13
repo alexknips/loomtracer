@@ -21,8 +21,10 @@
 //! it: the profile is derived by a layer above the queries, so the caller hands the export a
 //! [`ProfileSection`] that returns each decision's section body. Without one the section is
 //! omitted and the rest of the file is unchanged. The Outcome section states what happened to
-//! the decision (superseded, premise gone, contested) and nothing about how well it was
-//! recorded; that is the profile's.
+//! the decision (superseded, premise gone, contested), whether anyone looked again at a premise
+//! that changed, and how far a change to the decision itself has travelled; nothing about how
+//! well it was recorded, which is the profile's. It carries no wall clock, so it leaves out the
+//! UNFINISHED mark of a propagation, which depends on today's date.
 //!
 //! Graph reads reuse the same generic, shared helpers (`node_rows`, `neighbor_pairs`) that
 //! every other query module uses, rather than hand-rolled Cypher: bespoke query strings
@@ -55,6 +57,7 @@ use super::grounding::{GroundingItem, GroundingKind, GroundingState};
 use super::outcome::OutcomeReason;
 use super::project_label::ProjectLabels;
 use super::projects::{is_known_project, registered_project_names};
+use super::reexamine::{Propagation, ReexamineEntry};
 use super::shared::{
     neighbor_pairs, node_rows, optional_int, optional_string, query_error, Direction,
     MAX_QUERY_RESULTS,
@@ -283,6 +286,12 @@ struct DecisionEntry {
     dependents_count: usize,
     held_up: bool,
     outcome_reasons: Vec<OutcomeReason>,
+    /// One sentence per premise that changed under the decision: open, or looked at again.
+    reexamine_lines: Vec<String>,
+    /// "N of M dependents re-examined; K open since <date>" when this decision itself changed.
+    /// Without the UNFINISHED mark: that mark depends on today's date, and the export carries no
+    /// wall clock, so the same ledger always exports the same file.
+    propagation_line: Option<String>,
     /// The body of the "Quality profile" section, when the caller supplied one.
     profile_section: Option<String>,
     accepted_by: Vec<String>,
@@ -438,6 +447,19 @@ fn build_entry(
         dependents_count: brief.dependents_count,
         held_up: brief.still_holds.held_up,
         outcome_reasons: brief.still_holds.reasons,
+        reexamine_lines: brief
+            .still_holds
+            .reexamine
+            .iter()
+            .map(ReexamineEntry::describe)
+            .collect(),
+        propagation_line: brief.propagation.map(|propagation| {
+            Propagation {
+                unfinished: false,
+                ..propagation
+            }
+            .describe()
+        }),
         profile_section: None,
         accepted_by,
         rejected_by,
@@ -1098,6 +1120,17 @@ fn render_outcome_section(
             out.push_str("\n- ");
             out.push_str(&render_outcome_reason(reason));
         }
+    }
+
+    if !entry.reexamine_lines.is_empty() {
+        out.push_str("\n\nRe-examination:");
+        for line in &entry.reexamine_lines {
+            out.push_str("\n- ");
+            out.push_str(line);
+        }
+    }
+    if let Some(propagation) = &entry.propagation_line {
+        let _ = write!(out, "\n\nPropagation: {propagation}");
     }
 
     out.push_str("\n\nSupersedes: ");

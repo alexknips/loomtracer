@@ -3403,6 +3403,111 @@ async fn graph_decisions_carry_a_decided_at_timestamp() {
 }
 
 #[tokio::test]
+async fn graph_draws_a_reaffirmation_with_the_decision_it_is_about() {
+    use hivemind::events::{Event, EventSource, EventType, TenantId};
+    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+
+    let dir = test_ledger_dir();
+    let ledger = SqliteEventLedger::open(&dir).unwrap();
+    let ts = chrono::DateTime::parse_from_rfc3339("2026-01-15T10:30:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let append = |event_type: EventType, actor: &str, payload: serde_json::Value, uuid: u128| {
+        ledger
+            .append(Event {
+                tenant_id: TenantId::local(),
+                event_id: None,
+                event_uuid: uuid::Uuid::from_u128(uuid),
+                correlation_id: None,
+                causation_event_id: None,
+                event_type,
+                actor_id: actor.to_owned(),
+                source: EventSource::Cli,
+                source_ref: None,
+                payload,
+                ts: Some(ts),
+            })
+            .unwrap();
+    };
+    for (uuid, id, title) in [
+        (1, "decision:premise", "Cap requests per tenant"),
+        (2, "decision:dependent", "Bill by request count"),
+    ] {
+        append(
+            EventType::DecisionProposed,
+            "human:alex.knips@gmail.com",
+            serde_json::json!({
+                "decision_id": id,
+                "title": title,
+                "rationale": "Fixture for the derived reaffirmation lines on GET /v1/graph",
+                "topic_keys": ["graph-reaffirmed"],
+                "option_ids": [],
+                "chosen_option_id": null,
+                "hypothesis_ids": [],
+                "evidence_ids": []
+            }),
+            uuid,
+        );
+    }
+    append(
+        EventType::DecisionReaffirmed,
+        "agent:codex:reviewer",
+        serde_json::json!({
+            "decision_id": "decision:dependent",
+            "premise_id": "decision:premise",
+            "reason": "Checked again against the per-user cap"
+        }),
+        3,
+    );
+
+    let (status, graph) = call(app(dir), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "GET /v1/graph: {graph}"); // ubs:ignore
+
+    // The node reads as its one-line reason.
+    let reaffirmation = "Reaffirmation:00000000-0000-0000-0000-000000000003";
+    let node = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == reaffirmation)
+        .expect("reaffirmation node");
+    assert_eq!(
+        node["label"], "Checked again against the per-user cap",
+        "{node}"
+    ); // ubs:ignore
+
+    // It has no stored edge, so the response draws two lines read from its own properties and
+    // says so; a stored edge carries no such mark.
+    let edges = graph["edges"].as_array().unwrap();
+    let from_reaffirmation: Vec<&serde_json::Value> = edges
+        .iter()
+        .filter(|edge| edge["from"] == reaffirmation)
+        .collect();
+    assert_eq!(from_reaffirmation.len(), 2, "{edges:?}"); // ubs:ignore
+    let line = |relation: &str| {
+        from_reaffirmation
+            .iter()
+            .find(|edge| edge["relation"] == relation)
+            .copied()
+            .unwrap_or_else(|| panic!("no {relation} line: {from_reaffirmation:?}"))
+    };
+    assert_eq!(line("REAFFIRMS")["to"], "Decision:decision:dependent"); // ubs:ignore
+    assert_eq!(line("REAFFIRMS")["label"], "reaffirms"); // ubs:ignore
+    assert_eq!(line("REAFFIRMED_AFTER")["to"], "Decision:decision:premise"); // ubs:ignore
+    for edge in &from_reaffirmation {
+        assert_eq!(edge["derived"], true, "{edge}"); // ubs:ignore
+        assert_eq!(edge["reversed"], false, "{edge}"); // ubs:ignore
+    }
+    assert!(
+        edges
+            .iter()
+            .filter(|edge| edge["from"] != reaffirmation)
+            .all(|edge| edge.get("derived").is_none()),
+        "a stored edge is not marked derived"
+    ); // ubs:ignore
+}
+
+#[tokio::test]
 async fn graph_decisions_with_the_same_title_get_different_slugs() {
     let dir = test_ledger_dir();
 

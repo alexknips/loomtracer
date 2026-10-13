@@ -16,6 +16,7 @@ use super::decision::{DecisionView, HypothesisContext};
 use super::grounding::{hypothesis_facts_from_row, GroundingState};
 use super::project_label::ProjectLabels;
 use super::project_scope::{project_scope, MatchScope, ProjectScope, ScopeNote, ScopeRelation};
+use super::reexamine::{ReexamineMarker, ReexamineMarkers};
 use super::same_as::{fold_linked, RecordedCopy};
 use super::shared::{
     node_rows, normalized_filter_values, normalized_limit, normalized_query, normalized_statuses,
@@ -176,7 +177,30 @@ pub struct SearchGraphContext {
     pub hypotheses: Vec<HypothesisContext>,
     /// Whether anything was declared about what this decision rests on.
     pub grounding_state: GroundingState,
+    /// Whether what this decision rests on changed, and whether anyone has said it still holds:
+    /// the stale marker and the count of open re-examine items (hivemind-ottw.3). Absent when no
+    /// premise changed under it. Derived by the same rules as `DecisionOutcome::reexamine`, which
+    /// holds the detail (`verify` shows who looked again, when and why).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reexamine: Option<ReexamineMarker>,
     pub matched_nodes: Vec<SearchMatchedNode>,
+}
+
+/// Fills in each result's re-examine marker. Done on the page that is returned, never on the
+/// decisions that were scored: a page reads the grounding facts in bulk once, however many
+/// decisions the ledger holds, and a request that returns nothing reads nothing extra.
+fn attach_reexamine_markers(
+    graph: &impl GraphView,
+    items: &mut [DecisionSearchResult],
+) -> Result<()> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let markers = ReexamineMarkers::load(graph)?;
+    for item in items {
+        item.graph_context.reexamine = markers.of(&item.decision.id);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -222,12 +246,13 @@ pub fn search_decisions(
     scored.sort_by(|left, right| (left.rank, &left.id).cmp(&(right.rank, &right.id)));
 
     let total_matches = scored.len();
-    let items: Vec<DecisionSearchResult> = scored
+    let mut items: Vec<DecisionSearchResult> = scored
         .into_iter()
         .skip(offset)
         .take(limit)
         .map(|scored| scored.result)
         .collect();
+    attach_reexamine_markers(graph, &mut items)?;
     let next_offset = offset.saturating_add(items.len());
     let next_cursor = (next_offset < total_matches).then(|| next_offset.to_string());
 
@@ -366,12 +391,13 @@ fn search_with_ledger(
     sort_scored(&mut scored);
 
     let total_matches = scored.len();
-    let items: Vec<DecisionSearchResult> = scored
+    let mut items: Vec<DecisionSearchResult> = scored
         .into_iter()
         .skip(offset)
         .take(limit)
         .map(|s| s.result)
         .collect();
+    attach_reexamine_markers(graph, &mut items)?;
     let next_offset = offset.saturating_add(items.len());
     let next_cursor = (next_offset < total_matches).then(|| next_offset.to_string());
 
@@ -530,12 +556,13 @@ pub fn search_decisions_fts_with_context(
     sort_scored(&mut scored);
 
     let total_matches = scored.len();
-    let items: Vec<DecisionSearchResult> = scored
+    let mut items: Vec<DecisionSearchResult> = scored
         .into_iter()
         .skip(offset)
         .take(limit)
         .map(|scored| scored.result)
         .collect();
+    attach_reexamine_markers(graph, &mut items)?;
     let next_offset = offset.saturating_add(items.len());
     let next_cursor = (next_offset < total_matches).then(|| next_offset.to_string());
 
@@ -1342,6 +1369,7 @@ fn collect_graph_search_results(
                     evidence_ids,
                     hypotheses,
                     grounding_state,
+                    reexamine: None,
                     matched_nodes: match_info.matched_nodes,
                 },
                 scope: None,

@@ -62,6 +62,9 @@ Reasons:
 - Premised on refuted hypothesis org:capacity:hypothesis:contractor-covers-gap
 - Contested
 
+Re-examination:
+- re-examine open: hypothesis "A contractor can cover the next milestone without onboarding drag." was refuted 2026-01-02; nobody has said this decision still holds
+
 Supersedes: None recorded.
 Superseded by: None recorded.
 

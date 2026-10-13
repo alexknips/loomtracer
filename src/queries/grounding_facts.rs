@@ -33,6 +33,10 @@ use super::status::{hypothesis_status_from_evidence, DecisionStandings, Hypothes
 /// rows, two for what refutes or supports a hypothesis, and one for the reaffirmations.
 pub const GROUNDING_FACT_READS: usize = 13;
 
+/// Bulk reads [`get_reexamine_facts`] issues: [`GROUNDING_FACT_READS`] less the two that only
+/// the attention findings need, the `BASED_ON` links and the evidence rows.
+pub const REEXAMINE_FACT_READS: usize = GROUNDING_FACT_READS - 2;
+
 /// One assumption or declared bet, as its node states it and as the graph has judged it so far.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HypothesisRecord {
@@ -86,10 +90,28 @@ pub struct GroundingFacts {
 
 /// The grounding of every decision in the graph. See the module docs for what it costs.
 pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
+    load_facts(graph, true)
+}
+
+/// The facts the re-examine reader builds its items from: [`get_grounding_facts`] without the
+/// `BASED_ON` links and the evidence rows, which only the attention findings read and which are
+/// the largest of the bulk reads (every evidence item's content comes back with its row).
+/// `evidence_links` and `evidence_recorded_at` are left empty; every other field is exactly what
+/// [`get_grounding_facts`] returns, so the items derived from either are the same. For the
+/// readers that run on every page of matches.
+pub(crate) fn get_reexamine_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
+    load_facts(graph, false)
+}
+
+fn load_facts(graph: &impl GraphView, with_evidence: bool) -> Result<GroundingFacts> {
     let standings = DecisionStandings::load(graph)?;
 
     let premise_links = distinct_links(graph, RelationKind::FollowsFrom)?;
-    let evidence_links = distinct_links(graph, RelationKind::BasedOn)?;
+    let evidence_links = if with_evidence {
+        distinct_links(graph, RelationKind::BasedOn)?
+    } else {
+        Vec::new()
+    };
     let hypothesis_links = hypothesis_links(graph)?;
 
     // Edges run evidence -> hypothesis and arrive sorted by (evidence, hypothesis), so each
@@ -137,9 +159,11 @@ pub fn get_grounding_facts(graph: &impl GraphView) -> Result<GroundingFacts> {
     }
 
     let mut evidence_recorded_at = BTreeMap::new();
-    for (evidence_id, row) in node_rows(graph, NodeKind::Evidence)? {
-        if let Some(recorded_at) = optional_datetime(&row, "recorded_at")? {
-            evidence_recorded_at.insert(evidence_id, recorded_at);
+    if with_evidence {
+        for (evidence_id, row) in node_rows(graph, NodeKind::Evidence)? {
+            if let Some(recorded_at) = optional_datetime(&row, "recorded_at")? {
+                evidence_recorded_at.insert(evidence_id, recorded_at);
+            }
         }
     }
 

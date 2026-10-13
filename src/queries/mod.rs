@@ -53,7 +53,7 @@ pub use active_blockers::{
     BlockerNotificationCandidatesRequest, BlockerNotificationState, BlockerNotificationStateKind,
     DecisionBlockerFilters, DecisionBlockerResults, DecisionBlockerView,
 };
-pub use arrows::oriented_edges;
+pub use arrows::{oriented_edges, reaffirmation_arrows, DerivedArrow, REAFFIRMED_AFTER, REAFFIRMS};
 pub use attribution::{
     get_failure_attribution, get_failure_attribution_with, AttributionFinding, AttributionGroup,
     ConfidenceLevel, CorpusStats, DecisionCondition, FailureAttributionRequest, FailureModeReport,
@@ -65,7 +65,7 @@ pub use brief::{
 };
 pub use capture_facts::{decision_capture_facts, recorded_decision_links, CaptureFact};
 pub use compact_view::{
-    get_compact_view, BlockerSummary, CompactView, ContestView, ElidedSummary,
+    get_compact_view, get_compact_view_at, BlockerSummary, CompactView, ContestView, ElidedSummary,
     HypothesisSummaryView, PremiseSummaryView, SupersessionSummary,
 };
 pub use contested::{
@@ -90,7 +90,7 @@ pub use grounding::{
 };
 pub use grounding_facts::{
     get_decision_anchors, get_grounding_facts, DecisionAnchor, GroundingFacts, HypothesisRecord,
-    ReaffirmationRecord, GROUNDING_FACT_READS,
+    ReaffirmationRecord, GROUNDING_FACT_READS, REEXAMINE_FACT_READS,
 };
 pub use history::*;
 pub use importance_facts::{
@@ -127,10 +127,10 @@ pub use record_facts::{
 pub use reexamine::{
     get_propagation, get_propagation_at, get_reexamine_items, get_reexamine_items_at, ChangeKind,
     ItemDependent, ItemState, PremiseChange, PremiseKind, Propagation, ReaffirmationSummary,
-    ReexamineEntry, ReexamineItem, ReexamineRequest, ReexamineResults,
-    DEFAULT_PROPAGATION_WINDOW_DAYS, DEFAULT_REEXAMINE_PAGE_SIZE,
+    ReexamineEntry, ReexamineItem, ReexamineMarker, ReexamineRequest, ReexamineResults,
+    ReexamineStatus, DEFAULT_PROPAGATION_WINDOW_DAYS, DEFAULT_REEXAMINE_PAGE_SIZE,
 };
-pub use relevant::get_relevant_decisions;
+pub use relevant::{get_relevant_decisions, RelevantDecision};
 pub use resolve::{
     annotate_resolution, resolve_decision_by_description, resolve_decision_by_id,
     resolve_decision_for_reading, ResolveOutcome, ResolvedCandidate, POLARITY_REASON,

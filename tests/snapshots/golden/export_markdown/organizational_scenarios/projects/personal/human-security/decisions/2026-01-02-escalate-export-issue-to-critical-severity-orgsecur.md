@@ -61,6 +61,9 @@ Still holds: **no**
 Reasons:
 - Premised on refuted hypothesis org:security:hypothesis:auth-required
 
+Re-examination:
+- re-examine open: hypothesis "The export endpoint still requires tenant authentication." was refuted 2026-01-02; nobody has said this decision still holds
+
 Supersedes: [Classify export issue as low severity](../../agent-maintainer/decisions/2026-01-02-classify-export-issue-as-low-severity-orgsecur.md)
 Superseded by: None recorded.
 

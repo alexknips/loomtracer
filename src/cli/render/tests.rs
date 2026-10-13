@@ -5,12 +5,12 @@ use crate::quality_profile::{
     scan_decision_quality_at, score_decision, verify_with_quality, why_with_quality, ScanRequest,
 };
 use crate::queries::test_fixtures::{
-    attention_scenario, floor_scenario, project_first_fixture, record_payload, ts, Scenario,
-    ATTENTION_NOW,
+    attention_scenario, floor_scenario, project_first_fixture, record_payload, reexamine_scenario,
+    ts, Scenario, ATTENTION_NOW, REEXAMINE_NOW,
 };
 use crate::queries::{
     get_compact_view, get_decision_brief_at, get_decision_neighborhood,
-    get_decisions_changed_since, get_recent_activity, get_situational_decisions,
+    get_decisions_changed_since, get_recent_activity, get_situational_decisions, search_decisions,
     search_decisions_with_ledger, ChangedSinceRequest, NeighborhoodRequest, QueryContext,
     RecentActivityRequest, SearchDecisionRequest, SituationalRequest,
 };
@@ -182,8 +182,9 @@ fn brief_says_no_when_a_premise_was_superseded() -> Result<()> {
 
     for expected in [
         "    decision   \"Ship the hosted MVP\"  SUPERSEDED 2026-02-01 by \"Ship the self-hosted MVP\"  (at capture)\n",
-        "  still holds: NO: premise superseded\n",
+        "  still holds: NO: premise superseded; re-examine open since 2026-02-01\n",
         "    - follows from \"Ship the hosted MVP\", which was superseded by \"Ship the self-hosted MVP\"\n",
+        "    - re-examine open: premise \"Ship the hosted MVP\" (in alex's personal project) was superseded 2026-02-01; nobody has said this decision still holds\n",
     ] {
         assert!(text.contains(expected), "missing {expected:?} in:\n{text}");
     }
@@ -217,8 +218,13 @@ fn brief_says_no_when_a_premise_was_rejected() -> Result<()> {
 
     let text = brief_text(&scenario.graph()?, "d:derived")?;
 
+    // A rejection carries no time in the graph, so the open item says no date.
     assert!(
-        text.contains("  still holds: NO: premise rejected\n"),
+        text.contains("  still holds: NO: premise rejected; re-examine open\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("    - re-examine open: premise \"Ship the hosted MVP\" (in alex's personal project) was rejected; nobody has said this decision still holds\n"),
         "{text}"
     );
     assert!(
@@ -348,7 +354,7 @@ fn situational_summary_names_why_a_decision_is_stale() -> Result<()> {
         .find(|line| line.contains("d:derived"))
         .expect("derived decision listed");
     assert!(
-        derived_row.contains("STALE(premise superseded)"),
+        derived_row.contains("STALE(premise superseded, re-examine open)"),
         "{derived_row}"
     );
     // A decision that still holds is unchanged.
@@ -523,7 +529,7 @@ fn compact_view_summary_says_what_it_rests_on_and_flags_a_premise_that_no_longer
         "{text}"
     );
     assert!(
-        text.contains("  STALE: follows from d:goal, which is superseded\n"),
+        text.contains("  STALE: follows from d:goal, which is superseded (re-examine open)\n"),
         "{text}"
     );
     Ok(())
@@ -1433,5 +1439,305 @@ fn brief_of_a_hand_proposed_decision_makes_no_classifier_draft_claim() -> Result
 
     assert!(!text.contains("drafted in:"), "{text}");
     assert!(!text.contains("undecided:"), "{text}");
+    Ok(())
+}
+
+// ── re-examine (hivemind-ottw.3) ─────────────────────────────────────────────
+
+fn reexamine_text_at(graph: &MemoryGraph, decision_id: &str) -> Result<String> {
+    let brief = get_decision_brief_at(graph, decision_id, ts(REEXAMINE_NOW))?;
+    let answer = verify_with_quality(graph, brief)?.data;
+    Ok(render_decision_brief_summary(&answer))
+}
+
+#[test]
+fn brief_says_whether_anyone_looked_again_and_who() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let graph = scenario.graph()?;
+
+    // Nobody looked again: the answer is no, and says the item is open since the change.
+    let open = reexamine_text_at(&graph, "d:open")?;
+    for expected in [
+        "  still holds: NO: premise superseded; re-examine open since 2026-09-02\n",
+        "    - re-examine open: premise \"Cap requests per tenant\" was superseded 2026-09-02; nobody has said this decision still holds\n",
+    ] {
+        assert!(open.contains(expected), "missing {expected:?} in:\n{open}");
+    }
+
+    // Someone said it still holds: it reads as holding again, with who, when and why visible,
+    // and the clause no longer claims nothing changed under it.
+    let twice = reexamine_text_at(&graph, "d:twice")?;
+    assert!(
+        twice.contains("  still holds: yes — held 29 days; a premise it rests on changed and someone said it still holds (below);"),
+        "{twice}"
+    );
+    assert!(
+        twice.contains("    - re-examined: premise \"Cap requests per tenant\" (in Billing) was superseded 2026-09-02; re-examined 2026-09-04 by agent:codex:reviewer: \"Checked again against the per-user cap\" (1 more reaffirmation since)\n"),
+        "{twice}"
+    );
+
+    // A contested premise opens an item but is not a verdict: still holding, item open.
+    let contested = reexamine_text_at(&graph, "d:on-cont")?;
+    assert!(
+        contested.contains("  still holds: yes — held 29 days; a premise it rests on is contested (below), a live disagreement and not a verdict;"),
+        "{contested}"
+    );
+    assert!(
+        contested.contains("    - re-examine open: premise \"Use queue Y\" is contested (a live disagreement, not a verdict); nobody has said this decision still holds\n"),
+        "{contested}"
+    );
+
+    // A dependent that went out itself has nothing left to re-examine.
+    let out = reexamine_text_at(&graph, "d:after-sup")?;
+    assert!(
+        out.contains("    - re-examine closed: premise \"Cap requests per tenant\" was superseded 2026-09-02; this decision was itself superseded by d:after-sup-v2\n"),
+        "{out}"
+    );
+    Ok(())
+}
+
+#[test]
+fn brief_of_a_changed_decision_says_how_far_the_change_travelled_without_naming_anyone(
+) -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let graph = scenario.graph()?;
+
+    let superseded = reexamine_text_at(&graph, "d:p-sup")?;
+    assert!(
+        superseded.contains("\n  propagation: 3 of 5 dependents re-examined; 2 open since 2026-09-02 [UNFINISHED]\n"),
+        "{superseded}"
+    );
+    // A rejection states no time, so the line has no date and is never unfinished by age.
+    let rejected = reexamine_text_at(&graph, "d:p-rej")?;
+    assert!(
+        rejected.contains("\n  propagation: 1 of 2 dependents re-examined; 1 open\n"),
+        "{rejected}"
+    );
+    // A decision that did not change has no propagation line, and nor does one that went out
+    // with nothing resting on it.
+    assert!(!reexamine_text_at(&graph, "d:open")?.contains("propagation:"));
+    // The line names no actor, only counts.
+    let line = superseded
+        .lines()
+        .find(|line| line.contains("propagation:"))
+        .expect("a propagation line");
+    assert!(
+        !line.contains("human:") && !line.contains("agent:"),
+        "{line}"
+    );
+    Ok(())
+}
+
+#[test]
+fn situational_summary_says_whether_a_stale_decision_was_looked_at_again() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let graph = scenario.graph()?;
+    let results = get_situational_decisions(
+        &QueryContext::local(),
+        &graph,
+        scenario.ledger(),
+        &SituationalRequest {
+            paths: vec!["grounding".to_owned()],
+            limit: 200,
+            ..SituationalRequest::default()
+        },
+    )?
+    .data;
+    let text = render_situational_summary(&results);
+    let row = |id: &str| -> String {
+        text.lines()
+            .find(|line| line.contains(&format!("\t{id}\t")))
+            .unwrap_or_else(|| panic!("no row for {id}: {text}"))
+            .to_owned()
+    };
+
+    assert!(row("d:open").contains("\tSTALE(premise superseded, re-examine open)\t"));
+    assert!(row("d:twice").contains("\tholds(re-examined)\t"));
+    assert!(row("d:on-cont").contains("\tholds(re-examine open)\t"));
+    // Nothing changed under it: the cell is what it was.
+    assert!(row("d:on-fine").contains("\tholds\t"));
+    Ok(())
+}
+
+#[test]
+fn a_match_says_when_what_it_rests_on_changed() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let graph = scenario.graph()?;
+    let results = search_decisions(
+        &graph,
+        &SearchDecisionRequest {
+            topic_keys: vec!["grounding".to_owned()],
+            limit: 200,
+            ..SearchDecisionRequest::default()
+        },
+    )?
+    .data;
+    let row_of = |text: &str, id: &str| -> String {
+        text.lines()
+            .find(|line| line.contains(&format!("\t{id}\t")))
+            .unwrap_or_else(|| panic!("no row for {id}: {text}"))
+            .to_owned()
+    };
+
+    // search and recall rows
+    let search_text = render_search_summary(&results);
+    assert!(row_of(&search_text, "d:open").ends_with("\tstale=yes\treexamine_open=1"));
+    assert!(row_of(&search_text, "d:twice").ends_with("\treaffirmed=1"));
+    let contested = row_of(&search_text, "d:on-cont");
+    assert!(contested.ends_with("\treexamine_open=1") && !contested.contains("stale"));
+    assert!(!row_of(&search_text, "d:p-sup").contains("reexamine"));
+
+    let recall = RecallResponse {
+        query: None,
+        ignored_words: Vec::new(),
+        ranked: RecallRanked {
+            total_matches: results.total_matches,
+            truncated: false,
+            items: results.items,
+        },
+        digest: DecisionSummary {
+            summary: "digest".to_owned(),
+            cited_decision_ids: Vec::new(),
+            unit: SummarizeMode::Cluster,
+        },
+        scope: None,
+    };
+    let recall_text = render_recall_summary(&recall);
+    assert!(row_of(&recall_text, "d:open").ends_with("\tstale=yes\treexamine_open=1"));
+    assert!(row_of(&recall_text, "d:twice").ends_with("\treaffirmed=1"));
+
+    // the topic lookup rows
+    let relevant = crate::queries::get_relevant_decisions(&graph, "grounding", None)?.data;
+    let list_text = render_decision_list_summary(&relevant);
+    assert!(row_of(&list_text, "d:open").ends_with("\tstale=yes\treexamine_open=1"));
+    assert!(!row_of(&list_text, "d:p-sup").contains("reexamine"));
+    Ok(())
+}
+
+#[test]
+fn compact_view_summary_says_whether_a_premise_was_looked_at_again() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let graph = scenario.graph()?;
+    let text_of = |id: &str| -> Result<String> {
+        Ok(render_compact_view_summary(
+            &crate::queries::get_compact_view_at(&graph, id, ts(REEXAMINE_NOW))?.data,
+        ))
+    };
+
+    assert!(text_of("d:open")?
+        .contains("  STALE: follows from d:p-sup, which is superseded (re-examine open)\n"));
+    assert!(text_of("d:twice")?
+        .contains("  STALE: follows from d:p-sup, which is superseded (re-examined)\n"));
+    assert!(text_of("d:on-cont")?.contains(
+        "  CONTESTED PREMISE: follows from d:p-cont, which is contested (re-examine open)\n"
+    ));
+    assert!(text_of("d:on-assumption")?
+        .contains("rests on h:assumption, which was refuted (re-examine open)\n"));
+    assert!(
+        text_of("d:p-rej")?.contains("\n  propagation: 1 of 2 dependents re-examined; 1 open\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn history_change_kind_label_names_a_reaffirmation() {
+    assert_eq!(
+        change_kind_label(HistoryChangeKind::Reaffirmed),
+        "reaffirmed"
+    );
+}
+
+#[test]
+fn history_lines_say_which_premise_a_decision_still_holds_after_and_why() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &RecentActivityRequest {
+            limit: 500,
+            ..RecentActivityRequest::default()
+        },
+    )?
+    .data;
+    let text = render_recent_activity_summary(&activity);
+    let line = text
+        .lines()
+        .find(|line| {
+            line.contains("\treaffirmed\tdecision.reaffirmed\t")
+                && line.contains("decisions=d:twice")
+        })
+        .unwrap_or_else(|| panic!("no reaffirmed line for d:twice in:\n{text}"));
+    assert!(line.contains("\tpremise=d:p-sup\treason="), "{line}");
+    assert!(line.contains("\tat=2026-"), "{line}");
+    // Only a reaffirmation line carries the premise and reason.
+    assert!(text
+        .lines()
+        .filter(|line| !line.contains("\treaffirmed\t"))
+        .all(|line| !line.contains("\tpremise=")));
+
+    let changed = get_decisions_changed_since(
+        scenario.ledger(),
+        &ChangedSinceRequest {
+            since_offset: Some(0),
+            limit: 500,
+            ..ChangedSinceRequest::default()
+        },
+    )?
+    .data;
+    assert!(render_changed_since_summary(&changed)
+        .lines()
+        .any(|line| line.contains("\treaffirmed\t") && line.contains("\tpremise=")));
+    Ok(())
+}
+
+#[test]
+fn the_decision_timeline_names_who_said_a_decision_still_holds() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let graph = scenario.graph()?;
+    let timeline = crate::queries::get_decision_timeline(&graph, scenario.ledger(), "d:twice")?
+        .data
+        .expect("d:twice is in the scenario");
+    let mut text = String::new();
+    write_timeline(&mut text, &timeline);
+
+    let reaffirmed: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("  reaffirmed  by "))
+        .collect();
+    assert_eq!(reaffirmed.len(), 2, "{text}");
+    assert!(
+        reaffirmed[0].contains("still holds after d:p-sup changed: "),
+        "{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_dot_export_draws_a_reaffirmation_with_the_decision_it_is_about() -> Result<()> {
+    let scenario = reexamine_scenario()?;
+    let dot = render_dot(&scenario.graph()?)?;
+
+    // The node reads as its reason, and is tied to its decision and premise by dashed lines,
+    // because it has no stored edge of its own.
+    assert!(
+        dot.contains("Still holds\\\\nChecked again against the per-user cap"),
+        "{dot}"
+    );
+    let lines: Vec<&str> = dot
+        .lines()
+        .filter(|line| line.contains("style=dashed"))
+        .collect();
+    assert!(!lines.is_empty(), "{dot}");
+    assert!(lines
+        .iter()
+        .any(|line| line.contains("[label=\"reaffirms\", style=dashed]")
+            && line.contains("-> \"Decision:d:twice\"")));
+    assert!(lines.iter().any(|line| line
+        .contains("[label=\"after the change to\", style=dashed]")
+        && line.contains("-> \"Hypothesis:h:bet\"")));
+    // A dashed line starts only at a reaffirmation.
+    assert!(lines
+        .iter()
+        .all(|line| line.trim_start().starts_with("\"Reaffirmation:")));
     Ok(())
 }

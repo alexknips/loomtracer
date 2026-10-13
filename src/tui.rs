@@ -21,10 +21,10 @@ use crate::error::CliError;
 use crate::events::HypothesisKind;
 use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::queries::{
-    get_compact_view, get_decision, get_decision_neighborhood, get_supersession_chain,
-    search_decisions, CompactView, DecisionSearchResult, DecisionStatus, DecisionView,
-    GroundingState, HypothesisContext, HypothesisStatus, NeighborhoodRequest, NeighborhoodView,
-    SearchDecisionRequest,
+    get_compact_view, get_decision, get_decision_neighborhood, get_decision_outcome,
+    get_supersession_chain, search_decisions, CompactView, DecisionSearchResult, DecisionStatus,
+    DecisionView, GroundingState, HypothesisContext, HypothesisStatus, NeighborhoodRequest,
+    NeighborhoodView, ReexamineEntry, ReexamineMarker, ReexamineStatus, SearchDecisionRequest,
 };
 use crate::summarize::{summarize_decisions, SummarizeMode, SummarizeRequest};
 use crate::Result;
@@ -109,6 +109,8 @@ struct DecisionSearchApp {
     results: Vec<DecisionSearchResult>,
     selected_result: usize,
     detail: Option<DecisionView>,
+    /// The premises the open decision rests on that changed, open or looked at again.
+    reexamine: Vec<ReexamineEntry>,
     neighborhood: Option<NeighborhoodView>,
     neighborhood_truncated: bool,
     total_matches: usize,
@@ -143,6 +145,7 @@ impl DecisionSearchApp {
             results: Vec::new(),
             selected_result: 0,
             detail: None,
+            reexamine: Vec::new(),
             neighborhood: None,
             neighborhood_truncated: false,
             total_matches: 0,
@@ -361,6 +364,16 @@ impl DecisionSearchApp {
                 return;
             }
         };
+        let reexamine = match get_decision_outcome(graph, id) {
+            Ok(response) => response
+                .data
+                .map(|outcome| outcome.reexamine)
+                .unwrap_or_default(),
+            Err(error) => {
+                self.error_message = Some(error.to_string());
+                return;
+            }
+        };
 
         if push_breadcrumb && previous.as_deref().is_some_and(|previous| previous != id) {
             if let Some(previous) = previous {
@@ -368,6 +381,7 @@ impl DecisionSearchApp {
             }
         }
         self.detail = Some(detail);
+        self.reexamine = reexamine;
         self.neighborhood = Some(neighborhood);
         self.graph_selected = 0;
         self.error_message = None;
@@ -914,7 +928,7 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchApp) {
         .results
         .iter()
         .map(|result| {
-            let stale = if result
+            let refuted = if result
                 .decision
                 .hypotheses
                 .iter()
@@ -924,6 +938,14 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchApp) {
             } else {
                 ""
             };
+            let stale = format!(
+                "{refuted}{}",
+                result
+                    .graph_context
+                    .reexamine
+                    .as_ref()
+                    .map_or_else(String::new, reexamine_badge)
+            );
             let mut spans = vec![
                 Span::styled(
                     decision_status_label(result.decision.status),
@@ -1047,6 +1069,16 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchApp) {
                 "warning: a decision this one follows from no longer stands",
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             )]));
+        }
+        for entry in &app.reexamine {
+            let style = match entry.state.status() {
+                Some(ReexamineStatus::Open) => {
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                }
+                Some(ReexamineStatus::Reaffirmed) => Style::default().fg(Color::Green),
+                None => Style::default().fg(Color::DarkGray),
+            };
+            lines.push(Line::from(Span::styled(entry.describe(), style)));
         }
 
         let actors = actor_edges(app.neighborhood.as_ref());
@@ -1251,12 +1283,28 @@ fn render_compact_graph(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchA
                 format!("[{}]", decision_status_label(premise.status)),
                 style,
             ),
+            Span::raw(match premise.reexamine {
+                Some(ReexamineStatus::Open) => " (re-examine open)",
+                Some(ReexamineStatus::Reaffirmed) => " (re-examined)",
+                None => "",
+            }),
         ]));
     }
     if cv.dependents_count > 0 {
         lines.push(Line::from(format!(
             "    {} decision(s) rest on this",
             cv.dependents_count
+        )));
+    }
+    if let Some(propagation) = cv.propagation.as_ref() {
+        let style = if propagation.unfinished {
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("    propagation: {}", propagation.describe()),
+            style,
         )));
     }
 
@@ -1540,6 +1588,19 @@ fn hypothesis_summary(hypothesis: &HypothesisContext) -> String {
 
 /// The one-line answer to "what does this rest on?": the digest clause, or "nothing declared"
 /// with the way to add it.
+/// What a result row says when a premise changed under the decision: ` !stale` while the change
+/// stands uncovered, and the count of open re-examine items. Nothing otherwise.
+fn reexamine_badge(marker: &ReexamineMarker) -> String {
+    let mut badge = String::new();
+    if marker.stale {
+        badge.push_str(" !stale");
+    }
+    if marker.open > 0 {
+        badge.push_str(&format!(" re-examine:{}", marker.open));
+    }
+    badge
+}
+
 fn detail_rests_on(detail: &DecisionView) -> String {
     if detail.grounding_state() == GroundingState::NothingDeclared {
         "rests on: nothing declared (never asked)".to_owned()

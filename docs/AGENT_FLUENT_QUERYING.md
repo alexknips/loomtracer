@@ -1078,6 +1078,49 @@ the premise changed has no entry. The completeness of one premise's propagation 
 dependents re-examined, `unfinished` after `propagation_window_days`, default 14) and
 the rules are in [`DECISION_SCORING.md`](DECISION_SCORING.md#re-examine-items-did-the-change-travel).
 
+**Where the change shows** (hivemind-ottw.3). The entries above are not left for an agent
+to ask for; every surface that shows a decision says what it can, default-on, no flag:
+
+- `verify` / `brief` (`--summary`): under `still holds:` the open entries read
+  `NO: premise superseded; re-examine open since 2026-09-12` and each entry is a line
+  (`re-examine open: premise "T" was superseded 2026-09-12; nobody has said this decision
+  still holds`, `re-examined: … re-examined 2026-09-14 by agent:x: "<reason>"`, `re-examine
+  closed: … this decision was itself superseded by <id>`). A reaffirmed decision reads
+  `yes — … someone said it still holds (below)`: the clause never claims nothing changed
+  under it. JSON: `still_holds.reexamine`.
+- On the decision that itself changed (superseded, rejected or contested) the brief gains
+  `propagation` and a `propagation:` line: `3 of 5 dependents re-examined; 2 open since
+  2026-09-12 [UNFINISHED]`. M counts the dependents that stood when it changed, so "6
+  decisions rest on this" and "of 5" differ by the one already out before the change. The
+  line names no actor and carries no date for a rejection or a contest (the graph states
+  none), which are never unfinished by age.
+- `situational` cell: `STALE(premise superseded, re-examine open)`; `holds(re-examined)`
+  once someone said it still holds; `holds(re-examine open)` for a contested premise.
+- `recall`, `search`, `get_relevant_decisions`: each match carries a marker,
+  `graph_context.reexamine` on a search or recall result and `reexamine` beside the decision
+  of a topic lookup, `{stale, open, reaffirmed}`, absent when no premise changed under it.
+  `stale` is true while a superseded, rejected or refuted premise has no reaffirmation after
+  it (a contested premise counts in `open` but never sets it, the same rule as `held_up`).
+  `--summary` rows end with `stale=yes`, `reexamine_open=N`, `reaffirmed=N`; the recall digest
+  adds "Stale (a premise they rest on changed and nobody has said they still hold): …".
+  Recall carried no outcome before, so this closes the one place staleness was silent. The
+  marker counts the same items `get_reexamine_items` lists; `verify` has the detail.
+- `compact-view`: each premise and refuted hypothesis carries `reexamine` (`open` |
+  `reaffirmed`), and a rejected or contested decision carries `propagation`.
+- History: `recent_activity` and `decisions_changed_since` rows of kind `reaffirmed` carry
+  `reaffirmed_premise: {premise_id, reason}` beside the row's actor and time; `why` and
+  `chain` timelines get a `reaffirmed` entry ("still holds after <premise> changed: <reason>")
+  beside the existing `premise superseded` / `premise rejected` / `premise refuted` entries.
+- The Markdown decision log: a decision a premise changed under gets "Re-examination" (the
+  entries) in its Outcome section; a decision that itself changed gets "Propagation". The
+  UNFINISHED mark is left out there: it depends on today's date and the export carries no
+  clock.
+- Graph views (`GET /v1/graph`, `export --format dot`): a `Reaffirmation` is labelled with its
+  reason and drawn with two lines to the decision it concerns (`REAFFIRMS`, "reaffirms") and
+  the premise that changed (`REAFFIRMED_AFTER`, "after the change to"). They are read from the
+  node's own properties and marked `"derived": true`; the graph stores no such edge.
+- The TUI marks a result `!stale re-examine:N` and prints each entry on the open decision.
+
 **`why` reuses the brief.** `get_decision_neighborhood` (`why`) returns the
 one-hop graph and leads with this same `DecisionBrief`: `root` carries it
 flattened in beside `id` (title, rationale, chosen and rejected option
@@ -1092,7 +1135,7 @@ the brief or labels.
 (the CLI, the stdio server, the HTTP endpoint), `why` also returns
 `timeline`: the decision's dated story from the ledger, oldest first, each
 entry cited by its event (asked, recorded, accepted or rejected, superseded,
-retitled, moved, a premise no longer standing), with `asked_at`, `decided_at`
+retitled, moved, a premise no longer standing, someone saying it still holds), with `asked_at`, `decided_at`
 and `asked_to_decided_seconds`. The graph holds no per-edge times, so a
 graph-only `get_decision_neighborhood` leaves it absent. See
 [`ATTENTION_LISTS.md`](ATTENTION_LISTS.md), which also describes the waiting,

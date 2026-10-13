@@ -259,7 +259,11 @@ Required result behavior:
   field hits without knowing the storage backend.
 - `snippets` are bounded and must not be the only place a match is represented.
 - `graph_context` includes ids for actors, options, evidence, hypotheses,
-  supersession edges, stale reasons, and matched nodes.
+  supersession edges, and matched nodes, and a `reexamine` marker
+  (`{stale, open, reaffirmed}`) when a premise the decision rests on changed:
+  absent otherwise. It is derived from the same items `get_reexamine_items`
+  lists, on the page that is returned, never on the decisions that were scored
+  (see `AGENT_FLUENT_QUERYING.md`, "Where the change shows").
 - `provenance` includes the decision's creating event origin and citation ids
   or event origins for matched context when the projection exposes them.
 

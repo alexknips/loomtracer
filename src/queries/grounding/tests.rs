@@ -719,6 +719,8 @@ fn search_and_compact_view_carry_premise_ids_and_grounding_state() -> Result<()>
         vec![crate::queries::PremiseSummaryView {
             decision_id: "d:goal".to_owned(),
             status: DecisionStatus::Superseded,
+            // The goal was superseded and nobody has said the decision still holds.
+            reexamine: Some(crate::queries::ReexamineStatus::Open),
         }]
     );
     assert_eq!(compact.dependents_count, 0);

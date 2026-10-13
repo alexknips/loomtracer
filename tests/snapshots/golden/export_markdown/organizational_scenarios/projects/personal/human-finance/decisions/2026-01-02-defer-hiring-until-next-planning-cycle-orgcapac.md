@@ -60,6 +60,9 @@ Reasons:
 - Premised on refuted hypothesis org:capacity:hypothesis:contractor-covers-gap
 - Rejected by agent:team-lead and accepted by no one
 
+Re-examination:
+- re-examine closed: hypothesis "A contractor can cover the next milestone without onboarding drag." was refuted 2026-01-02; this decision was itself rejected
+
 Supersedes: None recorded.
 Superseded by: None recorded.
 

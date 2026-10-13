@@ -474,6 +474,18 @@ word each item on the page. A decision's own entries (on its outcome) use anchor
 and read nothing until one of its premises has changed. A `FOLLOWS_FROM` cycle is read once
 per link and cannot loop.
 
+**Where it shows.** The places that show a decision say what these items say, in the same
+words (`ReexamineEntry::describe`, `Propagation::describe`): the brief (`still_holds.reexamine`,
+and `propagation` on a decision that itself changed), the situational STALE cell, the compact
+view, the history and timeline rows, the decision log, the TUI, and a marker on each match of
+`recall`, `search` and the topic lookup. The marker is `{stale, open, reaffirmed}`, counted
+from exactly the items listed above (`stale`: an open item whose change is a supersession, a
+rejection or a refutation; a contested premise counts in `open` only). A page of matches reads
+the 13 bulk reads once; a brief of a changed decision reads its dependents anchored on it plus
+the position edges and the reaffirmations in bulk, so neither grows with the graph. The
+decision log leaves out the UNFINISHED mark because it depends on today's date and the export
+carries no clock. See [`AGENT_FLUENT_QUERYING.md`](AGENT_FLUENT_QUERYING.md).
+
 ## What the tools return
 
 One core, `src/quality_profile/report.rs`, builds every answer. The stdio server, the
