@@ -734,8 +734,8 @@ the open items come back as `{outcome: "ambiguous", field: "premise", items}` an
 written until `--premise` (CLI) / `premise_id` (MCP, REST) names one, by id or by words from
 its title; nothing open under that name is refused (exit 2 / MCP tool error / HTTP 400) in
 words that say why (the premise has not changed, the decision does not rest on it, the
-decision no longer stands, or the item is already closed, naming who closed it, when, and the
-event's ledger number and uuid). The command underneath does not check, which is why the
+decision no longer stands, the decision is the one that superseded the premise, or the item is
+already closed, naming who closed it, when, and the event's ledger number and uuid). The command underneath does not check, which is why the
 check lives in the verb and runs on all four transports. `hivemind reexamine` lists the
 items. The MCP tools `reaffirm_decision` and `get_reexamine_items` are registered on both
 transports and take the `decision_id`/`description`/`topic` selectors; REST has the

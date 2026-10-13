@@ -30,9 +30,9 @@ use crate::events::{EventId, EventProvenance, TenantId};
 use crate::ledger::EventLedger;
 use crate::projector::GraphView;
 use crate::queries::{
-    get_decision, get_reexamine_items, grounding_of, ChangeKind, DecisionStatus, DecisionView,
-    GroundingKind, ItemState, PremiseChange, PremiseKind, QueryContext, ReaffirmationSummary,
-    ReexamineItem, ReexamineRequest,
+    get_decision, get_reexamine_items, grounding_of, is_sole_superseder, ChangeKind,
+    DecisionStatus, DecisionView, GroundingItem, GroundingKind, ItemState, PremiseChange,
+    PremiseKind, QueryContext, ReaffirmationSummary, ReexamineItem, ReexamineRequest,
 };
 use crate::Result;
 
@@ -230,6 +230,25 @@ fn nothing_to_reexamine(
         .filter(|item| item.kind != GroundingKind::Evidence)
         .collect();
     let Some(premise) = premise else {
+        let mut alone = Vec::new();
+        for item in &rests_on {
+            if superseded_by_it_alone(graph, decision, item)? {
+                alone.push(quoted(&item.label));
+            }
+        }
+        if !alone.is_empty() {
+            let others = rests_on.len() - alone.len();
+            let rest = if others == 0 {
+                String::new()
+            } else {
+                format!("; none of the {others} other premise(s) it rests on has changed")
+            };
+            return Ok(format!(
+                "nothing to re-examine: {title} is the decision that superseded {}, so there is nothing for it to re-examine about {}{rest}",
+                alone.join(" and "),
+                if alone.len() == 1 { "it" } else { "them" }
+            ));
+        }
         return Ok(if rests_on.is_empty() {
             format!(
                 "nothing to re-examine: {title} rests on no decision, assumption or bet, so no premise of it can have changed"
@@ -245,6 +264,11 @@ fn nothing_to_reexamine(
         .iter()
         .find(|item| item.id == premise || holds_every_word(&item.label, premise))
     {
+        // The premise did change: this decision is what changed it, so it has no item on it.
+        Some(item) if superseded_by_it_alone(graph, decision, item)? => Ok(format!(
+            "nothing to re-examine: {title} is the decision that superseded {}, so there is nothing for it to re-examine about it",
+            quoted(&item.label)
+        )),
         Some(item) => Ok(format!(
             "nothing to re-examine: {} has not changed, so {title} has nothing to reaffirm about it",
             quoted(&item.label)
@@ -264,6 +288,16 @@ fn nothing_to_reexamine(
             ))
         }
     }
+}
+
+/// Whether `item`, something `decision` rests on, is a decision that `decision` alone superseded:
+/// the revision is the change, so it has no item on it (the rule re-examine items follow).
+fn superseded_by_it_alone(
+    graph: &impl GraphView,
+    decision: &DecisionView,
+    item: &GroundingItem,
+) -> Result<bool> {
+    Ok(item.kind == GroundingKind::Decision && is_sole_superseder(graph, &decision.id, &item.id)?)
 }
 
 /// One closed item, as a clause of a refusal. A reaffirmation names who recorded it, when, and

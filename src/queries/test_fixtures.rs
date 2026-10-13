@@ -3249,5 +3249,138 @@ pub(crate) fn assert_revisions_scenario(scenario: &Scenario, graph: &impl GraphV
         assert!(outcome.stale_premises, "{decision_id}");
         assert_eq!(outcome.reexamine.len(), 1, "{decision_id}");
     }
+
+    assert_revisions_reaffirm_refusals(scenario, graph)?;
+    assert_revisions_history(scenario)
+}
+
+/// `reaffirm` on a revision says what is true: the decision is the one that superseded its
+/// premise, so it has nothing to re-examine about it. It never says the premise has not changed
+/// (hivemind-851kw). One of several superseders has an open item, so its reaffirmation goes
+/// through, and a premise nobody changed keeps "has not changed".
+fn assert_revisions_reaffirm_refusals(scenario: &Scenario, graph: &impl GraphView) -> Result<()> {
+    use crate::queries::QueryContext;
+    use crate::reaffirmation::{plan_reaffirmation, ReaffirmPlan};
+
+    let plan = |decision_id: &str, premise: Option<&str>| {
+        plan_reaffirmation(
+            &QueryContext::local(),
+            graph,
+            scenario.ledger(),
+            decision_id,
+            premise,
+        )
+    };
+    let refusal = |decision_id: &str, premise: Option<&str>| -> Result<String> {
+        match plan(decision_id, premise)? {
+            ReaffirmPlan::Refused(reason) => Ok(reason),
+            other => panic!("{decision_id} {premise:?}: expected a refusal, got {other:?}"),
+        }
+    };
+
+    for (decision_id, premise, premise_title) in [
+        ("d:revised", Some("d:old"), "Cap requests per tenant"),
+        ("d:revised", Some("tenant"), "Cap requests per tenant"),
+        ("d:revised", None, "Cap requests per tenant"),
+        ("d:solo-new", Some("d:solo"), "Name the service Atlas"),
+        ("d:solo-new", None, "Name the service Atlas"),
+    ] {
+        let reason = refusal(decision_id, premise)?;
+        assert!(
+            reason.contains("is the decision that superseded")
+                && reason.contains(&format!("\"{premise_title}\"")),
+            "{decision_id} {premise:?}: {reason}"
+        );
+        assert!(
+            !reason.contains("has not changed") && !reason.contains("has changed"),
+            "{decision_id} {premise:?}: {reason}"
+        );
+        assert!(
+            reason.ends_with("nothing was written"),
+            "{decision_id} {premise:?}: {reason}"
+        );
+    }
+
+    // One of several superseders is told about the others: its item is open.
+    for decision_id in ["d:two-a", "d:two-b"] {
+        assert!(
+            matches!(
+                plan(decision_id, Some("d:two"))?,
+                ReaffirmPlan::Ready(target) if target.premise_id == "d:two"
+            ),
+            "{decision_id}"
+        );
+    }
+    assert!(matches!(
+        plan("d:bystander", Some("d:old"))?,
+        ReaffirmPlan::Ready(_)
+    ));
+    Ok(())
+}
+
+/// The history feeds list as stale on a supersession the decisions that followed the premise, bar
+/// the one that alone superseded it (hivemind-851kw): `d:bystander` for `d:old`, nothing for
+/// `d:solo`, and both superseders for `d:two`, each told about the other. Read from the ledger
+/// alone, so the same on every backend.
+fn assert_revisions_history(scenario: &Scenario) -> Result<()> {
+    use crate::queries::{
+        get_decisions_changed_since, get_recent_activity, ChangedSinceRequest, HistoryChangeKind,
+        RecentActivityRequest,
+    };
+
+    let stale_rows = |mut rows: Vec<(u64, Vec<String>)>| {
+        rows.sort();
+        rows.into_iter().map(|(_, ids)| ids).collect::<Vec<_>>()
+    };
+    let expected: Vec<Vec<String>> = [
+        vec!["d:bystander"],
+        vec!["d:two-a", "d:two-b"],
+        vec!["d:two-a", "d:two-b"],
+    ]
+    .into_iter()
+    .map(|ids| ids.into_iter().map(str::to_owned).collect())
+    .collect();
+
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &RecentActivityRequest {
+            limit: 200,
+            ..RecentActivityRequest::default()
+        },
+    )?
+    .data;
+    assert!(activity.next_cursor.is_none());
+    assert_eq!(
+        stale_rows(
+            activity
+                .items
+                .iter()
+                .filter(|row| row.change_kind == HistoryChangeKind::StalePremise)
+                .map(|row| (row.event_origin, row.decision_ids.clone()))
+                .collect()
+        ),
+        expected
+    );
+
+    let changed = get_decisions_changed_since(
+        scenario.ledger(),
+        &ChangedSinceRequest {
+            since_offset: Some(0),
+            limit: 200,
+            ..ChangedSinceRequest::default()
+        },
+    )?
+    .data;
+    assert_eq!(
+        stale_rows(
+            changed
+                .items
+                .iter()
+                .filter(|row| row.change_kind == HistoryChangeKind::StalePremise)
+                .map(|row| (row.event_origin, row.decision_ids.clone()))
+                .collect()
+        ),
+        expected
+    );
     Ok(())
 }

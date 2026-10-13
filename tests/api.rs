@@ -1367,6 +1367,54 @@ async fn reaffirmation_is_refused_when_there_is_nothing_to_reexamine_and_writes_
 }
 
 #[tokio::test]
+async fn reaffirmation_by_the_decision_that_solely_superseded_its_premise_says_so_and_writes_nothing(
+) {
+    let dir = test_ledger_dir();
+    let premise = capture_resting_on(&dir, "Cap requests per tenant", None).await;
+    // The revision follows the premise it supersedes (hivemind-851kw).
+    let (status, superseded) = call(
+        app(dir.clone()),
+        post_json(
+            &format!("/v1/decisions/{premise}/supersessions"),
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "decision", "decision_id": premise}],
+                "title": "Throttle each account by plan tier",
+                "rationale": "Plan tiers are what customers buy, so the throttle follows them",
+                "topic_keys": ["reaffirm"],
+                "options": ["by-tier"]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "supersede: {superseded}"); // ubs:ignore
+    let revision = superseded["new_decision_id"].as_str().unwrap().to_owned();
+
+    let (status, refused) = call(
+        app(dir.clone()),
+        post_json_as_actor(
+            &format!("/v1/decisions/{revision}/reaffirmations"),
+            serde_json::json!({"premise_id": premise, "reason": "Checked"}),
+            "agent:codex:reviewer",
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}"); // ubs:ignore
+    assert_eq!(refused["error"]["code"], "validation_error"); // ubs:ignore
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("is the decision that superseded \"Cap requests per tenant\""),
+        "{message}"
+    ); // ubs:ignore
+    assert!(!message.contains("has changed"), "{message}"); // ubs:ignore
+    assert!(!message.contains("has not changed"), "{message}"); // ubs:ignore
+    assert!(message.ends_with("nothing was written"), "{message}"); // ubs:ignore
+    assert!(reaffirmed_events(&dir).is_empty()); // ubs:ignore
+}
+
+#[tokio::test]
 async fn supersede_nonexistent_decision_returns_404() {
     let dir = test_ledger_dir();
     let (status, body) = call(

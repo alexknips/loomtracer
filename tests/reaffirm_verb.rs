@@ -408,6 +408,54 @@ fn reaffirm_refuses_what_there_is_nothing_to_reexamine_and_writes_nothing() -> T
 }
 
 #[test]
+fn reaffirm_on_the_decision_that_solely_superseded_its_premise_says_so_and_writes_nothing(
+) -> TestResult<()> {
+    let scratch = Scratch::new("revision")?;
+    let dir = scratch.path();
+    let premise = capture_raw(dir, "Cap requests per tenant")?;
+    let revision = capture_raw(dir, "Throttle each account by plan tier")?;
+    rest_on(
+        dir,
+        "Throttle each account by plan tier",
+        "Cap requests per tenant",
+    )?;
+    run_cli(
+        dir,
+        CAPTURER,
+        true,
+        &[
+            "emit",
+            "decision.superseded",
+            "--old",
+            &premise,
+            "--new",
+            &revision,
+        ],
+    )?;
+
+    // The premise changed, and this decision is what changed it: that is the reason, never "has
+    // not changed". By its words, by its id, and with no premise named at all.
+    for premise_args in [
+        &["--premise", "per tenant"][..],
+        &["--premise", premise.as_str()][..],
+        &[][..],
+    ] {
+        let mut args = vec![revision.as_str(), "--because", "Checked"];
+        args.extend_from_slice(premise_args);
+        let error = assert_refused_writing_nothing(
+            dir,
+            &args,
+            "is the decision that superseded \"Cap requests per tenant\"",
+        )?;
+        let message = error.to_string();
+        assert!(!message.contains("has not changed"), "{message}");
+        assert!(!message.contains("has changed"), "{message}");
+        assert!(message.ends_with("nothing was written"), "{message}");
+    }
+    Ok(())
+}
+
+#[test]
 fn reaffirm_lists_several_open_items_and_the_premise_flag_names_one() -> TestResult<()> {
     let scratch = Scratch::new("several")?;
     let dir = scratch.path();

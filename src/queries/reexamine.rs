@@ -29,7 +29,8 @@
 //! the only decision to have superseded P: it follows from P and revises it, so it *is* the
 //! change, not something resting on the old P that needs a second look (one of several
 //! superseders is told about the others, so it keeps its item). It is no dependent of P for
-//! [`Propagation`] either. A later change to
+//! [`Propagation`] either, the history feeds do not list it as made stale by P's supersession,
+//! and `reaffirm` refuses it saying that it is the decision that superseded P. A later change to
 //! P (contested, then superseded) is a new change at a later offset, so an earlier reaffirmation
 //! no longer closes the item: it reopens, and the earlier reaffirmations stay visible on it. A
 //! reaffirmation whose offset is unknown, or that cannot be placed against a change whose offset
@@ -249,9 +250,7 @@ impl PremiseChange {
     /// a second look, so it has no item. (One of several superseders is told about the others,
     /// so it keeps its item.) The rule the `premise_superseded` finding follows too.
     fn is_made_by_alone(&self, decision_id: &str) -> bool {
-        self.kind == ChangeKind::Superseded
-            && !self.by_ids.is_empty()
-            && self.by_ids.iter().all(|by_id| by_id == decision_id)
+        self.kind == ChangeKind::Superseded && solely_supersedes(&self.by_ids, decision_id)
     }
 
     /// The clause that follows the premise's name: `was superseded 2026-09-12`, dated when the
@@ -268,6 +267,30 @@ impl PremiseChange {
             ChangeKind::Refuted => dated("refuted"),
         }
     }
+}
+
+/// Whether `decision_id` is the only one of `superseders`, the decisions that superseded a
+/// premise: the one test behind [`PremiseChange::is_made_by_alone`], for the readers that hold the
+/// superseders without a [`PremiseChange`] (the history feed's stale-premise rows).
+pub(crate) fn solely_supersedes<'a>(
+    superseders: impl IntoIterator<Item = &'a String>,
+    decision_id: &str,
+) -> bool {
+    let mut superseders = superseders.into_iter().peekable();
+    superseders.peek().is_some() && superseders.all(|by_id| by_id == decision_id)
+}
+
+/// Whether `decision_id` is the whole of `premise_id`'s change: the premise was superseded and
+/// that decision is the only one to have done it (see [`PremiseChange::is_made_by_alone`]). Such a
+/// decision has no item on the premise, so a reader asked why it has none says that, and not that
+/// the premise did not change. One anchored read of the premise.
+pub(crate) fn is_sole_superseder(
+    graph: &impl GraphView,
+    decision_id: &str,
+    premise_id: &str,
+) -> Result<bool> {
+    Ok(decision_change(&anchored_standing(graph, premise_id)?)
+        .is_some_and(|change| change.is_made_by_alone(decision_id)))
 }
 
 /// A label on one line: a premise's title or a reaffirmation's reason may hold line breaks or

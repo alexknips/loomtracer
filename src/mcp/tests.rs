@@ -7345,6 +7345,69 @@ mod transport_parity {
     }
 
     #[tokio::test]
+    async fn reaffirm_decision_on_the_decision_that_solely_superseded_its_premise_says_so_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-reaffirm-revision");
+        let http_dir = unique_dir("parity-http-reaffirm-revision");
+        seed_premise(&stdio_dir, &http_dir, "Cap requests per tenant").await;
+        // The revision follows the premise it supersedes (hivemind-851kw).
+        let revision = json!({
+            "description": "Cap requests per tenant",
+            "title": "Throttle each account by plan tier",
+            "rationale": "Plan tiers are what customers buy, so the throttle follows them",
+            "options": [{"label": "by-tier"}],
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
+            "grounding": [{"kind": "decision", "description": "Cap requests per tenant"}],
+        });
+        let stdio = stdio_call(&stdio_dir, "supersede_decision", revision.clone());
+        let http = http_call(&http_dir, "supersede_decision", revision).await;
+        for (name, response) in [("stdio", &stdio), ("http", &http)] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+        }
+        let stdio_offset_before = ledger_offset(&stdio_dir);
+        let http_offset_before = ledger_offset(&http_dir);
+
+        // With the premise named and with none: the premise changed, and this decision is the
+        // change. Never "has changed" / "has not changed".
+        for premise in [Some("Cap requests per tenant"), None] {
+            let mut args = json!({
+                "actor_id": REAFFIRMER,
+                "description": "Throttle each account by plan tier",
+                "reason": "Checked",
+            });
+            if let Some(premise) = premise {
+                args["premise_id"] = json!(premise);
+            }
+            let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+            let http = http_call(&http_dir, "reaffirm_decision", args.clone()).await;
+            for (name, response) in [("stdio", &stdio), ("http", &http)] {
+                let result = &response["result"];
+                assert_eq!(result["isError"], true, "{name}: {args} -> {result:?}"); // ubs:ignore: test-only assertion
+                let text = error_text(result);
+                assert!(
+                    text.contains("is the decision that superseded \"Cap requests per tenant\""),
+                    "{name}: {args} -> {text}"
+                ); // ubs:ignore: test-only assertion
+                assert!(!text.contains("has changed"), "{name}: {text}"); // ubs:ignore
+                assert!(!text.contains("has not changed"), "{name}: {text}"); // ubs:ignore
+                let written = !text.ends_with("nothing was written");
+                assert!(!written, "{name}: {text}"); // ubs:ignore
+            }
+        }
+        assert_eq!(
+            ledger_offset(&stdio_dir),
+            stdio_offset_before,
+            "stdio wrote"
+        ); // ubs:ignore: test-only assertion
+        assert_eq!(ledger_offset(&http_dir), http_offset_before, "http wrote"); // ubs:ignore: test-only assertion
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
     async fn reaffirm_decision_lists_several_open_items_and_takes_the_premise_named_across_transports(
     ) {
         let stdio_dir = unique_dir("parity-stdio-reaffirm-several");

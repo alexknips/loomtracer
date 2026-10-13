@@ -743,6 +743,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   keeps its item, because it is told about the others. `verify`'s propagation line and the
   `propagation_unfinished` finding now count the same dependents. No new event; an existing ledger
   reads right on the next call. (hivemind-tfmfn)
+- **`reaffirm` on a decision that revised its premise says why it is refused, and the history no
+  longer lists the revision as made stale by its own supersession.** `hivemind reaffirm B --premise A`
+  (and the MCP `reaffirm_decision` tool and REST `POST /v1/decisions/{id}/reaffirmations`), where B
+  is the only decision to supersede A, was refused with "A has not changed". A had changed: B
+  superseded it. The refusal now reads "B is the decision that superseded A, so there is nothing for
+  it to re-examine about it"; with no premise named, the same sentence names every premise B alone
+  superseded. A premise nobody changed keeps "has not changed". In the recent-activity feed, the
+  changed-since listing and the added-since listing, the stale-premise row for A's supersession by
+  B no longer names B among the decisions made stale; with several superseders, each still appears
+  on the others' rows. Nothing is refused that was not refused before, and no event is written or
+  changed. (hivemind-851kw)
 - **A below-floor decision now ends its row in `floor=below` in every list, not only in search,
   relevant and situational.** The list a person asks for first ("what did we decide today?",
   `recent_decisions`) showed an Apple-vs-apple decision with no marker, and so did

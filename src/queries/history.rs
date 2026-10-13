@@ -24,6 +24,7 @@ use crate::Result;
 
 use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
 use super::project_label::ProjectLabels;
+use super::reexamine;
 use super::shared::{node_rows, normalized_query, recorded_floor_of};
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
@@ -1803,6 +1804,14 @@ impl DecisionIndex {
             .unwrap_or_default()
     }
 
+    /// Whether `decision_id` is the only decision to have superseded `premise_id`, over the whole
+    /// ledger (as the re-examine items read it).
+    fn solely_supersedes(&self, decision_id: &str, premise_id: &str) -> bool {
+        self.decisions
+            .get(premise_id)
+            .is_some_and(|entry| reexamine::solely_supersedes(&entry.superseded_by, decision_id))
+    }
+
     /// The decisions that followed from `premise_decision_id` before ledger offset `before`.
     fn decisions_following(&self, premise_decision_id: &str, before: EventId) -> Vec<String> {
         self.followers_of
@@ -1824,6 +1833,11 @@ impl DecisionIndex {
 /// decisions get a `StalePremise` row of their own, so a premise going stale is never silent on
 /// the decisions that rested on it. A decision that only started following the premise later
 /// was stale from birth; its link is its own `ContextChange` row.
+///
+/// The decision that follows its premise and is the only one to supersede it is the change
+/// itself, not a dependent of it, so it is not listed (the rule re-examine items follow, see
+/// `PremiseChange::is_made_by_alone`). One of several superseders stays listed: it is told about
+/// the others.
 fn stale_premise_dependents(
     payload: &EventPayload,
     index: &DecisionIndex,
@@ -1831,8 +1845,16 @@ fn stale_premise_dependents(
 ) -> Vec<String> {
     match payload {
         EventPayload::DecisionSuperseded(DecisionSupersededPayload {
-            old_decision_id, ..
-        }) => index.decisions_following(old_decision_id, event_offset),
+            old_decision_id,
+            new_decision_id,
+            ..
+        }) => {
+            let mut dependents = index.decisions_following(old_decision_id, event_offset);
+            if index.solely_supersedes(new_decision_id, old_decision_id) {
+                dependents.retain(|dependent| dependent != new_decision_id);
+            }
+            dependents
+        }
         EventPayload::DecisionRejected(DecisionRejectedPayload { decision_id, .. }) => {
             index.decisions_following(decision_id, event_offset)
         }
