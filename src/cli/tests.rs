@@ -549,7 +549,16 @@ fn parses_tui_filters_and_export_path() {
 #[cfg(not(feature = "tui"))]
 #[test]
 fn tui_command_requires_feature() {
-    let cli = Cli::parse_from(["hivemind", "tui"]);
+    let hivemind_dir = unique_test_dir("tui-feature-required");
+    // `tui` reads the ledger, and a read of a folder with no ledger is refused before dispatch
+    // reaches the feature check (hivemind-i6ply).
+    crate::ledger::SqliteEventLedger::open(&hivemind_dir).expect("seed an empty ledger");
+    let cli = Cli::parse_from([
+        "hivemind",
+        "--hivemind-dir",
+        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "tui",
+    ]);
 
     let error = run(&cli).expect_err("tui needs feature");
 
