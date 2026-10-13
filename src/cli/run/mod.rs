@@ -126,7 +126,7 @@ pub fn run(cli: &Cli) -> Result<String> {
     let beside_cell = LocalLedgerBesideCell::from_cli(cli);
     match &beside_cell {
         Some(cell) => cell.refuse_without_local_ledger()?,
-        None => refuse_read_without_ledger(cli)?,
+        None => refuse_verb_without_ledger(cli)?,
     }
     let output = dispatch(cli)?;
     with_read_notices(cli, output, beside_cell.as_ref(), &mut io::stderr())
@@ -230,7 +230,8 @@ enum CellBesideVerb {
 enum LedgerUse {
     /// Answers from the ledger and records nothing.
     Reads,
-    /// Reads the ledger and may write to it: a verb that acts on what the ledger already holds.
+    /// Reads the ledger and may write to it: a verb that acts on what the ledger already holds,
+    /// and so has nothing to act on in a folder that holds none.
     ReadsAndWrites,
     /// Records into the ledger, and so may start one.
     WritesTo,
@@ -364,8 +365,9 @@ impl CellBesideVerb {
     }
 
     /// What the verb does to the local ledger. Every verb is placed with no catch-all arm, so a
-    /// new one fails to compile until someone decides which it is. Only a `Reads` verb is refused
-    /// a folder that holds no ledger (see [`refuse_read_without_ledger`]).
+    /// new one fails to compile until someone decides which it is. A `Reads` or `ReadsAndWrites`
+    /// verb is refused a folder that holds no ledger; only a `WritesTo` verb may start one (see
+    /// [`refuse_verb_without_ledger`]).
     fn ledger_use(self) -> LedgerUse {
         match self {
             Self::Query
@@ -662,19 +664,22 @@ impl LocalLedgerBesideCell {
     }
 }
 
-/// A read verb aimed at a folder that holds no ledger. Opening the ledger makes one, so a read
-/// under a mistyped `--hivemind-dir` (or a folder nothing was recorded in yet) created an empty
-/// ledger on the spot and answered "No decision found", exit 0: indistinguishable from a real
-/// ledger that has no match. A read has nothing to say about a ledger that does not exist, so it
-/// refuses, names the folder and creates nothing. Writes keep making the ledger on their first run;
-/// a configured `--database-url` names no folder; with `HIVEMIND_API_URL` set the same refusal is
-/// [`LocalLedgerBesideCell`]'s, which also names the cell. An existing ledger that holds nothing
-/// still answers.
-fn refuse_read_without_ledger(cli: &Cli) -> Result<()> {
+/// A verb that reads or acts on a ledger, aimed at a folder that holds none. Opening the ledger
+/// makes one, so a read under a mistyped `--hivemind-dir` (or a folder nothing was recorded in yet)
+/// created an empty ledger on the spot and answered "No decision found", exit 0: indistinguishable
+/// from a real ledger that has no match. A verb that acts on a decision or project (`disagree`,
+/// `supersede`, `project link` and the rest) did the same and answered not_found, which sent the
+/// user looking for a missing decision instead of a wrong folder. Neither can succeed on a ledger
+/// that does not exist, so each refuses, names the folder and creates nothing. Writes keep making
+/// the ledger on their first run; a configured `--database-url` names no folder; with
+/// `HIVEMIND_API_URL` set the same refusal is [`LocalLedgerBesideCell`]'s, which also names the
+/// cell. An existing ledger that holds nothing still answers (an acting verb says not_found).
+fn refuse_verb_without_ledger(cli: &Cli) -> Result<()> {
     let Some(verb) = CellBesideVerb::of(&cli.command) else {
         return Ok(());
     };
-    if verb.ledger_use() != LedgerUse::Reads {
+    let ledger_use = verb.ledger_use();
+    if ledger_use == LedgerUse::WritesTo {
         return Ok(());
     }
     let config = LedgerConfig::from_cli(cli);
@@ -687,12 +692,22 @@ fn refuse_read_without_ledger(cli: &Cli) -> Result<()> {
         return Ok(());
     }
     let dir = config.hivemind_dir.display();
+    let verb = verb.name();
+    let what_happened = match ledger_use {
+        LedgerUse::Reads => format!(
+            "`hivemind {verb}` reads a local ledger, and there is none under {dir}: nothing was \
+             read and none was created, so this is not an answer of \"no decisions\"."
+        ),
+        LedgerUse::ReadsAndWrites => format!(
+            "`hivemind {verb}` acts on what a local ledger already holds, and there is none under \
+             {dir}: nothing was recorded and none was created, so there was nothing to act on and \
+             this is not a \"not found\" for what you named."
+        ),
+        LedgerUse::WritesTo => return Ok(()),
+    };
     Err(CliError::InvalidInput(format!(
-        "`hivemind {verb}` reads a local ledger, and there is none under {dir}: nothing was read \
-         and none was created, so this is not an answer of \"no decisions\". Check --hivemind-dir \
-         (or HIVEMIND_DIR) for a typo and point it at the folder that holds the ledger; a first \
-         `hivemind emit` there starts a new one",
-        verb = verb.name(),
+        "{what_happened} Check --hivemind-dir (or HIVEMIND_DIR) for a typo and point it at the \
+         folder that holds the ledger; a first `hivemind emit` there starts a new one"
     ))
     .into())
 }

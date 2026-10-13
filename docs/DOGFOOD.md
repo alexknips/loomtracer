@@ -27,7 +27,9 @@ The repo-level `.mcp.json`, Claude settings, and capture plugin defaults all pin
 `HIVEMIND_DIR` or `--hivemind-dir` to `./hivemind/`. The SQLite file is created
 on first write. A read (`query`, `digest`, `dump` and the other read verbs) aimed
 at a folder with no ledger is refused, exit 2 and naming the folder, and creates
-nothing: check the path before reading it as "no decisions".
+nothing: check the path before reading it as "no decisions". So is a verb that
+acts on a decision or project (`disagree`, `supersede`, `reaffirm`, `project link`
+and the rest): check the path before looking for a decision that is missing.
 
 Use a temporary ledger for throwaway tests:
 

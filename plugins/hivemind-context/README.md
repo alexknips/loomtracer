@@ -90,7 +90,11 @@ Every script uses that local ledger and never contacts a server. With
 `HIVEMIND_API_URL` set, a script run where no ledger exists refuses (exit 2,
 nothing created, nothing recorded) and names the cell's own route for the same
 thing; where one exists it works and says which ledger it used, so the cell does
-not appear to have a disagreement or a replacement it never received.
+not appear to have a disagreement or a replacement it never received. Without
+that variable, a script aimed at a directory that holds no ledger refuses the
+same way (exit 2, naming the directory) and creates none: a disagreement or a
+replacement has nothing to act on there, and a mistyped path is not a missing
+decision.
 
 ## Provenance Defaults
 

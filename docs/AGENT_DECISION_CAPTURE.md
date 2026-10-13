@@ -1010,7 +1010,13 @@ when `--hivemind-dir` holds no ledger, and creates none, whether or not that var
 folder mistyped or not yet recorded in is not an answer of "no decisions". With that variable set
 it otherwise answers from that ledger with a `notice` saying so. The other verbs that only read
 (`digest`, `dump`, `export`, `map`, `reexamine`, `tui`, `restatements propose`, `project list`,
-`project show` and `project decisions`) refuse the same way. Read a cell over its HTTP API
+`project show` and `project decisions`) refuse the same way, and so do the verbs that act on a
+decision or project the ledger already holds (`disagree`, `supersede`, `move`, `retitle`, `ground`,
+`reaffirm`, `review`, `quality-scan`, `restatements apply`, and `project link`, `unlink`, `anchor`,
+`declare-topic` and `use <handle>`): exit 2, naming the folder, nothing recorded and no ledger made,
+so a mistyped folder is not read as a decision that is missing. `emit`, `ask`, `import`,
+`project register`, `ingest slack-thread` and `tenant create` record a ledger's first event and
+keep creating it. Read a cell over its HTTP API
 (`GET /v1/decisions/search`, `/recall`, `/relevant`) or its MCP tools. `hivemind emit`, `digest`,
 `review`, `export` and `dump` do the
 same: they use a local ledger, refuse (exit 2, nothing created, nothing recorded) when

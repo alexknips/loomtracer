@@ -180,9 +180,10 @@ pub enum Command {
     /// written for the premise unless you run `disagree` or `supersede` on it too.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// missing. With that variable set it otherwise says in its output (a `notice` key under
+    /// --json) that it used that local ledger, so the cell has no record of it.
     Disagree(DisagreeArgs),
     /// Replace a decision with a new one, found by describing it: the replacement is captured
     /// with its own title, rationale and options, and the old decision is marked superseded by
@@ -203,9 +204,10 @@ pub enum Command {
     /// It is a hint: the replacement is recorded either way.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// missing. With that variable set it otherwise says in its output (a `notice` key under
+    /// --json) that it used that local ledger, so the cell has no record of it.
     Supersede(Box<SupersedeArgs>),
     /// Move a decision to another project, found by describing it. A description that
     /// matches more than one decision lists the candidates and writes nothing; pick one with
@@ -213,9 +215,10 @@ pub enum Command {
     /// who, when, from, to and why; reversed by moving it back.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// missing. With that variable set it otherwise says in its output (a `notice` key under
+    /// --json) that it used that local ledger, so the cell has no record of it.
     Move(MoveArgs),
     /// Rename a decision, found by describing it. A description that matches more than one
     /// decision lists the candidates and writes nothing; pick one with --pick N. The old title
@@ -223,9 +226,10 @@ pub enum Command {
     /// nothing is lost. Recorded with who, when, from, to and why; reversed by retitling it back.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// missing. With that variable set it otherwise says in its output (a `notice` key under
+    /// --json) that it used that local ledger, so the cell has no record of it.
     Retitle(RetitleArgs),
     /// Say what an existing decision rests on, after the fact: a decision it follows from,
     /// something observed, something assumed, or a declared bet. Append-only and attributed to
@@ -236,9 +240,10 @@ pub enum Command {
     /// ambiguous, a premise cannot be pinned to one decision, or a premise would close a loop.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// missing. With that variable set it otherwise says in its output (a `notice` key under
+    /// --json) that it used that local ledger, so the cell has no record of it.
     Ground(GroundArgs),
     /// Say that a decision still holds after something it rests on changed: closes its open
     /// re-examine item with a one-line reason (`--because`), attributed to whoever runs it
@@ -254,9 +259,10 @@ pub enum Command {
     /// written on a refusal, an ambiguity or an unmatched description. There is no `--all`.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// missing. With that variable set it otherwise says in its output (a `notice` key under
+    /// --json) that it used that local ledger, so the cell has no record of it.
     Reaffirm(ReaffirmArgs),
     /// List the decisions that rest on something that changed and have not been looked at again:
     /// the open re-examine items, oldest decision first. Each names the decision, the premise
@@ -294,8 +300,9 @@ pub enum Command {
     /// decisions someone already ruled on.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2, when
-    /// --hivemind-dir holds no ledger, and otherwise says in its output that it used that local
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as "no decisions to
+    /// review". With that variable set it otherwise says in its output that it used that local
     /// ledger.
     Review(ReviewArgs),
     /// Bring decisions in from documents: local Markdown or text notes with `Decision:` blocks
@@ -400,11 +407,11 @@ pub enum Command {
     /// merge: both records stay as recorded, and `recall` and `why` show them as one decision.
     ///
     /// Reads (`propose`) and writes (`apply`) the ledger under --hivemind-dir (or --database-url)
-    /// and never contacts the server in HIVEMIND_API_URL. `propose` refuses, exit 2 and creating
+    /// and never contacts the server in HIVEMIND_API_URL. Both refuse, exit 2 and creating
     /// nothing, when --hivemind-dir holds no ledger, so a mistyped folder is not read as "no
-    /// restatements". With that variable set, `apply` refuses likewise, exit 2 and nothing
-    /// recorded, and both otherwise say in their output (a `notice` key under --json, on stderr
-    /// for `apply --json`, which prints an array) that they used that local ledger.
+    /// restatements" and nothing is applied to a ledger that is not there. With that variable
+    /// set they otherwise say in their output (a `notice` key under --json, on stderr for
+    /// `apply --json`, which prints an array) that they used that local ledger.
     Restatements(RestatementsArgs),
     /// Manage connector authentication (e.g., Google Docs OAuth).
     /// Set HIVEMIND_GOOGLE_CLIENT_ID and HIVEMIND_GOOGLE_CLIENT_SECRET before running.
@@ -417,9 +424,10 @@ pub enum Command {
     /// Pass --dry-run to preview what would be filed without calling Linear or acknowledging.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
-    /// `notice` key) that the findings are that local ledger's.
+    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as "no findings". With
+    /// that variable set it otherwise says in its output (a `notice` key) that the findings are
+    /// that local ledger's.
     #[command(name = "quality-scan")]
     QualityScan(QualityScanArgs),
     /// Export the decision log as a tree of Markdown files grouped per
@@ -452,10 +460,12 @@ pub enum Command {
     /// The registry lives in the ledger under --hivemind-dir (or --database-url); no `project`
     /// subcommand contacts the server in HIVEMIND_API_URL. `project list`, `show` and `decisions`
     /// refuse, exit 2 and creating nothing, when --hivemind-dir holds no ledger, so a mistyped
-    /// folder is not read as "no projects". With that variable set, each subcommand that opens
-    /// the ledger (all but `project show --current` and `project use --clear`, which touch only
-    /// the current-project file) refuses likewise, nothing recorded, and otherwise says in its
-    /// output (a `notice` key under --json) that it used that local ledger.
+    /// folder is not read as "no projects"; so do `link`, `unlink`, `anchor`, `declare-topic` and
+    /// `use <handle>`, which act on a project the registry holds and have none to act on.
+    /// `register` makes the ledger on its first run. With that variable set, each subcommand that
+    /// opens the ledger (all but `project show --current` and `project use --clear`, which touch
+    /// only the current-project file) refuses likewise, nothing recorded, and otherwise says in
+    /// its output (a `notice` key under --json) that it used that local ledger.
     Project(ProjectArgs),
 }
 

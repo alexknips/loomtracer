@@ -700,6 +700,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A verb that acts on an existing decision or project, aimed at a folder with no ledger, now
+  refuses instead of making an empty ledger and answering not_found.** `disagree`, `supersede`,
+  `move`, `retitle`, `ground`, `reaffirm`, `review`, `quality-scan`, `restatements apply`, and
+  `project link`, `unlink`, `anchor`, `declare-topic` and `use <handle>` can never succeed on a
+  ledger that does not exist, because there is nothing for them to act on. Under a mistyped
+  `--hivemind-dir` they still created an empty `ledger.sqlite` there and answered "no decision
+  matches that description" (or "project does not exist"), which left a stray ledger behind and
+  sent the user looking for a missing decision instead of a wrong folder. They now refuse like
+  the read verbs do (hivemind-i6ply): exit 2, nothing printed, nothing created (no folder, no
+  ledger file), and the message names the verb and the folder. A folder that holds a ledger, even
+  one with no decision in it, answers as before. The verbs that record a ledger's first event
+  keep making it (`emit`, `ask`, `import`, `project register`, `ingest slack-thread`,
+  `tenant create`), a configured `--database-url` names no folder and is unchanged, and so is the
+  refusal with `HIVEMIND_API_URL` set. `hivemind mcp` and `serve` over a missing folder are
+  unchanged: a server legitimately starts before the first capture. `--help` for these verbs,
+  the README and the capture and context docs say the same. (hivemind-5t1uk)
 - **A read aimed at a folder with no ledger now refuses instead of making an empty ledger and
   answering "No decision found".** With `HIVEMIND_API_URL` unset, `--hivemind-dir` pointing at a
   mistyped or fresh folder, and a read verb (`query why`, `verify`, `recall`, `search`,
@@ -712,10 +728,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   and `project decisions`. This is the case hivemind-rmdi1, 3wism, nrk9f and wp0n7 left open;
   they refused it with the cell URL set. A folder that holds a ledger, even one with no decision
   in it, answers as before. Writes keep making the ledger on their first run (`emit`, `ask`,
-  `import`, `project register`, `ingest slack-thread`, `tenant create`), and so do the verbs that
-  act on a decision or project a ledger already holds (`disagree`, `supersede`, `review` and the
-  rest), which this fix leaves as they were. A configured `--database-url` names no folder and
-  is unchanged. Which verbs only read is now one exhaustive match on the verb, with no catch-all
+  `import`, `project register`, `ingest slack-thread`, `tenant create`); the verbs that act on a
+  decision or project a ledger already holds are refused too (see the next entry). A configured
+  `--database-url` names no folder and is unchanged. Which verbs only read is now one exhaustive match on the verb, with no catch-all
   case, so a verb added later does not compile until someone decides. `--help` for these verbs,
   the README and the capture and context docs say the same. (hivemind-i6ply)
 - **A decision that revises its premise is no longer asked to re-examine itself.** A decision B
