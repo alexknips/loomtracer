@@ -182,7 +182,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `reason`, and the hivemind-context plugin's `reaffirm` command) records one "still holds",
   attributed to whoever runs it, a person or an agent. It closes only an open re-examine item:
   with one open item the premise is implied, with several the open items are listed (CLI text
-  and `--json`, MCP `{outcome: "ambiguous", data: {field: "premise", items}}`) and nothing is
+  and `--json`, MCP `{outcome: "ambiguous", field: "premise", items}` in the reply's `data`) and nothing is
   written until `--premise` / `premise_id` names one (an id, or words from its title). Nothing
   to re-examine is refused with the reason and nothing written (CLI exit 2, MCP tool error,
   REST 400): the premise has not changed, the decision does not rest on it, the decision itself
