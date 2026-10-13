@@ -193,7 +193,7 @@ test('server capture is separate from reported authorship and imported recorder 
 test('legacy database sources are labeled as preserved records with unknown original authorship', async ({ page }) => {
   const bundle = makeDemoBundle(); bundle.title = 'Legacy source fixture';
   bundle.contexts = bundle.contexts.map(context => ({ ...context, kind: 'legacy_record' }));
-  bundle.entries = bundle.entries.map(entry => ({ ...entry, provenance: { ...entry.provenance, expressedBy: null } }));
+  bundle.entries = bundle.entries.map(entry => entry.id === 'E-recommendation:v1' ? { ...entry, provenance: { ...entry.provenance, expressedBy: null } } : entry);
   bundle.sources = bundle.sources.map(source => ({ ...source, role: 'record', provenance: { kind: 'legacy_record', originalRecord: { table: 'nodes', id: source.id, workspaceId: 'legacy-workspace' } } }));
   await page.goto('/inspect');
   await page.getByTestId('bundle-input').setInputFiles({ name: 'legacy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(bundle)) });
