@@ -360,9 +360,9 @@ date them. Their dependents are not hidden for it: the dependents' own findings 
 re-examine items show them, and a refuted hypothesis stays flagged on each dependent
 (`assumption_refuted`, `bet_failed`) until that dependent is looked at again. A decision
 that is the *only* one to have superseded its premise is the change, not something that
-rests on the premise, and is not counted as a dependent (the rule `premise_superseded`
-follows; `verify`'s propagation line counts every decision that follows the premise, so in
-that one case its total is one higher).
+rests on the premise, and is not a dependent: it has no re-examine item, `verify`'s
+propagation line does not count it and `premise_superseded` does not flag it, so the
+finding and `verify` count the same dependents.
 
 **Reaffirmed premises.** A dependent whose re-examine item is closed by a reaffirmation is
 no longer flagged for that premise by `premise_superseded`, `premise_rejected`,
@@ -472,7 +472,11 @@ state never closes an item.
   nothing is left to re-examine.
 
 A dependent that was already superseded or rejected *before* the change has no item and is
-not counted. A dependent linked to the premise after the change gets an open item. A later
+not counted. Nor has a decision that is the **only** one to have superseded the premise: a
+revision captured with both `--follows A` and `--supersedes A` is the change itself, not
+something resting on the old premise that needs a second look, so it is no dependent of A.
+One of several superseders is told about the others, so it keeps its item. A dependent
+linked to the premise after the change gets an open item. A later
 change to the same premise (contested, then superseded) is a new change at a later offset, so
 an earlier reaffirmation no longer closes it: the item reopens and the earlier ones stay
 visible beside it as `earlier_reaffirmations`. A reaffirmation that matches no changed
@@ -481,7 +485,8 @@ items; they decide which items a question sees.
 
 **Completeness: N of M, and unfinished.** For a changed premise the answer says "N of M
 dependents re-examined": M counts the dependents that stood when it changed (plus those
-linked since), N those reaffirmed or since superseded or rejected, `open` the rest. A change
+linked since, less a decision that is the only one to have superseded it), N those
+reaffirmed or since superseded or rejected, `open` the rest. A change
 is `unfinished` when an item is still open more than `propagation_window_days` after the
 change: 14 by default, a field of `AttentionConfig`, per request when a surface offers it.
 Exactly the window is not yet past; one second more is. The age is the change's own time,
@@ -495,7 +500,9 @@ actor.
 `reexamine`, which the JSON answers under `still_holds` (`data.still_holds.reexamine`; no
 top-level `data.reexamine`): one entry per changed premise the decision rests on, open or
 closed, absent when no premise changed. `reasons` and `stale_premises` stay what the graph
-states. `held_up` changes in two ways, both written down:
+states, except that a premise this decision is the only one to have superseded is not stale
+for it: the decision is the change, as it is for the re-examine items. `held_up` changes in
+two ways, both written down:
 
 - A stale premise (superseded, rejected, refuted) stops counting once its change is
   reaffirmed for this decision. The reason stays in `reasons`; the entry says who looked

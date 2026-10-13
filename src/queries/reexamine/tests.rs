@@ -2,7 +2,8 @@
 #[cfg(test)]
 use crate::projector::memory::MemoryGraph;
 use crate::queries::test_fixtures::{
-    assert_reexamine_scenario, reexamine_scenario, ts, CountingGraph, Scenario, REEXAMINE_NOW,
+    assert_reexamine_scenario, assert_revisions_scenario, reexamine_scenario, revisions_scenario,
+    ts, CountingGraph, Scenario, REEXAMINE_NOW,
 };
 use crate::queries::{GROUNDING_FACT_READS, REEXAMINE_FACT_READS};
 use crate::Result;
@@ -71,6 +72,47 @@ fn the_scenario_reads_as_every_backend_must_read_it() -> Result<()> {
     let scenario = reexamine_scenario()?;
 
     assert_reexamine_scenario(&scenario, &scenario.graph()?)
+}
+
+#[test]
+fn a_decision_that_supersedes_its_own_premise_is_no_dependent_of_it() -> Result<()> {
+    let scenario = revisions_scenario()?;
+
+    assert_revisions_scenario(&scenario, &scenario.graph()?)
+}
+
+#[test]
+fn a_revision_reaffirmed_against_its_own_change_stays_out_of_the_list() -> Result<()> {
+    // Someone who reaffirmed before the rule existed left a `decision.reaffirmed` for the pair.
+    // The revision has no item to close, so the old event neither shows up nor reopens anything.
+    let scenario = revisions_scenario()?;
+    scenario.reaffirmed(
+        "d:revised",
+        "d:old",
+        "The tuned cap is the new cap",
+        "human:alice",
+        "2026-09-07T00:00:00Z",
+    )?;
+    let graph = scenario.graph()?;
+
+    let all = ask(
+        &scenario,
+        &graph,
+        &ReexamineRequest {
+            include_closed: true,
+            limit: 100,
+            ..ReexamineRequest::default()
+        },
+    )?
+    .data;
+
+    assert_eq!(
+        open_ids(&all),
+        ["d:bystander", "d:two-a", "d:two-b"],
+        "{:?}",
+        all.items
+    );
+    Ok(())
 }
 
 #[test]
@@ -369,7 +411,13 @@ fn judged(
         .map(reaffirmation_at)
         .collect();
     let refs: Vec<&ReaffirmationRecord> = records.iter().collect();
-    judge(dependent, PremiseKind::Decision, change_at(change), &refs)
+    judge(
+        "d:dependent",
+        dependent,
+        PremiseKind::Decision,
+        change_at(change),
+        &refs,
+    )
 }
 
 #[test]
@@ -431,6 +479,33 @@ fn a_dependent_that_went_out_before_the_change_is_not_asked() {
     );
     let after = judged(&rejected_at(Some(20)), Some(10), &[]).expect("an item");
     assert_eq!(after.state, ItemState::DependentRejected);
+}
+
+#[test]
+fn the_only_superseder_of_a_premise_is_the_change_and_is_not_asked() {
+    let superseded_by = |by_ids: &[&str]| PremiseChange {
+        kind: ChangeKind::Superseded,
+        by_ids: by_ids.iter().map(|id| (*id).to_owned()).collect(),
+        at_offset: Some(10),
+        at_time: None,
+        dated_by: by_ids.first().map(|id| (*id).to_owned()),
+    };
+    let asked = |by_ids: &[&str]| {
+        judge(
+            "d:dependent",
+            &standing_dependent(),
+            PremiseKind::Decision,
+            superseded_by(by_ids),
+            &[],
+        )
+        .is_some()
+    };
+
+    // The dependent made the change alone: no item, so it is no dependent of the premise.
+    assert!(!asked(&["d:dependent"]));
+    // One of several superseders is told about the others; a bystander is asked as ever.
+    assert!(asked(&["d:dependent", "d:other"]));
+    assert!(asked(&["d:other"]));
 }
 
 #[test]

@@ -718,6 +718,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   is unchanged. Which verbs only read is now one exhaustive match on the verb, with no catch-all
   case, so a verb added later does not compile until someone decides. `--help` for these verbs,
   the README and the capture and context docs say the same. (hivemind-i6ply)
+- **A decision that revises its premise is no longer asked to re-examine itself.** A decision B
+  captured with both `--follows A` and `--supersedes A`, and the only decision to supersede A, is
+  the change itself. `verify A` counted it as a dependent of A, `hivemind reexamine` and
+  `get_reexamine_items` listed an open item asking whether B still holds now that A was superseded
+  (by B), every re-examine marker showed it, and B's own `verify` read "does not hold" because its
+  premise had gone stale. B now has no item, is not counted in A's "N of M dependents
+  re-examined", shows no marker, and holds. A decision that is one of several superseders of A
+  keeps its item, because it is told about the others. `verify`'s propagation line and the
+  `propagation_unfinished` finding now count the same dependents. No new event; an existing ledger
+  reads right on the next call. (hivemind-tfmfn)
 - **A below-floor decision now ends its row in `floor=below` in every list, not only in search,
   relevant and situational.** The list a person asks for first ("what did we decide today?",
   `recent_decisions`) showed an Apple-vs-apple decision with no marker, and so did

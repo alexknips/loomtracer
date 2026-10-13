@@ -25,7 +25,11 @@
 //! - D is itself superseded or rejected after the change (it no longer stands, so there is
 //!   nothing to re-examine).
 //!
-//! A D that was already superseded or rejected *before* the change has no item. A later change to
+//! A D that was already superseded or rejected *before* the change has no item. Nor has a D that is
+//! the only decision to have superseded P: it follows from P and revises it, so it *is* the
+//! change, not something resting on the old P that needs a second look (one of several
+//! superseders is told about the others, so it keeps its item). It is no dependent of P for
+//! [`Propagation`] either. A later change to
 //! P (contested, then superseded) is a new change at a later offset, so an earlier reaffirmation
 //! no longer closes the item: it reopens, and the earlier reaffirmations stay visible on it. A
 //! reaffirmation whose offset is unknown, or that cannot be placed against a change whose offset
@@ -239,6 +243,17 @@ impl ReexamineMarker {
 }
 
 impl PremiseChange {
+    /// Whether `decision_id` is the whole of this change: the premise was superseded and that
+    /// decision is the only one to have done it. A decision that follows its premise and
+    /// supersedes it is the revision itself, not something resting on the old premise that needs
+    /// a second look, so it has no item. (One of several superseders is told about the others,
+    /// so it keeps its item.) The rule the `premise_superseded` finding follows too.
+    fn is_made_by_alone(&self, decision_id: &str) -> bool {
+        self.kind == ChangeKind::Superseded
+            && !self.by_ids.is_empty()
+            && self.by_ids.iter().all(|by_id| by_id == decision_id)
+    }
+
     /// The clause that follows the premise's name: `was superseded 2026-09-12`, dated when the
     /// graph dates the change; `is contested (a live disagreement, not a verdict)`.
     pub fn describe(&self) -> String {
@@ -588,14 +603,22 @@ fn summarize_reaffirmation(record: &ReaffirmationRecord) -> ReaffirmationSummary
     }
 }
 
-/// The state of one (dependent, premise) pair after `change`, or `None` when the dependent was
-/// already out before the change. `reaffirmations` are every reaffirmation of the pair.
+/// The state of one (dependent, premise) pair after `change`, or `None` when the pair has no
+/// item: the dependent was already out before the change, or it is the whole of the change (the
+/// only decision to supersede its premise, see [`PremiseChange::is_made_by_alone`]).
+/// `reaffirmations` are every reaffirmation of the pair. Every path that builds an item goes
+/// through here, so the bulk index, a decision's own entries and a premise's propagation agree
+/// on which dependents exist.
 fn judge(
+    dependent_id: &str,
     dependent: &StandingSummary,
     premise_kind: PremiseKind,
     change: PremiseChange,
     reaffirmations: &[&ReaffirmationRecord],
 ) -> Option<Judged> {
+    if change.is_made_by_alone(dependent_id) {
+        return None;
+    }
     let position = dependent_position(dependent, change.at_offset);
     if matches!(position, DependentPosition::OutBefore) {
         return None;
@@ -687,7 +710,13 @@ impl ReexamineIndex {
                         .get(&(dependent.as_str(), premise.as_str()))
                         .map(Vec::as_slice)
                         .unwrap_or_default();
-                    let judged = judge(standing, PremiseKind::Decision, change.clone(), pair)?;
+                    let judged = judge(
+                        dependent,
+                        standing,
+                        PremiseKind::Decision,
+                        change.clone(),
+                        pair,
+                    )?;
                     Some(IndexedItem {
                         dependent: dependent.clone(),
                         premise: premise.clone(),
@@ -710,7 +739,7 @@ impl ReexamineIndex {
                         .get(&(dependent.as_str(), hypothesis.as_str()))
                         .map(Vec::as_slice)
                         .unwrap_or_default();
-                    let judged = judge(standing, PremiseKind::Hypothesis, change, pair)?;
+                    let judged = judge(dependent, standing, PremiseKind::Hypothesis, change, pair)?;
                     Some(IndexedItem {
                         dependent: dependent.clone(),
                         premise: hypothesis.clone(),
@@ -977,6 +1006,7 @@ pub(crate) fn reexamine_entries_for(
             continue;
         };
         if let Some(judged) = judge(
+            decision_id,
             &dependent,
             PremiseKind::Decision,
             change,
@@ -1008,6 +1038,7 @@ pub(crate) fn reexamine_entries_for(
             continue;
         };
         if let Some(judged) = judge(
+            decision_id,
             &dependent,
             PremiseKind::Hypothesis,
             change,
@@ -1204,6 +1235,7 @@ pub(crate) fn propagation_of_decision(
                 .filter(|record| &record.decision_id == dependent)
                 .collect();
             judge(
+                dependent,
                 &standings.summary_of(dependent),
                 PremiseKind::Decision,
                 change.clone(),
@@ -1301,7 +1333,7 @@ pub(crate) struct OpenSupersession<'a> {
     /// offset (the rule [`Propagation`] dates its change by).
     pub(crate) dated_by: &'a str,
     /// M: the dependents that stood when the premise was superseded, plus those linked since --
-    /// less a decision that is the whole of the change (see [`ReexamineView::open_supersessions`]).
+    /// less a decision that is the whole of the change (it has no item).
     pub(crate) dependents_total: usize,
     /// How many of them nobody has said still hold.
     pub(crate) open: usize,
@@ -1345,10 +1377,9 @@ impl ReexamineView {
     /// propagation can read as old (see [`Propagation::unfinished`]); a refuted hypothesis is not
     /// a decision and has none to carry a finding.
     ///
-    /// A decision that follows its premise and is the only one to have superseded it is the
-    /// change, not something resting on the premise that needs a second look, so it is not
-    /// counted: the rule the `premise_superseded` finding already follows. (A decision that is one
-    /// of several superseders is counted, as it is told about the others.)
+    /// A decision that follows its premise and is the only one to have superseded it has no item
+    /// (see [`PremiseChange::is_made_by_alone`]), so it is not counted here either; one of
+    /// several superseders is, as it is told about the others.
     pub(crate) fn open_supersessions(&self) -> Vec<OpenSupersession<'_>> {
         // Per premise: the decision that dates the change, how many dependents, how many open.
         let mut by_premise: BTreeMap<&str, (&str, usize, usize)> = BTreeMap::new();
@@ -1359,9 +1390,6 @@ impl ReexamineView {
             else {
                 continue;
             };
-            if change.by_ids.iter().all(|by_id| *by_id == item.dependent) {
-                continue;
-            }
             let counts = by_premise
                 .entry(item.premise.as_str())
                 .or_insert((dated_by, 0, 0));

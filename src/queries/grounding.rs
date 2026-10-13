@@ -379,6 +379,20 @@ pub(crate) fn premise_standing(
     })
 }
 
+/// Whether `decision_id` is the only decision to have superseded `premise_id`. One anchored read
+/// of the premise's superseders.
+fn is_sole_superseder(graph: &impl GraphView, premise_id: &str, decision_id: &str) -> Result<bool> {
+    let superseders = neighbor_pairs(
+        graph,
+        NodeKind::Decision,
+        premise_id,
+        RelationKind::Supersedes,
+        NodeKind::Decision,
+        Direction::Incoming,
+    )?;
+    Ok(!superseders.is_empty() && superseders.iter().all(|(id, _)| id == decision_id))
+}
+
 /// A prior decision that no longer stands, for the outcome reasons.
 pub(crate) enum StalePremise {
     Superseded { decision_id: String, by_id: String },
@@ -405,10 +419,18 @@ pub(crate) fn premise_signals(
     let mut contested = Vec::new();
     for premise_id in &premise_ids {
         match premise_standing(graph, premise_id)? {
-            PremiseStanding::Superseded { by_id } => stale.push(StalePremise::Superseded {
-                decision_id: premise_id.clone(), // ubs:ignore: owned copy for the outcome reason; premise_ids is still iterated
-                by_id,
-            }),
+            PremiseStanding::Superseded { by_id } => {
+                // A decision that follows a premise and is the only one to supersede it is the
+                // revision, not something the change left stale: the rule the re-examine items
+                // follow, so the outcome and the items never disagree about it.
+                if by_id == decision_id && is_sole_superseder(graph, premise_id, decision_id)? {
+                    continue;
+                }
+                stale.push(StalePremise::Superseded {
+                    decision_id: premise_id.clone(), // ubs:ignore: owned copy for the outcome reason; premise_ids is still iterated
+                    by_id,
+                });
+            }
             PremiseStanding::Rejected => stale.push(StalePremise::Rejected {
                 decision_id: premise_id.clone(), // ubs:ignore: owned copy for the outcome reason; premise_ids is still iterated
             }),

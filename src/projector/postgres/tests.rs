@@ -2772,6 +2772,21 @@ fn reexamine_items_match_memory() -> Result<()> {
     })
 }
 
+// A decision that supersedes its own premise is no dependent of it, on Postgres as in memory
+// (hivemind-tfmfn): the list, the premise's completeness, the marker and the decision's outcome.
+
+#[test]
+fn a_decision_that_supersedes_its_own_premise_reads_the_same_as_in_memory() -> Result<()> {
+    use crate::queries::test_fixtures::{assert_revisions_scenario, revisions_scenario};
+
+    with_postgres_graph("revisions-parity", |pg| {
+        let scenario = revisions_scenario()?;
+        project_from_ledger(scenario.ledger(), pg, 0)?;
+
+        assert_revisions_scenario(&scenario, pg)
+    })
+}
+
 // What the surfaces add on top of the re-examine items (hivemind-ottw.3): the brief's entries and
 // propagation, the marker on a match and on a topic lookup, the compact view, and the lines that
 // tie a reaffirmation to its decision. Each reads the same facts on Postgres as in memory.

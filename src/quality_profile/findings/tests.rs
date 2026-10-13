@@ -6,10 +6,10 @@ use chrono::{DateTime, Duration, Utc};
 
 use crate::projector::GraphView;
 use crate::queries::test_fixtures::{
-    attention_scenario, reexamine_scenario, ts, CountingGraph, Scenario, ATTENTION_NOW,
-    REEXAMINE_NOW,
+    attention_scenario, reexamine_scenario, revisions_scenario, ts, CountingGraph, Scenario,
+    ATTENTION_NOW, REEXAMINE_NOW,
 };
-use crate::queries::GROUNDING_FACT_READS;
+use crate::queries::{get_decision_brief_at, GROUNDING_FACT_READS};
 use crate::Result;
 
 use super::*;
@@ -1651,6 +1651,59 @@ fn reaffirmed_dependents_and_unfinished_propagations_read_as_the_re_examine_stat
     let graph = reexamine_scenario()?.graph()?;
 
     assert_propagation_findings(&graph)
+}
+
+/// The count a premise's finding gives ("N of M decisions resting on it") is the count `verify`
+/// gives it as "N open of M dependents": one derivation, so a decision that is the whole of the
+/// change (the only one to supersede its premise) is no dependent in either (hivemind-tfmfn).
+#[test]
+fn verify_counts_the_dependents_the_unfinished_finding_counts() -> Result<()> {
+    for scenario in [reexamine_scenario()?, revisions_scenario()?] {
+        let graph = scenario.graph()?;
+        let found = findings_at(
+            &graph,
+            &[FindingKind::PropagationUnfinished],
+            &AttentionConfig::default(),
+            reexamine_now(),
+        )?;
+        assert!(!found.is_empty());
+
+        for finding in &found {
+            let verify = get_decision_brief_at(&graph, &finding.decision_id, reexamine_now())?
+                .data
+                .expect("the premise is recorded")
+                .propagation
+                .expect("a premise with an open item has a completeness line");
+            let said = format!(" later, {} of {} ", verify.open, verify.dependents_total);
+            assert!(
+                finding.reason.contains(&said),
+                "{}: finding says {:?}, verify says {}",
+                finding.decision_id,
+                finding.reason,
+                verify.describe()
+            );
+        }
+    }
+
+    // On the revisions, the finding on `d:old` counts the bystander and not the revision; the
+    // finding on `d:two` counts both of its superseders.
+    let graph = revisions_scenario()?.graph()?;
+    let found = findings_at(
+        &graph,
+        &[FindingKind::PropagationUnfinished],
+        &AttentionConfig::default(),
+        reexamine_now(),
+    )?;
+    let reason_of = |premise_id: &str| {
+        found
+            .iter()
+            .find(|finding| finding.decision_id == premise_id)
+            .map(|finding| finding.reason.as_str())
+    };
+    assert!(reason_of("d:old").is_some_and(|reason| reason.contains(" later, 1 of 1 decision ")));
+    assert!(reason_of("d:two").is_some_and(|reason| reason.contains(" later, 2 of 2 decisions ")));
+    assert_eq!(reason_of("d:solo"), None);
+    Ok(())
 }
 
 /// `d:old` was superseded by `d:new` on 2026-08-01; `d:dep-a` and `d:dep-b` rest on it and nobody

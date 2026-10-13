@@ -3077,3 +3077,177 @@ pub(crate) fn assert_reexamine_scenario(scenario: &Scenario, graph: &impl GraphV
     )));
     Ok(())
 }
+
+// ── a decision that supersedes its own premise (hivemind-tfmfn) ──────────────────────
+
+/// Revisions: a decision that follows its premise and supersedes it, which is how "B revises A"
+/// is normally said. Read at `REEXAMINE_NOW`.
+///
+/// - `d:old` is superseded by `d:revised` alone, and `d:revised` follows from it: the revision is
+///   the change, so it is no dependent of `d:old` and has no item. `d:bystander` follows from
+///   `d:old` too and did not make the change, so it has the one item.
+/// - `d:two` is superseded by both `d:two-a` and `d:two-b`, each of which follows from it. Each is
+///   told about the other supersession, so each keeps its item.
+/// - `d:solo` is superseded by `d:solo-new` alone, which follows it, and nothing else rests on
+///   it: no dependent stood when it changed, so it has no completeness line at all.
+pub(crate) fn revisions_scenario() -> Result<Scenario> {
+    let s = Scenario::new();
+    let (alex, crew) = ("human:alex", "agent:claude:crew");
+    let decisions = [
+        ("d:old", "Cap requests per tenant", "2026-09-01T00:00:00Z"),
+        (
+            "d:revised",
+            "Cap requests per tenant, tuned",
+            "2026-09-02T00:00:00Z",
+        ),
+        ("d:bystander", "Shard by tenant", "2026-09-01T00:01:00Z"),
+        ("d:two", "Use one region", "2026-09-01T00:02:00Z"),
+        ("d:two-a", "Use two regions", "2026-09-03T00:00:00Z"),
+        ("d:two-b", "Use three regions", "2026-09-04T00:00:00Z"),
+        ("d:solo", "Name the service Atlas", "2026-09-01T00:03:00Z"),
+        (
+            "d:solo-new",
+            "Name the service Atlas, in full",
+            "2026-09-05T00:00:00Z",
+        ),
+    ];
+    for (id, title, at) in decisions {
+        s.decision(id, title, crew, at)?;
+        s.accept(id, alex, "2026-09-06T00:00:00Z")?;
+    }
+    for (dependent, premise) in [
+        ("d:revised", "d:old"),
+        ("d:bystander", "d:old"),
+        ("d:two-a", "d:two"),
+        ("d:two-b", "d:two"),
+        ("d:solo-new", "d:solo"),
+    ] {
+        s.relation(
+            "FOLLOWS_FROM",
+            dependent,
+            premise,
+            crew,
+            None,
+            "2026-09-06T00:00:01Z",
+        )?;
+    }
+    s.supersede("d:old", "d:revised", alex, "2026-09-02T00:00:01Z")?;
+    s.supersede("d:two", "d:two-a", alex, "2026-09-03T00:00:01Z")?;
+    s.supersede("d:two", "d:two-b", alex, "2026-09-04T00:00:01Z")?;
+    s.supersede("d:solo", "d:solo-new", alex, "2026-09-05T00:00:01Z")?;
+    Ok(s)
+}
+
+/// What every backend must read from [`revisions_scenario`] at `REEXAMINE_NOW`: a decision that is
+/// the only one to supersede its premise is no dependent of it, on every surface that counts
+/// dependents (the list, the premise's completeness read in bulk and anchored, the marker, the
+/// decision's own outcome); one of several superseders still is. Shared by the memory and
+/// Postgres tests.
+pub(crate) fn assert_revisions_scenario(scenario: &Scenario, graph: &impl GraphView) -> Result<()> {
+    use super::reexamine::ReexamineMarkers;
+    use crate::queries::{
+        get_decision_brief_at, get_decision_outcome_at, get_propagation_at, get_reexamine_items_at,
+        OutcomeReason, QueryContext, ReexamineMarker, ReexamineRequest,
+    };
+
+    let now = ts(REEXAMINE_NOW);
+
+    // ── the list: three items, none of them the revision's own ──────────────────────
+    let request = ReexamineRequest {
+        include_closed: true,
+        limit: 100,
+        ..ReexamineRequest::default()
+    };
+    let items = get_reexamine_items_at(
+        &QueryContext::local(),
+        graph,
+        scenario.ledger(),
+        &request,
+        now,
+    )?
+    .data
+    .items;
+    let pairs: Vec<(&str, &str)> = items
+        .iter()
+        .map(|item| (item.dependent.id.as_str(), item.entry.premise_id.as_str()))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            ("d:bystander", "d:old"),
+            ("d:two-a", "d:two"),
+            ("d:two-b", "d:two")
+        ]
+    );
+    assert!(items.iter().all(|item| item.entry.state.is_open()));
+
+    // ── the premise's completeness: bulk (the list's) and anchored (verify's) agree ──
+    let counts = |propagation: &crate::queries::Propagation| {
+        (
+            propagation.dependents_total,
+            propagation.reexamined,
+            propagation.open,
+        )
+    };
+    for (premise_id, expected) in [("d:old", (1, 0, 1)), ("d:two", (2, 0, 2))] {
+        let bulk = get_propagation_at(graph, premise_id, None, now)?
+            .expect("the premise changed and a dependent stood");
+        assert_eq!(counts(&bulk), expected, "{premise_id}");
+        let verify = get_decision_brief_at(graph, premise_id, now)?
+            .data
+            .expect("the premise is recorded")
+            .propagation;
+        assert_eq!(verify.as_ref(), Some(&bulk), "{premise_id}");
+    }
+    // Nothing but the revision rests on `d:solo`: no dependent, so no completeness line.
+    assert_eq!(get_propagation_at(graph, "d:solo", None, now)?, None);
+    assert_eq!(
+        get_decision_brief_at(graph, "d:solo", now)?
+            .data
+            .expect("the premise is recorded")
+            .propagation,
+        None
+    );
+
+    // ── the marker: none on a revision, one open item on the rest ────────────────────
+    let markers = ReexamineMarkers::load(graph)?;
+    assert_eq!(markers.of("d:revised"), None);
+    assert_eq!(markers.of("d:solo-new"), None);
+    for decision_id in ["d:bystander", "d:two-a", "d:two-b"] {
+        assert_eq!(
+            markers.of(decision_id),
+            Some(ReexamineMarker {
+                stale: true,
+                open: 1,
+                reaffirmed: 0
+            }),
+            "{decision_id}"
+        );
+    }
+
+    // ── the decision's own outcome: a revision is not stale for its own change ────────
+    for decision_id in ["d:revised", "d:solo-new"] {
+        let outcome = get_decision_outcome_at(graph, decision_id, now)?
+            .data
+            .expect("outcome");
+        assert!(outcome.held_up, "{decision_id}");
+        assert!(!outcome.stale_premises, "{decision_id}");
+        assert!(outcome.reexamine.is_empty(), "{decision_id}");
+        assert!(
+            !outcome
+                .reasons
+                .iter()
+                .any(|reason| matches!(reason, OutcomeReason::PremiseSuperseded { .. })),
+            "{decision_id}"
+        );
+    }
+    for decision_id in ["d:bystander", "d:two-a", "d:two-b"] {
+        let outcome = get_decision_outcome_at(graph, decision_id, now)?
+            .data
+            .expect("outcome");
+        assert!(!outcome.held_up, "{decision_id}");
+        assert!(outcome.stale_premises, "{decision_id}");
+        assert_eq!(outcome.reexamine.len(), 1, "{decision_id}");
+    }
+    Ok(())
+}

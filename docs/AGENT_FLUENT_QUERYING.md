@@ -1101,7 +1101,8 @@ Ordering is by ledger offset, never by wall-clock time. `held_up` ignores a stal
 premise once its change is reaffirmed for this decision (the reason stays in
 `reasons` and the entry says who looked again); a contested premise opens an entry
 and never flips `held_up`. A decision that was already superseded or rejected before
-the premise changed has no entry. The completeness of one premise's propagation (N of M
+the premise changed has no entry, and neither has one that is the only decision to have
+superseded the premise: it is the change, not something resting on it. The completeness of one premise's propagation (N of M
 dependents re-examined, `unfinished` after `propagation_window_days`, default 14) and
 the rules are in [`DECISION_SCORING.md`](DECISION_SCORING.md#re-examine-items-did-the-change-travel).
 
