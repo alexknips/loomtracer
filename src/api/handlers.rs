@@ -34,6 +34,7 @@ use crate::queries::{
     QueryContext, QueryResponse, ResolveOutcome, ResolvedCandidate, SearchDecisionRequest,
     SituationalRequest, WaitingRequestsRequest,
 };
+use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
 use crate::summarize::{recall_decisions, RecallRequest, RECALL_DEFAULT_LIMIT};
 
 use super::auth::extract_ctx;
@@ -114,6 +115,14 @@ pub(super) struct CaptureHypothesisRequest {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct DisagreeRequest {
+    reason: String,
+}
+
+/// `POST /v1/decisions/{id}/reaffirmations` (hivemind-ottw.4). The premise is named by its id:
+/// a REST caller states what it means, where the CLI and MCP also accept one open item implied.
+#[derive(Debug, Deserialize)]
+pub(super) struct ReaffirmRequest {
+    premise_id: String,
     reason: String,
 }
 
@@ -678,6 +687,71 @@ pub(super) async fn disagree_handler(
             "event_id": event_id,
             "decision_status": decision_status,
         }))
+    })
+    .await;
+
+    respond(result, StatusCode::OK)
+}
+
+/// Say that a decision still holds after a premise it rests on changed. Only an open re-examine
+/// item can be closed: a decision that does not rest on the premise, a premise that has not
+/// changed, an item already closed (the error names who closed it, when and with which event) and
+/// a decision that no longer stands are refused with 400 and nothing written.
+pub(super) async fn reaffirm_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(decision_id): Path<String>,
+    payload: std::result::Result<Json<ReaffirmRequest>, JsonRejection>,
+) -> Response {
+    let ctx = match extract_ctx(&state, &headers).await {
+        Ok(c) => c,
+        Err(e) => return e.into_response(),
+    };
+    let req = match payload {
+        Ok(Json(r)) => r,
+        Err(e) => return ApiError::validation(e.to_string()).into_response(),
+    };
+
+    let backend = Arc::clone(&state.backend);
+    let cache = Arc::clone(&state.graph_cache);
+    let result = tokio::task::spawn_blocking(move || {
+        if req.premise_id.trim().is_empty() {
+            return Err(ApiError::validation("premise_id must not be empty"));
+        }
+        if req.reason.trim().is_empty() {
+            return Err(ApiError::validation("reason must not be empty"));
+        }
+        let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
+        let graph = open_graph_from_ledger(&ledger, &ctx.tenant_id, &cache)?;
+        let outcome = reaffirm(
+            &ledger,
+            &ctx.tenant_id,
+            EventProvenance::api(Some(ctx.actor_id.clone())),
+            &*graph,
+            ReaffirmCall {
+                actor_id: &ctx.actor_id,
+                decision_id: &decision_id,
+                premise: Some(&req.premise_id),
+                reason: &req.reason,
+            },
+        )
+        .map_err(to_api_error)?;
+        match outcome {
+            ReaffirmOutcome::Recorded(reply) => serde_json::to_value(reply)
+                .map_err(|error| ApiError::internal(error.to_string())),
+            ReaffirmOutcome::Ambiguous(ambiguous) => {
+                let premises: Vec<&str> = ambiguous
+                    .items
+                    .iter()
+                    .map(|item| item.entry.premise_id.as_str())
+                    .collect();
+                Err(ApiError::validation(format!(
+                    "premise_id names more than one open item ({}); name exactly one by its id; nothing was written",
+                    premises.join(", ")
+                )))
+            }
+            ReaffirmOutcome::Refused(reason) => Err(ApiError::validation(reason)),
+        }
     })
     .await;
 

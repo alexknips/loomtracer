@@ -21,7 +21,7 @@
 //! Migrated so far: `capture_decision`, `get_situational_decisions`,
 //! `resolve_target`/`get_decision_neighborhood`, `get_supersession_chain`,
 //! `recall_decisions`, `supersede_decision`, `disagree_decision`, `move_decision`,
-//! `ground_decision`,
+//! `ground_decision`, `reaffirm_decision`, `get_reexamine_items`,
 //! `get_decision_outcome`, `hivemind_compact_view`, `score_decision`,
 //! `scan_decision_quality`, `get_suggestions`, `rank_decisions_by_importance`, `recent_decisions`,
 //! `decision_quality_candidates`, `get_decision_context`,
@@ -60,6 +60,7 @@ use crate::queries::{
     get_decision_neighborhood as query_get_decision_neighborhood, get_decision_quality_candidates,
     get_decision_timeline as query_get_decision_timeline,
     get_open_why_decisions as query_get_open_why_decisions, get_recent_decisions,
+    get_reexamine_items as query_get_reexamine_items,
     get_supersession_chain as query_get_supersession_chain,
     get_waiting_requests as query_get_waiting_requests, misfiled_next_cursor, outcome_next_cursor,
     require_registered_project, resolve_decision_by_description, resolve_decision_for_reading,
@@ -67,9 +68,10 @@ use crate::queries::{
     ContestedDecisionsRequest, DecisionContextRequest, DecisionQualityCandidatesRequest,
     DecisionStatus, FailureAttributionRequest, MisfiledScanRequest, NeighborhoodRequest,
     OpenWhyRequest, QueryContext, QueryResponse, RecentDecisionFilterRequest,
-    RecentDecisionsRequest, ResolveOutcome, ResolvedCandidate, SituationalRequest,
-    WaitingRequestsRequest,
+    RecentDecisionsRequest, ReexamineRequest, ResolveOutcome, ResolvedCandidate,
+    SituationalRequest, WaitingRequestsRequest, DEFAULT_REEXAMINE_PAGE_SIZE,
 };
+use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
 use crate::summarize::{RecallRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT};
 
 use super::args::{
@@ -214,12 +216,14 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("retitle_decision", ToolKind::Write),
     ("acknowledge_suggestion", ToolKind::Write),
     ("ground_decision", ToolKind::Write),
+    ("reaffirm_decision", ToolKind::Write),
     ("request_decision", ToolKind::Write),
     ("classify_queue_submit", ToolKind::Write),
     ("classify_queue_list", ToolKind::ReadOther),
     ("get_waiting_requests", ToolKind::ReadDecisions),
     ("get_contested_decisions", ToolKind::ReadDecisions),
     ("get_open_why_decisions", ToolKind::ReadDecisions),
+    ("get_reexamine_items", ToolKind::ReadDecisions),
     ("get_changed_decisions", ToolKind::ReadDecisions),
     ("get_decision", ToolKind::ReadDecisions),
     ("get_decision_outcome", ToolKind::ReadDecisions),
@@ -1951,6 +1955,159 @@ pub(crate) fn ground_decision<P: LedgerProvider>(
         });
     }
     Ok(ToolOutput(reply))
+}
+
+// ---------------------------------------------------------------------------
+// reaffirm_decision / get_reexamine_items (hivemind-ottw.4)
+// ---------------------------------------------------------------------------
+
+/// Parsed, validated arguments for the `reaffirm_decision` tool. The decision is selected the way
+/// `disagree_decision` selects its target (`decision_id` bypasses resolution, otherwise
+/// `description` + optional `topic`); `premise_id` names which changed premise it still holds
+/// after and is needed only when the decision has several open items; `reason` is required.
+pub(crate) struct ReaffirmDecisionArgs {
+    pub(crate) actor_id: String,
+    pub(crate) decision_id: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) topic: Option<String>,
+    pub(crate) premise_id: Option<String>,
+    pub(crate) reason: String,
+}
+
+impl ReaffirmDecisionArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            actor_id,
+            decision_id: optional_string(args, "decision_id")?,
+            description: optional_string(args, "description")?,
+            topic: optional_string(args, "topic")?,
+            premise_id: optional_string(args, "premise_id")?,
+            reason: require_string(args, "reason")?,
+        })
+    }
+}
+
+/// The core for the `reaffirm_decision` MCP tool: one implementation consumed by both transports.
+/// Says that a decision still holds after something it rests on changed, closing its open
+/// re-examine item. The target resolves via [`resolve_target`] (an ambiguous or unmatched
+/// description is returned as-is, nothing written), then `crate::reaffirmation::reaffirm` checks
+/// that an open item is named: several open items and no `premise_id` is a success-shaped
+/// `{outcome: "ambiguous"}` listing them, and anything with nothing to re-examine (the premise did
+/// not change, the item was already closed, the decision does not rest on it) is refused as an
+/// invalid argument, with nothing written. What is recorded is attributed to `actor_id`.
+pub(crate) fn reaffirm_decision<P: LedgerProvider>(
+    provider: &P,
+    args: ReaffirmDecisionArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let target = resolve_target(
+        &handle,
+        args.decision_id.as_deref(),
+        args.description.as_deref(),
+        args.topic.as_deref(),
+        "decision_id",
+    )?;
+    let decision_id = match target {
+        ResolvedTarget::Id(id) => id,
+        ResolvedTarget::Ambiguous(output) => return Ok(output),
+        ResolvedTarget::NotFound(output) => return Ok(output),
+    };
+
+    let graph = MemoryGraph::default();
+    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let outcome = reaffirm(
+        &handle.ledger,
+        &handle.tenant_id,
+        EventProvenance::agent(args.actor_id.clone()),
+        &graph,
+        ReaffirmCall {
+            actor_id: &args.actor_id,
+            decision_id: &decision_id,
+            premise: args.premise_id.as_deref(),
+            reason: &args.reason,
+        },
+    )
+    .map_err(CoreError::from)?;
+    match outcome {
+        ReaffirmOutcome::Recorded(reply) => serde_json::to_value(reply)
+            .map(ToolOutput)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+        ReaffirmOutcome::Ambiguous(ambiguous) => Ok(ToolOutput(ambiguous.envelope())),
+        ReaffirmOutcome::Refused(reason) => Err(CoreError::InvalidArgument(reason)),
+    }
+}
+
+/// Parsed, validated arguments for the `get_reexamine_items` tool.
+pub(crate) struct GetReexamineItemsArgs {
+    pub(crate) decision_id: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) topic: Option<String>,
+    pub(crate) premise_id: Option<String>,
+    pub(crate) project: Option<String>,
+    pub(crate) include_closed: bool,
+    pub(crate) limit: usize,
+    pub(crate) cursor: Option<String>,
+}
+
+impl GetReexamineItemsArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        Ok(Self {
+            decision_id: optional_string(args, "decision_id")?,
+            description: optional_string(args, "description")?,
+            topic: optional_string(args, "topic")?,
+            premise_id: optional_string(args, "premise_id")?,
+            project: optional_string(args, "project")?,
+            include_closed: optional_bool_or(args, "include_closed", false)?,
+            limit: optional_usize(args, "limit")?.unwrap_or(DEFAULT_REEXAMINE_PAGE_SIZE),
+            cursor: optional_string(args, "cursor")?,
+        })
+    }
+}
+
+/// The core for the `get_reexamine_items` MCP tool (the CLI's `reexamine`): the decisions that
+/// rest on something that changed and have not been looked at again, one page at a time.
+/// `decision_id` or `description` narrows to one decision's items (resolved like every fluent
+/// tool: an ambiguous or unmatched description is returned as-is); with neither, every decision
+/// in the tenant (or the `project`'s scope) is covered. `data.truncated` / `data.next_cursor`
+/// continue a long list; nothing is dropped silently.
+pub(crate) fn get_reexamine_items<P: LedgerProvider>(
+    provider: &P,
+    graph: &impl GraphView,
+    args: GetReexamineItemsArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let dependent_id = if args.decision_id.is_some() || args.description.is_some() {
+        let target = resolve_target(
+            &handle,
+            args.decision_id.as_deref(),
+            args.description.as_deref(),
+            args.topic.as_deref(),
+            "decision_id",
+        )?;
+        match target {
+            ResolvedTarget::Id(id) => Some(id),
+            ResolvedTarget::Ambiguous(output) => return Ok(output),
+            ResolvedTarget::NotFound(output) => return Ok(output),
+        }
+    } else {
+        None
+    };
+    let request = ReexamineRequest {
+        dependent_id,
+        premise_id: args.premise_id,
+        project: args.project,
+        include_closed: args.include_closed,
+        limit: args.limit,
+        cursor: args.cursor,
+        ..ReexamineRequest::default()
+    };
+    let context = QueryContext::new(handle.tenant_id.clone());
+    let response = query_get_reexamine_items(&context, graph, &handle.ledger, &request)
+        .map_err(CoreError::from)?;
+    query_output(&response)
 }
 
 // ---------------------------------------------------------------------------

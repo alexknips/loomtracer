@@ -413,6 +413,7 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `move_decision` | write | `move` |
 | `retitle_decision` | write | `retitle` |
 | `ground_decision` | write | `ground` |
+| `reaffirm_decision` | write | `reaffirm` |
 | `acknowledge_suggestion` | write | (MCP only) |
 | `get_decision` | read | `query get_decision` |
 | `get_relevant_decisions` | read | `query get_relevant_decisions` |
@@ -422,6 +423,7 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `get_waiting_requests` | read | `query get_waiting_requests` |
 | `get_contested_decisions` | read | `query get_contested_decisions` |
 | `get_open_why_decisions` | read | `query get_open_why_decisions` |
+| `get_reexamine_items` | read | `reexamine` |
 | `get_changed_decisions` | read | `query get_changed_decisions` |
 | `dump_graph` | read | `dump --format dot` |
 | `recall_decisions` | layer-3 | search + ranked digest |

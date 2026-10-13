@@ -480,7 +480,14 @@ def check_session_start_hook(world: World) -> None:
 # --------------------------------------------------------------------------------------------
 
 
-def check_context_scripts(world: World, project: Path, binary_has_ground: bool, binary_has_importance: bool) -> None:
+def check_context_scripts(
+    world: World,
+    project: Path,
+    binary_has_ground: bool,
+    binary_has_importance: bool,
+    binary_has_reaffirm: bool,
+    binary_has_reexamine: bool,
+) -> None:
     scripts = CONTEXT / "scripts"
 
     def verb(name: str, *args: str, **extra_env: str) -> subprocess.CompletedProcess:
@@ -527,6 +534,31 @@ def check_context_scripts(world: World, project: Path, binary_has_ground: bool, 
             done.returncode == 2 and "has no `ground` command" in done.stderr,
             tail(done),
         )
+    done = verb("reexamine")
+    if binary_has_reexamine:
+        check("hivemind-context reexamine", done.returncode == 0, tail(done))
+    else:
+        check(
+            "hivemind-context reexamine names the verb the release lacks",
+            done.returncode == 2 and "has no `reexamine` command" in done.stderr,
+            tail(done),
+        )
+    # By now the decision has been disagreed with and superseded, so a release that has the verb may
+    # list candidates (exit 0) or refuse for lack of anything to re-examine (exit 2): either is the
+    # verb answering. What it must not do is not know the verb without saying so.
+    done = verb("reaffirm", "retry budget", "--because", "Checked against the release")
+    if binary_has_reaffirm:
+        check(
+            "hivemind-context reaffirm",
+            done.returncode in (0, 2) and "has no `reaffirm` command" not in done.stderr,
+            tail(done),
+        )
+    else:
+        check(
+            "hivemind-context reaffirm names the verb the release lacks",
+            done.returncode == 2 and "has no `reaffirm` command" in done.stderr,
+            tail(done),
+        )
 
 
 # --------------------------------------------------------------------------------------------
@@ -559,7 +591,9 @@ def main() -> int:
         check_skill_direct_form(world, "Codex", "codex")
         check_ask_hooks(world)
         check_session_start_hook(world)
-        check_context_scripts(world, claude_project, has_ground, has_importance)
+        has_reaffirm = subprocess.run([str(binary), "reaffirm", "--help"], capture_output=True).returncode == 0
+        has_reexamine = subprocess.run([str(binary), "reexamine", "--help"], capture_output=True).returncode == 0
+        check_context_scripts(world, claude_project, has_ground, has_importance, has_reaffirm, has_reexamine)
 
     print()
     if FAILURES:

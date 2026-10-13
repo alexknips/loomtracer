@@ -658,7 +658,14 @@ fn context_verbs_print_usage_when_called_with_no_arguments() -> TestResult<()> {
     // before the CLI is even resolved: point the binary override at a path that
     // cannot run, so reaching the CLI would show up as exit 127, not usage.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for verb in ["recall", "why", "verify", "disagree", "supersede"] {
+    for verb in [
+        "recall",
+        "why",
+        "verify",
+        "disagree",
+        "supersede",
+        "reaffirm",
+    ] {
         let output = Command::new(root.join(format!("plugins/hivemind-context/scripts/{verb}.sh")))
             .current_dir(root)
             .env("HIVEMIND_CAPTURE_BIN", "/nonexistent/hivemind")

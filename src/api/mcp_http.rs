@@ -30,11 +30,11 @@ use crate::mcp::core::{
     CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
     GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionContextArgs,
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
-    GetSituationalDecisionsArgs, GetSuggestionsArgs, GetSupersessionChainArgs,
-    GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle, LedgerProvider, MoveDecisionArgs,
-    RankDecisionsByImportanceArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
-    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
-    SupersedeDecisionArgs,
+    GetReexamineItemsArgs, GetSituationalDecisionsArgs, GetSuggestionsArgs,
+    GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle,
+    LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs, ReaffirmDecisionArgs,
+    RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs,
+    ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SupersedeDecisionArgs,
 };
 use crate::projector::memory::MemoryGraph;
 use crate::queries::{
@@ -230,10 +230,12 @@ fn mcp_tools_call_blocking(
         "retitle_decision" => mcp_retitle(backend, ctx, &actor_id, args),
         "acknowledge_suggestion" => mcp_acknowledge_suggestion(backend, ctx, &actor_id, args),
         "ground_decision" => mcp_ground(backend, ctx, &actor_id, args),
+        "reaffirm_decision" => mcp_reaffirm(backend, ctx, &actor_id, args),
         "request_decision" => mcp_request_decision(backend, ctx, &actor_id, args),
         "get_waiting_requests" => mcp_get_waiting_requests(backend, ctx, args, cache),
         "get_contested_decisions" => mcp_get_contested_decisions(backend, ctx, args, cache),
         "get_open_why_decisions" => mcp_get_open_why_decisions(backend, ctx, args, cache),
+        "get_reexamine_items" => mcp_get_reexamine_items(backend, ctx, args, cache),
         "get_changed_decisions" => mcp_get_changed_decisions(backend, ctx, args, cache),
         "get_decision" => mcp_get_decision(backend, ctx, args, cache),
         "get_decision_outcome" => mcp_get_decision_outcome(backend, ctx, args),
@@ -541,6 +543,37 @@ fn mcp_ground(
         tenant_id: &ctx.tenant_id,
     };
     let output = crate::mcp::core::ground_decision(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn mcp_reaffirm(
+    backend: &ApiBackend,
+    ctx: &ApiRequestCtx,
+    actor_id: &str,
+    args: serde_json::Map<String, serde_json::Value>,
+) -> McpToolResult {
+    let core_args = ReaffirmDecisionArgs::from_json(&args, actor_id.to_owned())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+    };
+    let output = crate::mcp::core::reaffirm_decision(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn mcp_get_reexamine_items(
+    backend: &ApiBackend,
+    ctx: &ApiRequestCtx,
+    args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
+) -> McpToolResult {
+    let core_args = GetReexamineItemsArgs::from_json(&args)?;
+    let graph = mcp_open_graph(backend, ctx, cache)?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+    };
+    let output = crate::mcp::core::get_reexamine_items(&provider, &*graph, core_args)?;
     Ok(output.into_value())
 }
 

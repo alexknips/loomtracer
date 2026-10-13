@@ -5,7 +5,7 @@
 //! verifies that the same operations invoked via CLI, MCP, or HTTP produce
 //! equivalent events in the ledger.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode};
@@ -1029,6 +1029,227 @@ async fn disagree_with_nonexistent_decision_returns_404() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}"); // ubs:ignore
     assert_eq!(body["error"]["code"], "not_found"); // ubs:ignore
+}
+
+// ---------------------------------------------------------------------------
+// Reaffirmations (hivemind-ottw.4)
+// ---------------------------------------------------------------------------
+
+fn post_json_as_actor(uri: &str, body: Value, actor: &str) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("x-hivemind-actor", actor)
+        .body(Body::from(serde_json::to_string(&body).unwrap()))
+        .unwrap()
+}
+
+/// Capture a decision (optionally resting on `premise_id`) and return its id.
+async fn capture_resting_on(dir: &Path, title: &str, premise_id: Option<&str>) -> String {
+    let grounding = match premise_id {
+        Some(premise_id) => serde_json::json!([{"kind": "decision", "decision_id": premise_id}]),
+        None => serde_json::json!([{"kind": "bet"}]),
+    };
+    let (status, body) = call(
+        app(dir.to_path_buf()),
+        post_json(
+            "/v1/decisions",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": grounding,
+                "title": title,
+                "rationale": "Seed for the reaffirmation tests, long enough to read on its own",
+                "topic_keys": ["reaffirm"],
+                "options": [{ "label": "only" }]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "capture {title}: {body}"); // ubs:ignore
+    body["decision_id"].as_str().unwrap().to_owned()
+}
+
+fn reaffirmed_events(dir: &Path) -> Vec<hivemind::events::Event> {
+    use hivemind::ledger::EventLedger as _;
+    hivemind::ledger::SqliteEventLedger::open(dir)
+        .unwrap()
+        .read(0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.event_type == hivemind::events::EventType::DecisionReaffirmed)
+        .collect()
+}
+
+/// "Shard by tenant" rests on "Cap requests per tenant", which its own proposer then rejects:
+/// one open re-examine item. Returns `(premise_id, dependent_id)`.
+async fn rejected_premise_with_a_dependent(dir: &Path) -> (String, String) {
+    let premise = capture_resting_on(dir, "Cap requests per tenant", None).await;
+    let dependent = capture_resting_on(dir, "Shard by tenant", Some(&premise)).await;
+    let (status, body) = call(
+        app(dir.to_path_buf()),
+        post_json(
+            &format!("/v1/decisions/{premise}/disagreements"),
+            serde_json::json!({ "reason": "Per-user caps fit billing better" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "disagree: {body}"); // ubs:ignore
+    (premise, dependent)
+}
+
+#[tokio::test]
+async fn reaffirmation_closes_the_open_item_and_names_what_it_covered() {
+    let dir = test_ledger_dir();
+    let (premise, dependent) = rejected_premise_with_a_dependent(&dir).await;
+
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json_as_actor(
+            &format!("/v1/decisions/{dependent}/reaffirmations"),
+            serde_json::json!({
+                "premise_id": premise,
+                "reason": "Sharding never depended on the per-tenant cap"
+            }),
+            "agent:codex:reviewer",
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "reaffirm: {body}"); // ubs:ignore
+    assert_eq!(body["decision_id"], dependent); // ubs:ignore
+    assert_eq!(body["decision_title"], "Shard by tenant"); // ubs:ignore
+    assert_eq!(body["premise_id"], premise); // ubs:ignore
+    assert_eq!(body["premise_label"], "Cap requests per tenant"); // ubs:ignore
+    assert_eq!(body["actor_id"], "agent:codex:reviewer"); // ubs:ignore
+    assert_eq!(body["covers"][0]["kind"], "rejected"); // ubs:ignore
+    assert!(body["event_id"].as_u64().is_some()); // ubs:ignore
+
+    let recorded = reaffirmed_events(&dir);
+    assert_eq!(recorded.len(), 1); // ubs:ignore
+    assert_eq!(recorded[0].actor_id, "agent:codex:reviewer"); // ubs:ignore
+    assert_eq!(
+        recorded[0].source,
+        hivemind::events::EventSource::Api,
+        "recorded over the API"
+    ); // ubs:ignore
+    assert_eq!(recorded[0].payload["decision_id"], dependent.as_str()); // ubs:ignore
+
+    // The listing agrees: nothing open, one reaffirmed.
+    let (_, listing) = call(
+        app(dir.clone()),
+        mcp_post(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_reexamine_items", "arguments": {"include_closed": true}}
+        })),
+    )
+    .await;
+    let items = listing["result"]["structuredContent"]["data"]["items"]
+        .as_array()
+        .unwrap();
+    assert_eq!(items.len(), 1, "{listing}"); // ubs:ignore
+    assert_eq!(items[0]["state"], "reaffirmed"); // ubs:ignore
+}
+
+#[tokio::test]
+async fn reaffirmation_is_refused_when_there_is_nothing_to_reexamine_and_writes_nothing() {
+    let dir = test_ledger_dir();
+    let (premise, dependent) = rejected_premise_with_a_dependent(&dir).await;
+    // A decision resting on a premise nobody has touched.
+    let calm_premise = capture_resting_on(&dir, "Keep audit boundaries", None).await;
+    let calm = capture_resting_on(&dir, "Write audit logs", Some(&calm_premise)).await;
+    let uri = format!("/v1/decisions/{dependent}/reaffirmations");
+    let body = serde_json::json!({"premise_id": premise, "reason": "Checked again"});
+
+    let (status, first) = call(
+        app(dir.clone()),
+        post_json_as_actor(&uri, body.clone(), "agent:codex:reviewer"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}"); // ubs:ignore
+
+    // The same call again: refused, and the refusal names who closed it and with which event.
+    let (status, again) = call(
+        app(dir.clone()),
+        post_json_as_actor(&uri, body.clone(), "agent:codex:other"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{again}"); // ubs:ignore
+    assert_eq!(again["error"]["code"], "validation_error"); // ubs:ignore
+    let message = again["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("already reaffirmed after its latest change"),
+        "{message}"
+    ); // ubs:ignore
+    assert!(message.contains("agent:codex:reviewer"), "{message}"); // ubs:ignore
+    assert!(
+        message.contains(&format!("(event {}, ", first["event_id"])),
+        "{message}"
+    ); // ubs:ignore
+    assert!(message.ends_with("nothing was written"), "{message}"); // ubs:ignore
+
+    for (what, uri, request, expected_status, expected_text) in [
+        (
+            "a premise nobody changed",
+            format!("/v1/decisions/{calm}/reaffirmations"),
+            serde_json::json!({"premise_id": calm_premise, "reason": "Checked"}),
+            StatusCode::BAD_REQUEST,
+            "has not changed",
+        ),
+        (
+            "a premise the decision does not rest on",
+            uri.clone(),
+            serde_json::json!({"premise_id": calm_premise, "reason": "Checked"}),
+            StatusCode::BAD_REQUEST,
+            "does not rest on",
+        ),
+        (
+            "an unknown decision",
+            "/v1/decisions/decision-that-is-not-there/reaffirmations".to_owned(),
+            serde_json::json!({"premise_id": premise, "reason": "Checked"}),
+            StatusCode::NOT_FOUND,
+            "does not exist",
+        ),
+        (
+            "a blank reason",
+            uri.clone(),
+            serde_json::json!({"premise_id": premise, "reason": "  "}),
+            StatusCode::BAD_REQUEST,
+            "reason must not be empty",
+        ),
+        (
+            "a blank premise",
+            uri.clone(),
+            serde_json::json!({"premise_id": "", "reason": "Checked"}),
+            StatusCode::BAD_REQUEST,
+            "premise_id must not be empty",
+        ),
+        (
+            "no premise at all",
+            uri.clone(),
+            serde_json::json!({"reason": "Checked"}),
+            StatusCode::BAD_REQUEST,
+            "premise_id",
+        ),
+    ] {
+        let (status, refused) = call(
+            app(dir.clone()),
+            post_json_as_actor(&uri, request, "agent:codex:reviewer"),
+        )
+        .await;
+        assert_eq!(status, expected_status, "{what}: {refused}"); // ubs:ignore
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(message.contains(expected_text), "{what}: {message}"); // ubs:ignore
+    }
+
+    assert_eq!(
+        reaffirmed_events(&dir).len(),
+        1,
+        "only the first call wrote anything"
+    ); // ubs:ignore
 }
 
 #[tokio::test]
@@ -2942,13 +3163,15 @@ async fn mcp_http_tools_list_returns_18_tools() {
     .await;
     assert_eq!(status, StatusCode::OK); // ubs:ignore
     let tools = body["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 37); // ubs:ignore
+    assert_eq!(tools.len(), 39); // ubs:ignore
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"capture_decision")); // ubs:ignore
     assert!(names.contains(&"request_decision")); // ubs:ignore
     assert!(names.contains(&"get_waiting_requests")); // ubs:ignore
     assert!(names.contains(&"get_contested_decisions")); // ubs:ignore
     assert!(names.contains(&"get_open_why_decisions")); // ubs:ignore
+    assert!(names.contains(&"reaffirm_decision")); // ubs:ignore
+    assert!(names.contains(&"get_reexamine_items")); // ubs:ignore
     assert!(names.contains(&"get_changed_decisions")); // ubs:ignore
     assert!(names.contains(&"get_decision")); // ubs:ignore
     assert!(names.contains(&"retitle_decision")); // ubs:ignore

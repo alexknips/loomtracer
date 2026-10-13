@@ -24,6 +24,11 @@
 //! - `POST /v1/hypotheses`                         — capture hypothesis
 //! - `POST /v1/decisions/{id}/disagreements`        — disagree
 //! - `POST /v1/decisions/{id}/supersessions`        — supersede
+//! - `POST /v1/decisions/{id}/reaffirmations`       — say `{id}` still holds after the body's
+//!   `premise_id` (a decision or hypothesis it rests on) changed, with a one-line `reason`, as the
+//!   caller; closes that premise's open re-examine item. An item that is not open (the premise
+//!   has not changed, it was already reaffirmed, `{id}` does not rest on it, `{id}` no longer
+//!   stands) is refused with 400 and nothing written (hivemind-ottw.4)
 //! - `POST /v1/decisions/{id}/restatements`         — link `{id}` as the same decision as the
 //!   body's `restates_id` (`SAME_AS`, later to earlier), as the caller; one link per request,
 //!   a pair already linked writes nothing, an id that is not a recorded decision is refused
@@ -705,6 +710,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/v1/decisions/{id}/supersessions",
             post(handlers::supersede_handler),
+        )
+        .route(
+            "/v1/decisions/{id}/reaffirmations",
+            post(handlers::reaffirm_handler),
         )
         // Restatements (hivemind-h4kr): the proposals `restatements propose` lists, and ONE
         // `SAME_AS` link per request. There is no route that links every proposal.

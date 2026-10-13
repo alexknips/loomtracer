@@ -702,6 +702,8 @@ unaffected (the field is optional) and `--id` continues to work unchanged.
 | `supersede` | `--old <id> --title ... --rationale ...` (`args.rs:290`) | add positional description resolving `--old`; rest unchanged |
 | `move` (**new**, hivemind-s15q.11) | does not exist | positional description or `--decision <id>`, plus `--to <project>` `[--pick N] [--topic T] [--reason R]`; the same write gate as `disagree`/`supersede`; where the decision is now is read from the ledger, never typed |
 | `ground` (**new**, hivemind-gwhr.4) | does not exist | positional description or `--id <id>`, plus `[--pick N] [--topic T]` and the capture grounding flags (`--rests-on-decision`, `--rests-on-evidence` with `--evidence-source`, `--rests-on-assumption`, `--bet`) and `--answers "<question>"` (hivemind-zdsh.16; may stand alone); the same write gate as `disagree`/`supersede`; says what an existing decision rests on, or which question it answers, after the fact |
+| `reaffirm` (**new**, hivemind-ottw.4) | does not exist | positional description or `--id <id>`, plus `--because "<reason>"` (required) and `[--premise "<id or words>"] [--pick N] [--topic T]`; the same write gate as `disagree`/`supersede`; says a decision still holds after a premise it rests on changed, and closes that premise's open re-examine item. No `--all` |
+| `reexamine` (**new**, hivemind-ottw.4) | does not exist | no positional; `[--decision "<description>"] [--id <id>] [--pick N] [--project P] [--all] [--limit N] [--cursor C]`; a read: lists the open re-examine items (closed ones too with `--all`) |
 | `get_supersession_chain` | `--id <id>` (`QueryDecisionArgs`, `args.rs:940`) | add positional description; **new alias** `chain` (friendlier name per bead item b) |
 | `get_decision_neighborhood` | `--id <id> --depth --relations --compact` (`args.rs:959`) | add positional description; **new alias** `why` |
 | `compact-view` | `--id <id>` (`QueryDecisionArgs`) | add positional description |
@@ -720,6 +722,24 @@ whoever ran it, and carries no link to the decision's proposal, so the brief sho
 it as attributed **later** rather than **at capture**. `--confidence` is refused
 by `ground`: it is the decider's own words at capture. A premise that already rests
 on the target is refused, since it would close a loop.
+
+**`reaffirm` records a "still holds", and only against an open item.** A decision that
+rests on a premise (a prior decision it follows from, or an assumption or bet) has a
+re-examine item when that premise is superseded, rejected, contested or refuted (see
+[`DECISION_SCORING.md`](DECISION_SCORING.md#re-examine-items-did-the-change-travel)).
+`hivemind reaffirm "<description>" --because "<reason>"` appends one `decision.reaffirmed`,
+attributed to whoever runs it. Before the write, on every surface, it checks the graph
+(`src/reaffirmation.rs`): with exactly one open item the premise is implied; with several
+the open items come back as `{outcome: "ambiguous", field: "premise", items}` and nothing is
+written until `--premise` (CLI) / `premise_id` (MCP, REST) names one, by id or by words from
+its title; nothing open under that name is refused (exit 2 / MCP tool error / HTTP 400) in
+words that say why (the premise has not changed, the decision does not rest on it, the
+decision no longer stands, or the item is already closed, naming who closed it, when, and the
+event's ledger number and uuid). The command underneath does not check, which is why the
+check lives in the verb and runs on all four transports. `hivemind reexamine` lists the
+items. The MCP tools `reaffirm_decision` and `get_reexamine_items` are registered on both
+transports and take the `decision_id`/`description`/`topic` selectors; REST has the
+`POST /v1/decisions/{id}/reaffirmations` mirror, which takes the premise by id.
 
 ### 3.1 The `review` naming collision
 
@@ -776,6 +796,11 @@ of `decision_id`/`description`") is enforced at runtime, not in the schema,
 and a call supplying neither returns a real MCP tool error (`one of
 "decision_id" or "description" is required`) since a malformed call is the
 one case that *is* exceptional here.
+
+`reaffirm_decision` and `get_reexamine_items` (`hivemind-ottw.4`) are registered on both
+transports with the same selectors; an ambiguous or unmatched description is data, a
+decision with several open items and no `premise_id` is
+`{outcome: "ambiguous", field: "premise", items}`, and nothing open to close is an error.
 
 `ground_decision` (`hivemind-gwhr.4`) is registered on both transports and takes
 the same `decision_id`/`description`/`topic` selectors plus a `grounding` array;

@@ -32,13 +32,21 @@ The Claude package installs:
   verb, strict ambiguity gate).
 - `/hivemind-context:ground` — say what an existing decision rests on, after
   the fact, attributed to you (write verb, strict ambiguity gate).
+- `/hivemind-context:reexamine` — "what rests on something that changed, and
+  has nobody looked again?": the open re-examine items, each naming the
+  decision, the premise, how it changed and when (read verb).
+- `/hivemind-context:reaffirm` — say a decision still holds after a premise it
+  rests on changed, with a one-line reason, attributed to you; closes that
+  item (write verb, strict ambiguity gate; refuses when there is nothing to
+  re-examine).
 - The `hivemind-context` skill, which teaches when to consult HiveMind
   before changing code, and forbids inventing decision ids.
 
 Every command maps 1:1 to one CLI verb from `hivemind-tenv.1`/`tenv.2`'s
 fluent surface (`query situational`, `query recall`, `query why`,
-`query verify`, `disagree`, `supersede`, `ground`) except `importance`, which
-lists instead of resolving (`query rank_decisions_by_importance`). None of them take a `decision_id`
+`query verify`, `disagree`, `supersede`, `ground`, `reaffirm`) except
+`importance` and `reexamine`, which list instead of resolving
+(`query rank_decisions_by_importance`, `reexamine`). None of them take a `decision_id`
 as primary input — free text (or `#N` from a previous ambiguous result) is
 the interface; `--id`/`--decision`/`--old`/`--pick N` remain as escape
 hatches for callers that already have one.
@@ -82,16 +90,16 @@ not appear to have a disagreement or a replacement it never received.
 
 ## Provenance Defaults
 
-Read verbs (`situational`, `recall`, `why`, `verify`) run under the CLI's
+Read verbs (`situational`, `recall`, `why`, `verify`, `reexamine`) run under the CLI's
 own default actor and record no new events.
 
-Write verbs (`disagree`, `supersede`, `ground`) pass `--actor agent:<tool>:<name>`
+Write verbs (`disagree`, `supersede`, `ground`, `reaffirm`) pass `--actor agent:<tool>:<name>`
 explicitly, derived the same way `hivemind-capture`'s scripts derive it —
 Gas City's stable `GC_AGENT`/`GC_ALIAS` slot identity first (it survives
 process restarts), falling back to a raw per-run session id
 (`CLAUDE_SESSION_ID`/`CLAUDE_CODE_SESSION_ID` under Claude,
 `CODEX_THREAD_ID`/`CODEX_SESSION_ID`/`CODEX_TASK_ID` under Codex), then
-Gas City's session-instance variables. `run_disagree`/`run_supersede`/`run_ground`
+Gas City's session-instance variables. `run_disagree`/`run_supersede`/`run_ground`/`run_reaffirm`
 (`src/cli/run/`) derive `source` from that `--actor` value itself
 (`agent:` prefix → `EventProvenance::agent`, otherwise `::human`), so the
 emitted event's `source` field always matches its `actor_id`'s kind.
@@ -118,7 +126,7 @@ project. See the `hivemind-capture` README for the full order.
 The marketplace serves this plugin from `master` while people install the latest
 release binary, so `lib.sh` passes `--project-from-context` only when the CLI
 lists it (an older CLI files the replacement in the decision's own project), and
-refuses a verb the CLI does not have at all (`ground` on v0.7.0) with that said.
+refuses a verb the CLI does not have at all (`ground`, `reaffirm` and `reexamine` on v0.7.0) with that said.
 `scripts/check_plugin_against_release.py` runs these scripts against the latest
 release in CI.
 

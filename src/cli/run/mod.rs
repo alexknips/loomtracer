@@ -5,6 +5,7 @@ mod floor;
 mod ground;
 mod grounding;
 mod migrate;
+mod reaffirm;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -144,7 +145,11 @@ fn with_read_notices<W: IoWrite>(
 ) -> Result<String> {
     let reads_annotations = matches!(
         cli.command,
-        Command::Query(_) | Command::Export(_) | Command::Digest(_) | Command::QualityScan(_)
+        Command::Query(_)
+            | Command::Export(_)
+            | Command::Digest(_)
+            | Command::QualityScan(_)
+            | Command::Reexamine(_)
     );
     if cell.is_none() && !reads_annotations {
         return Ok(output);
@@ -199,6 +204,8 @@ enum CellBesideVerb {
     Move,
     Retitle,
     Ground,
+    Reaffirm,
+    Reexamine,
     Ask,
     Import,
     RestatementsApply,
@@ -231,6 +238,8 @@ impl CellBesideVerb {
             Command::Move(_) => Self::Move,
             Command::Retitle(_) => Self::Retitle,
             Command::Ground(_) => Self::Ground,
+            Command::Reaffirm(_) => Self::Reaffirm,
+            Command::Reexamine(_) => Self::Reexamine,
             Command::Ask(_) => Self::Ask,
             Command::Review(_) => Self::Review,
             Command::Import(args) => match args.command {
@@ -311,6 +320,8 @@ impl CellBesideVerb {
             Self::Move => "move",
             Self::Retitle => "retitle",
             Self::Ground => "ground",
+            Self::Reaffirm => "reaffirm",
+            Self::Reexamine => "reexamine",
             Self::Ask => "ask",
             Self::Import => "import",
             Self::RestatementsApply => "restatements apply",
@@ -342,6 +353,7 @@ impl CellBesideVerb {
             | Self::ProjectList
             | Self::ProjectShow
             | Self::ProjectDecisions
+            | Self::Reexamine
             | Self::Tui => "reads",
             Self::Review | Self::QualityScan => "reads and writes",
             Self::Emit
@@ -356,6 +368,7 @@ impl CellBesideVerb {
             | Self::Move
             | Self::Retitle
             | Self::Ground
+            | Self::Reaffirm
             | Self::RestatementsApply
             // These act on projects the registry already holds, and `project use` checks its
             // handle against the registry before it stores the setting.
@@ -380,6 +393,7 @@ impl CellBesideVerb {
                 | Self::ProjectShow
                 | Self::ProjectDecisions
                 | Self::ProjectUse
+                | Self::Reexamine
                 | Self::Tui
         )
     }
@@ -452,6 +466,7 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::Move
             | CellBesideVerb::Retitle
             | CellBesideVerb::Ground
+            | CellBesideVerb::Reaffirm
             | CellBesideVerb::RestatementsApply
             | CellBesideVerb::QualityScan
             | CellBesideVerb::ProjectLink
@@ -471,6 +486,7 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::ProjectList
             | CellBesideVerb::ProjectShow
             | CellBesideVerb::ProjectDecisions
+            | CellBesideVerb::Reexamine
             | CellBesideVerb::Tui => {
                 "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
                     .to_owned()
@@ -569,6 +585,15 @@ impl LocalLedgerBesideCell {
                 "To ground a decision in the cell, call its MCP tool ground_decision (POST \
                  {url}/mcp)"
             ),
+            CellBesideVerb::Reaffirm => format!(
+                "To say a decision still holds in the cell, call its HTTP API (POST \
+                 {url}/v1/decisions/{{id}}/reaffirmations) or its MCP tool reaffirm_decision \
+                 (POST {url}/mcp)"
+            ),
+            CellBesideVerb::Reexamine => format!(
+                "To list the cell's re-examine items, call its MCP tool get_reexamine_items \
+                 (POST {url}/mcp)"
+            ),
             CellBesideVerb::Ask => {
                 format!("To ask in the cell, call its MCP tool request_decision (POST {url}/mcp)")
             }
@@ -617,6 +642,8 @@ fn dispatch(cli: &Cli) -> Result<String> {
         Command::Move(args) => run_move(cli, args),
         Command::Retitle(args) => run_retitle(cli, args),
         Command::Ground(args) => ground::run_ground(cli, args),
+        Command::Reaffirm(args) => reaffirm::run_reaffirm(cli, args),
+        Command::Reexamine(args) => reaffirm::run_reexamine(cli, args),
         Command::Ask(args) => ask::run_ask(cli, args),
         Command::Review(args) => run_review(cli, args),
         Command::Import(import) => run_import(cli, import),

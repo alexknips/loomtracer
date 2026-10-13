@@ -41,6 +41,12 @@ use crate::{HivemindError, Result};
 
 use super::args::CliExit;
 
+mod reexamine;
+
+pub(crate) use reexamine::{
+    format_reaffirm_ambiguous_output, format_reaffirm_output, render_reexamine_summary,
+};
+
 pub(crate) fn render_compact_view_summary(view: &Option<CompactView>) -> String {
     let Some(v) = view else {
         return "decision not found".to_owned();

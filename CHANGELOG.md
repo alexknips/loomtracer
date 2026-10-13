@@ -139,6 +139,33 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`hivemind reaffirm` and `hivemind reexamine`: say a decision still holds after something it
+  rests on changed, and list what is waiting for that. Needs the server and every client on a
+  release that knows `decision.reaffirmed`.** `reaffirm "<decision>" --because "<reason>"`
+  (MCP `reaffirm_decision`, REST `POST /v1/decisions/{id}/reaffirmations` with `premise_id` and
+  `reason`, and the hivemind-context plugin's `reaffirm` command) records one "still holds",
+  attributed to whoever runs it, a person or an agent. It closes only an open re-examine item:
+  with one open item the premise is implied, with several the open items are listed (CLI text
+  and `--json`, MCP `{outcome: "ambiguous", data: {field: "premise", items}}`) and nothing is
+  written until `--premise` / `premise_id` names one (an id, or words from its title). Nothing
+  to re-examine is refused with the reason and nothing written (CLI exit 2, MCP tool error,
+  REST 400): the premise has not changed, the decision does not rest on it, the decision itself
+  was superseded or rejected, or the item is already closed, in which case the refusal names
+  who reaffirmed it, when, the event's ledger number (what the first reply called `event_id`)
+  and its uuid, so a retried call sees what happened. The same check runs on every transport
+  (`reaffirmation::reaffirm`), because `Commands::reaffirm_decision` itself does not look at
+  the graph. The reply names the decision, the premise and `covers`: the change of the premise
+  it answered, by ledger offset. An ambiguous or unmatched description is a successful
+  `ambiguous` / `not_found` answer, nothing written, like the other fluent verbs.
+  `reexamine` (MCP `get_reexamine_items`) lists the open items, each naming the decision, the
+  premise and how it changed (`superseded`, `rejected`, `contested`, `refuted`) and when;
+  `--all` / `include_closed` adds the closed ones, `--decision` narrows to one decision,
+  `--project` asks from one project (the rest are counted in `not_shown`, never named), and a
+  long list stops at `--limit` and says so with a cursor. Both tools are registered on the
+  stdio and the HTTP transport (39 tools). With `HIVEMIND_API_URL` set, both CLI verbs refuse
+  when no local ledger exists and otherwise name the ledger they used, like the other verbs
+  that open one. `hivemind-context` gains `reaffirm` and `reexamine` commands and scripts; an
+  older CLI says it has no such command. (hivemind-ottw.4)
 - **A decision that rests on something that changed now says whether anyone looked again, and a
   "still holds" counts.** When a premise a decision rests on changes (a prior decision it
   follows from is superseded, rejected or contested; an assumption or bet it rests on is
@@ -155,7 +182,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   named) and `queries::get_propagation` ("N of M dependents re-examined", and `unfinished` once
   an item has been open more than `propagation_window_days`, 14 by default, a new field of
   `AttentionConfig`). No new event or node; an existing ledger shows its items on the first read.
-  The CLI and MCP verbs that list and record them come next. `GROUNDING_FACT_READS` is 13: one
+  The CLI and MCP verbs that list and record them are `reexamine` and `reaffirm` (below). `GROUNDING_FACT_READS` is 13: one
   more bulk read, for the reaffirmations. (hivemind-ottw.2)
 - **The answer to "what did we decide and why" carries the quality profile, and says how many
   days it has held, in the same response.** `verify` (`get_decision_outcome`) gains `data.quality`

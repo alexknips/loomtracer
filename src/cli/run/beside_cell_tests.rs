@@ -51,6 +51,11 @@ fn every_verb_that_opens_the_ledger_is_guarded_under_its_own_name() -> TestResul
             "ingest slack-thread",
         ),
         (&["tui"], "tui"),
+        (
+            &["reaffirm", "retry budget", "--because", "Checked again"],
+            "reaffirm",
+        ),
+        (&["reexamine"], "reexamine"),
         (&["tenant", "create", "acme"], "tenant create"),
         // The verbs the earlier rounds guarded stay guarded.
         (&["query", "recent_decisions", "--since", "7d"], "query"),

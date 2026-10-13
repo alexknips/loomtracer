@@ -47,11 +47,11 @@ use core::{
     CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
     GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionContextArgs,
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
-    GetSituationalDecisionsArgs, GetSuggestionsArgs, GetSupersessionChainArgs,
-    GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle, LedgerProvider, MoveDecisionArgs,
-    RankDecisionsByImportanceArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
-    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
-    SupersedeDecisionArgs,
+    GetReexamineItemsArgs, GetSituationalDecisionsArgs, GetSuggestionsArgs,
+    GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle,
+    LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs, ReaffirmDecisionArgs,
+    RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs,
+    ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SupersedeDecisionArgs,
 };
 
 /// MCP protocol revision this server speaks. Aligns with the modelcontextprotocol.io
@@ -383,10 +383,12 @@ fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, R
         "retitle_decision" => tool_retitle_decision(arguments, config),
         "acknowledge_suggestion" => tool_acknowledge_suggestion(arguments, config),
         "ground_decision" => tool_ground_decision(arguments, config),
+        "reaffirm_decision" => tool_reaffirm_decision(arguments, config),
         "request_decision" => tool_request_decision(arguments, config),
         "get_waiting_requests" => tool_get_waiting_requests(arguments, config),
         "get_contested_decisions" => tool_get_contested_decisions(arguments, config),
         "get_open_why_decisions" => tool_get_open_why_decisions(arguments, config),
+        "get_reexamine_items" => tool_get_reexamine_items(arguments, config),
         "get_changed_decisions" => tool_get_changed_decisions(arguments, config),
         "get_decision" => tool_get_decision(arguments, config),
         "get_decision_outcome" => tool_get_decision_outcome(arguments, config),
@@ -723,6 +725,22 @@ pub fn tool_definitions() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "reaffirm_decision",
+            "description": "Say that a decision still holds after something it rests on changed — close its open re-examine item. Wraps `hivemind reaffirm`. When a premise a decision rests on is superseded, rejected, contested or refuted, the decision gets an open item (`get_reexamine_items` lists them); looking again and finding it still holds is recorded here with a one-line `reason`, attributed to `actor_id`, and the item closes. Reaffirmation is a statement of fact, not a verdict on anyone: it is also how an agent says a dependent still holds. A premise that changes again after a reaffirmation reopens the item and needs another one. Only an open item can be closed: the call is refused as an error, with nothing written, when the decision does not rest on the premise, the premise has not changed, the item is already closed (the error names who reaffirmed it, when, and the event id), or the decision itself was superseded or rejected. Resolves the decision by `decision_id` or a free-text `description` (+ optional `topic`) — exactly one is required, the same fluent resolution `disagree_decision` uses; an ambiguous or unmatched description is a successful `{outcome: \"ambiguous\"|\"not_found\"}` result with nothing written. When the decision has exactly one open item, `premise_id` is not needed; with several, the call returns `{outcome: \"ambiguous\", data: {field: \"premise\", items: [...]}}` listing them, with nothing written — re-call with `premise_id` from that list. The reply gives the event id and `covers`: the change(s) of the premise this answered, by ledger offset; a change recorded after it is a new item.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["reason"],
+                "properties": {
+                    "actor_id": { "type": "string", "description": "Reaffirming actor. Defaults to `agent:<tool>:<name>` when omitted (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`)." },
+                    "decision_id": { "type": "string", "description": "The decision that still holds. Provide this or `description`, not both." },
+                    "description": { "type": "string", "description": "Free-text match for the decision. Required when `decision_id` is omitted." },
+                    "topic": { "type": "string", "description": "Optional topic_key filter narrowing the `description` match." },
+                    "premise_id": { "type": "string", "description": "The changed premise it still holds after: a decision id or a hypothesis id, as `get_reexamine_items` lists it. Needed only when the decision has several open items." },
+                    "reason": { "type": "string", "description": "Why it still holds: one line, in your own words. Recorded with who you are and when." }
+                }
+            }
+        }),
+        json!({
             "name": "request_decision",
             "description": "Record that you are explicitly asking a question, before any decision answers it: writes a request an unanswered call is 'waiting' on. Defaults actor_id to agent:<tool>:<name> (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`) and writes source=agent. Resolved to a `Question` node by the same exact-match rule `capture_decision`'s `question` uses: a match on the normalized text is reused, otherwise the node is created. Unlike answering, asking is never suppressed as a duplicate — the same question can be asked more than once, each its own request. The reply's `request_id` is what `capture_decision`'s `answers` (or `hivemind capture --answers`) takes to link a later decision to this request without repeating the words.",
             "inputSchema": {
@@ -762,6 +780,23 @@ pub fn tool_definitions() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+                    "cursor": { "type": "string", "description": "The `data.next_cursor` of the previous page." }
+                }
+            }
+        }),
+        json!({
+            "name": "get_reexamine_items",
+            "description": "Re-examine items: the decisions that rest on something that changed and that nobody has looked at again, so a disagreement or a supersession does not stop at the first decision. Equivalent to `hivemind reexamine`. A decision gets an item for each premise it rests on directly (a prior decision it follows from, or an assumption or bet) that was superseded, rejected, contested or refuted. Nothing is stored as open: an item is derived on every read, and closes only when someone records `reaffirm_decision` (\"still holds\", with who and why) after the change, or when the decision itself is superseded or rejected. A premise that changes again reopens the item (the earlier reaffirmations stay visible as `earlier_reaffirmations`). A contested premise opens an item but is not a verdict, so it never flips `still_holds`. Each item names the `dependent` (id, title, status, project), the `premise` (`premise_id`, `premise_kind`, `premise_label`), the `change` (`kind`, `by_ids`, `at_offset`, `at_time` where the graph states one) and `state`: `open`, `reaffirmed` (with each reaffirmation's actor, time and reason), `dependent_superseded` or `dependent_rejected`. Open items only unless `include_closed`. Narrow to one decision with `decision_id` or `description` (+ `topic`; an ambiguous or unmatched description is a successful `{outcome: \"ambiguous\"|\"not_found\"}` result), to one premise with `premise_id` (which also fills `data.propagation`: N of M dependents re-examined, `unfinished` once an item has been open longer than the 14-day window), and ask from a `project` (decisions in it, the project it is part of and the projects it depends on are named; the rest are counted in `data.not_shown`, never named). `data.truncated` / `data.next_cursor` continue a long list; nothing is dropped silently.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "decision_id": { "type": "string", "description": "Only the items on this decision. Provide this or `description`, not both." },
+                    "description": { "type": "string", "description": "Free-text match for the decision whose items to list." },
+                    "topic": { "type": "string", "description": "Optional topic_key filter narrowing the `description` match." },
+                    "premise_id": { "type": "string", "description": "Only the items resting on this premise (a decision or hypothesis id); also returns its propagation completeness." },
+                    "project": { "type": "string", "description": "Ask from this project: a registered handle or a personal address. An unregistered handle is refused." },
+                    "include_closed": { "type": "boolean", "description": "List closed items too (reaffirmed, or on a decision that stopped standing). Default false." },
                     "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
                     "cursor": { "type": "string", "description": "The `data.next_cursor` of the previous page." }
                 }
@@ -1402,6 +1437,27 @@ fn tool_ground_decision(args: Value, config: &McpConfig) -> std::result::Result<
     let core_args = GroundDecisionArgs::from_json(&args, actor_id)?;
     let provider = StdioLedgerProvider { config };
     let output = core::ground_decision(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn tool_reaffirm_decision(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
+    let args = args.as_object().cloned().unwrap_or_default();
+    let actor_id = mcp_actor_id(&args, config)?;
+    let core_args = ReaffirmDecisionArgs::from_json(&args, actor_id)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::reaffirm_decision(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn tool_get_reexamine_items(
+    args: Value,
+    config: &McpConfig,
+) -> std::result::Result<Value, RpcError> {
+    let args = args.as_object().cloned().unwrap_or_default();
+    let core_args = GetReexamineItemsArgs::from_json(&args)?;
+    let graph = open_memory_graph(config)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::get_reexamine_items(&provider, &graph, core_args)?;
     Ok(output.into_value())
 }
 

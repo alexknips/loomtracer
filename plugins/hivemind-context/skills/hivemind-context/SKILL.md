@@ -25,6 +25,9 @@ Consult HiveMind when:
   one.
 - A decision reads "nothing declared" for what it rests on, and you know what
   it rests on.
+- A decision you depend on rests on something that has since been superseded,
+  rejected, contested or refuted, and you have looked again and know whether
+  it still holds.
 
 Do not use this skill for:
 
@@ -154,6 +157,46 @@ what it wants to ask.
   other decisions that answer it, and flags two accepted answers that chose
   differently.
 
+- **See what rests on something that changed** — a decision that rests on a
+  premise (a decision it follows from, or an assumption or bet) has an open
+  *re-examine item* when that premise is superseded, rejected, contested or
+  refuted. Nothing closes it by itself. Listing them is a read, no question
+  needed:
+
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/scripts/reexamine.sh
+  ${CLAUDE_PLUGIN_ROOT}/scripts/reexamine.sh --decision "the decision you're about to depend on"
+  ${CLAUDE_PLUGIN_ROOT}/scripts/reexamine.sh --all     # the closed ones too: who reaffirmed, and why
+  ```
+
+  Report an open item as it is: it says nobody has looked again, not that
+  anyone failed to. A contested premise opens an item but is not a verdict;
+  `held_up` does not flip on it.
+
+- **Say it still holds** — WRITE verb. Only after you looked at the decision
+  again and it holds up despite the change, record that, with a one-line
+  reason. It is attributed to you and closes that item; a later change to the
+  same premise reopens it, and the earlier reaffirmation stays on record:
+
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/scripts/reaffirm.sh "the decision that still holds" \
+    --because "why the change does not affect it"
+
+  # a decision with several open items: the CLI lists them and writes nothing
+  ${CLAUDE_PLUGIN_ROOT}/scripts/reaffirm.sh "the decision that still holds" \
+    --premise "words from the changed premise's title" --because "..."
+  ```
+
+  Do not run it to clear a list, and never as a default: a reaffirmation
+  that nobody checked is worse than an open item. If the decision does *not*
+  still hold, `disagree` or `supersede` it instead. Anything with nothing to
+  re-examine — the premise has not changed, the item was already reaffirmed
+  (the refusal names who, when and the event), the decision does not rest on
+  that premise, the decision itself was superseded — is refused with the
+  reason and writes nothing. `reexamine` and `reaffirm` need a hivemind newer
+  than v0.7.0; an older CLI says it has no such command, and the answer is to
+  update the CLI, not to work around it.
+
 ## What Needs a Look — and Where to Send It
 
 A newer hivemind (one whose MCP server lists `get_suggestions`) can say which decisions
@@ -185,8 +228,8 @@ Every command above resolves your description deterministically (term match
 + topic + recency — no LLM, no similarity, no ranking model; see
 `docs/AGENT_FLUENT_QUERYING.md`). If more than one decision matches equally
 well, the CLI does not pick one for you. It returns a numbered candidate
-list and, for the write verbs (`disagree`, `supersede`, `ground`), performs
-**no write**.
+list and, for the write verbs (`disagree`, `supersede`, `ground`, `reaffirm`),
+performs **no write**.
 
 When you see an ambiguous result:
 
@@ -287,14 +330,17 @@ use the equivalent `mcp__hivemind__*` tool directly instead of the script:
 | `disagree.sh` | `disagree_decision` |
 | `supersede.sh` | `supersede_decision` |
 | `ground.sh` | `ground_decision` |
+| `reaffirm.sh` | `reaffirm_decision` |
+| `reexamine.sh` | `get_reexamine_items` |
 | `importance.sh` | `rank_decisions_by_importance` |
 
 The first six are registered on the HTTP transport (`hivemind-ot72.6`
-through `.12`) and `ground_decision` is registered on both transports, so this
+through `.12`), and `ground_decision`, `reaffirm_decision` and
+`get_reexamine_items` are registered on both transports, so this
 substitution works with no further product change.
 The MCP tools take the same free-text/description arguments as the scripts
-— still never a `decision_id` you invented. For the three write verbs,
+— still never a `decision_id` you invented. For the four write verbs,
 `actor_id` follows the same rule as `hivemind-capture`'s MCP-over-HTTP
 section: pass it explicitly when the server's token is shared across more
-than one session, so disagreement/supersession/grounding provenance doesn't collapse
+than one session, so disagreement/supersession/grounding/reaffirmation provenance doesn't collapse
 onto the token's own identity or an unstable per-connection session id.

@@ -367,12 +367,14 @@ const SEED_TITLE: &str = "Retry budget for the flaky upstream";
 
 /// The verbs hivemind-3wism did not cover, named as the refusal names them. `restatements` is two
 /// entries because `propose` reads and `apply` writes.
-const OTHER_VERBS: [&str; 11] = [
+const OTHER_VERBS: [&str; 13] = [
     "disagree",
     "supersede",
     "move",
     "retitle",
     "ground",
+    "reaffirm",
+    "reexamine",
     "ask",
     "import",
     "restatements propose",
@@ -383,7 +385,7 @@ const OTHER_VERBS: [&str; 11] = [
 
 /// Whether the verb writes to a ledger, so its refusal also says nothing was recorded.
 fn writes(verb: &str) -> bool {
-    !matches!(verb, "map" | "restatements propose")
+    !matches!(verb, "map" | "restatements propose" | "reexamine")
 }
 
 /// A ledger under `dir` that holds one decision about a retry budget, made the way a person makes
@@ -472,6 +474,15 @@ fn other_verb_args(verb: &str, note: &Path) -> Vec<String> {
             "--rests-on-assumption",
             "The upstream stays flaky",
         ],
+        // A successful `not_found`, like `move`: the point is that the verb ran and said whose
+        // ledger it ran against.
+        "reaffirm" => vec![
+            "reaffirm",
+            "no-such-decision-needle",
+            "--because",
+            "Checked it again",
+        ],
+        "reexamine" => vec!["reexamine"],
         "ask" => vec!["ask", "How many retries does the upstream need?"],
         "import" => vec!["import", "documents", &note],
         "restatements propose" => vec!["restatements", "propose"],
@@ -564,6 +575,8 @@ fn a_refusal_names_the_cells_route_for_what_the_verb_does() {
         ("move", "move_decision"),
         ("retitle", "retitle_decision"),
         ("ground", "ground_decision"),
+        ("reaffirm", "/v1/decisions/{id}/reaffirmations"),
+        ("reexamine", "get_reexamine_items"),
         ("ask", "request_decision"),
         ("restatements propose", "/v1/restatements/proposals"),
         ("restatements apply", "/v1/decisions/{id}/restatements"),

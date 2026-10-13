@@ -230,6 +230,38 @@ pub enum Command {
     /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
     /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Ground(GroundArgs),
+    /// Say that a decision still holds after something it rests on changed: closes its open
+    /// re-examine item with a one-line reason (`--because`), attributed to whoever runs it
+    /// (--actor; untyped, the agent in an agent session and the git user at a plain terminal).
+    /// Resolves the decision by description with the same ambiguity gate as `supersede`.
+    ///
+    /// Only an open item can be closed: the decision must rest on a premise (a decision it
+    /// follows from, or an assumption or bet) that was superseded, rejected, contested or
+    /// refuted, and nobody has reaffirmed it since. With one open item no `--premise` is needed;
+    /// with several the open items are listed and nothing is written, so name one with
+    /// `--premise` (its id, or words from its title). Anything else is refused, exit 2, saying
+    /// why and, for an item already closed, who closed it and with which event. Nothing is
+    /// written on a refusal, an ambiguity or an unmatched description. There is no `--all`.
+    ///
+    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
+    /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
+    Reaffirm(ReaffirmArgs),
+    /// List the decisions that rest on something that changed and have not been looked at again:
+    /// the open re-examine items, oldest decision first. Each names the decision, the premise
+    /// that changed, how (superseded, rejected, contested or refuted) and when. `--all` lists the
+    /// closed ones too, with who reaffirmed them and why.
+    ///
+    /// `--decision` narrows to one decision's items (a description, with the same ambiguity gate
+    /// as `supersede`); `--project` asks from one project (its own decisions, the project it is
+    /// part of and the projects it depends on are named, the rest are counted). A long list is
+    /// cut at `--limit` and says so (`truncated`, with the cursor to continue from).
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
+    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2, when --hivemind-dir holds no
+    /// ledger, and otherwise adds a `notice` saying the answer is that local ledger's.
+    Reexamine(ReexamineArgs),
     /// Record that you are explicitly asking a question, before any decision answers it: writes
     /// a request that is "waiting" until a decision (`emit decision.capture --answers`) links to
     /// it. Resolved and created exactly like a capture's `--question`: a match on the normalized
@@ -1135,6 +1167,68 @@ pub struct GroundArgs {
 
     #[command(flatten)]
     pub grounding: GroundingArgs,
+}
+
+/// `hivemind reaffirm "<decision>" --because "<reason>"` (hivemind-ottw.4).
+#[derive(Debug, Clone, Args)]
+pub struct ReaffirmArgs {
+    /// Free-text description to resolve to the decision that still holds (fluent alternative to
+    /// --id). A bare `#N` refers to candidate N from the previous ambiguous resolver output.
+    pub description: Option<String>,
+
+    #[arg(long = "id")]
+    pub decision_id: Option<String>,
+
+    /// Select candidate N when a description resolves ambiguously.
+    #[arg(long = "pick")]
+    pub pick: Option<usize>,
+
+    /// Narrow resolution to decisions carrying this topic key.
+    #[arg(long = "topic")]
+    pub topic: Option<String>,
+
+    /// Which changed premise the decision still holds after: its id, or words from its title or
+    /// statement. Needed only when the decision has several open items.
+    #[arg(long = "premise")]
+    pub premise: Option<String>,
+
+    /// Why it still holds: one line, in your own words. Recorded with who you are and when.
+    #[arg(long = "because")]
+    pub because: String,
+}
+
+/// `hivemind reexamine` (hivemind-ottw.4).
+#[derive(Debug, Clone, Args)]
+pub struct ReexamineArgs {
+    /// Only the items on the decision this describes (resolved with the ambiguity gate; a bare
+    /// `#N` refers to candidate N from the previous ambiguous resolver output).
+    #[arg(long = "decision")]
+    pub decision: Option<String>,
+
+    /// Only the items on this decision id, skipping resolution.
+    #[arg(long = "id", conflicts_with = "decision")]
+    pub decision_id: Option<String>,
+
+    /// Select candidate N when `--decision` resolves ambiguously.
+    #[arg(long = "pick", requires = "decision")]
+    pub pick: Option<usize>,
+
+    /// Ask from this project: a registered handle or a personal address. Items on its decisions,
+    /// the project it is part of and the projects it depends on are named; the rest are counted.
+    #[arg(long = "project")]
+    pub project: Option<String>,
+
+    /// Closed items too: reaffirmed (by whom, when, why) or on a decision that stopped standing.
+    #[arg(long = "all")]
+    pub all: bool,
+
+    /// Items per page.
+    #[arg(long = "limit", default_value_t = 50)]
+    pub limit: usize,
+
+    /// The `next_cursor` of the previous page.
+    #[arg(long = "cursor")]
+    pub cursor: Option<String>,
 }
 
 /// `hivemind ask <question text>` (hivemind-bbnw.4).

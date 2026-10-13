@@ -122,7 +122,7 @@ fn tools_list_includes_all_eighteen_tools() {
     );
     assert_eq!(responses.len(), 1); // ubs:ignore: test-only; index guaranteed by test setup
     let tools = responses[0]["result"]["tools"].as_array().expect("array"); // ubs:ignore: test-only; panicking is correct in tests
-    assert_eq!(tools.len(), 37, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
+    assert_eq!(tools.len(), 39, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
     let names: Vec<&str> = tools
         .iter()
         .map(|tool| tool["name"].as_str().expect("string name")) // ubs:ignore: test-only; panicking is correct in tests
@@ -137,10 +137,12 @@ fn tools_list_includes_all_eighteen_tools() {
         "retitle_decision",
         "acknowledge_suggestion",
         "ground_decision",
+        "reaffirm_decision",
         "request_decision",
         "get_waiting_requests",
         "get_contested_decisions",
         "get_open_why_decisions",
+        "get_reexamine_items",
         "get_changed_decisions",
         "get_decision",
         "get_decision_outcome",
@@ -215,6 +217,7 @@ fn the_write_tools_are_the_tools_that_append_events() {
             "retitle_decision",
             "acknowledge_suggestion",
             "ground_decision",
+            "reaffirm_decision",
             "request_decision",
             "classify_queue_submit",
         ]
@@ -6998,6 +7001,549 @@ mod transport_parity {
                 "{name}: a bad `since` is refused"
             ); // ubs:ignore: test-only assertion
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // reaffirm_decision / get_reexamine_items (hivemind-ottw.4)
+    // -----------------------------------------------------------------------
+
+    const REAFFIRMER: &str = "agent:codex:reviewer";
+    const DISSENTER: &str = "agent:claude:dissenter";
+    const SHARD_REASON: &str = "Sharding by tenant never depended on the cap";
+
+    fn grounded_on(title: &str, premise: &str) -> Value {
+        json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
+            "grounding": [{"kind": "decision", "description": premise}],
+            "title": title,
+            "rationale": "seed for the re-examine parity tests, long enough to read",
+            "topic_keys": ["parity"],
+            "options": [{"label": "only"}],
+        })
+    }
+
+    /// "Shard by tenant" rests on "Cap requests per tenant", which `DISSENTER` then rejects:
+    /// one open re-examine item, on both transports.
+    async fn seed_changed_premise(stdio_dir: &std::path::Path, http_dir: &std::path::Path) {
+        seed_premise(stdio_dir, http_dir, "Cap requests per tenant").await;
+        let dependent = grounded_on("Shard by tenant", "Cap requests per tenant");
+        stdio_call(stdio_dir, "capture_decision", dependent.clone());
+        http_call(http_dir, "capture_decision", dependent).await;
+        let dissent = json!({
+            "actor_id": DISSENTER,
+            "description": "Cap requests per tenant",
+            "reason": "Per-user caps fit billing better",
+        });
+        stdio_call(stdio_dir, "disagree_decision", dissent.clone());
+        http_call(http_dir, "disagree_decision", dissent).await;
+    }
+
+    fn reaffirm_args(reason: &str) -> Value {
+        json!({
+            "actor_id": REAFFIRMER,
+            "description": "Shard by tenant",
+            "reason": reason,
+        })
+    }
+
+    fn reaffirmations_in(dir: &std::path::Path) -> Vec<crate::events::Event> {
+        let ledger = SqliteEventLedger::open(dir).expect("ledger opens"); // ubs:ignore: test-only; panicking is correct in tests
+        ledger
+            .read(0, 1000)
+            .expect("read events") // ubs:ignore: test-only; panicking is correct in tests
+            .into_iter()
+            .filter(|event| event.event_type == crate::events::EventType::DecisionReaffirmed)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_closes_the_open_item_and_names_what_it_covered_across_transports() {
+        let stdio_dir = unique_dir("parity-stdio-reaffirm");
+        let http_dir = unique_dir("parity-http-reaffirm");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+
+        let args = reaffirm_args(SHARD_REASON);
+        let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+        let http = http_call(&http_dir, "reaffirm_decision", args).await;
+
+        for (name, response, dir) in [("stdio", &stdio, &stdio_dir), ("http", &http, &http_dir)] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let reply = &result["structuredContent"];
+            assert_eq!(reply["decision_title"], "Shard by tenant", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["premise_label"], "Cap requests per tenant", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["premise_kind"], "decision", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["actor_id"], REAFFIRMER, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["reason"], SHARD_REASON, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["covers"][0]["kind"], "rejected", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["covers"][0]["by_ids"], json!([DISSENTER]), "{name}"); // ubs:ignore: test-only assertion
+
+            // One event, attributed to the reaffirmer, with the premise the item named.
+            let recorded = reaffirmations_in(dir);
+            assert_eq!(recorded.len(), 1, "{name}: {recorded:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].actor_id, REAFFIRMER, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].payload["premise_id"], reply["premise_id"],
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].payload["reason"], SHARD_REASON, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                reply["event_id"],
+                json!(recorded[0].event_id),
+                "{name}: the reply names the event"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        // Each ledger numbers its own ids; everything else reads the same on both transports.
+        let alike = |response: &Value| {
+            let reply = &response["result"]["structuredContent"];
+            json!({
+                "decision_title": reply["decision_title"],
+                "premise_label": reply["premise_label"],
+                "premise_kind": reply["premise_kind"],
+                "actor_id": reply["actor_id"],
+                "reason": reply["reason"],
+                "covers": reply["covers"],
+            })
+        };
+        assert_eq!(alike(&stdio), alike(&http)); // ubs:ignore: test-only assertion
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_refuses_what_there_is_nothing_to_reexamine_and_writes_nothing_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-reaffirm-refused");
+        let http_dir = unique_dir("parity-http-reaffirm-refused");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+        // A second decision resting on a premise nobody has touched.
+        seed_premise(&stdio_dir, &http_dir, "Keep audit boundaries").await;
+        let untouched = grounded_on("Write audit logs", "Keep audit boundaries");
+        stdio_call(&stdio_dir, "capture_decision", untouched.clone());
+        http_call(&http_dir, "capture_decision", untouched).await;
+
+        let args = reaffirm_args(SHARD_REASON);
+        let first = [
+            stdio_call(&stdio_dir, "reaffirm_decision", args.clone()),
+            http_call(&http_dir, "reaffirm_decision", args.clone()).await,
+        ];
+        let stdio_offset_before = ledger_offset(&stdio_dir);
+        let http_offset_before = ledger_offset(&http_dir);
+
+        // Saying it again names the reaffirmation that already closed the item.
+        let again = [
+            stdio_call(&stdio_dir, "reaffirm_decision", args.clone()),
+            http_call(&http_dir, "reaffirm_decision", args).await,
+        ];
+        for (name, response, recorded) in [
+            ("stdio", &again[0], &first[0]),
+            ("http", &again[1], &first[1]),
+        ] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], true, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let text = error_text(result);
+            assert!(
+                text.contains("already reaffirmed after its latest change"),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            assert!(text.contains(REAFFIRMER), "{name}: who: {text}"); // ubs:ignore: test-only assertion
+            let event_id = recorded["result"]["structuredContent"]["event_id"].to_string();
+            let closing = reaffirmations_in(if name == "stdio" {
+                &stdio_dir
+            } else {
+                &http_dir
+            });
+            assert_eq!(closing.len(), 1, "{name}: a refusal writes nothing"); // ubs:ignore: test-only assertion
+                                                                              // The refusal names the event the way the original reply did (its ledger number),
+                                                                              // and by its own uuid.
+            assert!(
+                text.contains(&format!("(event {event_id}, ")),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            assert!(
+                text.contains(&format!("id {}", closing[0].event_uuid)),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            assert!(text.ends_with("nothing was written"), "{name}: {text}"); // ubs:ignore: test-only assertion
+        }
+
+        // A premise nobody changed, a premise the decision does not rest on, an unknown decision.
+        for (args, expected) in [
+            (
+                json!({
+                    "actor_id": REAFFIRMER,
+                    "description": "Write audit logs",
+                    "reason": "Checked",
+                }),
+                "has changed",
+            ),
+            (
+                json!({
+                    "actor_id": REAFFIRMER,
+                    "description": "Shard by tenant",
+                    "premise_id": "Zebra",
+                    "reason": "Checked",
+                }),
+                "does not rest on \"Zebra\"",
+            ),
+            (
+                json!({
+                    "actor_id": REAFFIRMER,
+                    "decision_id": "decision-that-is-not-there",
+                    "reason": "Checked",
+                }),
+                "does not exist",
+            ),
+        ] {
+            let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+            let http = http_call(&http_dir, "reaffirm_decision", args.clone()).await;
+            for (name, response) in [("stdio", &stdio), ("http", &http)] {
+                let result = &response["result"];
+                assert_eq!(result["isError"], true, "{name}: {args} -> {result:?}"); // ubs:ignore: test-only assertion
+                let text = error_text(result);
+                assert!(text.contains(expected), "{name}: {args} -> {text}"); // ubs:ignore: test-only assertion
+            }
+        }
+        assert_eq!(
+            ledger_offset(&stdio_dir),
+            stdio_offset_before,
+            "stdio wrote"
+        ); // ubs:ignore: test-only assertion
+        assert_eq!(ledger_offset(&http_dir), http_offset_before, "http wrote"); // ubs:ignore: test-only assertion
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_lists_several_open_items_and_takes_the_premise_named_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-reaffirm-several");
+        let http_dir = unique_dir("parity-http-reaffirm-several");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+        // A second premise "Shard by tenant" rests on, also rejected.
+        seed_premise(&stdio_dir, &http_dir, "Bill monthly").await;
+        let also = json!({
+            "actor_id": "agent:claude:grounder",
+            "description": "Shard by tenant",
+            "grounding": [{"kind": "decision", "description": "Bill monthly"}],
+        });
+        stdio_call(&stdio_dir, "ground_decision", also.clone());
+        http_call(&http_dir, "ground_decision", also).await;
+        let dissent = json!({
+            "actor_id": DISSENTER,
+            "description": "Bill monthly",
+            "reason": "Weekly invoicing is what customers ask for",
+        });
+        stdio_call(&stdio_dir, "disagree_decision", dissent.clone());
+        http_call(&http_dir, "disagree_decision", dissent).await;
+        let stdio_offset_before = ledger_offset(&stdio_dir);
+        let http_offset_before = ledger_offset(&http_dir);
+
+        let args = reaffirm_args(SHARD_REASON);
+        let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+        let http = http_call(&http_dir, "reaffirm_decision", args).await;
+        let mut premise_ids = Vec::new();
+        for (name, response) in [("stdio", &stdio), ("http", &http)] {
+            let result = &response["result"];
+            assert_eq!(
+                result["isError"], false,
+                "{name}: several is data, not an error"
+            ); // ubs:ignore: test-only assertion
+            let data = &result["structuredContent"]["data"];
+            assert_eq!(data["outcome"], "ambiguous", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(data["field"], "premise", "{name}"); // ubs:ignore: test-only assertion
+            let items = data["items"].as_array().expect("items"); // ubs:ignore: test-only; panicking is correct in tests
+            let labels: Vec<&str> = items
+                .iter()
+                .map(|item| item["premise_label"].as_str().unwrap_or_default()) // ubs:ignore: test-only; a missing label fails the assertion below
+                .collect();
+            let mut labels = labels;
+            labels.sort_unstable();
+            assert_eq!(
+                labels,
+                ["Bill monthly", "Cap requests per tenant"],
+                "{name}: both open"
+            ); // ubs:ignore: test-only assertion
+            premise_ids.push(
+                items
+                    .iter()
+                    .find(|item| item["premise_label"] == "Bill monthly")
+                    .and_then(|item| item["premise_id"].as_str())
+                    .expect("the item names its premise") // ubs:ignore: test-only; panicking is correct in tests
+                    .to_owned(),
+            );
+        }
+        assert_eq!(
+            ledger_offset(&stdio_dir),
+            stdio_offset_before,
+            "stdio wrote"
+        ); // ubs:ignore: test-only assertion
+        assert_eq!(ledger_offset(&http_dir), http_offset_before, "http wrote"); // ubs:ignore: test-only assertion
+
+        // Naming the premise (by the id the listing gave) closes that one and only that one.
+        for (name, dir, premise_id, http_side) in [
+            ("stdio", &stdio_dir, &premise_ids[0], false),
+            ("http", &http_dir, &premise_ids[1], true),
+        ] {
+            let mut named = reaffirm_args(SHARD_REASON);
+            named["premise_id"] = json!(premise_id);
+            let response = if http_side {
+                http_call(dir, "reaffirm_decision", named).await
+            } else {
+                stdio_call(dir, "reaffirm_decision", named)
+            };
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                result["structuredContent"]["premise_label"], "Bill monthly",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(reaffirmations_in(dir).len(), 1, "{name}"); // ubs:ignore: test-only assertion
+        }
+
+        // One open item is left, so the premise is no longer needed.
+        let last = reaffirm_args("The cap does not touch sharding either");
+        let stdio = stdio_call(&stdio_dir, "reaffirm_decision", last.clone());
+        let http = http_call(&http_dir, "reaffirm_decision", last).await;
+        for (name, response) in [("stdio", &stdio), ("http", &http)] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                result["structuredContent"]["premise_label"], "Cap requests per tenant",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_ambiguous_or_unmatched_target_writes_nothing_across_transports() {
+        let stdio_dir = unique_dir("parity-stdio-reaffirm-target");
+        let http_dir = unique_dir("parity-http-reaffirm-target");
+        seed_premise(&stdio_dir, &http_dir, "Adopt the queue").await;
+        seed_premise(&stdio_dir, &http_dir, "Adopt the queue").await;
+        let stdio_offset_before = ledger_offset(&stdio_dir);
+        let http_offset_before = ledger_offset(&http_dir);
+
+        for (description, outcome) in [("Adopt the queue", "ambiguous"), ("Zebra", "not_found")] {
+            let args = json!({
+                "actor_id": REAFFIRMER,
+                "description": description,
+                "reason": SHARD_REASON,
+            });
+            let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+            let http = http_call(&http_dir, "reaffirm_decision", args).await;
+            for (name, response) in [("stdio", &stdio), ("http", &http)] {
+                let result = &response["result"];
+                assert_eq!(
+                    result["isError"], false,
+                    "{name}: {outcome} is data, not an error"
+                ); // ubs:ignore: test-only assertion
+                assert_eq!(
+                    result["structuredContent"]["data"]["outcome"], outcome,
+                    "{name}"
+                ); // ubs:ignore: test-only assertion
+            }
+        }
+        assert_eq!(
+            ledger_offset(&stdio_dir),
+            stdio_offset_before,
+            "stdio wrote"
+        ); // ubs:ignore: test-only assertion
+        assert_eq!(ledger_offset(&http_dir), http_offset_before, "http wrote"); // ubs:ignore: test-only assertion
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_requires_a_reason_and_a_selector_across_transports() {
+        let stdio_dir = unique_dir("parity-stdio-reaffirm-required");
+        let http_dir = unique_dir("parity-http-reaffirm-required");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+        let stdio_offset_before = ledger_offset(&stdio_dir);
+        let http_offset_before = ledger_offset(&http_dir);
+
+        for (args, expected) in [
+            (
+                json!({"actor_id": REAFFIRMER, "description": "Shard by tenant"}),
+                "reason",
+            ),
+            (
+                json!({"actor_id": REAFFIRMER, "description": "Shard by tenant", "reason": "   "}),
+                "`reason` must be a non-empty string",
+            ),
+            (
+                json!({"actor_id": REAFFIRMER, "reason": SHARD_REASON}),
+                "one of `decision_id` or `description` is required",
+            ),
+        ] {
+            let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+            let http = http_call(&http_dir, "reaffirm_decision", args.clone()).await;
+            for (name, response) in [("stdio", &stdio), ("http", &http)] {
+                let result = &response["result"];
+                assert_eq!(result["isError"], true, "{name}: {args} -> {result:?}"); // ubs:ignore: test-only assertion
+                let text = error_text(result);
+                assert!(text.contains(expected), "{name}: {args} -> {text}"); // ubs:ignore: test-only assertion
+            }
+        }
+        assert_eq!(
+            ledger_offset(&stdio_dir),
+            stdio_offset_before,
+            "stdio wrote"
+        ); // ubs:ignore: test-only assertion
+        assert_eq!(ledger_offset(&http_dir), http_offset_before, "http wrote"); // ubs:ignore: test-only assertion
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn get_reexamine_items_lists_the_open_item_then_the_closed_one_across_transports() {
+        let stdio_dir = unique_dir("parity-stdio-reexamine");
+        let http_dir = unique_dir("parity-http-reexamine");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+
+        let open = [
+            stdio_call(&stdio_dir, "get_reexamine_items", json!({})),
+            http_call(&http_dir, "get_reexamine_items", json!({})).await,
+        ];
+        for (name, response) in [("stdio", &open[0]), ("http", &open[1])] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let envelope = &result["structuredContent"];
+            assert_eq!(envelope["truncated"], false, "{name}"); // ubs:ignore: test-only assertion
+            let items = envelope["data"]["items"].as_array().expect("items"); // ubs:ignore: test-only; panicking is correct in tests
+            assert_eq!(items.len(), 1, "{name}: {items:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(items[0]["dependent"]["title"], "Shard by tenant", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                items[0]["premise_label"], "Cap requests per tenant",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(items[0]["change"]["kind"], "rejected", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(items[0]["state"], "open", "{name}"); // ubs:ignore: test-only assertion
+        }
+
+        let args = reaffirm_args(SHARD_REASON);
+        stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+        http_call(&http_dir, "reaffirm_decision", args).await;
+
+        let none_open = [
+            stdio_call(&stdio_dir, "get_reexamine_items", json!({})),
+            http_call(&http_dir, "get_reexamine_items", json!({})).await,
+        ];
+        let with_closed = [
+            stdio_call(
+                &stdio_dir,
+                "get_reexamine_items",
+                json!({"include_closed": true, "description": "Shard by tenant"}),
+            ),
+            http_call(
+                &http_dir,
+                "get_reexamine_items",
+                json!({"include_closed": true, "description": "Shard by tenant"}),
+            )
+            .await,
+        ];
+        for (name, none, closed) in [
+            ("stdio", &none_open[0], &with_closed[0]),
+            ("http", &none_open[1], &with_closed[1]),
+        ] {
+            assert_eq!(
+                none["result"]["structuredContent"]["data"]["items"],
+                json!([]),
+                "{name}: the reaffirmation closed it"
+            ); // ubs:ignore: test-only assertion
+            let items = closed["result"]["structuredContent"]["data"]["items"]
+                .as_array()
+                .expect("items"); // ubs:ignore: test-only; panicking is correct in tests
+            assert_eq!(items.len(), 1, "{name}: {items:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(items[0]["state"], "reaffirmed", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                items[0]["reaffirmations"][0]["actor_id"], REAFFIRMER,
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                items[0]["reaffirmations"][0]["reason"], SHARD_REASON,
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn get_reexamine_items_pages_without_cutting_the_list_short_across_transports() {
+        let stdio_dir = unique_dir("parity-stdio-reexamine-pages");
+        let http_dir = unique_dir("parity-http-reexamine-pages");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+        // A second dependent on the same rejected premise: two open items.
+        let second = grounded_on("Index requests by tenant", "Cap requests per tenant");
+        stdio_call(&stdio_dir, "capture_decision", second.clone());
+        http_call(&http_dir, "capture_decision", second).await;
+
+        for (name, dir, http_side) in [("stdio", &stdio_dir, false), ("http", &http_dir, true)] {
+            let call = |arguments: Value| async move {
+                if http_side {
+                    http_call(dir, "get_reexamine_items", arguments).await
+                } else {
+                    stdio_call(dir, "get_reexamine_items", arguments)
+                }
+            };
+            let first = call(json!({"limit": 1})).await;
+            let envelope = &first["result"]["structuredContent"];
+            assert_eq!(envelope["truncated"], true, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                envelope["data"]["items"].as_array().map(Vec::len),
+                Some(1),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            let cursor = envelope["data"]["next_cursor"]
+                .as_str()
+                .expect("a truncated page says where to continue") // ubs:ignore: test-only; panicking is correct in tests
+                .to_owned();
+
+            let rest = call(json!({"limit": 1, "cursor": cursor})).await;
+            let envelope = &rest["result"]["structuredContent"];
+            assert_eq!(envelope["truncated"], false, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                envelope["data"]["items"].as_array().map(Vec::len),
+                Some(1),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            let narrowed = call(json!({"description": "Index requests by tenant"})).await;
+            let items = narrowed["result"]["structuredContent"]["data"]["items"]
+                .as_array()
+                .expect("items"); // ubs:ignore: test-only; panicking is correct in tests
+            assert_eq!(items.len(), 1, "{name}: {items:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                items[0]["dependent"]["title"], "Index requests by tenant",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            let unmatched = call(json!({"description": "Zebra"})).await;
+            assert_eq!(
+                unmatched["result"]["structuredContent"]["data"]["outcome"], "not_found",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            let unregistered = call(json!({"project": "nowhere"})).await;
+            assert_eq!(unregistered["result"]["isError"], true, "{name}"); // ubs:ignore: test-only assertion
+            assert!(
+                error_text(&unregistered["result"]).contains("not registered"),
+                "{name}: {unregistered:?}"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
     }
 }
 

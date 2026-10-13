@@ -28,6 +28,7 @@ const WRITE_TOOLS: &[&str] = &[
     "supersede_decision",
     "move_decision",
     "ground_decision",
+    "reaffirm_decision",
     "acknowledge_suggestion",
 ];
 
