@@ -31,11 +31,12 @@ use crate::queries::{
     HistoryChangeKind, HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults,
     OpenWhyView, OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage,
     ProjectListResults, ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse,
-    QuestionAnswer, ReadOnlyExport, ReadOnlyExportFormat as QueryReadOnlyExportFormat,
-    ReadOnlyExportQueryKind, ReaffirmedPremise, RecentActivityResults, RecentDecisionsResults,
-    ReexamineEntry, ReexamineMarker, ReexamineStatus, RelevantDecision, ResolveOutcome,
-    ResolvedCandidate, ReviewShape, SituationalResults, StillHolds, SupersessionChain,
-    TimelineEntry, TimelineFact, TitleChange, WaitingRequestsResults, POLARITY_REASON,
+    QuestionAnswer, RaiseUpstream, ReadOnlyExport,
+    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind, ReaffirmedPremise,
+    RecentActivityResults, RecentDecisionsResults, ReexamineEntry, ReexamineMarker,
+    ReexamineStatus, RelevantDecision, ResolveOutcome, ResolvedCandidate, ReviewShape,
+    SituationalResults, StillHolds, SupersessionChain, TimelineEntry, TimelineFact, TitleChange,
+    UpstreamPremise, WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
 use crate::{HivemindError, Result};
@@ -2225,12 +2226,31 @@ pub(crate) fn format_disagree_output(
         return format_json_value(true, output);
     }
 
-    Ok(format!(
+    let mut rendered = format!(
         "event_id={} decision_id={} status={}",
         output.event_id,
         output.decision_id,
         decision_status_label(output.decision_status)
-    ))
+    );
+    write_raise_upstream(&mut rendered, &output.raise_upstream);
+    Ok(rendered)
+}
+
+/// One line per prior decision the acted-on decision rests on that still stands. A hint: the
+/// action just recorded on the leaf stands either way; `--json` carries the full `rests_on`.
+fn write_raise_upstream(rendered: &mut String, hints: &[RaiseUpstream]) {
+    for hint in hints {
+        let others = match hint.other_dependents {
+            0 => "no other decision rests on it".to_owned(),
+            1 => "1 other decision rests on it".to_owned(),
+            n => format!("{n} other decisions rest on it"),
+        };
+        let _ = write!(
+            rendered,
+            "\nraise_upstream: {} \"{}\" ({others}; if the disagreement is with it, disagree or supersede that decision too)",
+            hint.premise_id, hint.label
+        );
+    }
 }
 
 pub(crate) fn format_move_output(as_json: bool, output: &DecisionMoveOutcome) -> Result<String> {
@@ -2284,6 +2304,7 @@ pub(crate) fn format_supersede_output(
             output.premise_stale.join(",")
         );
     }
+    write_raise_upstream(&mut rendered, &output.raise_upstream);
     Ok(rendered)
 }
 
@@ -2901,6 +2922,10 @@ pub(crate) struct DisagreeCommandOutput {
     pub(crate) decision_id: String,
     pub(crate) event_id: EventId,
     pub(crate) decision_status: DecisionStatus,
+    /// Everything the decision disagreed with rests on, each with its standing.
+    pub(crate) rests_on: Vec<UpstreamPremise>,
+    /// Prior decisions it rests on that still stand: the disagreement may be with one of them.
+    pub(crate) raise_upstream: Vec<RaiseUpstream>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2924,6 +2949,9 @@ pub(crate) struct SupersedeCommandOutput {
     pub(crate) rests_on: Vec<RestsOn>,
     /// Premise decisions already superseded or rejected when named.
     pub(crate) premise_stale: Vec<String>,
+    /// Prior decisions the replaced decision rests on that still stand: the supersession may be
+    /// with one of them. (`rests_on` above is what the replacement rests on.)
+    pub(crate) raise_upstream: Vec<RaiseUpstream>,
     /// What the replacement binds and what undoing it costs, and whether that clears the floor.
     pub(crate) floor: FloorReply,
     /// `true` only when the answers are below the decision floor.

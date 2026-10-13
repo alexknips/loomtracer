@@ -27,9 +27,13 @@ The Claude package installs:
   each with who decided it. A decision nothing is recorded about reads
   `not_assessed`, never a score of zero.
 - `/hivemind-context:disagree` — push back on a decision by description
-  (write verb, strict ambiguity gate).
+  (write verb, strict ambiguity gate). Asks first whether the disagreement is
+  with the decision or with a premise it rests on; a newer hivemind's reply
+  lists the premises that still stand (`raise_upstream:`).
 - `/hivemind-context:supersede` — replace a decision by description (write
-  verb, strict ambiguity gate).
+  verb, strict ambiguity gate). Asks the same question first; a newer
+  hivemind's reply lists the premises of the replaced decision that still
+  stand (`raise_upstream:`).
 - `/hivemind-context:ground` — say what an existing decision rests on, after
   the fact, attributed to you (write verb, strict ambiguity gate).
 - `/hivemind-context:reexamine` — "what rests on something that changed, and

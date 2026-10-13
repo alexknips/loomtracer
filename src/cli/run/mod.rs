@@ -54,10 +54,10 @@ use crate::queries::{
     get_recent_decisions, get_relevant_decisions, get_situational_decisions,
     get_supersession_chain, get_waiting_requests, list_projects, misfiled_next_cursor,
     require_registered_project, resolve_decision_by_description, resolve_decision_for_reading,
-    scan_misfiled_decisions, search_decisions, search_decisions_any, ActiveDecisionBlockersRequest,
-    BlockerNotificationCandidatesRequest, ChangedDecisionsRequest, ChangedSinceRequest,
-    ContestedDecisionsRequest, DecisionBlockerFilters, DecisionLogExport, DecisionLogOutcome,
-    DecisionLogRequest, DecisionStatus, DecisionsAddedSinceFilterRequest,
+    scan_misfiled_decisions, search_decisions, search_decisions_any, upstream_of,
+    ActiveDecisionBlockersRequest, BlockerNotificationCandidatesRequest, ChangedDecisionsRequest,
+    ChangedSinceRequest, ContestedDecisionsRequest, DecisionBlockerFilters, DecisionLogExport,
+    DecisionLogOutcome, DecisionLogRequest, DecisionStatus, DecisionsAddedSinceFilterRequest,
     DecisionsAddedSinceRequest, HistoryFilterRequest, MisfiledScanRequest, NeighborhoodRequest,
     OpenWhyRequest, ProjectDecisionsRequest, ProjectListRequest, ProjectOutcome, QueryContext,
     ReadOnlyExportQuery, ReadOnlyExportRequest, RecentActivityRequest, RecentDecisionEntry,
@@ -1925,7 +1925,10 @@ fn run_disagree(cli: &Cli, args: &DisagreeArgs) -> Result<String> {
         CommandContext::new(tenant_id.clone(), fluent_write_provenance(&cli.actor)),
     );
     let event_id = commands.disagree(&cli.actor, &decision_id, &args.reason)?;
-    let decision_status = decision_status_after_write(&ledger, &tenant_id, &decision_id)?;
+    let after = MemoryGraph::default();
+    rebuild_graph_for_tenant(&ledger, &tenant_id, &after)?;
+    let decision_status = derive_decision_status(&after, &decision_id)?;
+    let upstream = upstream_of(&after, &decision_id, None)?;
 
     format_disagree_output(
         cli.json,
@@ -1933,6 +1936,8 @@ fn run_disagree(cli: &Cli, args: &DisagreeArgs) -> Result<String> {
             decision_id,
             event_id,
             decision_status,
+            rests_on: upstream.rests_on,
+            raise_upstream: upstream.raise_upstream,
         },
     )
 }
@@ -2096,9 +2101,11 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
         floor: FloorInput::Stated(&floor_answers),
     })?;
     let floor_reply = floor_answers.reply();
-    let old_decision_status = decision_status_after_write(&ledger, &tenant_id, &old_decision_id)?;
-    let new_decision_status =
-        decision_status_after_write(&ledger, &tenant_id, &outcome.new_decision_id)?;
+    let after = MemoryGraph::default();
+    rebuild_graph_for_tenant(&ledger, &tenant_id, &after)?;
+    let old_decision_status = derive_decision_status(&after, &old_decision_id)?;
+    let new_decision_status = derive_decision_status(&after, &outcome.new_decision_id)?;
+    let upstream = upstream_of(&after, &old_decision_id, Some(&outcome.new_decision_id))?;
 
     let reminder = project_reminder(&project, &outcome.placement);
     announce_placement(cli, &outcome.placement, reminder.as_deref(), notices);
@@ -2118,6 +2125,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
             placement: outcome.placement,
             rests_on: resolved.label(outcome.rests_on),
             premise_stale: outcome.premise_stale,
+            raise_upstream: upstream.raise_upstream,
             below_floor: floor_reply.below_floor(),
             below_floor_note: floor_reply.note(),
             floor: floor_reply,

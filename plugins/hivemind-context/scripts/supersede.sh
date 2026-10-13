@@ -45,7 +45,14 @@ Replace an existing decision by description, never by guessing an id. This
 is a WRITE verb: the ambiguity gate is strict here. If the description does
 not resolve to exactly one decision, the CLI returns the candidate list and
 performs NO write — re-invoke with --pick N (or --old <id>) once you have
-picked the right one; never guess. Runs:
+picked the right one; never guess.
+
+The decision you replace often rests on a prior decision, and what you want to
+change may be that premise. Run verify.sh on it first, show what it rests on and
+ask whether the problem is with the decision or with a premise. A newer hivemind
+also adds a "raise_upstream:" line per premise the replaced decision rests on
+that still holds, with how many other decisions rest on it; the replacement you
+recorded stands either way. Runs:
   hivemind supersede
 USAGE
 }

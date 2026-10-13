@@ -327,8 +327,12 @@ pub(crate) fn premise_decision_ids(
     Ok(ids)
 }
 
-/// How many distinct decisions follow from this one.
-pub fn dependents_count(graph: &impl GraphView, decision_id: &str) -> Result<usize> {
+/// The distinct decisions that follow from this one (incoming `FOLLOWS_FROM`), sorted. One hop,
+/// no traversal, so a premise cycle cannot loop.
+pub(crate) fn dependent_decision_ids(
+    graph: &impl GraphView,
+    decision_id: &str,
+) -> Result<Vec<String>> {
     let mut ids: Vec<String> = neighbor_pairs(
         graph,
         NodeKind::Decision,
@@ -342,7 +346,12 @@ pub fn dependents_count(graph: &impl GraphView, decision_id: &str) -> Result<usi
     .collect();
     ids.sort();
     ids.dedup();
-    Ok(ids.len())
+    Ok(ids)
+}
+
+/// How many distinct decisions follow from this one.
+pub fn dependents_count(graph: &impl GraphView, decision_id: &str) -> Result<usize> {
+    Ok(dependent_decision_ids(graph, decision_id)?.len())
 }
 
 /// Whether a prior decision still stands. `Contested` is shown, not treated as stale: the

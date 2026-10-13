@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "HiveMind Context",
     "shortDescription": "Consult past decisions before you change something.",
-    "longDescription": "Installs the hivemind-context skill and CLI-only command scripts. The skill teaches Codex when to check HiveMind for standing decisions before touching a module, verify whether an old decision still holds, push back (disagree), move on (supersede), say what a decision rests on (ground), or say it still holds after something it rests on changed (reaffirm) by description — never by guessing an id.",
+    "longDescription": "Installs the hivemind-context skill and CLI-only command scripts. The skill teaches Codex when to check HiveMind for standing decisions before touching a module, verify whether an old decision still holds, push back (disagree), move on (supersede) — asking first whether the disagreement is with the decision or with a premise it rests on — say what a decision rests on (ground), or say it still holds after something it rests on changed (reaffirm) by description — never by guessing an id.",
     "developerName": "HiveMind contributors",
     "category": "Productivity",
     "capabilities": [

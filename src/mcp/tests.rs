@@ -3799,6 +3799,132 @@ mod transport_parity {
         }
     }
 
+    /// hivemind-ottw.5: a disagreement or supersession reply lists what the target rests on and,
+    /// for a premise that still stands, how many other decisions rest on it. The same on both
+    /// transports; the leaf action is recorded either way.
+    #[tokio::test]
+    async fn disagree_and_supersede_replies_take_it_upstream_across_transports() {
+        for (name, over_http) in [("stdio", false), ("http", true)] {
+            let dir = unique_dir(&format!("parity-{name}-upstream"));
+            let call = |tool: &'static str, arguments: Value| {
+                let dir = dir.clone();
+                async move {
+                    let response = if over_http {
+                        http_call(&dir, tool, arguments).await
+                    } else {
+                        stdio_call(&dir, tool, arguments)
+                    };
+                    let result = &response["result"];
+                    assert_eq!(result["isError"], false, "{name} {tool}: {result:?}"); // ubs:ignore: test-only assertion
+                    result["structuredContent"].clone() // ubs:ignore: test-only; index guaranteed by test setup
+                }
+            };
+            let capture = |title: &str, grounding: Value| {
+                json!({
+                    "binds": {"level": "something", "statement": "Later work builds on it"},
+                    "undo_cost": {"level": "cheap"},
+                    "grounding": grounding,
+                    "title": title,
+                    "rationale": "Upstream parity seed, long enough to read on its own",
+                    "topic_keys": ["upstream"],
+                    "options": [{"label": "only"}],
+                })
+            };
+            let id_of = |reply: &Value| {
+                reply["decision_id"]
+                    .as_str() // ubs:ignore: test-only; chain continues to expect
+                    .expect("decision id") // ubs:ignore: test-only; panicking is correct in tests
+                    .to_owned()
+            };
+
+            let premise = id_of(
+                &call(
+                    "capture_decision",
+                    capture("Keep the ledger append-only", json!([{"kind": "bet"}])),
+                )
+                .await,
+            );
+            let on_premise = json!([{"kind": "decision", "decision_id": premise}]);
+            let first = id_of(
+                &call(
+                    "capture_decision",
+                    capture("Adopt the new queue", on_premise.clone()),
+                )
+                .await,
+            );
+            let second = id_of(
+                &call(
+                    "capture_decision",
+                    capture("Shard the billing table", on_premise.clone()),
+                )
+                .await,
+            );
+
+            // Disagree with the first: it rests on the premise, which two decisions rest on.
+            let reply = call(
+                "disagree_decision",
+                json!({"decision_id": first, "actor_id": "human:dana", "reason": "Too slow under load"}),
+            )
+            .await;
+            assert_eq!(
+                reply["raise_upstream"],
+                json!([{
+                    "premise_id": premise,
+                    "label": "Keep the ledger append-only",
+                    "other_dependents": 1,
+                }]),
+                "{name}: disagree raise_upstream"
+            ); // ubs:ignore: test-only assertion
+            let rests_on = &reply["rests_on"];
+            assert_eq!(
+                rests_on.as_array().map(Vec::len),
+                Some(1),
+                "{name}: {reply}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(rests_on[0]["kind"], "decision", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(rests_on[0]["id"], json!(premise), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(rests_on[0]["state"], "holds", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(rests_on[0]["dependents_count"], 2, "{name}"); // ubs:ignore: test-only assertion
+
+            // Superseding the second: its replacement rests on the premise too and is not
+            // counted as another decision relying on it; the first (just disagreed with) is.
+            let mut replacement = capture("Partition the billing table", on_premise);
+            replacement["old_decision_id"] = json!(second);
+            let reply = call("supersede_decision", replacement).await;
+            assert_eq!(reply["old_decision_status"], "superseded", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                reply["raise_upstream"],
+                json!([{
+                    "premise_id": premise,
+                    "label": "Keep the ledger append-only",
+                    "other_dependents": 1,
+                }]),
+                "{name}: supersede raise_upstream"
+            ); // ubs:ignore: test-only assertion
+               // `rests_on` stays what the replacement rests on, as before.
+            assert_eq!(reply["rests_on"][0]["id"], json!(premise), "{name}"); // ubs:ignore: test-only assertion
+
+            // Disagreeing with the premise itself: it rests on a bet, so there is nothing to raise.
+            let reply = call(
+                "disagree_decision",
+                json!({"decision_id": premise, "actor_id": "human:dana", "reason": "Append-only costs too much"}),
+            )
+            .await;
+            assert_eq!(
+                reply["raise_upstream"],
+                json!([]),
+                "{name}: nothing to raise"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(reply["rests_on"][0]["kind"], "bet", "{name}"); // ubs:ignore: test-only assertion
+            assert!(
+                reply["rests_on"][0].get("dependents_count").is_none(),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     #[tokio::test]
     async fn disagree_decision_resolves_unique_description_and_writes() {
         let (stdio, http) = run_seeded(

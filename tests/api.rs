@@ -388,6 +388,120 @@ async fn disagree_updates_decision_status() {
     );
 }
 
+/// hivemind-ottw.5: the disagree and supersede replies list what the target rests on and the
+/// premises that still stand, so the disagreement can be taken upstream. A hint: the leaf
+/// action is recorded either way.
+#[tokio::test]
+async fn disagree_and_supersede_replies_list_what_the_target_rests_on() {
+    let dir = test_ledger_dir();
+    let capture = |title: &str, grounding: Value| {
+        post_json(
+            "/v1/decisions",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": grounding,
+                "title": title,
+                "rationale": "Seed for the take-it-upstream reply, long enough to read",
+                "topic_keys": ["upstream"],
+                "options": [{ "label": "only" }],
+            }),
+        )
+    };
+    let mut ids = Vec::new();
+    let (_, body) = call(
+        app(dir.clone()),
+        capture(
+            "Keep the ledger append-only",
+            serde_json::json!([{"kind": "bet"}]),
+        ),
+    )
+    .await;
+    let premise = body["decision_id"].as_str().unwrap().to_owned();
+    for title in ["Adopt the new queue", "Shard the billing table"] {
+        let (status, body) = call(
+            app(dir.clone()),
+            capture(
+                title,
+                serde_json::json!([{"kind": "decision", "decision_id": premise}]),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "capture {title}: {body}"); // ubs:ignore
+        ids.push(body["decision_id"].as_str().unwrap().to_owned());
+    }
+
+    // Disagree with the first dependent: the premise still stands and one other decision rests on it.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &format!("/v1/decisions/{}/disagreements", ids[0]),
+            serde_json::json!({ "reason": "Too slow under load" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "disagree: {body}"); // ubs:ignore
+    assert_eq!(
+        // ubs:ignore
+        body["raise_upstream"],
+        serde_json::json!([{
+            "premise_id": premise,
+            "label": "Keep the ledger append-only",
+            "other_dependents": 1,
+        }])
+    );
+    assert_eq!(body["rests_on"][0]["kind"], "decision"); // ubs:ignore
+    assert_eq!(body["rests_on"][0]["id"], premise.as_str()); // ubs:ignore
+    assert_eq!(body["rests_on"][0]["state"], "holds"); // ubs:ignore
+    assert_eq!(body["rests_on"][0]["dependents_count"], 2); // ubs:ignore
+    assert!(body["event_id"].as_u64().is_some()); // ubs:ignore
+
+    // Supersede the second dependent with a replacement that rests on the same premise: it is not
+    // another decision relying on it, the disagreed-with first one is.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &format!("/v1/decisions/{}/supersessions", ids[1]),
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "decision", "decision_id": premise}],
+                "title": "Partition the billing table",
+                "rationale": "Partitions keep the table scannable as it grows",
+                "topic_keys": ["upstream"],
+                "options": ["partition"],
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "supersede: {body}"); // ubs:ignore
+    assert_eq!(body["old_decision_status"], "superseded"); // ubs:ignore
+    assert_eq!(
+        // ubs:ignore
+        body["raise_upstream"],
+        serde_json::json!([{
+            "premise_id": premise,
+            "label": "Keep the ledger append-only",
+            "other_dependents": 1,
+        }])
+    );
+    // `rests_on` is still what the replacement rests on.
+    assert_eq!(body["rests_on"][0]["id"], premise.as_str()); // ubs:ignore
+
+    // The premise rests on a bet: nothing to raise, and no dependents count for a bet.
+    let (_, body) = call(
+        app(dir.clone()),
+        post_json(
+            &format!("/v1/decisions/{premise}/disagreements"),
+            serde_json::json!({ "reason": "Append-only costs too much" }),
+        ),
+    )
+    .await;
+    assert_eq!(body["raise_upstream"], serde_json::json!([])); // ubs:ignore
+    assert_eq!(body["rests_on"][0]["kind"], "bet"); // ubs:ignore
+    assert!(body["rests_on"][0].get("dependents_count").is_none()); // ubs:ignore
+}
+
 // ---------------------------------------------------------------------------
 // Supersede
 // ---------------------------------------------------------------------------

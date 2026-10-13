@@ -131,6 +131,33 @@ what it wants to ask.
   capture that left a leg out: replace it with the answer that was missing. A
   request goes to your tracker.
 
+- **Take it upstream** — a disagreement or a replacement lands on one decision,
+  the leaf. When that decision rests on a prior decision that still holds, the
+  disagreement is often really with that premise, and other decisions rest on it
+  too. So before you record either, run `verify` on the decision, read what it
+  rests on, and ask whether your disagreement is with this decision or with the
+  premise it rests on. Ask the person you are working with; if you decide alone,
+  ask yourself and say which in your reason. If it is with the premise, run
+  `disagree` or `supersede` on the premise (by its description, like any other
+  decision); if it is with both, do both. The action on the leaf is never dropped
+  and never swapped for the premise's without saying so: it stands either way.
+
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/scripts/verify.sh "the decision you are about to disagree with or replace"
+  ```
+
+  A newer hivemind also answers after the fact. A `disagree` reply lists
+  `rests_on` (each thing the decision rests on, with its standing, and for a prior
+  decision `dependents_count`, how many decisions rest on it), and `disagree` and
+  `supersede` replies list `raise_upstream`: each prior decision the target rests on
+  that still holds, with `other_dependents`, the number of other decisions that
+  rest on it. In the plain text reply that is one `raise_upstream:` line per
+  premise (`--json` carries `rests_on` too). It is a hint, not an instruction: when
+  it names a premise you had not looked at, say so and ask the same question; do
+  not undo what you recorded. A premise that was already superseded, rejected or
+  contested is not listed (the disagreement is already on record) and an
+  assumption or a bet is answered with evidence, not with a disagreement.
+
 - **Say what it rests on** — a decision captured without saying reads
   `nothing declared`. If you know what it rests on, add it after the fact.
   Name a decision it follows from, something observed and where, something

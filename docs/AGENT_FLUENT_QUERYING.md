@@ -741,6 +741,32 @@ items. The MCP tools `reaffirm_decision` and `get_reexamine_items` are registere
 transports and take the `decision_id`/`description`/`topic` selectors; REST has the
 `POST /v1/decisions/{id}/reaffirmations` mirror, which takes the premise by id.
 
+**`disagree` and `supersede` say what the target rests on, so a disagreement can be taken
+upstream** (hivemind-ottw.5). Both verbs act on one decision, the leaf, which often rests on a
+prior decision that other decisions rest on too; the disagreement may really be with that
+premise. The agent-side half is prose: before recording either verb on a decision that rests on
+something, run `verify`, show what it rests on and ask whether the disagreement is with the
+decision or with a premise (`plugins/hivemind-context`'s skill and its `disagree` and
+`supersede` commands; the Codex prompts; the `hivemind-capture` skill). The deterministic half
+is in the reply, on every transport (`queries::upstream_of`, one hop over explicit
+`FOLLOWS_FROM` links, no traversal, no model):
+
+- `disagree` gains `rests_on`: each thing the decision rests on with its standing (the
+  `verify` item shape), and for a prior decision `dependents_count` (every decision that rests
+  on it, the target included).
+- `disagree` and `supersede` gain `raise_upstream`: `[{premise_id, label, other_dependents}]`
+  for each prior decision the target rests on that still holds. `other_dependents` leaves out
+  the target and, after a supersede, its replacement, which usually rests on the same premise.
+  Empty when there is nothing to raise. A premise that is superseded, rejected or contested is
+  in `rests_on` only (the disagreement is already on record), and assumptions and bets are
+  answered with evidence, not a disagreement, so they are never listed.
+- On the CLI the text reply adds one `raise_upstream:` line per listed premise; `--json`
+  carries both fields. A `supersede` reply's `rests_on` stays what the replacement rests on.
+
+The hint changes nothing: the event the verb appends is the same as before, the leaf action is
+never dropped or replaced by the premise's, and nothing is written for the premise unless the
+caller then runs `disagree` or `supersede` on it.
+
 ### 3.1 The `review` naming collision
 
 The bead lists `review` among the verbs to make fluent, glossing it as

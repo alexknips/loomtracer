@@ -344,6 +344,15 @@ with `verify` and consider whether you meant the decision that replaced it. For
 the same reason, do not name the decision you are superseding as the premise of
 its replacement.
 
+When the decision you are about to supersede rests on something itself, the
+change you have in mind may be with that premise, not with the decision: run
+`verify` on it first (the `hivemind-context` plugin), look at what it rests on,
+and ask whether the problem is with the decision or with the premise. A newer
+hivemind's `supersede` reply lists each such premise that still holds under
+`raise_upstream`, with how many other decisions rest on it. Record the
+replacement either way; if the premise is what is wrong, supersede or disagree
+with it too.
+
 ## What Does It Bind, And What Would Undoing It Cost?
 
 Answer this second, after "what does this rest on?" and before you write. The

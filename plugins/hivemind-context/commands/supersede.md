@@ -2,7 +2,7 @@
 name: supersede
 description: Replace a decision with a new one, resolved by description, never by id.
 argument-hint: '"description of the old decision" --title "..." --rationale "..." (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo)'
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/supersede.sh:*)
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/supersede.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/scripts/verify.sh:*)
 disable-model-invocation: true
 ---
 
@@ -49,3 +49,14 @@ If the description does not resolve to exactly one decision, the CLI
 returns the candidate list and performs **no write**. Show the candidates
 and re-invoke with `--pick N` (or `--old <id>`) once you're certain — never
 guess which decision to supersede.
+
+**Take it upstream.** A decision often rests on a prior decision, and what you
+want to replace may be that premise rather than this decision. Before you
+replace it, run `${CLAUDE_PLUGIN_ROOT}/scripts/verify.sh "<the old decision>"`,
+show the user what it rests on, and ask whether the problem is with this
+decision or with a premise. If it is with the premise, run
+`/hivemind-context:supersede` (or `disagree`) on the premise too; the
+replacement you record here is never dropped or swapped for it. After the write,
+a newer hivemind lists a `raise_upstream:` line for each premise the replaced
+decision rests on that still holds, with how many other decisions rest on it — a
+hint to ask the same question, not a reason to undo what you recorded.

@@ -29,7 +29,7 @@ use crate::queries::{
     get_contested_decisions, get_decision, get_decision_brief, get_decision_neighborhood,
     get_decision_status_events, get_decision_timeline, get_open_why_decisions,
     get_relevant_decisions, get_situational_decisions, get_supersession_chain,
-    get_waiting_requests, resolve_decision_for_reading, search_decisions_any,
+    get_waiting_requests, resolve_decision_for_reading, search_decisions_any, upstream_of,
     ChangedDecisionsRequest, ContestedDecisionsRequest, NeighborhoodRequest, OpenWhyRequest,
     QueryContext, QueryResponse, ResolveOutcome, ResolvedCandidate, SearchDecisionRequest,
     SituationalRequest, WaitingRequestsRequest,
@@ -681,11 +681,14 @@ pub(super) async fn disagree_handler(
         let graph = open_graph_from_ledger(&ledger, &ctx.tenant_id, &cache)?;
         let graph = &*graph;
         let decision_status = derive_decision_status(graph, &decision_id).map_err(to_api_error)?;
+        let upstream = upstream_of(graph, &decision_id, None).map_err(to_api_error)?;
 
         Ok(serde_json::json!({
             "decision_id": decision_id,
             "event_id": event_id,
             "decision_status": decision_status,
+            "rests_on": upstream.rests_on,
+            "raise_upstream": upstream.raise_upstream,
         }))
     })
     .await;
@@ -827,6 +830,8 @@ pub(super) async fn supersede_handler(
         let old_status = derive_decision_status(graph, &old_decision_id).map_err(to_api_error)?;
         let new_status =
             derive_decision_status(graph, &outcome.new_decision_id).map_err(to_api_error)?;
+        let upstream = upstream_of(graph, &old_decision_id, Some(&outcome.new_decision_id))
+            .map_err(to_api_error)?;
 
         let mut reply = serde_json::json!({
             "old_decision_id": old_decision_id,
@@ -838,6 +843,7 @@ pub(super) async fn supersede_handler(
             "new_decision_status": new_status,
             "rests_on": resolved.label(outcome.rests_on),
             "premise_stale": outcome.premise_stale,
+            "raise_upstream": upstream.raise_upstream,
         });
         floor.reply().insert_into(&mut reply);
         Ok(reply)

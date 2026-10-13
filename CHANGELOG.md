@@ -157,6 +157,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   cannot place, closes nothing. No new event or read; an existing ledger shows it on the next
   scan. `FindingKind` gains `PropagationUnfinished` (library callers with an exhaustive match),
   and `dimensions_for` answers an empty list for it. (hivemind-ottw.6)
+- **A disagreement or a replacement now says what the decision rests on, so it can be taken
+  upstream.** The reply of `disagree` (CLI, MCP `disagree_decision`, REST
+  `POST /v1/decisions/{id}/disagreements`) gains `rests_on`: each thing the decision rests on, as
+  `verify` shows it (kind, id, label, state, when it was added), and for a prior decision
+  `dependents_count`, how many decisions rest on it. The replies of `disagree` and `supersede`
+  gain `raise_upstream`: each prior decision the target rests on that still holds, as
+  `{premise_id, label, other_dependents}` (the decision acted on, and the replacement, are not
+  counted among the others); an empty list means there is nothing to raise. On the CLI the text
+  reply adds one `raise_upstream:` line per premise, and `--json` carries both fields. A premise
+  that is already superseded, rejected or contested is shown in `rests_on` and not offered, and an
+  assumption or a bet is answered with evidence, so neither is listed. It is a hint and changes
+  nothing: the disagreement or the replacement is recorded exactly as before, never dropped or
+  swapped for the premise's, and nothing is written for the premise. A supersede reply's
+  `rests_on` is still what the replacement rests on. No model, no new event or node, no
+  migration. The `hivemind-context` skill, its `disagree` and `supersede` commands and scripts,
+  the Codex prompts and the `hivemind-capture` skill now say to run `verify` first and ask
+  whether the disagreement is with the decision or with a premise it rests on. A client on an
+  older hivemind simply gets no such fields. (hivemind-ottw.5)
 - **`hivemind reaffirm` and `hivemind reexamine`: say a decision still holds after something it
   rests on changed, and list what is waiting for that. Needs the server and every client on a
   release that knows `decision.reaffirmed`.** `reaffirm "<decision>" --because "<reason>"`

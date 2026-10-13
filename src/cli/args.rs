@@ -173,6 +173,12 @@ pub enum Command {
     /// description that matches more than one decision lists the candidates and writes nothing;
     /// pick one with --pick N, or name the decision with --decision.
     ///
+    /// A decision often rests on a prior decision, and the disagreement may be with that premise.
+    /// The reply adds a `raise_upstream:` line for each premise the decision rests on that still
+    /// holds, with how many other decisions rest on it (`--json`: `rests_on` and
+    /// `raise_upstream`). It is a hint: the disagreement is recorded either way, and nothing is
+    /// written for the premise unless you run `disagree` or `supersede` on it too.
+    ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
     /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
     /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
@@ -191,6 +197,10 @@ pub enum Command {
     /// `--undo-cost <what>` or `--cheap-to-undo`); one that leaves either out is refused too. A
     /// description that matches more than one decision lists the candidates and writes nothing;
     /// pick one with --pick N, or name the decision with --old.
+    ///
+    /// The reply adds a `raise_upstream:` line for each premise the replaced decision rests on
+    /// that still holds, with how many other decisions rest on it (`--json`: `raise_upstream`).
+    /// It is a hint: the replacement is recorded either way.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
     /// the server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing

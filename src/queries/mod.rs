@@ -37,6 +37,7 @@ mod suggestion_acks;
 mod supersession;
 mod terms;
 mod timeline;
+mod upstream;
 mod waiting;
 
 use serde::Serialize;
@@ -166,6 +167,7 @@ pub use timeline::{
     get_changed_decisions, get_decision_timeline, ChangedDecisionView, ChangedDecisionsRequest,
     ChangedDecisionsResults, DecisionTimeline, TimelineEntry, TimelineFact,
 };
+pub use upstream::{upstream_of, RaiseUpstream, Upstream, UpstreamPremise};
 pub use waiting::{
     get_waiting_requests, WaitingRequestView, WaitingRequestsRequest, WaitingRequestsResults,
 };

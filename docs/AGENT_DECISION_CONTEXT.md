@@ -69,7 +69,11 @@ An agent about to change code does not know a decision's id. It knows:
   **verify**, resolved by description;
 - that it disagrees, or that a decision needs replacing — **disagree** /
   **supersede**, both resolved by description, both write verbs with a
-  strict ambiguity gate (no write on an unresolved match);
+  strict ambiguity gate (no write on an unresolved match). When the decision
+  rests on a prior decision, the agent first runs **verify** and asks whether
+  the disagreement is with the decision or with that premise; the reply then
+  lists `raise_upstream`, the premises that still hold and how many other
+  decisions rest on them (`docs/AGENT_FLUENT_QUERYING.md`);
 - what an existing decision rests on, when it reads `nothing declared` —
   **ground**, resolved by description, a write verb with the same strict
   ambiguity gate, attributed to whoever adds it.

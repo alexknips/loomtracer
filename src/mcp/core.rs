@@ -64,7 +64,7 @@ use crate::queries::{
     get_supersession_chain as query_get_supersession_chain,
     get_waiting_requests as query_get_waiting_requests, misfiled_next_cursor, outcome_next_cursor,
     require_registered_project, resolve_decision_by_description, resolve_decision_for_reading,
-    scan_misfiled_decisions as query_scan_misfiled_decisions, ChangedDecisionsRequest,
+    scan_misfiled_decisions as query_scan_misfiled_decisions, upstream_of, ChangedDecisionsRequest,
     ContestedDecisionsRequest, DecisionContextRequest, DecisionQualityCandidatesRequest,
     DecisionStatus, FailureAttributionRequest, MisfiledScanRequest, NeighborhoodRequest,
     OpenWhyRequest, QueryContext, QueryResponse, RecentDecisionFilterRequest,
@@ -1496,6 +1496,8 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
         derive_decision_status(&graph, &old_decision_id).map_err(CoreError::from)?;
     let new_decision_status =
         derive_decision_status(&graph, &outcome.new_decision_id).map_err(CoreError::from)?;
+    let upstream = upstream_of(&graph, &old_decision_id, Some(&outcome.new_decision_id))
+        .map_err(CoreError::from)?;
 
     let mut reply = json!({
         "old_decision_id": old_decision_id,
@@ -1507,6 +1509,9 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
         "new_decision_status": new_decision_status,
         "rests_on": resolved.label(outcome.rests_on),
         "premise_stale": outcome.premise_stale,
+        // `rests_on` above is what the replacement rests on; this is what the decision it
+        // replaced rested on that still stands, which the supersession may really be about.
+        "raise_upstream": upstream.raise_upstream,
     });
     args.floor.reply().insert_into(&mut reply);
     insert_placement(&mut reply, &outcome.placement);
@@ -1550,11 +1555,14 @@ pub(crate) fn disagree_decision<P: LedgerProvider>(
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
     let decision_status = derive_decision_status(&graph, &decision_id).map_err(CoreError::from)?;
+    let upstream = upstream_of(&graph, &decision_id, None).map_err(CoreError::from)?;
 
     Ok(ToolOutput(json!({
         "decision_id": decision_id,
         "event_id": event_id,
         "decision_status": decision_status,
+        "rests_on": upstream.rests_on,
+        "raise_upstream": upstream.raise_upstream,
     })))
 }
 
