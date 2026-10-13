@@ -184,7 +184,7 @@ test('server capture is separate from reported authorship and imported recorder 
   await page.getByTestId('inspector').getByRole('button', { name: 'Message 2' }).click();
   await expect(page.getByTestId('inspector')).toContainText('SpeakerAgent (illustrative)');
   await expect(capture).toContainText('agent:authenticated-recorder');
-  await importFile(page); await page.getByTestId('entry-card-E-recommendation:v1').click();
+  await page.goto('/inspect'); await importFile(page); await page.getByTestId('entry-card-E-recommendation:v1').click();
   await expect(capture).toHaveCount(0);
   await expect(page.getByTestId('imported-attribution')).toContainText('has not been verified');
   await expect(reported).toContainText('Reported recorderExample recorder');

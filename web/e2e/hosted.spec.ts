@@ -17,6 +17,11 @@ async function hostedFixture(page: Page) {
 test("hosted reasoning exposes contributions, grouped connections, filters, and original source history", async ({ page }) => {
   const { bundle } = await hostedFixture(page); await page.goto("/graph?project=project:one");
   await expect(page.getByRole('heading', { name: 'Project one history' })).toBeVisible();
+  await expect(page.locator('.masthead')).toHaveCount(0);
+  await expect(page.getByTestId('bundle-input')).toHaveCount(0);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export history', exact: true }).click();
+  expect((await download).suggestedFilename()).toBe('synthetic-walkthrough.json');
   await expect(page.getByTestId('timeline-entry')).toHaveCount(bundle.entries.length);
   await page.getByTestId('role-filter').selectOption('observation'); await expect(page.getByTestId('timeline-entry')).toHaveCount(3);
   await page.getByTestId('role-filter').selectOption(''); await page.getByTestId('entry-card-E-recommendation:v1').click();

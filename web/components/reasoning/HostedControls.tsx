@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { entryText, getView, validateBundle, type Actor, type Entry, type ReasoningBundle, type Connection, type CommitmentReceipt, type AuthorityGrant } from '@reasoning';
 
@@ -52,7 +52,7 @@ export function HostedControls({ mode, initialProject, bundle, dirty, historical
   const initialLoadAttempted = useRef(false);
   const captureDraft = useRef<{ fingerprint: string; bundle: ReasoningBundle } | null>(null);
   const pendingOperation = useRef<{ fingerprint: string; id: string } | null>(null);
-  const entries = bundle?.runs.length ? getView(bundle).entries : [];
+  const entries = useMemo(() => bundle?.runs.length ? getView(bundle).entries : [], [bundle]);
   const revoked = new Set(grants.filter(grant => grant.action === 'revoke').map(grant => grant.priorGrantId));
   const activeGrants = grants.filter(grant => grant.action === 'grant' && !revoked.has(grant.id));
   const selectedContext = bundle?.contexts.find(context => context.id === selectedEntry?.contextId)?.kind;
@@ -130,6 +130,7 @@ export function HostedControls({ mode, initialProject, bundle, dirty, historical
       {hosted && <button className="text-button" disabled={busy} onClick={() => { void openDataset(hosted.datasetId); }}>Reload saved history</button>}
       {bundle && <button className="button primary" data-testid="save-project" disabled={busy || !projectRef || !actor} onClick={() => { void task(() => save(bundle)); }}>{hosted?.projectRef === projectRef ? 'Save changes' : 'Save to project'}</button>}
       <button className="button secondary" disabled={busy || !projectRef || !actor} onClick={() => setComposerOpen(open => !open)}>{composerOpen ? 'Close capture' : '+ Capture contribution'}</button>
+      {mode === 'hosted' && dirty && <span className="unsaved" role="status" data-testid="review-unsaved"><span />Unsaved changes</span>}
       {busy && <span role="status">Saving or loading…</span>}
     </div>}
     {connected && !actor && <p className="muted"><Link href="/login" className="text-button">Sign in</Link> to use your hosted projects. Local inspection remains available.</p>}
