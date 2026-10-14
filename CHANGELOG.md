@@ -776,6 +776,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   ledger prints, and nothing is recorded either way. A 404 that does not carry the server's
   `not_found` error (a proxy, the wrong host) is still the generic failed request, exit 2.
   (hivemind-d6tya)
+- **`classify-queue list` and `submit` with `HIVEMIND_API_URL` set now exit 4, "unknown tenant",
+  for a token whose tenant the server does not hold, as a local ledger does — not exit 3 "invariant
+  violated".** The server answered an unregistered tenant with the same `404` `not_found` it uses
+  for an id that does not exist, so the previous fix read it as a refused batch id (exit 3), and an
+  agent that skips a refused id would have skipped every batch for one configuration reason. The
+  server now answers an unregistered tenant with `404` and its own `error.code`, `unknown_tenant`
+  (message `unknown tenant '<id>': ...`, no longer prefixed `ledger storage error:`), on every
+  `/v1/*` route (`POST /mcp` carries the same text in its tool error); the CLI prints it exactly as
+  a local ledger does
+  (`error: ledger storage error: unknown tenant '<id>': ...`, exit 4). An unknown batch id is
+  unchanged: exit 3, in the server's words. A REST client that matched `not_found` to detect an
+  unregistered tenant must match `unknown_tenant` instead. `docs/DEPLOYMENT.md`, the capture docs
+  and the plugin's `classify-queue` command say the same. (hivemind-vf0iz)
 - **A verb that acts on an existing decision or project, aimed at a folder with no ledger, now
   refuses instead of making an empty ledger and answering not_found.** `disagree`, `supersede`,
   `move`, `retitle`, `ground`, `reaffirm`, `review`, `quality-scan`, `restatements apply`, and

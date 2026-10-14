@@ -119,7 +119,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::warn;
 
-use crate::error::{CliError, CommandError, HivemindError};
+use crate::error::{CliError, CommandError, HivemindError, LedgerError};
 use crate::events::{EventId, TenantId};
 use crate::ledger::{AnyLedger, SqliteEventLedger, SqliteUserStore};
 #[cfg(feature = "shared-backend-postgres")]
@@ -399,16 +399,20 @@ impl ApiBackend {
     }
 }
 
-/// Routes an `ensure_known_tenant` failure to 404 — an unknown tenant is a
-/// not-found "wrong address", not a validation or server error — while a
-/// genuine storage/connection failure from the same call still surfaces as
-/// 500.
+/// Routes an `ensure_known_tenant` failure to 404 `unknown_tenant` — an unknown tenant is a
+/// "wrong address", not a validation or server error, and not the `not_found` of an id that does
+/// not exist — while a genuine storage/connection failure from the same call still surfaces as
+/// 500. The message is the ledger's own detail (`unknown tenant '<id>': <hint>`), without the
+/// `ledger storage error:` prefix, so the CLI can put it back in that error and print what a
+/// local ledger prints.
 fn unknown_tenant_to_api_error(error: HivemindError) -> ApiError {
-    let message = error.to_string();
-    if message.contains("unknown tenant") {
-        ApiError::not_found(message)
-    } else {
-        ApiError::internal(message)
+    match error {
+        HivemindError::Ledger(LedgerError::Storage(detail))
+            if detail.starts_with("unknown tenant ") =>
+        {
+            ApiError::unknown_tenant(detail)
+        }
+        other => ApiError::internal(other.to_string()),
     }
 }
 
@@ -533,6 +537,12 @@ impl AppState {
 enum ApiError {
     Unauthorized(String),
     NotFound(String),
+    /// The request resolves to a tenant this backend holds no registry row for. A different
+    /// answer from `NotFound` (404 `not_found`: a decision, project or batch that does not
+    /// exist): the caller's configuration is wrong, so every call fails the same way, and a client
+    /// that reads `not_found` as "that one id is unknown" would skip it instead. Maps to 404
+    /// `unknown_tenant`.
+    UnknownTenant(String),
     Validation(String),
     /// A rate/budget limit was hit (e.g. the classify-queue daily
     /// classification cap) — the request is well-formed and the caller
@@ -547,6 +557,9 @@ impl ApiError {
     }
     fn not_found(msg: impl Into<String>) -> Self {
         Self::NotFound(msg.into())
+    }
+    fn unknown_tenant(msg: impl Into<String>) -> Self {
+        Self::UnknownTenant(msg.into())
     }
     fn validation(msg: impl Into<String>) -> Self {
         Self::Validation(msg.into())
@@ -564,6 +577,7 @@ impl std::fmt::Display for ApiError {
         match self {
             ApiError::Unauthorized(m)
             | ApiError::NotFound(m)
+            | ApiError::UnknownTenant(m)
             | ApiError::Validation(m)
             | ApiError::TooManyRequests(m)
             | ApiError::Internal(m) => write!(f, "{m}"),
@@ -576,6 +590,7 @@ impl IntoResponse for ApiError {
         let (status, code, message) = match self {
             ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg),
+            ApiError::UnknownTenant(msg) => (StatusCode::NOT_FOUND, "unknown_tenant", msg),
             ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, "validation_error", msg),
             ApiError::TooManyRequests(msg) => {
                 (StatusCode::TOO_MANY_REQUESTS, "too_many_requests", msg)

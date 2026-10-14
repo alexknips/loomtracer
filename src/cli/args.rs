@@ -936,7 +936,9 @@ pub enum ClassifyQueueCommand {
     /// Reads the ledger under --hivemind-dir (or --database-url), or asks the server in
     /// HIVEMIND_API_URL when that is set. On a local ledger it refuses, exit 2 and creating
     /// nothing, when --hivemind-dir holds no ledger, so a folder nothing was recorded in is not
-    /// given an empty one (a session hook can run this in every project).
+    /// given an empty one (a session hook can run this in every project). A tenant that is not
+    /// registered (--tenant, or the one the HIVEMIND_API_KEY token maps to on a server) is refused,
+    /// exit 4, naming it: the same on every call, not a batch id to skip.
     List(ClassifyQueueListArgs),
     /// Submit agent-produced captures for a batch, appending an IngestBatchClassified event.
     ///
@@ -944,6 +946,8 @@ pub enum ClassifyQueueCommand {
     /// local ledger and through HIVEMIND_API_URL alike: take the ids from `classify-queue list`. A batch that is already classified is accepted
     /// again. Like `list`, it asks the server in HIVEMIND_API_URL when that is set, and on a
     /// local ledger it refuses, exit 2 and creating nothing, when --hivemind-dir holds no ledger.
+    /// An unregistered tenant is refused first, exit 4, as for `list`: exit 3 is only ever a batch
+    /// id.
     Submit(ClassifyQueueSubmitArgs),
 }
 

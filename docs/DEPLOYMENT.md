@@ -69,7 +69,10 @@ backend directly instead of the local SQLite file.
   unrecognized or typo'd `--tenant` on a Postgres-backed CLI/mcp invocation is
   refused with `unknown tenant '<id>'` on read and write alike, never opened
   as a fresh empty scope. The HTTP server applies the same check to every
-  request. (On SQLite the tenants come from `hivemind tenant create <id>`, and
+  request and answers an unregistered tenant with `404` and `error.code`
+  `unknown_tenant` (message `unknown tenant '<id>': ...`), never the
+  `not_found` of an id that does not exist; the CLI prints it as the local
+  ledger does (exit 4). (On SQLite the tenants come from `hivemind tenant create <id>`, and
   `local` is always registered.) Create the tenant through the provisioning
   route first, then point `--tenant` at it.
 - A binary built without the `shared-backend-postgres` Cargo feature fails
@@ -179,7 +182,9 @@ does (term match + topic + recency, no LLM — `docs/AGENT_FLUENT_QUERYING.md`
 (with a `candidates` list). A description matching none is not an error either: it is
 HTTP 200 with `data.outcome` set to `"not_found"`, the same reply the CLI and MCP print. A 404
 (`error.code` `not_found`) is for what does not exist: an `id` that names no decision, or an
-unknown route. Every reply is the same envelope (with `close_match` beside `data` when the
+unknown route. A 404 with `error.code` `unknown_tenant` is a different refusal: the token or
+`X-HiveMind-Tenant` names a tenant the server holds no registry row for, so every call fails the
+same way and none is "an id to skip". Every reply is the same envelope (with `close_match` beside `data` when the
 decision lacks some of the words asked) from the CLI, the plugin's `why.sh`/`verify.sh`, HTTP
 and MCP, and `tests/read_surface_parity.rs` asks the same questions through all four and
 compares them. There is no `--pick`/`#N` continuation over HTTP (the API is stateless): re-call

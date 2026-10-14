@@ -20,7 +20,7 @@ use crate::commands::{
     CaptureWarning, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
     DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
-use crate::error::{CliError, CommandError};
+use crate::error::{CliError, CommandError, LedgerError};
 use crate::events::{
     CaptureItem, Event, EventPayload, EventProvenance, HypothesisKind, ProjectSource,
     RelationKind as EventRelationKind, TenantId,
@@ -1292,12 +1292,22 @@ fn http_response_to_cli_output(
         // exit code sees one answer whether it asked a ledger or a cell. The input was fine, so it
         // is not "invalid command line input". A 404 without the server's `not_found` body (a
         // proxy, the wrong host) stays the generic refusal below.
+        //
+        // A token that maps to a tenant the server does not hold is a different refusal, 404
+        // `unknown_tenant`: every call fails the same way for one configuration reason. On a local
+        // ledger that is a storage error ("unknown tenant '<id>': <hint>"), exit 4, so it comes
+        // back as one here. Exit 3 would read as "that one batch is unknown" and send an agent on
+        // to the next id.
         let code = value
             .get("error")
             .and_then(|e| e.get("code"))
             .and_then(|c| c.as_str());
-        if status == reqwest::StatusCode::NOT_FOUND && code == Some("not_found") {
-            return Err(CommandError::Invariant(message).into());
+        if status == reqwest::StatusCode::NOT_FOUND {
+            match code {
+                Some("not_found") => return Err(CommandError::Invariant(message).into()),
+                Some("unknown_tenant") => return Err(LedgerError::Storage(message).into()),
+                _ => {}
+            }
         }
         return Err(CliError::InvalidInput(format!("server returned {status}: {message}")).into());
     }

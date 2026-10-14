@@ -124,7 +124,10 @@ A batch with no session (`session_id` empty in the list output) submits alone.
 Take every `--batch-id` from the list output. An id the ledger never received is
 refused (exit 3, naming the id, whether the ledger is local or behind `HIVEMIND_API_URL`) and
 nothing is recorded, so a mistyped id never leaves the real batches in the queue under a
-classification that covers nothing.
+classification that covers nothing. Exit 3 is only ever a batch id. A tenant the ledger or the
+cell does not hold (`--tenant`, or the one the `HIVEMIND_API_KEY` token maps to) is refused on `list`
+and `submit` alike with exit 4, naming the tenant ("unknown tenant '<id>'"); every call will fail
+the same way, so report it and stop instead of skipping to the next batch.
 
 Each CaptureItem JSON object must include:
 - `kind`: "decision" | "evidence" | "hypothesis" | "blocker" | "notification"

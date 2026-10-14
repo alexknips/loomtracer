@@ -11,6 +11,10 @@
 //! CLI used to exit 2 as "invalid command line input" for it. The help and both docs say exit 3,
 //! and an agent that branches on the code must see one answer whether it asked a ledger or a
 //! cell.
+//!
+//! hivemind-vf0iz: the server answers a token that maps to a tenant it does not hold with its own
+//! 404 `unknown_tenant`, and the CLI reads it as the local ledger's storage refusal, exit 4. It
+//! must not read as the refused batch id above: every call fails for that one reason.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -21,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use hivemind::commands::{CommandContext, Commands};
 use hivemind::events::{EventProvenance, TenantId};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use hivemind::ledger::{EventLedger, SqliteEventLedger, SqliteUserStore};
 
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
@@ -390,6 +394,163 @@ fn over_a_cell_url_a_received_batch_is_still_classified() {
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(event_count(&served_dir), before + 1);
     assert_eq!(pending_total(&served_dir), 0, "the batch left the queue");
+}
+
+// ---------------------------------------------------------------------------
+// An unknown tenant over HIVEMIND_API_URL (hivemind-vf0iz)
+// ---------------------------------------------------------------------------
+
+const GHOST_TENANT: &str = "ghost";
+
+/// A bearer token for `GHOST_TENANT`, a tenant the ledger under `dir` never registered: the shape
+/// of an agent whose token maps to a tenant the cell does not hold.
+fn token_for_unregistered_tenant(dir: &Path) -> String {
+    SqliteUserStore::open(dir)
+        .expect("open the user store") // ubs:ignore: test-only; panicking is correct in tests
+        .mint_agent_token(GHOST_TENANT, "agent:test:ghost", None)
+        .expect("mint a token") // ubs:ignore: test-only; panicking is correct in tests
+        .token_secret
+}
+
+fn list_over(url: &str, token: &str, own_dir: &Path) -> Output {
+    hivemind_with(
+        own_dir,
+        &[("HIVEMIND_API_URL", url), ("HIVEMIND_API_KEY", token)],
+        &["classify-queue", "list"],
+    )
+}
+
+fn submit_over_as(url: &str, token: &str, own_dir: &Path, batch_ids: &str) -> Output {
+    hivemind_with(
+        own_dir,
+        &[("HIVEMIND_API_URL", url), ("HIVEMIND_API_KEY", token)],
+        &[
+            "classify-queue",
+            "submit",
+            "--batch-id",
+            batch_ids,
+            "--captures",
+            "[]",
+        ],
+    )
+}
+
+/// What a local ledger says for the same condition: the tenant is named, not registered.
+fn assert_unknown_tenant_refusal(output: &Output) {
+    let message = stderr(output);
+    assert_eq!(output.status.code(), Some(4), "{message}");
+    assert!(
+        message.contains("unknown tenant 'ghost'"),
+        "the refusal names the tenant: {message}"
+    );
+    assert!(
+        !message.contains("invariant violated"),
+        "an unknown tenant is not a refused batch id (exit 3): {message}"
+    );
+    assert!(
+        !message.contains("invalid command line input"),
+        "the input was fine: {message}"
+    );
+    assert!(stdout(output).is_empty(), "{}", stdout(output));
+}
+
+#[test]
+fn over_a_cell_url_an_unknown_tenant_exits_4_on_list_and_on_submit_and_records_nothing() {
+    let served_dir = unique_dir("served-tenant");
+    ledger_with_batches(&served_dir, &["session-x:0-1"]);
+    let token = token_for_unregistered_tenant(&served_dir);
+    let before = event_count(&served_dir);
+    let own_dir = unique_dir("own-tenant");
+    let served = Served::start(&served_dir);
+
+    assert_unknown_tenant_refusal(&list_over(&served.url, &token, &own_dir));
+    // A batch id the cell does hold, so only the tenant can be what is refused.
+    assert_unknown_tenant_refusal(&submit_over_as(
+        &served.url,
+        &token,
+        &own_dir,
+        "session-x:0-1",
+    ));
+    // An id nobody received gets the tenant refusal too: the tenant is checked first, and exit 3
+    // would tell the agent to skip that one id.
+    assert_unknown_tenant_refusal(&submit_over_as(&served.url, &token, &own_dir, "typo:0-1"));
+
+    assert_eq!(event_count(&served_dir), before, "an event was appended");
+    assert_eq!(pending_total(&served_dir), 1, "the batch is still waiting");
+    assert!(
+        !own_dir.exists(),
+        "the CLI made a ledger of its own beside the cell"
+    );
+}
+
+#[test]
+fn the_unknown_tenant_refusal_reads_the_same_over_a_cell_url_as_on_a_local_ledger() {
+    let served_dir = unique_dir("served-tenant-same");
+    ledger_with_batches(&served_dir, &["session-x:0-1"]);
+    let token = token_for_unregistered_tenant(&served_dir);
+    let local_dir = unique_dir("local-tenant-same");
+    ledger_with_batches(&local_dir, &["session-x:0-1"]);
+    let own_dir = unique_dir("own-tenant-same");
+    let served = Served::start(&served_dir);
+
+    let local_list = hivemind(
+        &local_dir,
+        &["--tenant", GHOST_TENANT, "classify-queue", "list"],
+    );
+    let local_submit = hivemind(
+        &local_dir,
+        &[
+            "--tenant",
+            GHOST_TENANT,
+            "classify-queue",
+            "submit",
+            "--batch-id",
+            "session-x:0-1",
+            "--captures",
+            "[]",
+        ],
+    );
+    let over_list = list_over(&served.url, &token, &own_dir);
+    let over_submit = submit_over_as(&served.url, &token, &own_dir, "session-x:0-1");
+
+    assert_unknown_tenant_refusal(&local_list);
+    assert_unknown_tenant_refusal(&local_submit);
+    assert_eq!(
+        stderr(&over_list),
+        stderr(&local_list),
+        "an agent reads one refusal whichever it asked: list"
+    );
+    assert_eq!(
+        stderr(&over_submit),
+        stderr(&local_submit),
+        "an agent reads one refusal whichever it asked: submit"
+    );
+}
+
+#[test]
+fn over_a_cell_url_a_registered_tenants_token_still_gets_exit_3_for_an_unknown_batch() {
+    let served_dir = unique_dir("served-registered");
+    ledger_with_batches(&served_dir, &["session-x:0-1"]);
+    SqliteEventLedger::open(&served_dir)
+        .expect("open the ledger") // ubs:ignore: test-only; panicking is correct in tests
+        .create_tenant(&TenantId::new("acme").expect("a tenant id")) // ubs:ignore: test-only
+        .expect("register the tenant"); // ubs:ignore: test-only; panicking is correct in tests
+    let token = SqliteUserStore::open(&served_dir)
+        .expect("open the user store") // ubs:ignore: test-only; panicking is correct in tests
+        .mint_agent_token("acme", "agent:test:acme", None)
+        .expect("mint a token") // ubs:ignore: test-only; panicking is correct in tests
+        .token_secret;
+    let own_dir = unique_dir("own-registered");
+    let served = Served::start(&served_dir);
+
+    let output = submit_over_as(&served.url, &token, &own_dir, "typo:0-1");
+
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("ingest batch does not exist: typo:0-1"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 /// A server that is not HiveMind's answers 404 in its own words, not as the ledger's refusal:

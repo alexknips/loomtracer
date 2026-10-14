@@ -1198,7 +1198,10 @@ async fn rls_cross_tenant_decision_not_visible() {
 async fn unregistered_tenant_header_is_rejected_on_read_and_write() {
     // Unlike "alpha"/"beta" above, this tenant is never registered via
     // SqliteEventLedger::create_tenant — a typo'd X-HiveMind-Tenant must not
-    // silently open a fresh, empty scope (hivemind-rkbf.1).
+    // silently open a fresh, empty scope (hivemind-rkbf.1). It is answered with its own code,
+    // `unknown_tenant`, not `not_found`: a client that reads `not_found` as "that one id is
+    // unknown" would skip it, when every call fails for the one configuration reason
+    // (hivemind-vf0iz).
     let dir = test_ledger_dir();
 
     let (status, body) = call(
@@ -1219,7 +1222,7 @@ async fn unregistered_tenant_header_is_rejected_on_read_and_write() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "write: {body}"); // ubs:ignore
-    assert_eq!(body["error"]["code"], "not_found"); // ubs:ignore
+    assert_eq!(body["error"]["code"], "unknown_tenant"); // ubs:ignore
     assert!(
         // ubs:ignore
         body["error"]["message"]
@@ -1235,7 +1238,7 @@ async fn unregistered_tenant_header_is_rejected_on_read_and_write() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "read: {body}"); // ubs:ignore
-    assert_eq!(body["error"]["code"], "not_found"); // ubs:ignore
+    assert_eq!(body["error"]["code"], "unknown_tenant"); // ubs:ignore
 }
 
 // ---------------------------------------------------------------------------

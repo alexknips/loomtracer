@@ -177,8 +177,8 @@ fn a_workspace_without_its_tenant_is_refused_and_named_in_the_log_until_it_is_re
     });
 
     assert!(
-        matches!(refused, Some(Err(ApiError::NotFound(_)))),
-        "an unregistered workspace is refused as not found, like the commands route"
+        matches!(refused, Some(Err(ApiError::UnknownTenant(_)))),
+        "an unregistered workspace is refused as an unknown tenant (404), like the commands route"
     );
     assert!(
         logged.contains("WARN") && logged.contains("TCHK"),
