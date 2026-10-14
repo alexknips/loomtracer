@@ -47,6 +47,8 @@ pub(super) fn readable_option_labels(found: &[Option<FoundLabel>]) -> Vec<Option
 /// The labels of one capture that are written as slugs, each with the words every reader will
 /// show for it (`direct-cli` reads `Direct CLI`), in the labels' order. The same reading as
 /// `readable_option_labels`, asked at capture time so the capturer can write the words instead.
+/// Only labels `warrants_slug_warning` accepts, and only when the words are better than the label:
+/// a missed slug costs less than a warning that talks a good label into a worse one.
 pub(crate) fn slug_labels_with_words(labels: &[String]) -> Vec<(&str, String)> {
     let found: Vec<Option<FoundLabel>> = labels
         .iter()
@@ -60,9 +62,38 @@ pub(crate) fn slug_labels_with_words(labels: &[String]) -> Vec<(&str, String)> {
     labels
         .iter()
         .zip(readable_option_labels(&found))
-        .filter(|(label, _)| is_slug_shaped(label))
+        .filter(|(label, _)| warrants_slug_warning(label))
         .filter_map(|(label, words)| Some((label.as_str(), words?)))
+        .filter(|(_, words)| !has_stray_letter(words))
         .collect()
+}
+
+/// Whether a slug-shaped label is worth a warning at capture time. Ordinary English is hyphenated
+/// too (`e-mail`, `opt-in`, `read-only`, `real-time`) and no shape tells those from a two-word
+/// slug, so only what ordinary words do not look like is flagged: an underscore, three or more
+/// parts (`name-a-upheld`), or a part that is an acronym written in lowercase (`direct-cli`;
+/// prose writes `CLI`). Any other two-part hyphenated label is left alone.
+fn warrants_slug_warning(label: &str) -> bool {
+    is_slug_shaped(label)
+        && (label.contains('_')
+            || split_words(label).len() >= 3
+            || split_words(label)
+                .iter()
+                .any(|part| ACRONYMS.contains(part)))
+}
+
+/// A one-letter word in a suggestion is the half of a word the slug split (`e-mail` reads
+/// `E mail`), not words. Only `a` and `I` are words of one letter.
+fn has_stray_letter(words: &str) -> bool {
+    words.split(' ').any(|word| {
+        let mut chars = word.chars();
+        match (chars.next(), chars.next()) {
+            (Some(letter), None) => {
+                letter.is_alphabetic() && !matches!(letter.to_ascii_lowercase(), 'a' | 'i')
+            }
+            _ => false,
+        }
+    })
 }
 
 /// Words a slug only carries in lowercase but that are written in capitals wherever they appear:
@@ -214,3 +245,6 @@ fn capitalize(text: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod tests;

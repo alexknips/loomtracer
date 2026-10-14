@@ -735,6 +735,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   is still accepted again. The hook script now looks for a ledger first and prints nothing and
   creates nothing in a project without one, whichever hivemind is installed. `--help`, the README
   and the capture docs say the same. (hivemind-odmnc)
+- **The slug-label warning no longer fires on ordinary hyphenated words.** A capture or supersede
+  that sent an option label like `e-mail`, `opt-in`, `read-only`, `follow-up`, `real-time`,
+  `built-in` or `self-hosted` was told the label "looks like a slug" and was offered words that
+  were worse than the label (`E mail`). The warning now fires only on a shape ordinary words do
+  not have: an underscore (`use_postgres`), three or more parts joined by `-` or `_`
+  (`name-a-upheld`), or a part that is an acronym in lowercase (`direct-cli`, `mcp-server`; prose
+  writes `CLI`). Any other two-part hyphenated label, `direct-store` and `read-only` alike, gets
+  no warning, because no shape tells them apart and a missed slug costs less than a warning on a
+  good label. A suggestion that would hold a one-letter fragment of a split word (`E mail`, `K
+  means clustering`) is not offered at all; `a` and `I` are words and stay. The label is recorded
+  as sent either way, and readers show labels as before. (hivemind-lwhfk)
 - **A verb that acts on an existing decision or project, aimed at a folder with no ledger, now
   refuses instead of making an empty ledger and answering not_found.** `disagree`, `supersede`,
   `move`, `retitle`, `ground`, `reaffirm`, `review`, `quality-scan`, `restatements apply`, and

@@ -16,6 +16,7 @@ benchmarks/
 # hivemind-ubs-warning-paydown-3164-lkfp (extends src/projector/tests.rs
 # exemption from hivemind-07no to all in-tree test modules uniformly).
 src/projector/tests.rs
+src/projector/option_labels/tests.rs
 src/cli/tests.rs
 src/connector/tests.rs
 src/queries/tests.rs
