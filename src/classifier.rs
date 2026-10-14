@@ -460,8 +460,7 @@ fn pending_batch_from_event(event: &crate::events::Event) -> Option<PendingBatch
 /// event covers their batch id), for `classify-queue list`: the oldest `limit`
 /// of them, optionally only one session's. Generic over any [`EventLedger`]
 /// backend so the HTTP API (SQLite dev mode or Postgres) and the local CLI
-/// path share one implementation — see [`pending_queue`] for the CLI's
-/// local-SQLite convenience wrapper.
+/// path share one implementation.
 ///
 /// Which batches are pending is decided from heads alone; the turn text of
 /// only the returned batches is read, in one query by event id.
@@ -584,19 +583,6 @@ pub fn pending_queue_for_ledger(
     let page = list_pending_batches_for_ledger(ledger, tenant_id, session_id, limit)?;
     let budget = daily_cap_status(ledger, tenant_id)?;
     Ok(PendingQueue { page, budget })
-}
-
-/// CLI local-mode convenience: opens a SQLite ledger under `hivemind_dir` and
-/// delegates to [`pending_queue_for_ledger`]. `classify-queue list`
-/// uses this when not pointed at a server (`HIVEMIND_API_URL` unset).
-pub fn pending_queue(
-    hivemind_dir: &PathBuf,
-    tenant_id: &TenantId,
-    session_id: Option<&str>,
-    limit: usize,
-) -> crate::Result<PendingQueue> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
-    pending_queue_for_ledger(&ledger, tenant_id, session_id, limit)
 }
 
 /// Default daily cap on classification calls (ledger events, not batches

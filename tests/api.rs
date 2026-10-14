@@ -2911,6 +2911,100 @@ async fn classify_queue_submit_covers_multiple_batches_and_decision_readable_via
     );
 }
 
+/// hivemind-odmnc over HTTP: a batch id the tenant never received is a 404 that names it, with
+/// nothing written and the real batch still waiting; a batch that is already classified is
+/// accepted again.
+#[tokio::test]
+async fn classify_queue_submit_refuses_a_batch_nobody_received_and_writes_nothing() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/ingest",
+            ingest_json("known:0-1", "known-sess", "claude", "note"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}"); // ubs:ignore
+
+    let submit = |batch_ids: Vec<&str>| {
+        post_json(
+            "/v1/classify-queue/submit",
+            serde_json::json!({
+                "batch_ids": batch_ids,
+                "captures": [],
+                "model": "agent:worker-a"
+            }),
+        )
+    };
+    let pending_total = |dir: PathBuf| async move {
+        let (status, body) = call(app(dir), get_req("/v1/classify-queue?limit=1")).await;
+        assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+        body["pending_total"].as_u64().expect("pending_total") // ubs:ignore
+    };
+
+    // One id the tenant never received refuses the whole submission.
+    let (status, body) = call(app(dir.clone()), submit(vec!["known:0-1", "typo:0-1"])).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}"); // ubs:ignore
+    assert_eq!(body["error"]["code"], "not_found", "{body}"); // ubs:ignore
+    let message = body["error"]["message"].as_str().unwrap_or_default(); // ubs:ignore
+    assert!(
+        message.contains("ingest batch does not exist: typo:0-1."),
+        "{body}"
+    ); // ubs:ignore
+    assert_eq!(pending_total(dir.clone()).await, 1, "nothing was recorded"); // ubs:ignore
+
+    // The real batch is classified, leaves the queue, and may be sent again.
+    let (status, body) = call(app(dir.clone()), submit(vec!["known:0-1"])).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(pending_total(dir.clone()).await, 0); // ubs:ignore
+    let (status, body) = call(app(dir), submit(vec!["known:0-1"])).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+}
+
+/// hivemind-odmnc over MCP: `classify_queue_submit` refuses the same batch id, as a tool error that
+/// names it, and records nothing.
+#[tokio::test]
+async fn mcp_classify_queue_submit_refuses_a_batch_nobody_received() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/ingest",
+            ingest_json("known:0-1", "known-sess", "claude", "note"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}"); // ubs:ignore
+
+    let (status, body) = call(
+        app(dir.clone()),
+        mcp_post(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "tools/call",
+            "params": {
+                "name": "classify_queue_submit",
+                "arguments": { "batch_ids": ["typo:0-1"], "captures": [] }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["result"]["isError"], true, "{body}"); // ubs:ignore
+    assert!(
+        body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default() // ubs:ignore
+            .contains("ingest batch does not exist: typo:0-1"),
+        "{body}"
+    ); // ubs:ignore
+
+    let (status, body) = call(app(dir), get_req("/v1/classify-queue?limit=1")).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["pending_total"], 1, "nothing was recorded: {body}"); // ubs:ignore
+}
+
 /// A decision capture with the topic keys the possibly-related tests care about.
 fn keyed_capture_json(title: &str, topic_keys: &[&str]) -> Value {
     serde_json::json!({

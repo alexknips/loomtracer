@@ -1157,6 +1157,17 @@ fn the_verbs_that_open_no_ledger_are_not_refused() {
             vec!["connector", "auth", "no-such-connector"],
         ),
         ("classify-queue list", vec!["classify-queue", "list"]),
+        (
+            "classify-queue submit",
+            vec![
+                "classify-queue",
+                "submit",
+                "--batch-id",
+                "session-x:0-1",
+                "--captures",
+                "[]",
+            ],
+        ),
     ] {
         let dir = unique_dir("fourth-left-out");
 

@@ -434,7 +434,10 @@ to see a nudge when unclassified batches are waiting:
 }
 ```
 
-The hook only prints a one-line notification; it does not drain autonomously.
+The hook only prints a one-line notification; it does not drain autonomously. In a project with
+no ledger (none under `./hivemind/`, or under `HIVEMIND_DIR`) it prints nothing and creates
+nothing, so it is safe to install for every project. It asks as usual when `HIVEMIND_API_URL` or
+`HIVEMIND_DATABASE_URL` is set, since neither names a folder.
 
 ### Bounds
 

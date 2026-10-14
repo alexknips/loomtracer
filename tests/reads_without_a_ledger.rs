@@ -84,6 +84,13 @@ fn reads(out: &Path) -> Vec<Read> {
         read("map", &["map"]),
         read("restatements propose", &["restatements", "propose"]),
         read("reexamine", &["reexamine"]),
+        // The capture plugin's Stop hook runs this at the end of a session in every project
+        // (hivemind-odmnc).
+        read("classify-queue list", &["classify-queue", "list"]),
+        read(
+            "classify-queue list",
+            &["classify-queue", "list", "--json", "--limit", "1"],
+        ),
         read("project list", &["project", "list"]),
         read("project show", &["project", "show", "pricing"]),
         read("project decisions", &["project", "decisions", "pricing"]),
@@ -234,24 +241,31 @@ fn a_shared_database_names_no_folder_so_a_read_is_not_refused_for_one() {
     let dir = unique_dir("database-url");
 
     // The URL points nowhere, so the read fails on the connection; the point is that it is not
-    // the missing-folder refusal and made no local ledger.
-    let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .env_remove("HIVEMIND_API_URL")
-        .env(
-            "HIVEMIND_DATABASE_URL",
-            "postgres://nobody@127.0.0.1:9/none",
-        )
-        .arg("--hivemind-dir")
-        .arg(&dir)
-        .args(["query", "recall", "retry budget"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
+    // the missing-folder refusal and made no local ledger. `classify-queue list` reads the
+    // database `submit` writes to, not a local ledger beside it (hivemind-odmnc).
+    for args in [
+        vec!["query", "recall", "retry budget"],
+        vec!["classify-queue", "list"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
+            .env_remove("HIVEMIND_API_URL")
+            .env(
+                "HIVEMIND_DATABASE_URL",
+                "postgres://nobody@127.0.0.1:9/none",
+            )
+            .arg("--hivemind-dir")
+            .arg(&dir)
+            .args(&args)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
 
-    assert!(
-        !stderr(&output).contains("none was created"),
-        "a configured database is not the missing-folder refusal: {}",
-        stderr(&output)
-    );
-    assert!(!dir.exists(), "a local ledger was made");
+        assert!(
+            !stderr(&output).contains("none was created"),
+            "`{}`: a configured database is not the missing-folder refusal: {}",
+            args.join(" "),
+            stderr(&output)
+        );
+        assert!(!dir.exists(), "`{}` made a local ledger", args.join(" "));
+    }
 }

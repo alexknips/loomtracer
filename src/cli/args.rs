@@ -932,8 +932,18 @@ pub struct ClassifyQueueArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum ClassifyQueueCommand {
     /// List batches pending classification (received but not yet classified).
+    ///
+    /// Reads the ledger under --hivemind-dir (or --database-url), or asks the server in
+    /// HIVEMIND_API_URL when that is set. On a local ledger it refuses, exit 2 and creating
+    /// nothing, when --hivemind-dir holds no ledger, so a folder nothing was recorded in is not
+    /// given an empty one (a session hook can run this in every project).
     List(ClassifyQueueListArgs),
     /// Submit agent-produced captures for a batch, appending an IngestBatchClassified event.
+    ///
+    /// Refuses a batch id that was never received, exit 3, naming it, with nothing recorded:
+    /// take the ids from `classify-queue list`. A batch that is already classified is accepted
+    /// again. Like `list`, it asks the server in HIVEMIND_API_URL when that is set, and on a
+    /// local ledger it refuses, exit 2 and creating nothing, when --hivemind-dir holds no ledger.
     Submit(ClassifyQueueSubmitArgs),
 }
 

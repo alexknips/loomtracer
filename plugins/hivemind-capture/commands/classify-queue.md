@@ -37,7 +37,9 @@ the whole queue's depth. (The v0.7.0 release prints the bare list of batches for
 no `pending_total` from a server: read the list as `batches`.) If `batches` is empty, report "No
 pending batches" and stop. If the request
 fails with a daily-cap message, report it and stop — the batches stay pending
-and will be picked up by a future run once the cap resets (UTC midnight).
+and will be picked up by a future run once the cap resets (UTC midnight). If
+it refuses because `--hivemind-dir` holds no ledger (exit 2, naming the folder),
+report that this project has no ledger, so nothing is queued here, and stop.
 
 **Step 2: Classify each batch**
 
@@ -118,6 +120,10 @@ hivemind classify-queue submit \
 ```
 
 A batch with no session (`session_id` empty in the list output) submits alone.
+
+Take every `--batch-id` from the list output. An id the ledger never received is
+refused (exit 3, naming the id) and nothing is recorded, so a mistyped id never
+leaves the real batches in the queue under a classification that covers nothing.
 
 Each CaptureItem JSON object must include:
 - `kind`: "decision" | "evidence" | "hypothesis" | "blocker" | "notification"

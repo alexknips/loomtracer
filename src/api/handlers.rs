@@ -1832,6 +1832,20 @@ fn classify_queue_submit_blocking(
 
     let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
 
+    let commands = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(
+            ctx.tenant_id.clone(),
+            EventProvenance::agent(ctx.actor_id.clone()),
+        ),
+    );
+
+    // A batch this tenant never received is a bad request whatever the cap says: a 429 would
+    // tell a worker to retry tomorrow.
+    commands
+        .require_received_batches(&req.batch_ids)
+        .map_err(to_api_error)?;
+
     // Enforced before the write, not after: Alex's chosen cadence (bead
     // comment, 2026-09-23) is that batches over the daily cap wait for
     // tomorrow rather than being dropped, so a capped submit must refuse to
@@ -1844,14 +1858,6 @@ fn classify_queue_submit_blocking(
             cap_status.cap
         )));
     }
-
-    let commands = Commands::new_with_context(
-        &ledger,
-        CommandContext::new(
-            ctx.tenant_id.clone(),
-            EventProvenance::agent(ctx.actor_id.clone()),
-        ),
-    );
 
     let recorded = commands
         .record_ingest_batch_classified(

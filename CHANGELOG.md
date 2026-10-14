@@ -718,6 +718,23 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`classify-queue list` and `submit` aimed at a folder with no ledger now refuse, and `submit`
+  refuses a batch id nobody received.** With `HIVEMIND_API_URL` unset, `classify-queue list` under
+  a mistyped or fresh `--hivemind-dir` made an empty `ledger.sqlite` there and exited 0 with an
+  empty queue. That mattered most for the capture plugin's optional `Stop` hook
+  (`scripts/check-classify-queue.sh`), which runs it at the end of a session: every project
+  without `./hivemind/` got a stray ledger just because the hook was installed. `list` now
+  refuses like the other read verbs and `submit` like the verbs that act on a ledger: exit 2,
+  nothing printed, nothing created, and the message names the verb and the folder. With
+  `HIVEMIND_API_URL` set they ask that server as before. `list` now also reads the database named
+  by `--database-url`; it always read local SQLite, even where `submit` wrote to the database.
+  `submit` with a batch id the ledger never received used to append an `ingest.batch_classified`
+  event that covered nothing and exit 0. It now refuses naming the id, writes nothing and exits 3;
+  `POST /v1/classify-queue/submit` answers 404 and the MCP tool `classify_queue_submit` returns a
+  tool error, because the check is the same on all three. A batch that is already classified
+  is still accepted again. The hook script now looks for a ledger first and prints nothing and
+  creates nothing in a project without one, whichever hivemind is installed. `--help`, the README
+  and the capture docs say the same. (hivemind-odmnc)
 - **A verb that acts on an existing decision or project, aimed at a folder with no ledger, now
   refuses instead of making an empty ledger and answering not_found.** `disagree`, `supersede`,
   `move`, `retitle`, `ground`, `reaffirm`, `review`, `quality-scan`, `restatements apply`, and

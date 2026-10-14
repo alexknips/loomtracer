@@ -20,6 +20,17 @@ set -euo pipefail
 
 HIVEMIND_DIR="${HIVEMIND_DIR:-./hivemind/}"
 
+# A project nothing was recorded in has no queue, and the hook does nothing there. Look before
+# asking: a hivemind older than hivemind-odmnc made an empty ledger in the folder when it listed
+# the queue, so this hook left a stray ./hivemind/ in every project it ran in. A cell
+# (HIVEMIND_API_URL) or a shared database (HIVEMIND_DATABASE_URL) names no folder: ask as usual.
+if [ -z "${HIVEMIND_API_URL:-}" ] && [ -z "${HIVEMIND_DATABASE_URL:-}" ] \
+  && [ ! -f "$HIVEMIND_DIR/ledger.sqlite" ]; then
+  exit 0
+fi
+
+# stderr is dropped: a hivemind that refuses a folder with no ledger (exit 2) reads as an empty
+# queue, which is what it is.
 list() {
   hivemind --hivemind-dir "$HIVEMIND_DIR" classify-queue list --json --limit "$1" 2>/dev/null
 }

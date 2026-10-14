@@ -139,6 +139,21 @@ fn acts() -> Vec<Act> {
             0,
             "0 link(s) recorded",
         ),
+        // Classifies batches `classify-queue list` shows; on a ledger that received none it is
+        // handed an id nobody received (hivemind-odmnc).
+        act(
+            "classify-queue submit",
+            &[
+                "classify-queue",
+                "submit",
+                "--batch-id",
+                "session-x:0-1",
+                "--captures",
+                "[]",
+            ],
+            3,
+            "ingest batch does not exist: session-x:0-1",
+        ),
         act(
             "project link",
             &[

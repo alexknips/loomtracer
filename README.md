@@ -124,11 +124,13 @@ findings and signals via MCP.
 The default CLI stores events in SQLite at `./hivemind/ledger.sqlite` or the
 directory passed with `--hivemind-dir`. A write creates the ledger on first use;
 a read (`query`, `digest`, `dump`, `export`, `map`, `reexamine`, `tui`,
-`restatements propose`, `project list`, `show` and `decisions`) aimed at a folder
+`restatements propose`, `classify-queue list`, `project list`, `show` and
+`decisions`) aimed at a folder
 that holds none refuses (exit 2, naming the folder) and creates nothing, so a
 mistyped folder is never read as "no decisions". So does a verb that acts on a
 decision or project the ledger already holds (`disagree`, `supersede`, `move`,
 `retitle`, `ground`, `reaffirm`, `review`, `quality-scan`, `restatements apply`,
+`classify-queue submit`,
 and `project link`, `unlink`, `anchor`, `declare-topic` and `use`): there is
 nothing for it to act on, and a mistyped folder is never read as a missing
 decision. Queries and DOT dumps replay the

@@ -20,6 +20,10 @@ use crate::Result;
 use super::question::QuestionEventUuids;
 use super::{payload_value_as_str, CommandContext, Commands};
 
+/// How many received batches one typed read of their ids asks for: large enough that the city
+/// cell's ~90k received batches take a handful of round trips.
+const RECEIVED_BATCH_PAGE: usize = 10_000;
+
 /// One explicit ask a request turn makes, resolved and checked before anything is written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TranscriptAsk {
@@ -152,6 +156,57 @@ fn find_turn<'a>(
 }
 
 impl<L: EventLedger> Commands<'_, L> {
+    /// Refuses, with nothing written, a `classify-queue submit` that names an ingest batch this
+    /// tenant never received. A worker takes its batch ids from `classify-queue list`, so an id
+    /// the tenant holds no `ingest.batch_received` for is a typo or another ledger's batch:
+    /// recording it would add a classification that covers nothing and leave the real batches
+    /// in the queue. A batch that is already classified was still received, so sending it again
+    /// stays idempotent.
+    ///
+    /// The three submit surfaces (CLI, HTTP, MCP) ask this before they record. It is not part of
+    /// `record_ingest_batch_classified`, which `emit ingest.batch_classified` also calls with a
+    /// batch id it makes up for text that never arrived as a batch.
+    pub fn require_received_batches(&self, batch_ids: &[String]) -> Result<()> {
+        let mut missing: HashSet<&str> = batch_ids.iter().map(String::as_str).collect();
+        let mut offset = 0;
+        while !missing.is_empty() {
+            let rows = self.ledger.read_fields_for_tenant(
+                &self.context.tenant_id,
+                EventType::IngestBatchReceived,
+                &["batch_id"],
+                offset,
+                RECEIVED_BATCH_PAGE,
+            )?;
+            for row in &rows {
+                if let [Some(batch_id)] = row.fields.as_slice() {
+                    missing.remove(batch_id.as_str());
+                }
+            }
+            match rows.last() {
+                Some(last) if rows.len() == RECEIVED_BATCH_PAGE => offset = last.event_id,
+                _ => break,
+            }
+        }
+        if missing.is_empty() {
+            return Ok(());
+        }
+        // In the order the caller gave them, each once.
+        let mut named: Vec<&str> = Vec::new();
+        for batch_id in batch_ids {
+            let batch_id = batch_id.as_str();
+            if missing.contains(batch_id) && !named.contains(&batch_id) {
+                named.push(batch_id);
+            }
+        }
+        Err(CommandError::Invariant(format!(
+            "ingest batch does not exist: {}. It was never received, so there is nothing to \
+             classify and nothing was recorded; `classify-queue list` shows the batches that are \
+             waiting",
+            named.join(", ")
+        ))
+        .into())
+    }
+
     /// Checks the turn and question every capture of one classification carries, reads each
     /// named turn's own time into `source_ts`, and returns the asks the request turns make.
     /// Refuses, with nothing written, a `source_turn_id` that is blank or names no turn of the

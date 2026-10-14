@@ -40,8 +40,9 @@
 //!   uuid, causation numbered by the cause's uuid, `dry_run` counts without writing (admin key,
 //!   hivemind-jawy)
 //! - `POST /v1/classify-queue/submit`               — submit captures for one or more
-//!   pending ingest batches (Worker A, hivemind-zdsh.18); 429 once the daily
-//!   classification cap is hit — batches stay pending, not dropped
+//!   pending ingest batches (Worker A, hivemind-zdsh.18); 404 for a batch id the tenant never
+//!   received (nothing is recorded); 429 once the daily classification cap is hit — batches stay
+//!   pending, not dropped
 //!
 //! Read:
 //! - `GET  /v1/decisions/{id}`                     — get single decision

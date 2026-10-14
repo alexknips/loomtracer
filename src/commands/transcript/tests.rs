@@ -980,3 +980,106 @@ fn an_id_that_is_no_draft_is_still_refused_and_writes_nothing() {
     }
     assert_eq!(ledger.latest_offset().expect("latest offset"), before);
 }
+
+// ---------------------------------------------------------------------------------------------
+// hivemind-odmnc: a submit names only batches the tenant received
+// ---------------------------------------------------------------------------------------------
+
+/// A received batch with no turns, the way `POST /v1/ingest` leaves one.
+fn receive_batch(ledger: &InMemoryEventLedger, batch_id: &str) {
+    commands(ledger)
+        .record_ingest_batch(SUBMITTER, batch_id, "claude", "session-x", Vec::new())
+        .expect("the batch is received");
+}
+
+fn batch_ids(ids: &[&str]) -> Vec<String> {
+    ids.iter().map(|id| (*id).to_owned()).collect()
+}
+
+#[test]
+fn batches_the_tenant_received_are_known_and_a_classified_one_still_is() {
+    let ledger = InMemoryEventLedger::new();
+    receive_batch(&ledger, "s:0-1");
+    receive_batch(&ledger, "s:1-2");
+    commands(&ledger)
+        .record_ingest_batch_classified(
+            RECORDER,
+            &batch_ids(&["s:0-1"]),
+            "test-model",
+            "2",
+            Vec::new(),
+            None,
+        )
+        .expect("the first batch is classified");
+
+    commands(&ledger)
+        .require_received_batches(&batch_ids(&["s:0-1", "s:1-2"]))
+        .expect("both were received; sending the classified one again is not refused");
+}
+
+#[test]
+fn a_batch_nobody_received_is_refused_by_name_and_writes_nothing() {
+    use crate::error::{CommandError, HivemindError};
+
+    let ledger = InMemoryEventLedger::new();
+    receive_batch(&ledger, "s:0-1");
+    let before = ledger.latest_offset().expect("latest offset");
+
+    let error = commands(&ledger)
+        .require_received_batches(&batch_ids(&["s:0-1", "typo:0-1", "other:0-1", "typo:0-1"]))
+        .expect_err("two of the ids were never received");
+
+    // Named in the order given, each once, and the received one is not among them.
+    assert!(
+        matches!(&error, HivemindError::Command(CommandError::Invariant(message))
+            if message.contains("ingest batch does not exist: typo:0-1, other:0-1. ")),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains("nothing was recorded"),
+        "{error}"
+    );
+    assert_eq!(ledger.latest_offset().expect("latest offset"), before);
+}
+
+#[test]
+fn a_batch_with_no_batch_at_all_in_the_ledger_is_refused() {
+    let ledger = InMemoryEventLedger::new();
+
+    let error = commands(&ledger)
+        .require_received_batches(&batch_ids(&["s:0-1"]))
+        .expect_err("an empty ledger received nothing");
+
+    assert!(
+        error
+            .to_string()
+            .contains("ingest batch does not exist: s:0-1"),
+        "{error}"
+    );
+}
+
+#[test]
+fn another_tenants_batch_is_not_this_tenants_to_classify() {
+    let ledger = InMemoryEventLedger::new();
+    let acme = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(
+            TenantId::new("acme").expect("a tenant id"),
+            EventProvenance::agent(RECORDER),
+        ),
+    );
+    acme.record_ingest_batch(SUBMITTER, "acme:0-1", "claude", "session-x", Vec::new())
+        .expect("acme receives the batch");
+
+    acme.require_received_batches(&batch_ids(&["acme:0-1"]))
+        .expect("acme received it");
+    let error = commands(&ledger)
+        .require_received_batches(&batch_ids(&["acme:0-1"]))
+        .expect_err("the local tenant never received it");
+    assert!(
+        error
+            .to_string()
+            .contains("ingest batch does not exist: acme:0-1"),
+        "{error}"
+    );
+}

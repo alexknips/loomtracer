@@ -1230,7 +1230,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "classify_queue_submit",
-            "description": "Submit captures for one or more pending ingest batches as a single classification event, moving every listed batch id from pending to classified together. HTTP-transport only (hivemind-zdsh.18). Pass more than one `batch_ids` entry to cover a whole session's batches in one model call, per the session-grouped cadence. Refuses with an error once the daily classification cap is hit — batches stay pending for the next day rather than being dropped.",
+            "description": "Submit captures for one or more pending ingest batches as a single classification event, moving every listed batch id from pending to classified together. HTTP-transport only (hivemind-zdsh.18). Pass more than one `batch_ids` entry to cover a whole session's batches in one model call, per the session-grouped cadence. Refuses a batch id the tenant never received, naming it, with nothing recorded. Refuses with an error once the daily classification cap is hit — batches stay pending for the next day rather than being dropped.",
             "inputSchema": {
                 "type": "object",
                 "required": ["batch_ids", "captures"],

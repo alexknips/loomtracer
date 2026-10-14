@@ -86,7 +86,6 @@ fn the_verbs_left_out_on_purpose_are_not_guarded() -> TestResult {
             "acme",
             "--dry-run",
         ],
-        &["classify-queue", "list"],
         &["connector", "auth", "gdocs"],
         &["import", "prepare-documents", "notes.md"],
         &[
@@ -271,6 +270,54 @@ fn every_verb_is_placed_by_what_it_does_with_the_ledger() -> TestResult {
             return Err(
                 format!("hivemind {args:?} must be able to start a ledger: {used:?}").into(),
             );
+        }
+    }
+    Ok(())
+}
+
+/// `classify-queue` opens the ledger under `--hivemind-dir` only while `HIVEMIND_API_URL` is
+/// unset (hivemind-odmnc): it is placed by what it does with that ledger, so a folder with none is
+/// refused, and it is the one verb the cell guard leaves alone, because with the variable set it
+/// asks that server instead.
+#[test]
+fn classify_queue_is_placed_by_its_ledger_use_and_left_to_the_cell() -> TestResult {
+    let list: &[&str] = &["classify-queue", "list"];
+    let submit: &[&str] = &[
+        "classify-queue",
+        "submit",
+        "--batch-id",
+        "b-1",
+        "--captures",
+        "[]",
+    ];
+    if ledger_use_of(list)? != Some(LedgerUse::Reads) {
+        return Err("classify-queue list is a read of the local ledger".into());
+    }
+    if ledger_use_of(submit)? != Some(LedgerUse::ReadsAndWrites) {
+        return Err("classify-queue submit acts on batches the local ledger holds".into());
+    }
+    for (args, name) in [
+        (list, "classify-queue list"),
+        (submit, "classify-queue submit"),
+    ] {
+        if guarded_as(args)? != Some(name) {
+            return Err(format!("hivemind {args:?} is not named {name:?}").into());
+        }
+        let mut argv = vec!["hivemind"];
+        argv.extend_from_slice(args);
+        let cli = Cli::try_parse_from(argv)?;
+        let honours = CellBesideVerb::of(&cli.command).is_some_and(CellBesideVerb::honours_api_url);
+        if !honours {
+            return Err(format!("hivemind {args:?} must be left to the cell guard").into());
+        }
+    }
+    // No other verb is: each of them ignores the variable and is guarded beside a cell.
+    for (args, name) in READ_VERBS.iter().chain(ACT_ON_VERBS) {
+        let mut argv = vec!["hivemind"];
+        argv.extend_from_slice(args);
+        let cli = Cli::try_parse_from(argv)?;
+        if CellBesideVerb::of(&cli.command).is_some_and(CellBesideVerb::honours_api_url) {
+            return Err(format!("hivemind {args:?} ({name}) honours HIVEMIND_API_URL").into());
         }
     }
     Ok(())

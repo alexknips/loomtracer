@@ -229,6 +229,20 @@
 //!   reply lists each restating capture and whether it was `linked` or `deduplicated`. A sibling
 //!   capture that named a deduplicated one by title now names the decision it restated.
 //!
+//! # Submitting a classification (`require_received_batches`, hivemind-odmnc)
+//!
+//! `classify-queue submit` (the CLI verb, `POST /v1/classify-queue/submit` and the MCP tool
+//! `classify_queue_submit`) takes its batch ids from `classify-queue list`. Enforced by
+//! `require_received_batches`, which each of the three calls before it records, tested in
+//! `commands/transcript/tests.rs`:
+//!
+//! - Every batch id must be one the tenant received (an `ingest.batch_received` event). One it
+//!   did not is refused with every such id named and nothing written: CLI exit 3, REST 404, MCP
+//!   tool error (`isError`). A batch that is already classified was received, so sending it
+//!   again is accepted as before.
+//! - `record_ingest_batch_classified` does not ask this. `emit ingest.batch_classified` records a
+//!   classification under a batch id it makes up, for text that never arrived as a batch.
+//!
 //! # Transcript captures (`transcript` module, hivemind-bbnw.8)
 //!
 //! A capture can say which turn it came from and the question it asks or answers. The classifier

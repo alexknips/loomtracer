@@ -188,8 +188,9 @@ fn notice_goes_to_stderr(verb: CellBesideVerb, output: &str) -> bool {
     }
 }
 
-/// The verbs that open the ledger under `--hivemind-dir` and are not told about the server in
-/// `HIVEMIND_API_URL`. Only `classify-queue` honours that variable.
+/// The verbs that open the ledger under `--hivemind-dir`. All but `classify-queue` are not told
+/// about the server in `HIVEMIND_API_URL`; `classify-queue` honours it and opens no ledger while it
+/// is set (see [`CellBesideVerb::honours_api_url`]).
 #[derive(Debug, Clone, Copy)]
 enum CellBesideVerb {
     Query,
@@ -221,6 +222,8 @@ enum CellBesideVerb {
     ProjectDecisions,
     ProjectUse,
     IngestSlackThread,
+    ClassifyQueueList,
+    ClassifyQueueSubmit,
     Tui,
     TenantCreate,
 }
@@ -292,9 +295,11 @@ impl CellBesideVerb {
             Command::Migrate(_) => return None,
             Command::Map(_) => Self::Map,
             Command::Digest(_) => Self::Digest,
-            // Honours HIVEMIND_API_URL: it talks to the server instead of opening a ledger.
+            // Honours HIVEMIND_API_URL: with it set, it talks to the server instead of opening a
+            // ledger. With it unset, it opens the one under `--hivemind-dir`.
             Command::ClassifyQueue(args) => match args.command {
-                ClassifyQueueCommand::List(_) | ClassifyQueueCommand::Submit(_) => return None,
+                ClassifyQueueCommand::List(_) => Self::ClassifyQueueList,
+                ClassifyQueueCommand::Submit(_) => Self::ClassifyQueueSubmit,
             },
             Command::Restatements(args) => match args.command {
                 RestatementsCommand::Propose(_) => Self::RestatementsPropose,
@@ -359,9 +364,19 @@ impl CellBesideVerb {
             Self::ProjectDecisions => "project decisions",
             Self::ProjectUse => "project use",
             Self::IngestSlackThread => "ingest slack-thread",
+            Self::ClassifyQueueList => "classify-queue list",
+            Self::ClassifyQueueSubmit => "classify-queue submit",
             Self::Tui => "tui",
             Self::TenantCreate => "tenant create",
         }
+    }
+
+    /// The verb talks to the server in `HIVEMIND_API_URL` when that is set, and opens a local
+    /// ledger only when it is not. The guard for a verb that ignores the variable (see
+    /// [`LocalLedgerBesideCell`]) therefore does not apply to it, and its refusal for a folder
+    /// with no ledger applies only while the variable is unset.
+    fn honours_api_url(self) -> bool {
+        matches!(self, Self::ClassifyQueueList | Self::ClassifyQueueSubmit)
     }
 
     /// What the verb does to the local ledger. Every verb is placed with no catch-all arm, so a
@@ -380,6 +395,7 @@ impl CellBesideVerb {
             | Self::ProjectShow
             | Self::ProjectDecisions
             | Self::Reexamine
+            | Self::ClassifyQueueList
             | Self::Tui => LedgerUse::Reads,
             Self::Review | Self::QualityScan => LedgerUse::ReadsAndWrites,
             Self::Emit
@@ -388,8 +404,10 @@ impl CellBesideVerb {
             | Self::ProjectRegister
             | Self::IngestSlackThread
             | Self::TenantCreate => LedgerUse::WritesTo,
-            // These find the decision they act on in the ledger, then write to it.
-            Self::Disagree
+            // These find the decision they act on in the ledger, then write to it. `classify-queue
+            // submit` finds the batches it classifies the same way.
+            Self::ClassifyQueueSubmit
+            | Self::Disagree
             | Self::Supersede
             | Self::Move
             | Self::Retitle
@@ -425,6 +443,7 @@ impl CellBesideVerb {
                 | Self::ProjectDecisions
                 | Self::ProjectUse
                 | Self::Reexamine
+                | Self::ClassifyQueueList
                 | Self::Tui
         )
     }
@@ -452,7 +471,8 @@ struct LocalLedgerBesideCell {
 
 impl LocalLedgerBesideCell {
     fn from_cli(cli: &Cli) -> Option<Self> {
-        let verb = CellBesideVerb::of(&cli.command)?;
+        // A verb that honours the variable talks to that server, so it is no verb beside a cell.
+        let verb = CellBesideVerb::of(&cli.command).filter(|verb| !verb.honours_api_url())?;
         let config = LedgerConfig::from_cli(cli);
         if config
             .database_url
@@ -504,6 +524,7 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::ProjectUnlink
             | CellBesideVerb::ProjectAnchor
             | CellBesideVerb::ProjectDeclareTopic
+            | CellBesideVerb::ClassifyQueueSubmit
             | CellBesideVerb::ProjectUse => {
                 "To use a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
                     .to_owned()
@@ -518,6 +539,7 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::ProjectShow
             | CellBesideVerb::ProjectDecisions
             | CellBesideVerb::Reexamine
+            | CellBesideVerb::ClassifyQueueList
             | CellBesideVerb::Tui => {
                 "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
                     .to_owned()
@@ -660,6 +682,11 @@ impl LocalLedgerBesideCell {
                 "To create a tenant in the cell, call its HTTP API (POST {url}/v1/tenants with \
                  the admin key; a Postgres cell only)"
             ),
+            // Not reached beside a cell: these ask the server themselves (`honours_api_url`).
+            CellBesideVerb::ClassifyQueueList | CellBesideVerb::ClassifyQueueSubmit => format!(
+                "`hivemind classify-queue` asks the cell itself while HIVEMIND_API_URL is set \
+                 (GET {url}/v1/classify-queue, POST {url}/v1/classify-queue/submit)"
+            ),
         }
     }
 }
@@ -674,10 +701,16 @@ impl LocalLedgerBesideCell {
 /// the ledger on their first run; a configured `--database-url` names no folder; with
 /// `HIVEMIND_API_URL` set the same refusal is [`LocalLedgerBesideCell`]'s, which also names the
 /// cell. An existing ledger that holds nothing still answers (an acting verb says not_found).
+/// `classify-queue` is the one verb that asks that server instead: with the variable set it opens
+/// no ledger and is not refused, and with it unset it is refused like the rest, so the capture
+/// plugin's `Stop` hook does not leave a ledger behind in every project it runs in.
 fn refuse_verb_without_ledger(cli: &Cli) -> Result<()> {
     let Some(verb) = CellBesideVerb::of(&cli.command) else {
         return Ok(());
     };
+    if verb.honours_api_url() && hivemind_api_url_from_env().is_some() {
+        return Ok(());
+    }
     let ledger_use = verb.ledger_use();
     if ledger_use == LedgerUse::WritesTo {
         return Ok(());
@@ -1093,8 +1126,9 @@ fn run_classify_queue_list(cli: &Cli, args: &ClassifyQueueListArgs) -> Result<St
     }
 
     let tenant_id = cli_tenant(cli)?;
-    let queue = crate::classifier::pending_queue(
-        &cli.hivemind_dir,
+    let ledger = open_ledger(cli)?;
+    let queue = crate::classifier::pending_queue_for_ledger(
+        &ledger,
         &tenant_id,
         args.session_id.as_deref(),
         args.limit,
@@ -1116,6 +1150,14 @@ fn run_classify_queue_submit(cli: &Cli, args: &ClassifyQueueSubmitArgs) -> Resul
 
     let cap_status = crate::classifier::daily_cap_status(&ledger, &tenant_id)
         .map_err(|e| CliError::InvalidInput(format!("ledger scan failed: {e}")))?;
+    let commands = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(tenant_id, EventProvenance::cli()),
+    );
+
+    // A batch this ledger never received is refused whatever the cap says: nothing is waiting
+    // under that id, so "wait until tomorrow" would be the wrong advice.
+    commands.require_received_batches(&args.batch_id)?;
     if cap_status.remaining == 0 {
         return Err(CliError::InvalidInput(format!(
             "daily classification cap ({}) reached; batches remain pending until tomorrow (UTC)",
@@ -1123,11 +1165,6 @@ fn run_classify_queue_submit(cli: &Cli, args: &ClassifyQueueSubmitArgs) -> Resul
         ))
         .into());
     }
-
-    let commands = Commands::new_with_context(
-        &ledger,
-        CommandContext::new(tenant_id, EventProvenance::cli()),
-    );
 
     let recorded = commands.record_ingest_batch_classified(
         &cli.actor,

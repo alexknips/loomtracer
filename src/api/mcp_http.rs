@@ -1017,6 +1017,7 @@ fn mcp_classify_queue_list(
 /// Submits captures for one or more pending batches from the same session in
 /// a single classification event — the session-grouped cadence
 /// (hivemind-zdsh.18): one model call per session end, not one per batch.
+/// Refuses a batch id the tenant never received, naming it, with nothing written.
 /// Refuses with an error once the daily classification cap is hit; batches
 /// stay pending for the next day rather than being dropped. MCP mirror of
 /// `POST /v1/classify-queue/submit`.
@@ -1041,6 +1042,19 @@ fn mcp_classify_queue_submit(
         .open_ledger_for_tenant(&ctx.tenant_id)
         .map_err(|e| (-32603i32, e.to_string()))?;
 
+    let commands = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(
+            ctx.tenant_id.clone(),
+            EventProvenance::agent(ctx.actor_id.clone()),
+        ),
+    );
+
+    // A batch this tenant never received is a bad argument whatever the cap says.
+    commands
+        .require_received_batches(&batch_ids)
+        .map_err(|e| (-32602i32, e.to_string()))?;
+
     let cap_status = crate::classifier::daily_cap_status(&ledger, &ctx.tenant_id)
         .map_err(|e| (-32603i32, e.to_string()))?;
     if cap_status.remaining == 0 {
@@ -1053,13 +1067,6 @@ fn mcp_classify_queue_submit(
         ));
     }
 
-    let commands = Commands::new_with_context(
-        &ledger,
-        CommandContext::new(
-            ctx.tenant_id.clone(),
-            EventProvenance::agent(ctx.actor_id.clone()),
-        ),
-    );
     let recorded = commands
         .record_ingest_batch_classified(
             &ctx.actor_id,
