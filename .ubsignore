@@ -50,6 +50,7 @@ src/queries/open_why/tests.rs
 src/queries/timeline/tests.rs
 src/queries/status_events/tests.rs
 src/mcp/tests.rs
+src/mcp/write_cost_tests.rs
 src/identity/tests.rs
 src/events/tests.rs
 src/read_notice/tests.rs
