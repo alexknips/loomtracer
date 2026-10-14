@@ -1263,6 +1263,7 @@ impl LedgerProvider for StdioLedgerProvider<'_> {
         Ok(LedgerHandle {
             ledger,
             tenant_id: self.config.tenant_id.clone(),
+            graph_source: None,
         })
     }
 }
@@ -1905,3 +1906,5 @@ pub(crate) mod core;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_cost_tests;

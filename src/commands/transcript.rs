@@ -322,10 +322,7 @@ impl<L: EventLedger> Commands<'_, L> {
     fn received_batches(&self, batch_ids: &[String]) -> Result<HashMap<String, ReceivedBatch>> {
         let wanted: HashSet<&str> = batch_ids.iter().map(String::as_str).collect();
         let mut received: HashMap<String, ReceivedBatch> = HashMap::new();
-        self.for_each_event(|event| {
-            if event.event_type != EventType::IngestBatchReceived {
-                return;
-            }
+        self.for_each_event_of(&[EventType::IngestBatchReceived], |event| {
             let Some(batch_id) = payload_value_as_str(event, "batch_id") else {
                 return;
             };

@@ -31,6 +31,8 @@
 //! `core::<tool>` function — one pair per tool, each independently
 //! reviewable.
 
+use std::sync::Arc;
+
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Map, Value};
 
@@ -42,12 +44,15 @@ use crate::error::{CliError, CommandError, HivemindError};
 use crate::events::{AckAction, EventProvenance, ProjectSource, TenantId};
 use crate::floor::FloorAnswers;
 use crate::grounding::{
-    premise_cycle_refusal, resolve_grounding, GroundingResolution, GroundingSpec,
+    premise_cycle_refusal, resolve_grounding_in, GroundingResolution, GroundingSpec,
     WIRE_GROUNDING_REFUSAL,
 };
 use crate::importance::{self, ImportanceRequest, DEFAULT_PAGE_SIZE};
 use crate::ledger::{AnyLedger, EventLedger, TenantScopedLedger};
-use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant, GraphView};
+use crate::projector::{
+    memory::{MemoryGraph, SharedGraph},
+    rebuild_graph_for_tenant, GraphView,
+};
 use crate::quality_profile::{
     self, parse_kinds, ScanRequest, SuggestionsRequest, SCAN_DEFAULT_LIMIT,
 };
@@ -154,6 +159,31 @@ impl From<(i32, String)> for CoreError {
 pub(crate) struct LedgerHandle<L: EventLedger> {
     pub(crate) ledger: L,
     pub(crate) tenant_id: TenantId,
+    /// Where a call that needs the tenant's graph gets it, when the transport keeps one current.
+    /// `None` replays the whole ledger into a fresh graph: right for a transport that opens its
+    /// ledger per call (stdio), and a pass over every transcript on a ledger the size of the city
+    /// cell's. The HTTP server supplies its cache, which catches up from its last offset, so a
+    /// write that only looks a decision up no longer replays the ledger (hivemind-f38ka).
+    pub(crate) graph_source: Option<GraphSource<L>>,
+}
+
+/// A transport's way of handing the core the tenant's projected graph, current as of the call.
+pub(crate) type GraphSource<L> = Box<dyn Fn(&L, &TenantId) -> crate::Result<Arc<MemoryGraph>>>;
+
+impl<L: EventLedger> LedgerHandle<L> {
+    /// The tenant's graph as the ledger stands now, including anything this call just wrote.
+    /// Read-only: it may be the graph the server's cache hands every other reader.
+    pub(crate) fn graph(&self) -> crate::Result<SharedGraph> {
+        let graph = match &self.graph_source {
+            Some(source) => source(&self.ledger, &self.tenant_id)?,
+            None => {
+                let graph = MemoryGraph::default();
+                rebuild_graph_for_tenant(&self.ledger, &self.tenant_id, &graph)?;
+                Arc::new(graph)
+            }
+        };
+        Ok(SharedGraph::new(graph))
+    }
 }
 
 /// Transport-specific ledger acquisition, injected into the core.
@@ -550,14 +580,13 @@ pub(crate) fn capture_decision<P: LedgerProvider>(
     let handle = provider.ledger()?;
     // Resolve every named premise before anything is written: an ambiguous or unmatched one is
     // returned as data (like a fluent tool's target) and no event is appended.
-    let resolved = match resolve_grounding(&handle.ledger, &handle.tenant_id, args.grounding)
-        .map_err(CoreError::from)?
-    {
-        GroundingResolution::Ready(resolved) => resolved,
-        GroundingResolution::Unresolved(unresolved) => {
-            return Ok(ToolOutput(unresolved.envelope()));
-        }
-    };
+    let resolved =
+        match resolve_grounding_in(args.grounding, || handle.graph()).map_err(CoreError::from)? {
+            GroundingResolution::Ready(resolved) => resolved,
+            GroundingResolution::Unresolved(unresolved) => {
+                return Ok(ToolOutput(unresolved.envelope()));
+            }
+        };
     let commands = Commands::new_with_context(
         &handle.ledger,
         CommandContext::new(
@@ -843,7 +872,7 @@ fn resolve_target_as<L: EventLedger>(
     description: Option<&str>,
     topic: Option<&str>,
     selector_field: &str,
-    resolve: fn(&MemoryGraph, &str, Option<&str>) -> crate::Result<QueryResponse<ResolveOutcome>>,
+    resolve: fn(&SharedGraph, &str, Option<&str>) -> crate::Result<QueryResponse<ResolveOutcome>>,
 ) -> Result<(ResolvedTarget, Option<ResolvedCandidate>), CoreError> {
     if let Some(id) = id {
         return Ok((ResolvedTarget::Id(id.to_owned()), None));
@@ -855,8 +884,7 @@ fn resolve_target_as<L: EventLedger>(
         )));
     };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let response = resolve(&graph, description, topic).map_err(CoreError::from)?;
 
     let QueryResponse {
@@ -975,8 +1003,7 @@ pub(crate) fn get_decision_neighborhood<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let mut response =
         query_get_decision_neighborhood(&graph, &decision_id, &NeighborhoodRequest::all())
             .map_err(CoreError::from)?;
@@ -1169,8 +1196,7 @@ pub(crate) fn compact_view<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let response = get_compact_view(&graph, &decision_id).map_err(CoreError::from)?;
 
     Ok(read_reply(&response, close_match.as_ref()))
@@ -1355,8 +1381,7 @@ pub(crate) fn get_decision_outcome<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let response = query_get_decision_brief(&graph, &decision_id).map_err(CoreError::from)?;
     // The answer carries how well the record supports the decision (hivemind-bbnw.2).
     let response =
@@ -1454,14 +1479,13 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let resolved = match resolve_grounding(&handle.ledger, &handle.tenant_id, args.grounding)
-        .map_err(CoreError::from)?
-    {
-        GroundingResolution::Ready(resolved) => resolved,
-        GroundingResolution::Unresolved(unresolved) => {
-            return Ok(ToolOutput(unresolved.envelope()));
-        }
-    };
+    let resolved =
+        match resolve_grounding_in(args.grounding, || handle.graph()).map_err(CoreError::from)? {
+            GroundingResolution::Ready(resolved) => resolved,
+            GroundingResolution::Unresolved(unresolved) => {
+                return Ok(ToolOutput(unresolved.envelope()));
+            }
+        };
 
     let commands = Commands::new_with_context(
         &handle.ledger,
@@ -1491,8 +1515,7 @@ pub(crate) fn supersede_decision<P: LedgerProvider>(
         })
         .map_err(CoreError::from)?;
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let old_decision_status =
         derive_decision_status(&graph, &old_decision_id).map_err(CoreError::from)?;
     let new_decision_status =
@@ -1554,8 +1577,7 @@ pub(crate) fn disagree_decision<P: LedgerProvider>(
         .disagree(&args.actor_id, &decision_id, &args.reason)
         .map_err(CoreError::from)?;
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let decision_status = derive_decision_status(&graph, &decision_id).map_err(CoreError::from)?;
     let upstream = upstream_of(&graph, &decision_id, None).map_err(CoreError::from)?;
 
@@ -1843,8 +1865,7 @@ pub(crate) fn get_supersession_chain<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let response = query_get_supersession_chain(&graph, &decision_id).map_err(CoreError::from)?;
 
     Ok(read_reply(&response, close_match.as_ref()))
@@ -1918,17 +1939,15 @@ pub(crate) fn ground_decision<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let resolved = match resolve_grounding(&handle.ledger, &handle.tenant_id, args.grounding)
-        .map_err(CoreError::from)?
-    {
-        GroundingResolution::Ready(resolved) => resolved,
-        GroundingResolution::Unresolved(unresolved) => {
-            return Ok(ToolOutput(unresolved.envelope()));
-        }
-    };
+    let resolved =
+        match resolve_grounding_in(args.grounding, || handle.graph()).map_err(CoreError::from)? {
+            GroundingResolution::Ready(resolved) => resolved,
+            GroundingResolution::Unresolved(unresolved) => {
+                return Ok(ToolOutput(unresolved.envelope()));
+            }
+        };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     if let Some(refusal) =
         premise_cycle_refusal(&graph, &decision_id, &resolved.plan).map_err(CoreError::from)?
     {
@@ -2026,8 +2045,7 @@ pub(crate) fn reaffirm_decision<P: LedgerProvider>(
         ResolvedTarget::NotFound(output) => return Ok(output),
     };
 
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&handle.ledger, &handle.tenant_id, &graph).map_err(CoreError::from)?;
+    let graph = handle.graph().map_err(CoreError::from)?;
     let outcome = reaffirm(
         &handle.ledger,
         &handle.tenant_id,

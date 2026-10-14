@@ -11,12 +11,17 @@
 //! The wire form (`grounding` array items, shared by MCP and REST) is parsed here so both
 //! transports reject the same malformed input with the same text.
 
+use std::sync::Arc;
+
 use serde_json::{json, Map, Value};
 
 use crate::commands::{GroundingPlan, NewBet, NewEvidence, RestsOn, RestsOnKind};
 use crate::events::TenantId;
 use crate::ledger::EventLedger;
-use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
+use crate::projector::{
+    memory::{MemoryGraph, SharedGraph},
+    rebuild_graph_for_tenant,
+};
 use crate::queries::{
     resolve_decision_by_description, resolve_decision_by_id, QueryResponse, ResolveOutcome,
     ResolvedCandidate,
@@ -297,10 +302,26 @@ pub(crate) fn resolve_grounding<L: EventLedger>(
     tenant_id: &TenantId,
     spec: GroundingSpec,
 ) -> Result<GroundingResolution> {
-    let graph = MemoryGraph::default();
-    if !spec.decisions.is_empty() {
+    resolve_grounding_in(spec, || {
+        let graph = MemoryGraph::default();
         rebuild_graph_for_tenant(ledger, tenant_id, &graph)?;
-    }
+        Ok(SharedGraph::new(Arc::new(graph)))
+    })
+}
+
+/// [`resolve_grounding`] with the graph supplied by the caller, asked for only when a premise
+/// decision is named. A caller that already keeps the tenant's graph current (the HTTP server's
+/// cache) hands that over instead of replaying the ledger: on a ledger of 130k events, most of
+/// them raw transcripts, the replay was most of what a capture cost (hivemind-f38ka).
+pub(crate) fn resolve_grounding_in(
+    spec: GroundingSpec,
+    graph: impl FnOnce() -> Result<SharedGraph>,
+) -> Result<GroundingResolution> {
+    let graph = if spec.decisions.is_empty() {
+        SharedGraph::new(Arc::default())
+    } else {
+        graph()?
+    };
 
     let mut premise_decision_ids: Vec<String> = Vec::with_capacity(spec.decisions.len());
     let mut premise_titles: Vec<String> = Vec::with_capacity(spec.decisions.len());

@@ -18,12 +18,12 @@ use crate::commands::{
 use crate::events::{CaptureItem, EventProvenance, IngestTurn};
 use crate::floor::FloorAnswers;
 use crate::grounding::{
-    resolve_grounding, GroundingResolution, GroundingSpec, WIRE_GROUNDING_REFUSAL,
+    resolve_grounding_in, GroundingResolution, GroundingSpec, WIRE_GROUNDING_REFUSAL,
 };
 use crate::importance::{rank_decisions_by_importance, ImportanceRequest, DEFAULT_PAGE_SIZE};
 use crate::ledger::{EventLedger, SqliteEventLedger, TenantScopedLedger};
 use crate::possibly_related::{possibly_related, PossiblyRelatedRequest};
-use crate::projector::GraphView;
+use crate::projector::{memory::SharedGraph, GraphView};
 use crate::quality_profile::{verify_with_quality, why_with_quality};
 use crate::queries::{
     annotate_resolution, derive_decision_status, get_changed_decisions, get_compact_view,
@@ -39,10 +39,10 @@ use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
 use crate::summarize::{recall_decisions, RecallRequest, RECALL_DEFAULT_LIMIT};
 
 use super::auth::extract_ctx;
-use super::graph::{get_cached_graph, open_graph_from_ledger};
+use super::graph::{get_cached_graph, get_cached_graph_for_core, open_graph_from_ledger};
 use super::{
     parse_datetime, parse_status, respond, respond_envelope, to_api_error, ApiBackend, ApiError,
-    ApiRequestCtx, ApiResult, AppState,
+    ApiRequestCtx, ApiResult, AppState, GraphCache,
 };
 
 #[derive(Debug, Deserialize)]
@@ -402,8 +402,10 @@ pub(super) async fn post_decisions_handler(
     };
 
     let backend = Arc::clone(&state.backend);
+    let cache = Arc::clone(&state.graph_cache);
     let result =
-        tokio::task::spawn_blocking(move || capture_decision_blocking(&backend, &ctx, req)).await;
+        tokio::task::spawn_blocking(move || capture_decision_blocking(&backend, &ctx, req, &cache))
+            .await;
 
     respond(result, StatusCode::OK)
 }
@@ -412,6 +414,7 @@ fn capture_decision_blocking(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     req: CaptureDecisionRequest,
+    cache: &GraphCache,
 ) -> ApiResult<serde_json::Value> {
     if req.title.trim().is_empty() {
         return Err(ApiError::validation("title must not be empty"));
@@ -435,11 +438,14 @@ fn capture_decision_blocking(
     let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
     // Resolve every named premise before anything is written; an ambiguous or unmatched one is
     // returned as data, exactly like the MCP `capture_decision` tool, and nothing is appended.
-    let resolved =
-        match resolve_grounding(&ledger, &ctx.tenant_id, grounding_spec).map_err(to_api_error)? {
-            GroundingResolution::Ready(resolved) => resolved,
-            GroundingResolution::Unresolved(unresolved) => return Ok(unresolved.envelope()),
-        };
+    let resolved = match resolve_grounding_in(grounding_spec, || {
+        get_cached_graph_for_core(&ledger, &ctx.tenant_id, cache).map(SharedGraph::new)
+    })
+    .map_err(to_api_error)?
+    {
+        GroundingResolution::Ready(resolved) => resolved,
+        GroundingResolution::Unresolved(unresolved) => return Ok(unresolved.envelope()),
+    };
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(
@@ -794,8 +800,10 @@ pub(super) async fn supersede_handler(
         )?;
         let floor = wire_floor(req.binds.as_ref(), req.undo_cost.as_ref())?;
         let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
-        let resolved = match resolve_grounding(&ledger, &ctx.tenant_id, grounding_spec)
-            .map_err(to_api_error)?
+        let resolved = match resolve_grounding_in(grounding_spec, || {
+            get_cached_graph_for_core(&ledger, &ctx.tenant_id, &cache).map(SharedGraph::new)
+        })
+        .map_err(to_api_error)?
         {
             GroundingResolution::Ready(resolved) => resolved,
             GroundingResolution::Unresolved(unresolved) => return Ok(unresolved.envelope()),

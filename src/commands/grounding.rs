@@ -522,10 +522,7 @@ impl<L: EventLedger> Commands<'_, L> {
             return Ok(Vec::new());
         }
         let mut matches: Vec<Vec<DecisionId>> = vec![Vec::new(); cited.len()];
-        self.for_each_event(|event| {
-            if event.event_type != EventType::DecisionProposed {
-                return;
-            }
+        self.for_each_event_of(&[EventType::DecisionProposed], |event| {
             let Some(decision_id) = event.payload.get("decision_id").and_then(|id| id.as_str())
             else {
                 return;

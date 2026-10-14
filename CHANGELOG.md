@@ -718,6 +718,28 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **MCP `capture_decision` and `supersede_decision` no longer read the whole ledger, so a write
+  answers in seconds instead of minutes and the client no longer times out on a capture that was
+  recorded.** On the city cell (about 130,000 events, 127,000 of them raw transcripts) a capture
+  took about two minutes and the agent's client gave up first, believed the capture had failed,
+  and retried into a duplicate. The write itself was fast; the time went into the work around it.
+  Each lookup the command layer made (the topic vocabulary, the question and restatement checks,
+  the transcript and grounding checks) paged through every event of every type, and naming a
+  premise decision rebuilt the whole decision graph from event 0. One capture made about 15 full
+  passes, and a realistic one about 33. Every such lookup now asks the ledger only for the event
+  types it needs, through the existing type index, and the HTTP server hands the write its cached
+  graph (which catches up from its last offset) instead of replaying the ledger. REST
+  `POST /v1/decisions` and `/supersessions` resolve premises from the same cache. The same fix
+  applies to `disagree_decision`, `move_decision`, `retitle_decision`, `ground_decision`,
+  `reaffirm_decision`, `get_decision_outcome`, `get_supersession_chain`,
+  `get_decision_neighborhood` and `hivemind_compact_view` over HTTP, which each rebuilt the graph
+  per call. Measured on a private Postgres copy of the cell ledger (130,581 events), a minimal
+  `capture_decision` fell from 59.9 s and 67.3 s to 1.2 s, a realistic one (registered project,
+  premise decision, new evidence, question, cited ids, declared topic) from 207.7 s to 1.8 s, and
+  `supersede_decision` with a premise and new evidence took 2.1 s; Postgres page reads for one
+  capture fell from 1,926 and 4,251 to about 150 for all three writes together. A guard test
+  (`src/mcp/write_cost_tests.rs`) counts the ledger reads of a write and fails if it reads a
+  transcript or if the reads grow with the number of transcripts in the ledger. (hivemind-f38ka)
 - **`classify-queue list` and `submit` aimed at a folder with no ledger now refuse, and `submit`
   refuses a batch id nobody received.** With `HIVEMIND_API_URL` unset, `classify-queue list` under
   a mistyped or fresh `--hivemind-dir` made an empty `ledger.sqlite` there and exited 0 with an

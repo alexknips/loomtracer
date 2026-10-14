@@ -3116,19 +3116,16 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     }
 
     fn evidence_exists(&self, evidence_id: &str) -> Result<bool> {
-        self.scan_events(|event| {
+        self.scan_events(&[EventType::EvidenceRecorded], |event| {
             // ubs:ignore: evidence IDs are public ledger IDs, not timing-sensitive secrets.
-            let has_matching_id = payload_value_matches(event, "evidence_id", evidence_id);
-            event.event_type == EventType::EvidenceRecorded && has_matching_id
+            payload_value_matches(event, "evidence_id", evidence_id)
         })
     }
 
     fn hypothesis_exists(&self, hypothesis_id: &str) -> Result<bool> {
-        self.scan_events(|event| {
-            let has_matching_id =
-                // ubs:ignore: hypothesis IDs are public ledger IDs, not timing-sensitive secrets.
-                payload_value_matches(event, "hypothesis_id", hypothesis_id);
-            event.event_type == EventType::HypothesisRecorded && has_matching_id
+        self.scan_events(&[EventType::HypothesisRecorded], |event| {
+            // ubs:ignore: hypothesis IDs are public ledger IDs, not timing-sensitive secrets.
+            payload_value_matches(event, "hypothesis_id", hypothesis_id)
         })
     }
 
@@ -3178,10 +3175,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     }
 
     fn project_exists(&self, handle: &str) -> Result<bool> {
-        self.scan_events(|event| {
+        self.scan_events(&[EventType::ProjectRegistered], |event| {
             // ubs:ignore: project handles are public ledger IDs, not timing-sensitive secrets.
-            let has_matching_handle = payload_value_matches(event, "handle", handle);
-            event.event_type == EventType::ProjectRegistered && has_matching_handle
+            payload_value_matches(event, "handle", handle)
         })
     }
 
@@ -3207,17 +3203,14 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// Every topic key declared for `handle`, in key order.
     fn project_topic_vocabulary(&self, handle: &str) -> Result<BTreeSet<String>> {
         let mut vocabulary = BTreeSet::new();
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
-                if event.event_type == EventType::ProjectTopicDeclared
-                    && payload_value_matches(event, "handle", handle)
-                {
-                    if let Some(topic_key) = payload_value_as_str(event, "topic_key") {
-                        vocabulary.insert(topic_key.to_owned());
-                    }
+        self.replay_types(&[EventType::ProjectTopicDeclared], |event| {
+            if payload_value_matches(event, "handle", handle) {
+                if let Some(topic_key) = payload_value_as_str(event, "topic_key") {
+                    vocabulary.insert(topic_key.to_owned());
                 }
-                Ok(())
-            })?;
+            }
+            Ok(())
+        })?;
         Ok(vocabulary)
     }
 
@@ -3226,8 +3219,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     fn topic_keys_in_project(&self, handle: &str) -> Result<BTreeSet<String>> {
         // decision id -> (its current project, its topic keys)
         let mut decisions: HashMap<String, (String, Vec<String>)> = HashMap::new();
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
+        self.replay_types(
+            &[EventType::DecisionProposed, EventType::DecisionMoved],
+            |event| {
                 match event.event_type {
                     EventType::DecisionProposed => {
                         if let Some(decision_id) = payload_value_as_str(event, "decision_id") {
@@ -3253,7 +3247,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     _ => {}
                 }
                 Ok(())
-            })?;
+            },
+        )?;
 
         Ok(decisions
             .into_values()
@@ -3353,42 +3348,21 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// so the first match is the only match — same one-pass-to-first-hit shape as
     /// `find_decision_event_id` above.
     fn find_project_registered(&self, handle: &str) -> Result<Option<ProjectRegisteredPayload>> {
-        let mut offset = 0;
-        const PAGE_SIZE: usize = 1024;
-
-        loop {
-            let events = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, offset, PAGE_SIZE)?;
-            if events.is_empty() {
-                return Ok(None);
-            }
-
-            for event in &events {
-                if event.event_type != EventType::ProjectRegistered {
-                    continue;
-                }
-                let Some(event_handle) = payload_value_as_str(event, "handle") else {
-                    continue;
-                };
-                if same_identifier(event_handle, handle) {
-                    let payload: ProjectRegisteredPayload =
-                        // ubs:ignore: clone necessary — event borrowed from paginated Vec, from_value needs owned Value
-                        serde_json::from_value(event.payload.clone()).map_err(|error| {
-                            CommandError::Invariant(format!(
-                                "corrupt project.registered payload for handle {handle}: {error}"
-                            ))
-                        })?;
-                    return Ok(Some(payload));
-                }
-            }
-
-            if let Some(last_event_id) = events.last().and_then(|event| event.event_id) {
-                offset = last_event_id;
-            } else {
-                return Ok(None);
-            }
-        }
+        self.first_of_type(EventType::ProjectRegistered, |event| {
+            let event_handle = payload_value_as_str(event, "handle")?;
+            same_identifier(event_handle, handle).then(|| {
+                // ubs:ignore: clone necessary — event borrowed from paginated Vec, from_value needs owned Value
+                serde_json::from_value::<ProjectRegisteredPayload>(event.payload.clone()).map_err(
+                    |error| {
+                        CommandError::Invariant(format!(
+                            "corrupt project.registered payload for handle {handle}: {error}"
+                        ))
+                    },
+                )
+            })
+        })?
+        .transpose()
+        .map_err(Into::into)
     }
 
     /// Currently active `project.linked` facts: every link added, minus every link that a
@@ -3397,8 +3371,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     fn active_project_links(&self) -> Result<Vec<(String, String, ProjectLinkKind)>> {
         let mut links: Vec<(String, String, ProjectLinkKind)> = Vec::new();
 
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
+        self.replay_types(
+            &[EventType::ProjectLinked, EventType::ProjectUnlinked],
+            |event| {
                 match event.event_type {
                     EventType::ProjectLinked => {
                         if let Ok(payload) =
@@ -3421,7 +3396,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     _ => {}
                 }
                 Ok(())
-            })?;
+            },
+        )?;
 
         Ok(links)
     }
@@ -3453,8 +3429,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     fn active_project_anchors(&self) -> Result<Vec<(String, ProjectAnchorKind, String)>> {
         let mut anchors: Vec<(String, ProjectAnchorKind, String)> = Vec::new();
 
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
+        self.replay_types(
+            &[EventType::ProjectAnchored, EventType::ProjectUnanchored],
+            |event| {
                 match event.event_type {
                     EventType::ProjectAnchored => {
                         if let Ok(payload) =
@@ -3477,7 +3454,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     _ => {}
                 }
                 Ok(())
-            })?;
+            },
+        )?;
 
         Ok(anchors)
     }
@@ -3516,10 +3494,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         if self.classified_decision(decision_id)?.is_some() {
             return Ok(true);
         }
-        self.scan_events(|event| {
+        self.scan_events(&[EventType::DecisionProposed], |event| {
             // ubs:ignore: decision IDs are public ledger IDs, not timing-sensitive secrets.
-            let has_matching_id = payload_value_matches(event, "decision_id", decision_id);
-            event.event_type == EventType::DecisionProposed && has_matching_id
+            payload_value_matches(event, "decision_id", decision_id)
         })
     }
 
@@ -3554,8 +3531,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     project: None,
                 });
 
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
+        self.replay_types(
+            &[EventType::DecisionProposed, EventType::DecisionMoved],
+            |event| {
                 match event.event_type {
                     EventType::DecisionProposed => {
                         if payload_value_matches(event, "decision_id", decision_id) {
@@ -3577,7 +3555,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     _ => {}
                 }
                 Ok(())
-            })?;
+            },
+        )?;
 
         Ok(current)
     }
@@ -3594,8 +3573,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             .classified_decision(decision_id)?
             .map(|draft| draft.title);
 
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
+        self.replay_types(
+            &[EventType::DecisionProposed, EventType::DecisionRetitled],
+            |event| {
                 match event.event_type {
                     EventType::DecisionProposed => {
                         if payload_value_matches(event, "decision_id", decision_id) {
@@ -3612,7 +3592,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     _ => {}
                 }
                 Ok(())
-            })?;
+            },
+        )?;
 
         Ok(current)
     }
@@ -3622,14 +3603,19 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// reason to refuse the link — honesty about it is the renderer's job (`premise_stale`
     /// on `DecisionProposalEventIds`, `PremiseSuperseded`/`PremiseRejected` in gwhr.3).
     fn decision_is_stale(&self, decision_id: &str) -> Result<bool> {
-        self.scan_events(|event| match event.event_type {
-            // ubs:ignore: decision IDs are public ledger IDs, not timing-sensitive secrets.
-            EventType::DecisionSuperseded => {
-                payload_value_matches(event, "old_decision_id", decision_id)
-            }
-            EventType::DecisionRejected => payload_value_matches(event, "decision_id", decision_id),
-            _ => false,
-        })
+        self.scan_events(
+            &[EventType::DecisionSuperseded, EventType::DecisionRejected],
+            |event| match event.event_type {
+                // ubs:ignore: decision IDs are public ledger IDs, not timing-sensitive secrets.
+                EventType::DecisionSuperseded => {
+                    payload_value_matches(event, "old_decision_id", decision_id)
+                }
+                EventType::DecisionRejected => {
+                    payload_value_matches(event, "decision_id", decision_id)
+                }
+                _ => false,
+            },
+        )
     }
 
     /// Shared "declared but empty" and premise-existence validation, run by both
@@ -3687,34 +3673,15 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         actor_id: &str,
         decision_event_type: EventType,
     ) -> Result<Option<EventId>> {
-        let mut offset = 0;
-        const PAGE_SIZE: usize = 1024;
-
-        loop {
-            let events = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, offset, PAGE_SIZE)?;
-            if events.is_empty() {
-                return Ok(None);
-            }
-
-            for event in &events {
-                // ubs:ignore: actor IDs are public ledger IDs, not timing-sensitive secrets.
-                let has_matching_actor = same_identifier(event.actor_id.as_str(), actor_id);
-                // ubs:ignore: decision IDs are public ledger IDs, not timing-sensitive secrets.
-                let has_matching_id = payload_value_matches(event, "decision_id", decision_id);
-                if event.event_type == decision_event_type && has_matching_actor && has_matching_id
-                {
-                    return Ok(event.event_id);
-                }
-            }
-
-            if let Some(last_event_id) = events.last().and_then(|event| event.event_id) {
-                offset = last_event_id;
-            } else {
-                return Ok(None);
-            }
-        }
+        self.first_of_type(decision_event_type, |event| {
+            // ubs:ignore: actor IDs are public ledger IDs, not timing-sensitive secrets.
+            let has_matching_actor = same_identifier(event.actor_id.as_str(), actor_id);
+            // ubs:ignore: decision IDs are public ledger IDs, not timing-sensitive secrets.
+            let has_matching_id = payload_value_matches(event, "decision_id", decision_id);
+            (has_matching_actor && has_matching_id)
+                .then_some(event.event_id)
+                .flatten()
+        })
     }
 
     /// The text a decision recorded, one string per field, or `None` when no such decision is
@@ -3768,26 +3735,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     fn first_of_type<T>(
         &self,
         event_type: EventType,
-        mut pick: impl FnMut(&Event) -> Option<T>,
+        pick: impl FnMut(&Event) -> Option<T>,
     ) -> Result<Option<T>> {
-        const PAGE_SIZE: usize = 1024;
-        let mut offset = 0;
-        loop {
-            let events = self.ledger.read_types_for_tenant(
-                &self.context.tenant_id,
-                &[event_type],
-                &[],
-                offset,
-                PAGE_SIZE,
-            )?;
-            if let Some(found) = events.iter().find_map(&mut pick) {
-                return Ok(Some(found));
-            }
-            match events.last().and_then(|event| event.event_id) {
-                Some(last_event_id) if events.len() == PAGE_SIZE => offset = last_event_id,
-                _ => return Ok(None),
-            }
-        }
+        self.find_in_events(&[event_type], pick)
     }
 
     fn decision_proposal_snapshot(
@@ -3798,35 +3748,10 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             return Ok(Some(draft.into_snapshot(decision_id)));
         }
 
-        let mut offset = 0;
-        const PAGE_SIZE: usize = 1024;
-
-        loop {
-            let events = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, offset, PAGE_SIZE)?;
-            if events.is_empty() {
-                return Ok(None);
-            }
-
-            for event in &events {
-                if event.event_type != EventType::DecisionProposed {
-                    continue;
-                }
-                let Some(snapshot) = decision_proposal_snapshot_from_event(event) else {
-                    continue;
-                };
-                if same_identifier(snapshot.decision_id.as_str(), decision_id) {
-                    return Ok(Some(snapshot));
-                }
-            }
-
-            if let Some(last_event_id) = events.last().and_then(|event| event.event_id) {
-                offset = last_event_id;
-            } else {
-                return Ok(None);
-            }
-        }
+        self.first_of_type(EventType::DecisionProposed, |event| {
+            decision_proposal_snapshot_from_event(event)
+                .filter(|snapshot| same_identifier(snapshot.decision_id.as_str(), decision_id))
+        })
     }
 
     pub fn chosen_option_for_decision(&self, decision_id: &str) -> Result<Option<String>> {
@@ -3848,8 +3773,13 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         // Single streaming pass — this function must collect all DecisionProposed,
         // DecisionSuperseded, and RelationAdded events before it can reason about
         // supersede idempotency, so there is no early-exit opportunity.
-        self.ledger
-            .replay_from_for_tenant(&self.context.tenant_id, 0, &mut |event| {
+        self.replay_types(
+            &[
+                EventType::DecisionProposed,
+                EventType::DecisionSuperseded,
+                EventType::RelationAdded,
+            ],
+            |event| {
                 match event.event_type {
                     EventType::DecisionProposed => {
                         if let Some(snapshot) = decision_proposal_snapshot_from_event(event) {
@@ -3898,7 +3828,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                     _ => {}
                 }
                 Ok(())
-            })?;
+            },
+        )?;
 
         for (superseded_event_id, new_decision_id) in superseded_events {
             let Some(proposal) = proposals.get(&new_decision_id) else {
@@ -3973,70 +3904,85 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         })
     }
 
-    /// Every event of this tenant, in ledger order, one page at a time.
-    fn for_each_event(&self, mut visit: impl FnMut(&Event)) -> Result<()> {
-        let mut offset = 0;
+    /// The one place the commands layer walks the ledger: this tenant's events of `types`, in
+    /// ledger order, one page at a time, handed to `page` until it answers `true` (stop).
+    ///
+    /// The SQL ledgers filter by type in the query (an index on tenant, type and event id), so a
+    /// write costs what the events it needs cost, never what the whole ledger does. A ledger that
+    /// is mostly raw `ingest.batch_received` transcripts (127k of 130k events on the city cell)
+    /// must not make a decision capture slower: with an untyped walk each existence check read
+    /// every transcript, about 15 passes per capture, two minutes (hivemind-f38ka). So every
+    /// caller names its types; there is no untyped walk.
+    fn walk_events_of(
+        &self,
+        types: &[EventType],
+        mut page: impl FnMut(&[Event]) -> Result<bool>,
+    ) -> Result<()> {
         const PAGE_SIZE: usize = 1024;
-
+        let mut offset = 0;
         loop {
-            let events = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, offset, PAGE_SIZE)?;
-            for event in &events {
-                visit(event);
+            let events = self.ledger.read_types_for_tenant(
+                &self.context.tenant_id,
+                types,
+                &[],
+                offset,
+                PAGE_SIZE,
+            )?;
+            if page(&events)? {
+                return Ok(());
             }
             match events.last().and_then(|event| event.event_id) {
-                Some(last_event_id) => offset = last_event_id,
-                None => return Ok(()),
+                Some(last_event_id) if events.len() == PAGE_SIZE => offset = last_event_id,
+                _ => return Ok(()),
             }
         }
     }
 
-    /// The first value `find` returns over the tenant's events, in ledger order.
-    fn find_in_events<T>(&self, find: impl Fn(&Event) -> Option<T>) -> Result<Option<T>> {
-        let mut offset = 0;
-        const PAGE_SIZE: usize = 1024;
-
-        loop {
-            let events = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, offset, PAGE_SIZE)?;
-            for event in &events {
-                if let Some(found) = find(event) {
-                    return Ok(Some(found));
-                }
+    /// Every event of `types` for this tenant, in ledger order, to `visit`, which may refuse.
+    fn replay_types(
+        &self,
+        types: &[EventType],
+        mut visit: impl FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.walk_events_of(types, |events| {
+            for event in events {
+                visit(event)?;
             }
-            match events.last().and_then(|event| event.event_id) {
-                Some(last_event_id) => offset = last_event_id,
-                None => return Ok(None),
-            }
-        }
+            Ok(false)
+        })
     }
 
-    fn scan_events(&self, predicate: impl Fn(&Event) -> bool) -> Result<bool> {
-        let mut offset = 0;
-        const PAGE_SIZE: usize = 1024;
+    /// Every event of `types` for this tenant, in ledger order.
+    fn for_each_event_of(&self, types: &[EventType], mut visit: impl FnMut(&Event)) -> Result<()> {
+        self.walk_events_of(types, |events| {
+            events.iter().for_each(&mut visit);
+            Ok(false)
+        })
+    }
 
-        loop {
-            let events = self
-                .ledger
-                .read_for_tenant(&self.context.tenant_id, offset, PAGE_SIZE)?;
-            if events.is_empty() {
-                return Ok(false);
-            }
+    /// The first value `find` returns over the tenant's events of `types`, in ledger order.
+    fn find_in_events<T>(
+        &self,
+        types: &[EventType],
+        mut find: impl FnMut(&Event) -> Option<T>,
+    ) -> Result<Option<T>> {
+        let mut found = None;
+        self.walk_events_of(types, |events| {
+            found = events.iter().find_map(&mut find);
+            Ok(found.is_some())
+        })?;
+        Ok(found)
+    }
 
-            for event in &events {
-                if predicate(event) {
-                    return Ok(true);
-                }
-            }
-
-            if let Some(last_event_id) = events.last().and_then(|event| event.event_id) {
-                offset = last_event_id;
-            } else {
-                return Ok(false);
-            }
-        }
+    /// Whether any of the tenant's events of `types` satisfies `predicate`.
+    fn scan_events(
+        &self,
+        types: &[EventType],
+        mut predicate: impl FnMut(&Event) -> bool,
+    ) -> Result<bool> {
+        Ok(self
+            .find_in_events(types, |event| predicate(event).then_some(()))?
+            .is_some())
     }
 }
 

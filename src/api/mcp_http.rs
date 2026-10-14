@@ -31,10 +31,11 @@ use crate::mcp::core::{
     GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionContextArgs,
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
     GetReexamineItemsArgs, GetSituationalDecisionsArgs, GetSuggestionsArgs,
-    GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle,
-    LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs, ReaffirmDecisionArgs,
-    RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs,
-    ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SupersedeDecisionArgs,
+    GetSupersessionChainArgs, GetWaitingRequestsArgs, GraphSource, GroundDecisionArgs,
+    LedgerHandle, LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs,
+    ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
+    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
+    SupersedeDecisionArgs,
 };
 use crate::projector::memory::MemoryGraph;
 use crate::queries::{
@@ -43,7 +44,7 @@ use crate::queries::{
 };
 
 use super::auth::extract_ctx;
-use super::graph::get_cached_graph;
+use super::graph::{get_cached_graph, get_cached_graph_for_core};
 use super::{
     parse_datetime, parse_status, query_envelope, ApiBackend, ApiLedger, ApiRequestCtx, ApiResult,
     AppState, GraphCache, HEADER_FORWARDED_PROTO,
@@ -221,16 +222,16 @@ fn mcp_tools_call_blocking(
     let actor_id = mcp_resolve_actor(&args, &ctx.actor_id, session_id);
 
     let outcome: McpToolResult = match name.as_str() {
-        "capture_decision" => mcp_capture_decision(backend, ctx, &actor_id, args),
+        "capture_decision" => mcp_capture_decision(backend, ctx, &actor_id, args, cache),
         "capture_evidence" => mcp_capture_evidence(backend, ctx, &actor_id, args),
         "capture_hypothesis" => mcp_capture_hypothesis(backend, ctx, &actor_id, args),
-        "disagree_decision" => mcp_disagree(backend, ctx, &actor_id, args),
-        "supersede_decision" => mcp_supersede(backend, ctx, &actor_id, args),
-        "move_decision" => mcp_move(backend, ctx, &actor_id, args),
-        "retitle_decision" => mcp_retitle(backend, ctx, &actor_id, args),
+        "disagree_decision" => mcp_disagree(backend, ctx, &actor_id, args, cache),
+        "supersede_decision" => mcp_supersede(backend, ctx, &actor_id, args, cache),
+        "move_decision" => mcp_move(backend, ctx, &actor_id, args, cache),
+        "retitle_decision" => mcp_retitle(backend, ctx, &actor_id, args, cache),
         "acknowledge_suggestion" => mcp_acknowledge_suggestion(backend, ctx, &actor_id, args),
-        "ground_decision" => mcp_ground(backend, ctx, &actor_id, args),
-        "reaffirm_decision" => mcp_reaffirm(backend, ctx, &actor_id, args),
+        "ground_decision" => mcp_ground(backend, ctx, &actor_id, args, cache),
+        "reaffirm_decision" => mcp_reaffirm(backend, ctx, &actor_id, args, cache),
         "request_decision" => mcp_request_decision(backend, ctx, &actor_id, args),
         "get_waiting_requests" => mcp_get_waiting_requests(backend, ctx, args, cache),
         "get_contested_decisions" => mcp_get_contested_decisions(backend, ctx, args, cache),
@@ -238,14 +239,14 @@ fn mcp_tools_call_blocking(
         "get_reexamine_items" => mcp_get_reexamine_items(backend, ctx, args, cache),
         "get_changed_decisions" => mcp_get_changed_decisions(backend, ctx, args, cache),
         "get_decision" => mcp_get_decision(backend, ctx, args, cache),
-        "get_decision_outcome" => mcp_get_decision_outcome(backend, ctx, args),
+        "get_decision_outcome" => mcp_get_decision_outcome(backend, ctx, args, cache),
         "decision_quality_candidates" => mcp_decision_quality_candidates(backend, ctx, args, cache),
         "get_decision_context" => mcp_get_decision_context(backend, ctx, args, cache),
         "decision_context_candidates" => mcp_decision_context_candidates(backend, ctx, args, cache),
         "get_relevant_decisions" => mcp_get_relevant_decisions(backend, ctx, args, cache),
         "get_situational_decisions" => mcp_get_situational_decisions(backend, ctx, args, cache),
-        "get_supersession_chain" => mcp_get_supersession_chain(backend, ctx, args),
-        "get_decision_neighborhood" => mcp_get_decision_neighborhood(backend, ctx, args),
+        "get_supersession_chain" => mcp_get_supersession_chain(backend, ctx, args, cache),
+        "get_decision_neighborhood" => mcp_get_decision_neighborhood(backend, ctx, args, cache),
         "recall_decisions" => mcp_recall_decisions(backend, ctx, args, cache),
         "search_decisions" => mcp_search_decisions(backend, ctx, args, cache),
         "recent_decisions" => mcp_recent_decisions(backend, ctx, args, cache),
@@ -258,7 +259,7 @@ fn mcp_tools_call_blocking(
         "scan_misfiled_decisions" => mcp_scan_misfiled_decisions(backend, ctx, args, cache),
         "analyze_failure_modes" => mcp_analyze_failure_modes(backend, ctx, args, cache),
         "dump_graph" => mcp_dump_graph(backend, ctx, cache),
-        "hivemind_compact_view" => mcp_compact_view(backend, ctx, args),
+        "hivemind_compact_view" => mcp_compact_view(backend, ctx, args, cache),
         "summarize_decisions" => mcp_summarize(backend, ctx, args, cache),
         "classify_queue_list" => mcp_classify_queue_list(backend, ctx, args),
         "classify_queue_submit" => mcp_classify_queue_submit(backend, ctx, args),
@@ -353,6 +354,11 @@ fn mcp_tool_err(message: String) -> serde_json::Value {
 struct HttpLedgerProvider<'a> {
     backend: &'a ApiBackend,
     tenant_id: &'a TenantId,
+    /// The server's graph cache, for a tool that looks a decision up while it runs. With it the
+    /// call reads the graph the cache keeps current (it replays only what was appended since its
+    /// last offset); without it the core replays the whole ledger into a fresh graph, which on
+    /// the city cell's 130k events is minutes per write (hivemind-f38ka).
+    graph_cache: Option<&'a Arc<GraphCache>>,
 }
 
 impl LedgerProvider for HttpLedgerProvider<'_> {
@@ -363,9 +369,16 @@ impl LedgerProvider for HttpLedgerProvider<'_> {
             .backend
             .open_ledger_for_tenant(self.tenant_id)
             .map_err(|e| CoreError::Internal(e.to_string()))?;
+        let graph_source = self.graph_cache.map(|cache| {
+            let cache = Arc::clone(cache);
+            Box::new(move |ledger: &ApiLedger, tenant_id: &TenantId| {
+                get_cached_graph_for_core(ledger, tenant_id, &cache)
+            }) as GraphSource<ApiLedger>
+        });
         Ok(LedgerHandle {
             ledger,
             tenant_id: self.tenant_id.clone(),
+            graph_source,
         })
     }
 }
@@ -385,11 +398,13 @@ fn mcp_capture_decision(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = CaptureDecisionArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::capture_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -405,6 +420,7 @@ fn mcp_request_decision(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let output = crate::mcp::core::request_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -461,11 +477,13 @@ fn mcp_disagree(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = DisagreeArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::disagree_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -476,11 +494,13 @@ fn mcp_supersede(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = SupersedeDecisionArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::supersede_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -491,11 +511,13 @@ fn mcp_move(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = MoveDecisionArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::move_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -506,11 +528,13 @@ fn mcp_retitle(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = RetitleDecisionArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::retitle_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -526,6 +550,7 @@ fn mcp_acknowledge_suggestion(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let output = crate::mcp::core::acknowledge_suggestion(&provider, core_args)?;
     Ok(output.into_value())
@@ -536,11 +561,13 @@ fn mcp_ground(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = GroundDecisionArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::ground_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -551,11 +578,13 @@ fn mcp_reaffirm(
     ctx: &ApiRequestCtx,
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = ReaffirmDecisionArgs::from_json(&args, actor_id.to_owned())?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::reaffirm_decision(&provider, core_args)?;
     Ok(output.into_value())
@@ -572,6 +601,7 @@ fn mcp_get_reexamine_items(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let output = crate::mcp::core::get_reexamine_items(&provider, &*graph, core_args)?;
     Ok(output.into_value())
@@ -593,11 +623,13 @@ fn mcp_get_decision_outcome(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = GetDecisionOutcomeArgs::from_json(&args)?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::get_decision_outcome(&provider, core_args)?;
     Ok(output.into_value())
@@ -640,6 +672,7 @@ fn mcp_get_situational_decisions(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let output = crate::mcp::core::get_situational_decisions(&provider, &*graph, core_args)?;
     Ok(output.into_value())
@@ -692,6 +725,7 @@ fn mcp_get_changed_decisions(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let output = crate::mcp::core::get_changed_decisions(&provider, &*graph, core_args)?;
     Ok(output.into_value())
@@ -708,6 +742,7 @@ fn mcp_recall_decisions(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let output = crate::mcp::core::recall_decisions(&provider, &*graph, core_args)?;
     Ok(output.into_value())
@@ -717,11 +752,13 @@ fn mcp_get_supersession_chain(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = GetSupersessionChainArgs::from_json(&args)?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::get_supersession_chain(&provider, core_args)?;
     Ok(output.into_value())
@@ -731,11 +768,13 @@ fn mcp_get_decision_neighborhood(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = GetDecisionNeighborhoodArgs::from_json(&args)?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::get_decision_neighborhood(&provider, core_args)?;
     Ok(output.into_value())
@@ -853,6 +892,7 @@ fn mcp_recent_decisions(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let graph = mcp_open_graph(backend, ctx, cache)?;
     let output = crate::mcp::core::recent_decisions(&provider, &*graph, core_args)?;
@@ -905,6 +945,7 @@ fn mcp_scan_misfiled_decisions(
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
     let graph = mcp_open_graph(backend, ctx, cache)?;
     let output = crate::mcp::core::scan_misfiled_decisions(&provider, &*graph, core_args)?;
@@ -937,11 +978,13 @@ fn mcp_compact_view(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let core_args = CompactViewArgs::from_json(&args)?;
     let provider = HttpLedgerProvider {
         backend,
         tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
     };
     let output = crate::mcp::core::compact_view(&provider, core_args)?;
     Ok(output.into_value())

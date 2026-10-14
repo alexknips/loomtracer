@@ -219,10 +219,7 @@ impl<L: EventLedger> Commands<'_, L> {
         if wanted.is_empty() {
             return Ok(newest);
         }
-        self.for_each_event(|event| {
-            if event.event_type != EventType::IngestBatchReceived {
-                return;
-            }
+        self.for_each_event_of(&[EventType::IngestBatchReceived], |event| {
             let Some(batch_id) = payload_value_as_str(event, "batch_id") else {
                 return;
             };

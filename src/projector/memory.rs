@@ -1,7 +1,7 @@
 //! In-memory graph projector: builds and caches the decision graph from replayed ledger events.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::error::ProjectorError;
 use crate::events::UnreadableAnnotation;
@@ -60,6 +60,44 @@ impl MemoryGraph {
             .lock()
             .map(|noted| noted.clone())
             .unwrap_or_default()
+    }
+}
+
+/// A projected graph shared with other readers (the HTTP server's cache). It answers queries like
+/// the graph it wraps and refuses every write, so a call handed the cache's graph cannot change
+/// what the next reader sees.
+#[derive(Debug, Clone)]
+pub struct SharedGraph(Arc<MemoryGraph>);
+
+impl SharedGraph {
+    pub fn new(graph: Arc<MemoryGraph>) -> Self {
+        Self(graph)
+    }
+}
+
+fn shared_graph_is_read_only() -> crate::error::HivemindError {
+    ProjectorError::Projection(
+        "the shared graph is read-only: replay the ledger into a graph of your own to write one"
+            .to_owned(),
+    )
+    .into()
+}
+
+impl GraphView for SharedGraph {
+    fn upsert_node(&self, _: NodeKind, _: &str, _: &GraphProperties) -> Result<()> {
+        Err(shared_graph_is_read_only())
+    }
+
+    fn upsert_edge(&self, _: RelationKind, _: &str, _: &str, _: &GraphProperties) -> Result<()> {
+        Err(shared_graph_is_read_only())
+    }
+
+    fn query(&self, cypher: &str, params: &GraphParams) -> Result<Vec<GraphRow>> {
+        self.0.query(cypher, params)
+    }
+
+    fn wipe(&self) -> Result<()> {
+        Err(shared_graph_is_read_only())
     }
 }
 

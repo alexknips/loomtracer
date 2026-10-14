@@ -324,6 +324,18 @@ pub(super) fn get_cached_graph(
     Ok(new_graph)
 }
 
+/// [`get_cached_graph`] for a caller outside the HTTP layer that wants the failure as the crate's
+/// own error: the MCP core and the grounding resolver, which look a decision up while a write
+/// runs and must not replay the whole ledger to do it (hivemind-f38ka).
+pub(super) fn get_cached_graph_for_core(
+    ledger: &ApiLedger,
+    tenant_id: &TenantId,
+    cache: &GraphCache,
+) -> crate::Result<Arc<MemoryGraph>> {
+    get_cached_graph(ledger, tenant_id, cache)
+        .map_err(|e| crate::error::ProjectorError::Projection(e.to_string()).into())
+}
+
 /// Project the graph of every registered tenant into `cache`, so the first read after a start
 /// finds it built instead of replaying the ledger.
 ///

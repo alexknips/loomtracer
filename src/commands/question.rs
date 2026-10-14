@@ -254,10 +254,7 @@ impl<L: EventLedger> Commands<'_, L> {
 
     /// The `Question` node whose text normalizes to `normalized_text`, first recorded first.
     fn find_question(&self, normalized_text: &str) -> Result<Option<QuestionId>> {
-        self.find_in_events(|event| {
-            if event.event_type != EventType::QuestionRecorded {
-                return None;
-            }
+        self.find_in_events(&[EventType::QuestionRecorded], |event| {
             let text = payload_value_as_str(event, "text")?;
             if normalize_question_text(text) != normalized_text {
                 return None;
@@ -340,8 +337,8 @@ impl<L: EventLedger> Commands<'_, L> {
         let Ok(request_uuid) = request_id.parse::<Uuid>() else {
             return Ok(None);
         };
-        self.find_in_events(|event| {
-            if event.event_type != EventType::QuestionAsked || event.event_uuid != request_uuid {
+        self.find_in_events(&[EventType::QuestionAsked], |event| {
+            if event.event_uuid != request_uuid {
                 return None;
             }
             Some(AskedRequest {
@@ -385,9 +382,8 @@ impl<L: EventLedger> Commands<'_, L> {
     /// The questions `decision_id` is linked to with `ANSWERS`, in ledger order.
     fn questions_answered_by(&self, decision_id: &str) -> Result<Vec<QuestionId>> {
         let mut questions: Vec<QuestionId> = Vec::new();
-        self.for_each_event(|event: &Event| {
-            if event.event_type == EventType::RelationAdded
-                && payload_value_matches(event, "relation", "ANSWERS")
+        self.for_each_event_of(&[EventType::RelationAdded], |event: &Event| {
+            if payload_value_matches(event, "relation", "ANSWERS")
                 && payload_value_matches(event, "from_id", decision_id)
             {
                 if let Some(question_id) = payload_value_as_str(event, "to_id") {
