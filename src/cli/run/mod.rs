@@ -20,7 +20,7 @@ use crate::commands::{
     CaptureWarning, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
     DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
-use crate::error::CliError;
+use crate::error::{CliError, CommandError};
 use crate::events::{
     CaptureItem, Event, EventPayload, EventProvenance, HypothesisKind, ProjectSource,
     RelationKind as EventRelationKind, TenantId,
@@ -1285,6 +1285,20 @@ fn http_response_to_cli_output(
             .and_then(|m| m.as_str())
             .unwrap_or("request failed")
             .to_owned();
+        // The server answers a refusal that names something it does not hold (a batch id it
+        // never received) with 404 `not_found`; it maps an invariant violation to that status
+        // (`to_api_error`). The same refusal on a local ledger is that invariant violation, exit
+        // 3, so it comes back as one here, in the server's words: an agent that branches on the
+        // exit code sees one answer whether it asked a ledger or a cell. The input was fine, so it
+        // is not "invalid command line input". A 404 without the server's `not_found` body (a
+        // proxy, the wrong host) stays the generic refusal below.
+        let code = value
+            .get("error")
+            .and_then(|e| e.get("code"))
+            .and_then(|c| c.as_str());
+        if status == reqwest::StatusCode::NOT_FOUND && code == Some("not_found") {
+            return Err(CommandError::Invariant(message).into());
+        }
         return Err(CliError::InvalidInput(format!("server returned {status}: {message}")).into());
     }
     format_json_value(json_output, &value)

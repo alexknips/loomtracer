@@ -6,9 +6,18 @@
 //! acting on a decision that does not exist (hivemind-5t1uk). A batch that is already classified
 //! was received, so sending it again is accepted as before.
 //! This spawns the real binary, as an agent does.
+//!
+//! hivemind-d6tya: over `HIVEMIND_API_URL` the same refusal arrives as the server's 404, and the
+//! CLI used to exit 2 as "invalid command line input" for it. The help and both docs say exit 3,
+//! and an agent that branches on the code must see one answer whether it asked a ledger or a
+//! cell.
 
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use hivemind::commands::{CommandContext, Commands};
 use hivemind::events::{EventProvenance, TenantId};
@@ -193,4 +202,222 @@ fn an_unknown_batch_is_not_answered_with_the_daily_cap() {
         stderr(&over)
     );
     assert_eq!(pending_total(&dir), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Over HIVEMIND_API_URL (hivemind-d6tya)
+// ---------------------------------------------------------------------------
+
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// tracing colors its fields even on a pipe; drop the SGR escapes so `addr=host:port` reads plain.
+fn strip_ansi(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            // Skip `ESC [ ... <final byte>`.
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A `hivemind serve --port 0` process on a ledger directory, killed when dropped.
+struct Served {
+    child: Child,
+    url: String,
+}
+
+impl Served {
+    fn start(dir: &Path) -> Self {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
+            .env_remove("HIVEMIND_API_KEY")
+            .env_remove("HIVEMIND_ADMIN_KEY")
+            .env_remove("HIVEMIND_DATABASE_URL")
+            .env_remove("HIVEMIND_BIND")
+            .env_remove("HIVEMIND_PORT")
+            .env_remove("WORKOS_DOMAIN")
+            .args(["-v", "--hivemind-dir"])
+            .arg(dir)
+            .args(["serve", "--port", "0"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn hivemind serve"); // ubs:ignore: test-only; panicking is correct in tests
+        let stderr = child.stderr.take().expect("piped stderr"); // ubs:ignore: test-only; panicking is correct in tests
+        let (tx, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if tx.send(strip_ansi(&line)).is_err() {
+                    break;
+                }
+            }
+        });
+        // `Served` exists before the wait, so a server that never listens is still killed.
+        let mut served = Self {
+            child,
+            url: String::new(),
+        };
+        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        let mut seen = Vec::new();
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let line = lines.recv_timeout(left).unwrap_or_else(|e| {
+                panic!("server never reported listening ({e}); stderr so far: {seen:#?}")
+            }); // ubs:ignore: test-only
+            if line.contains("HTTP API listening") {
+                let addr = line
+                    .split("addr=")
+                    .nth(1)
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .unwrap_or_else(|| panic!("no addr= in startup line: {line}")); // ubs:ignore: test-only
+                served.url = format!("http://{addr}");
+                return served;
+            }
+            seen.push(line);
+        }
+    }
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// `classify-queue submit` the way an agent on a cell runs it: from a folder of its own that
+/// holds no ledger, with only `HIVEMIND_API_URL` pointing at the server.
+fn submit_over(url: &str, own_dir: &Path, batch_ids: &str) -> Output {
+    submit_with(own_dir, &[("HIVEMIND_API_URL", url)], batch_ids)
+}
+
+#[test]
+fn over_a_cell_url_a_batch_nobody_received_exits_3_naming_it_and_records_nothing() {
+    let served_dir = unique_dir("served-unknown");
+    ledger_with_batches(&served_dir, &["session-x:0-1"]);
+    let before = event_count(&served_dir);
+    let own_dir = unique_dir("own-unknown");
+    let served = Served::start(&served_dir);
+
+    let output = submit_over(&served.url, &own_dir, "nope");
+
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    let message = stderr(&output);
+    assert!(
+        message.contains("ingest batch does not exist: nope."),
+        "the refusal names the id: {message}"
+    );
+    assert!(
+        !message.contains("invalid command line input"),
+        "the input was fine, the server answered not found: {message}"
+    );
+    assert!(stdout(&output).is_empty(), "{}", stdout(&output));
+    assert_eq!(event_count(&served_dir), before, "an event was appended");
+    assert_eq!(
+        pending_total(&served_dir),
+        1,
+        "the real batch is still waiting"
+    );
+    assert!(
+        !own_dir.exists(),
+        "the CLI made a ledger of its own beside the cell"
+    );
+}
+
+#[test]
+fn the_refusal_reads_the_same_over_a_cell_url_as_on_a_local_ledger() {
+    let served_dir = unique_dir("served-same");
+    ledger_with_batches(&served_dir, &["session-x:0-1"]);
+    let local_dir = unique_dir("local-same");
+    ledger_with_batches(&local_dir, &["session-x:0-1"]);
+    let own_dir = unique_dir("own-same");
+    let served = Served::start(&served_dir);
+
+    let over_cell = submit_over(&served.url, &own_dir, "typo:0-1");
+    let local = submit(&local_dir, "typo:0-1");
+
+    assert_eq!(over_cell.status.code(), Some(3), "{}", stderr(&over_cell));
+    assert_eq!(local.status.code(), Some(3), "{}", stderr(&local));
+    assert_eq!(
+        stderr(&over_cell),
+        stderr(&local),
+        "an agent reads one refusal whichever it asked"
+    );
+}
+
+#[test]
+fn over_a_cell_url_one_unknown_id_among_received_ones_refuses_the_whole_submit() {
+    let served_dir = unique_dir("served-mixed");
+    ledger_with_batches(&served_dir, &["session-x:0-1", "session-x:1-2"]);
+    let before = event_count(&served_dir);
+    let own_dir = unique_dir("own-mixed");
+    let served = Served::start(&served_dir);
+
+    let output = submit_over(
+        &served.url,
+        &own_dir,
+        "session-x:0-1,typo:0-1,session-x:1-2",
+    );
+
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("ingest batch does not exist: typo:0-1."),
+        "only the unknown id is named: {}",
+        stderr(&output)
+    );
+    assert_eq!(event_count(&served_dir), before, "an event was appended");
+    assert_eq!(pending_total(&served_dir), 2);
+}
+
+#[test]
+fn over_a_cell_url_a_received_batch_is_still_classified() {
+    let served_dir = unique_dir("served-received");
+    ledger_with_batches(&served_dir, &["session-x:0-1"]);
+    let before = event_count(&served_dir);
+    let own_dir = unique_dir("own-received");
+    let served = Served::start(&served_dir);
+
+    let output = submit_over(&served.url, &own_dir, "session-x:0-1");
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(event_count(&served_dir), before + 1);
+    assert_eq!(pending_total(&served_dir), 0, "the batch left the queue");
+}
+
+/// A server that is not HiveMind's answers 404 in its own words, not as the ledger's refusal:
+/// that stays the generic failure, exit 2, not an invariant violation about a batch.
+#[test]
+fn a_404_that_is_not_the_servers_not_found_stays_a_failed_request() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind a stand-in server"); // ubs:ignore: test-only; panicking is correct in tests
+    let url = format!("http://{}", listener.local_addr().expect("local addr")); // ubs:ignore: test-only
+    let answering = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept the request"); // ubs:ignore: test-only
+        let mut request = [0_u8; 4096];
+        let _ = stream.read(&mut request);
+        let body = r#"{"error":{"code":"route_missing","message":"no such route"}}"#;
+        let reply = format!(
+            "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(reply.as_bytes()).expect("write the reply"); // ubs:ignore: test-only
+    });
+    let own_dir = unique_dir("own-proxy");
+
+    let output = submit_over(&url, &own_dir, "nope");
+    answering.join().expect("the stand-in server finished"); // ubs:ignore: test-only
+
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("server returned 404 Not Found: no such route"),
+        "{}",
+        stderr(&output)
+    );
 }

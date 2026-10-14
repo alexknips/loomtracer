@@ -940,8 +940,8 @@ pub enum ClassifyQueueCommand {
     List(ClassifyQueueListArgs),
     /// Submit agent-produced captures for a batch, appending an IngestBatchClassified event.
     ///
-    /// Refuses a batch id that was never received, exit 3, naming it, with nothing recorded:
-    /// take the ids from `classify-queue list`. A batch that is already classified is accepted
+    /// Refuses a batch id that was never received, exit 3, naming it, with nothing recorded, on a
+    /// local ledger and through HIVEMIND_API_URL alike: take the ids from `classify-queue list`. A batch that is already classified is accepted
     /// again. Like `list`, it asks the server in HIVEMIND_API_URL when that is set, and on a
     /// local ledger it refuses, exit 2 and creating nothing, when --hivemind-dir holds no ledger.
     Submit(ClassifyQueueSubmitArgs),

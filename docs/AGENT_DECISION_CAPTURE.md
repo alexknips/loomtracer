@@ -1019,8 +1019,9 @@ holds none they refuse (exit 2, naming the folder) and create nothing, `list` as
 `submit` as a verb that acts on batches the ledger already holds, so a session hook that runs
 `classify-queue list` in every project leaves no ledger behind in the ones that never recorded
 anything. `submit` also refuses a batch id the ledger never received, naming it, with nothing
-recorded (exit 3; `404` over HTTP, a tool error over MCP); a batch that is already classified is
-accepted again.
+recorded (exit 3, on a local ledger and through `HIVEMIND_API_URL` alike; the server itself
+answers `404`, and MCP returns a tool error); a batch that is already classified is accepted
+again.
 `hivemind query` does not: it reads a local ledger (or the database named by
 `--database-url`) and never contacts `HIVEMIND_API_URL`. It refuses (exit 2, naming the folder)
 when `--hivemind-dir` holds no ledger, and creates none, whether or not that variable is set: a

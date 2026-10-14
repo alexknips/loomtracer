@@ -746,6 +746,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   good label. A suggestion that would hold a one-letter fragment of a split word (`E mail`, `K
   means clustering`) is not offered at all; `a` and `I` are words and stay. The label is recorded
   as sent either way, and readers show labels as before. (hivemind-lwhfk)
+- **`classify-queue submit` with `HIVEMIND_API_URL` set now exits 3 for a batch id the server never
+  received, as it does on a local ledger.** The server's 404 used to come back as exit 2 and
+  "invalid command line input: server returned 404 Not Found: ...", although the input was fine
+  and `--help` and the capture docs say exit 3. It now exits 3 with the server's own words
+  (`error: invariant violated: ingest batch does not exist: <id>. ...`), the same text a local
+  ledger prints, and nothing is recorded either way. A 404 that does not carry the server's
+  `not_found` error (a proxy, the wrong host) is still the generic failed request, exit 2.
+  (hivemind-d6tya)
 - **A verb that acts on an existing decision or project, aimed at a folder with no ledger, now
   refuses instead of making an empty ledger and answering not_found.** `disagree`, `supersede`,
   `move`, `retitle`, `ground`, `reaffirm`, `review`, `quality-scan`, `restatements apply`, and
