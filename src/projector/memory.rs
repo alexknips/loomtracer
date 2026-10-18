@@ -439,79 +439,6 @@ impl GraphView for MemoryGraph {
             return Ok(Vec::new());
         }
 
-        if cypher.contains("RETURN count(d) AS count;") {
-            let topic = required_param_string(params, "topic")?;
-            let nodes = self.nodes_lock()?;
-            let count = nodes
-                .iter()
-                .filter(|((kind, _), properties)| {
-                    *kind == NodeKind::Decision
-                        && topic_keys(properties)
-                            .iter()
-                            .any(|candidate| candidate == topic)
-                })
-                .count();
-            let count = i64::try_from(count)
-                .map_err(|error| memory_error(format!("count overflow: {error}")))?;
-            return Ok(vec![GraphRow::from([(
-                "count".to_owned(),
-                GraphValue::Int(count),
-            )])]);
-        }
-
-        if cypher.contains("WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.binds_level AS binds_level, d.binds AS binds, d.undo_cost_level AS undo_cost_level, d.undo_cost AS undo_cost ORDER BY d.id LIMIT 1000;") {
-            let topic = required_param_string(params, "topic")?;
-            let nodes = self.nodes_lock()?;
-            let mut decisions = nodes
-                .iter()
-                .filter_map(|((kind, id), properties)| {
-                    if *kind != NodeKind::Decision
-                        || !topic_keys(properties).iter().any(|candidate| candidate == topic)
-                    {
-                        return None;
-                    }
-                    Some(GraphRow::from([
-                        ("id".to_owned(), GraphValue::String(id.clone())),
-                        (
-                            "title".to_owned(),
-                            graph_property_or_default(properties, "title"),
-                        ),
-                        (
-                            "rationale".to_owned(),
-                            graph_property_or_default(properties, "rationale"),
-                        ),
-                        (
-                            "topic_keys".to_owned(),
-                            graph_property_or_default(properties, "topic_keys"),
-                        ),
-                        (
-                            "project".to_owned(),
-                            graph_property_or_default(properties, "project"),
-                        ),
-                        (
-                            "binds_level".to_owned(),
-                            graph_property_or_default(properties, "binds_level"),
-                        ),
-                        (
-                            "binds".to_owned(),
-                            graph_property_or_default(properties, "binds"),
-                        ),
-                        (
-                            "undo_cost_level".to_owned(),
-                            graph_property_or_default(properties, "undo_cost_level"),
-                        ),
-                        (
-                            "undo_cost".to_owned(),
-                            graph_property_or_default(properties, "undo_cost"),
-                        ),
-                    ]))
-                })
-                .collect::<Vec<_>>();
-            decisions.sort_by(|left, right| row_string(left, "id").cmp(row_string(right, "id")));
-            decisions.truncate(1000);
-            return Ok(decisions);
-        }
-
         // Checked before the broader "UNION ... hypothesis_id ... $id" branch below: this query
         // (outcome.rs's query_refuted_premises) also matches that broader condition's substrings
         // but needs the REFUTES filter applied, so it must win the match first.
@@ -1005,13 +932,6 @@ fn required_param_string<'a>(params: &'a GraphParams, key: &str) -> Result<&'a s
 
 fn graph_property_or_default(properties: &GraphProperties, key: &str) -> GraphValue {
     properties.get(key).cloned().unwrap_or(GraphValue::Null)
-}
-
-fn topic_keys(properties: &GraphProperties) -> Vec<String> {
-    match properties.get("topic_keys") {
-        Some(GraphValue::StringList(values)) => values.clone(),
-        _ => Vec::new(),
-    }
 }
 
 fn row_string<'a>(row: &'a GraphRow, key: &str) -> &'a str {

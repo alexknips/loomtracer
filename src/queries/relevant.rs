@@ -5,15 +5,15 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::commands::normalize_topic_key;
-use crate::projector::{GraphParams, GraphValue, GraphView};
+use crate::projector::{GraphRow, GraphView, NodeKind};
 use crate::Result;
 
 use super::decision::DecisionView;
 use super::project_label::ProjectLabels;
 use super::reexamine::{ReexamineMarker, ReexamineMarkers};
 use super::shared::{
-    optional_string, optional_string_list, query_error, read_count, recorded_floor_of,
-    required_string, MAX_QUERY_RESULTS,
+    node_rows, optional_string, optional_string_list, query_error, recorded_floor_of,
+    required_string, stored_topics_include, MAX_QUERY_RESULTS,
 };
 use super::status::{derive_decision_status, DecisionStatus};
 use super::QueryResponse;
@@ -37,27 +37,23 @@ pub fn get_relevant_decisions(
     status_filter: Option<DecisionStatus>,
 ) -> Result<QueryResponse<Vec<RelevantDecision>>> {
     let started = Instant::now();
-    // Stored topic keys are lowercase kebab (`normalize_topic_key`), so the caller's `Release Plan`
-    // has to meet `release-plan`; a topic with no letter or digit left names no key at all.
+    // Both sides are compared in `normalize_topic_key` form: the caller's `Release Plan` meets a
+    // stored `release-plan`, and a key recorded as `Release.Plan` meets either spelling. A topic
+    // with no letter or digit left names no key at all. Cypher cannot normalize the stored side,
+    // so the matching happens here over the decision rows, in id order.
     let normalized_topic = normalize_topic_key(topic);
     if normalized_topic.is_empty() {
         return Err(query_error("topic must not be empty").into());
     }
 
-    let count_rows = graph.query(
-        "MATCH (d:`Decision`) WHERE $topic IN d.topic_keys RETURN count(d) AS count;",
-        &GraphParams::from([(
-            "topic".to_owned(),
-            GraphValue::String(normalized_topic.clone()),
-        )]),
-    )?;
-    let total_count = read_count(count_rows, "Decision")? as usize;
-    let truncated = total_count > MAX_QUERY_RESULTS;
-
-    let decision_rows = graph.query(
-        "MATCH (d:`Decision`) WHERE $topic IN d.topic_keys RETURN d.id AS id, d.title AS title, d.rationale AS rationale, d.topic_keys AS topic_keys, d.project AS project, d.binds_level AS binds_level, d.binds AS binds, d.undo_cost_level AS undo_cost_level, d.undo_cost AS undo_cost ORDER BY d.id LIMIT 1000;",
-        &GraphParams::from([("topic".to_owned(), GraphValue::String(normalized_topic))]),
-    )?;
+    let mut decision_rows: Vec<GraphRow> = node_rows(graph, NodeKind::Decision)?
+        .into_values()
+        .filter(|row| {
+            stored_topics_include(&optional_string_list(row, "topic_keys"), &normalized_topic)
+        })
+        .collect();
+    let truncated = decision_rows.len() > MAX_QUERY_RESULTS;
+    decision_rows.truncate(MAX_QUERY_RESULTS);
 
     let labels = ProjectLabels::from_graph(graph)?;
     let mut decisions = Vec::new();

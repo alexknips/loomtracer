@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:human:legal"
 project_label: "legal's personal project"
 occurred_at: "2026-01-02T00:40:14+00:00"
-topic_keys: ["org-security", "legal", "customer-comms"]
+topic_keys: ["org.security", "legal", "customer-comms"]
 proposer: "human:legal"
 source: "api"
 source_ref: "security-vulnerability-triage"
@@ -22,7 +22,7 @@ Project: legal's personal project
 
 ## Context
 
-Topic keys: org-security, legal, customer-comms
+Topic keys: org.security, legal, customer-comms
 
 Hypotheses premised on:
 - A feature-flagged patch can close exposure without breaking exports. (org:security:hypothesis:flagged-patch-safe): supported

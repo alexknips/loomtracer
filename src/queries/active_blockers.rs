@@ -14,7 +14,7 @@ use super::shared::{
     decision_node_exists, node_rows, normalized_filter_values, normalized_limit, normalized_query,
     normalized_topic_filter_values, optional_datetime, optional_int, optional_string,
     optional_string_list, parse_cursor, query_error, relation_edges_by_kind, relation_targets,
-    required_datetime, required_string,
+    required_datetime, required_string, stored_topics_include,
 };
 use super::status::{
     derive_decision_status, derive_hypothesis_status, DecisionStatus, HypothesisStatus,
@@ -279,7 +279,7 @@ fn active_decision_blockers(
             && !filters
                 .topic_keys
                 .iter()
-                .all(|topic| topic_keys.iter().any(|candidate| candidate == topic))
+                .all(|topic| stored_topics_include(&topic_keys, topic))
         {
             continue;
         }

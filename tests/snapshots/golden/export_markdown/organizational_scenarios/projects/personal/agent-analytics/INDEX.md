@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Ship phased beta with scoped messaging](decisions/2026-01-02-ship-phased-beta-with-scoped-messaging-orglaunc.md) | accepted | org-launch, product, support | human:support |
+| 2026-01-02 | [Ship phased beta with scoped messaging](decisions/2026-01-02-ship-phased-beta-with-scoped-messaging-orglaunc.md) | accepted | org.launch, product, support | human:support |

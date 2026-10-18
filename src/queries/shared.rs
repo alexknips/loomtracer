@@ -62,6 +62,18 @@ pub(crate) fn normalized_topic_filter_values(values: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Whether a node's stored `topic_keys` hold `topic`, a filter key already through
+/// `normalized_topic_filter_values`. The stored side is normalized here, at comparison time: nodes
+/// keep the spelling that was recorded, and a key that reached the ledger without going through
+/// capture (`org.incident` from a classifier draft, a blocker report or an event appended outside
+/// the commands layer) is found by `org-incident` and by `org.incident` alike. A key equal to
+/// `topic` is already in that form, so the common case allocates nothing.
+pub(crate) fn stored_topics_include(stored: &[String], topic: &str) -> bool {
+    stored
+        .iter()
+        .any(|key| key == topic || normalize_topic_key(key) == topic)
+}
+
 pub(crate) fn normalized_statuses<T: Copy + Ord>(values: &[T]) -> Vec<T> {
     values
         .iter()

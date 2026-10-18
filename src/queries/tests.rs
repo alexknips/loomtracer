@@ -830,22 +830,6 @@ impl GraphView for FixtureGraph {
             )])]);
         }
 
-        if cypher.contains("RETURN count(d) AS count;") {
-            let topic = match params.get("topic") {
-                Some(GraphValue::String(topic)) => topic,
-                _ => return Err(query_error("missing topic param").into()),
-            };
-            let count = self
-                .decisions
-                .values()
-                .filter(|(_, _, topics)| topics.iter().any(|value| value == topic))
-                .count();
-            return Ok(vec![GraphRow::from([(
-                "count".to_owned(),
-                GraphValue::Int(i64::try_from(count).unwrap_or(0)),
-            )])]);
-        }
-
         if cypher.contains("MATCH (d:`Decision` {id: $id}) RETURN d.id AS id") {
             let id = match params.get("id") {
                 Some(GraphValue::String(id)) => id,
@@ -867,39 +851,6 @@ impl GraphView for FixtureGraph {
                 ])]);
             }
             return Ok(Vec::new());
-        }
-
-        if cypher.contains("WHERE $topic IN d.topic_keys") {
-            let topic = match params.get("topic") {
-                Some(GraphValue::String(topic)) => topic,
-                _ => return Err(query_error("missing topic param").into()),
-            };
-            let mut rows = self
-                .decisions
-                .iter()
-                .filter(|(_, (_, _, topics))| topics.iter().any(|value| value == topic))
-                .map(|(id, (title, rationale, topics))| {
-                    GraphRow::from([
-                        ("id".to_owned(), GraphValue::String(id.clone())),
-                        ("title".to_owned(), GraphValue::String(title.clone())),
-                        (
-                            "rationale".to_owned(),
-                            GraphValue::String(rationale.clone()),
-                        ),
-                        (
-                            "topic_keys".to_owned(),
-                            GraphValue::StringList(topics.clone()),
-                        ),
-                        ("project".to_owned(), self.project_of(id)),
-                    ])
-                })
-                .collect::<Vec<_>>();
-            rows.sort_by(|left, right| {
-                let l = left.get("id");
-                let r = right.get("id");
-                format!("{l:?}").cmp(&format!("{r:?}"))
-            });
-            return Ok(rows);
         }
 
         // Handle the premised_on_hypothesis_ids UNION Cypher (2-hop + direct).

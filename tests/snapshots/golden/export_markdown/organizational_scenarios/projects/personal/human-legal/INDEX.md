@@ -10,4 +10,4 @@ Counts: contested=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Notify affected customers after patch deployment](decisions/2026-01-02-notify-affected-customers-after-patch-deployment-orgsecur.md) | contested | org-security, legal, customer-comms | human:legal |
+| 2026-01-02 | [Notify affected customers after patch deployment](decisions/2026-01-02-notify-affected-customers-after-patch-deployment-orgsecur.md) | contested | org.security, legal, customer-comms | human:legal |

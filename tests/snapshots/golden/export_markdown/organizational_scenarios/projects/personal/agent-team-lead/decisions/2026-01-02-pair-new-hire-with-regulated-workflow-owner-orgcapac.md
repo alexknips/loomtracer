@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:agent:team-lead"
 project_label: "team-lead agents' personal project"
 occurred_at: "2026-01-02T00:50:15+00:00"
-topic_keys: ["org-capacity", "hiring"]
+topic_keys: ["org.capacity", "hiring"]
 proposer: "agent:team-lead"
 source: "api"
 source_ref: "hiring-capacity-planning"
@@ -22,7 +22,7 @@ Project: team-lead agents' personal project
 
 ## Context
 
-Topic keys: org-capacity, hiring
+Topic keys: org.capacity, hiring
 
 Hypotheses premised on:
 - A full-time backend hire pays off after the first onboarding month. (org:capacity:hypothesis:fulltime-payoff): supported

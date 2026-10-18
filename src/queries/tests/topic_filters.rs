@@ -57,7 +57,7 @@ fn propose(commands: &Commands<'_, AnyLedger>, title: &str, topic: &str) -> Resu
     })
 }
 
-fn blocker_event(decision_id: &str, topic_key: &str) -> Event {
+fn blocker_event(decision_id: &str, topic_keys: &[&str]) -> Event {
     Event {
         tenant_id: Default::default(),
         event_id: None,
@@ -72,7 +72,7 @@ fn blocker_event(decision_id: &str, topic_key: &str) -> Event {
             "blocker_id": "blocker:release",
             "blocked_actor_id": "agent:worker",
             "decision_id": decision_id,
-            "topic_keys": [topic_key],
+            "topic_keys": topic_keys,
             "blocked_ref": "task:ship",
             "blocked_ref_type": "task",
             "reason": "Waiting on the date",
@@ -94,7 +94,7 @@ fn fixture() -> Result<Fixture> {
     let commands = Commands::new(&ledger);
     let release_plan = propose(&commands, "Ship the release on Fridays", "Release Plan")?;
     propose(&commands, "Charge per seat", "Billing")?;
-    ledger.append(blocker_event(&release_plan, "release-plan"))?;
+    ledger.append(blocker_event(&release_plan, &["release-plan"]))?;
     let graph = MemoryGraph::default();
     rebuild_graph(&ledger, &graph)?;
     Ok(Fixture {
@@ -373,11 +373,23 @@ fn active_blockers_filter_by_the_topic_as_typed() -> Result<()> {
 }
 
 // Events appended without the commands layer (classifier drafts, blocker reports, imports,
-// fixtures) can carry topic keys exactly as typed. The ledger keeps them untouched; the graph
-// replays them in the stored form, so a filter finds them whichever way it is typed.
+// fixtures) can carry topic keys exactly as typed. Nodes keep them as recorded (hk5z: a read
+// surface must not hide or rewrite what was recorded); the filters normalize the stored key
+// and the typed one at comparison time, so either spelling finds it.
 
-/// The key as the legacy events carry it, then the ways it is typed to find `release-plan`.
-const LEGACY_KEY: &str = "Release.Plan";
+/// The keys as the legacy events carry them: dotted, mixed case, and one that names no key.
+const LEGACY_KEYS: [&str; 3] = ["org.incident", "Release.Plan", "!!!"];
+const LEGACY_ID: &str = "decision:legacy-release";
+
+/// The ways to type the legacy keys: the recorded spelling, and the capture form of each.
+const LEGACY_TYPED: [&str; 6] = [
+    "org.incident",
+    "org-incident",
+    "ORG INCIDENT",
+    "Release.Plan",
+    "release-plan",
+    "release_plan",
+];
 
 fn legacy_proposed_event(option_id: &str) -> Event {
     Event {
@@ -391,10 +403,10 @@ fn legacy_proposed_event(option_id: &str) -> Event {
         source: EventSource::Api,
         source_ref: Some("topic-filter-test".to_owned()),
         payload: json!({
-            "decision_id": "decision:legacy-release",
+            "decision_id": LEGACY_ID,
             "title": "Ship the release on Fridays",
             "rationale": "Reasons that do not matter to a topic filter",
-            "topic_keys": [LEGACY_KEY, "release plan", "!!!"],
+            "topic_keys": LEGACY_KEYS,
             "option_ids": [option_id],
             "option_labels": ["Do it"],
             "chosen_option_id": option_id,
@@ -416,33 +428,33 @@ fn legacy_fixture() -> Result<Fixture> {
     let option_id = commands.record_option("human:alex", "Do it", "Do it")?;
     ledger.append(legacy_proposed_event(&option_id))?;
     propose(&commands, "Charge per seat", "Billing")?;
-    ledger.append(blocker_event("decision:legacy-release", LEGACY_KEY))?;
+    ledger.append(blocker_event(LEGACY_ID, &LEGACY_KEYS))?;
     let graph = MemoryGraph::default();
     rebuild_graph(&ledger, &graph)?;
     Ok(Fixture {
         _dir: dir,
         ledger,
         graph,
-        release_plan: "decision:legacy-release".to_owned(),
+        release_plan: LEGACY_ID.to_owned(),
     })
 }
 
 #[test]
-fn the_graph_holds_stored_topic_keys_in_capture_form() -> Result<()> {
+fn nodes_keep_the_topic_keys_as_recorded() -> Result<()> {
     let f = legacy_fixture()?;
     let decision = get_decision(&f.graph, &f.release_plan)?
         .data
         .expect("the legacy decision projects");
     assert_eq!(
-        decision.topic_keys,
-        ["release-plan"],
-        "both spellings collapse to one key and the key with no letter or digit is dropped"
+        decision.topic_keys, LEGACY_KEYS,
+        "the graph does not rewrite a key"
     );
     Ok(())
 }
 
 #[test]
-fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()> {
+fn every_topic_filter_finds_a_key_recorded_un_normalized_and_returns_it_as_recorded() -> Result<()>
+{
     let f = legacy_fixture()?;
     let context = QueryContext::local();
     let expected = [f.release_plan.as_str()];
@@ -451,17 +463,32 @@ fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()
         .single()
         .expect("valid timestamp");
 
-    for typed in TYPED_FORMS.into_iter().chain([LEGACY_KEY]) {
+    for typed in LEGACY_TYPED {
         let request = search_request(typed);
+        let searched = search_decisions(&f.graph, &request)?;
         assert_eq!(
-            found(&search_decisions(&f.graph, &request)?.data),
+            found(&searched.data),
             expected,
             "graph search for {typed:?}"
+        );
+        assert_eq!(
+            searched.data.items[0].decision.topic_keys, LEGACY_KEYS,
+            "search returns the recorded keys for {typed:?}"
         );
         assert_eq!(
             found(&search_decisions_with_ledger(&context, &f.ledger, &f.graph, &request)?.data),
             expected,
             "portable search for {typed:?}"
+        );
+        assert_eq!(
+            found(&search_decisions_any(&context, &f.ledger, &f.graph, &request)?.data),
+            expected,
+            "full-text search for {typed:?}"
+        );
+        assert_eq!(
+            found(&search_decisions_fluent(&context, &f.ledger, &f.graph, &request, false)?.data),
+            expected,
+            "recall search for {typed:?}"
         );
 
         let relevant = get_relevant_decisions(&f.graph, typed, None)?;
@@ -471,6 +498,10 @@ fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()
             .map(|d| d.decision.id.as_str())
             .collect();
         assert_eq!(ids, expected, "relevant for {typed:?}");
+        assert_eq!(
+            relevant.data[0].decision.topic_keys, LEGACY_KEYS,
+            "relevant returns the recorded keys for {typed:?}"
+        );
 
         match resolve_decision_for_reading(&f.graph, "Ship the release", Some(typed))?.data {
             ResolveOutcome::Resolved { candidate } => {
@@ -491,6 +522,10 @@ fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()
             },
         )?;
         assert_eq!(blockers.data.total_matches, 1, "blockers for {typed:?}");
+        assert_eq!(
+            blockers.data.items[0].topic_keys, LEGACY_KEYS,
+            "blockers return the recorded keys for {typed:?}"
+        );
 
         let recent = get_recent_decisions(
             &f.ledger,
@@ -507,6 +542,29 @@ fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()
             },
         )?;
         assert_eq!(recent.data.total_matches, 1, "recent for {typed:?}");
+        // The history index lists a decision's keys sorted, as it always has; the spelling is
+        // the recorded one.
+        let mut recorded = LEGACY_KEYS.to_vec();
+        recorded.sort_unstable();
+        assert_eq!(
+            recent.data.items[0].topic_keys, recorded,
+            "recent returns the recorded keys for {typed:?}"
+        );
+
+        let added = get_decisions_added_since(
+            &f.ledger,
+            &f.graph,
+            &DecisionsAddedSinceRequest {
+                since_offset: Some(0),
+                filters: DecisionsAddedSinceFilterRequest {
+                    topic_keys: vec![typed.to_owned()],
+                    ..DecisionsAddedSinceFilterRequest::default()
+                },
+                limit: 10,
+                ..DecisionsAddedSinceRequest::default()
+            },
+        )?;
+        assert_eq!(added.data.total_added, 1, "added since for {typed:?}");
 
         let outcome = export_decision_log(
             &f.graph,
@@ -520,12 +578,18 @@ fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()
         let DecisionLogOutcome::Exported(export) = outcome else {
             panic!("a topic filter exports, never a project miss");
         };
-        let exported = export
+        let exported: Vec<&String> = export
             .files
             .keys()
             .filter(|path| path.contains("/decisions/"))
-            .count();
-        assert_eq!(exported, 1, "one decision exported for {typed:?}");
+            .collect();
+        assert_eq!(exported.len(), 1, "one decision exported for {typed:?}");
+        assert!(
+            exported
+                .iter()
+                .all(|path| export.files[*path].contains("org.incident")),
+            "the export shows the recorded spelling for {typed:?}"
+        );
     }
     Ok(())
 }

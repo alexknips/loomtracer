@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Pair new hire with regulated workflow owner](decisions/2026-01-02-pair-new-hire-with-regulated-workflow-owner-orgcapac.md) | accepted | org-capacity, hiring | human:recruiting |
+| 2026-01-02 | [Pair new hire with regulated workflow owner](decisions/2026-01-02-pair-new-hire-with-regulated-workflow-owner-orgcapac.md) | accepted | org.capacity, hiring | human:recruiting |

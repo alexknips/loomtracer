@@ -210,16 +210,11 @@ fn dispatch_query(
         return query_edge_count(client, tenant_id, cypher, params);
     }
 
-    // ── Decision count by topic ──────────────────────────────────────────────
-    if cypher.contains("RETURN count(d) AS count;") {
-        return query_topic_count(client, tenant_id, params);
-    }
-
     // ── Decision by id (title/rationale/topic_keys, or existence+event_origin
     //    check — outcome.rs's get_decision_outcome existence probe reads only
     //    id/event_origin but the row carries every stored property either way) ──
-    // `LIMIT 1;` with the semicolon: the topic read ends `LIMIT 1000;`, which a bare `LIMIT 1`
-    // also matches, and it would be sent here (no `id` param) instead of to the topic handler.
+    // `LIMIT 1;` with the semicolon: a read that ends `LIMIT 1000;` also matches a bare `LIMIT 1`,
+    // and it would be sent here (no `id` param).
     if cypher.contains("LIMIT 1;")
         && (cypher.contains("d.title AS title")
             || cypher.contains("d.event_origin AS event_origin"))
@@ -263,11 +258,6 @@ fn dispatch_query(
     // ── Edge list (from/to) ───────────────────────────────────────────────────
     if cypher.contains("RETURN from.id AS from_id, to.id AS to_id") {
         return query_edge_list(client, tenant_id, cypher, params);
-    }
-
-    // ── Topic-filtered decisions ──────────────────────────────────────────────
-    if cypher.contains("WHERE $topic IN d.topic_keys") {
-        return query_topic_decisions(client, tenant_id, params);
     }
 
     // ── All nodes of a kind (must follow LIMIT 1 / specific checks) ──────────
@@ -392,27 +382,6 @@ fn query_edge_count(
             .map_err(pg_error)?
             .get(0)
     };
-    Ok(vec![GraphRow::from([(
-        "count".to_owned(),
-        GraphValue::Int(count),
-    )])])
-}
-
-fn query_topic_count(
-    client: &mut Client,
-    tenant_id: &str,
-    params: &GraphParams,
-) -> Result<Vec<GraphRow>> {
-    let topic = required_string_param(params, "topic")?;
-    let count: i64 = client
-        .query_one(
-            "SELECT COUNT(*)::bigint FROM hm_nodes
-             WHERE tenant_id=$1 AND node_kind='Decision'
-               AND properties->'topic_keys' @> jsonb_build_array($2::text)",
-            &[&tenant_id, &topic],
-        )
-        .map_err(pg_error)?
-        .get(0);
     Ok(vec![GraphRow::from([(
         "count".to_owned(),
         GraphValue::Int(count),
@@ -687,32 +656,6 @@ fn query_edge_list(
                 );
             }
             graph_row
-        })
-        .collect())
-}
-
-fn query_topic_decisions(
-    client: &mut Client,
-    tenant_id: &str,
-    params: &GraphParams,
-) -> Result<Vec<GraphRow>> {
-    let topic = required_string_param(params, "topic")?;
-    let rows = client
-        .query(
-            "SELECT node_id, properties FROM hm_nodes
-             WHERE tenant_id=$1 AND node_kind='Decision'
-               AND properties->'topic_keys' @> jsonb_build_array($2::text)
-             ORDER BY node_id
-             LIMIT 1000",
-            &[&tenant_id, &topic],
-        )
-        .map_err(pg_error)?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            let node_id: String = row.get(0);
-            let props: JsonValue = row.get(1);
-            json_props_to_row(&node_id, &props)
         })
         .collect())
 }

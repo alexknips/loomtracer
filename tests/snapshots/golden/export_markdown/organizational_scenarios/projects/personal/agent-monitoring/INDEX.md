@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Declare pricing-flag incident](decisions/2026-01-02-declare-pricing-flag-incident-orgincid.md) | accepted | org-incident, operations | human:oncall |
+| 2026-01-02 | [Declare pricing-flag incident](decisions/2026-01-02-declare-pricing-flag-incident-orgincid.md) | accepted | org.incident, operations | human:oncall |

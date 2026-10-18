@@ -27,6 +27,7 @@ use super::project_label::ProjectLabels;
 use super::reexamine;
 use super::shared::{
     node_rows, normalized_query, normalized_topic_filter_values, recorded_floor_of,
+    stored_topics_include,
 };
 use super::status::DecisionStandings;
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
@@ -566,7 +567,7 @@ pub fn get_recent_decisions(
         let status = standings.status_of(&decision_id);
         let topic_keys = entry
             .map(|entry| entry.topic_keys.clone())
-            .unwrap_or_else(|| normalized_topic_filter_values(&payload.topic_keys));
+            .unwrap_or_else(|| normalized_string_values(payload.topic_keys.clone()));
         let actor_ids = entry
             .map(|entry| entry.actor_ids.iter().cloned().collect::<Vec<_>>())
             .unwrap_or_else(|| vec![event.actor_id.clone()]);
@@ -1155,7 +1156,7 @@ fn decision_matches_recent_filters(
         && !filters
             .topic_keys
             .iter()
-            .all(|topic| topic_keys.iter().any(|candidate| candidate == topic))
+            .all(|topic| stored_topics_include(topic_keys, topic))
     {
         return false;
     }
@@ -1271,7 +1272,7 @@ fn decision_matches_added_since_filters(
         && !filters
             .topic_keys
             .iter()
-            .all(|topic| topic_keys.iter().any(|candidate| candidate == topic))
+            .all(|topic| stored_topics_include(topic_keys, topic))
     {
         return false;
     }
@@ -1578,7 +1579,7 @@ impl DecisionIndex {
                         .decisions
                         .entry(payload.decision_id.clone())
                         .or_default();
-                    entry.topic_keys = normalized_topic_filter_values(&payload.topic_keys);
+                    entry.topic_keys = normalized_string_values(payload.topic_keys);
                     entry.actor_ids.insert(event.actor_id.clone());
                     entry.option_ids.extend(payload.option_ids);
                     entry.evidence_ids.extend(payload.evidence_ids);
@@ -1596,13 +1597,13 @@ impl DecisionIndex {
                 EventPayload::DecisionRequested(payload) => {
                     if let Some(decision_id) = payload.decision_id {
                         index.decisions.entry(decision_id).or_default().topic_keys =
-                            normalized_topic_filter_values(&payload.topic_keys);
+                            normalized_string_values(payload.topic_keys);
                     }
                 }
                 EventPayload::BlockerReported(payload) => {
                     if let Some(decision_id) = payload.decision_id {
                         index.decisions.entry(decision_id).or_default().topic_keys =
-                            normalized_topic_filter_values(&payload.topic_keys);
+                            normalized_string_values(payload.topic_keys);
                     }
                 }
                 EventPayload::DecisionAccepted(payload) => {
@@ -1743,7 +1744,7 @@ impl DecisionIndex {
             || self.decisions.get(decision_id).is_some_and(|entry| {
                 topic_keys
                     .iter()
-                    .all(|topic| entry.topic_keys.contains(topic))
+                    .all(|topic| stored_topics_include(&entry.topic_keys, topic))
             })
     }
 

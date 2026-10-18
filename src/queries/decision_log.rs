@@ -60,7 +60,7 @@ use super::projects::{is_known_project, registered_project_names};
 use super::reexamine::{Propagation, ReexamineEntry};
 use super::shared::{
     neighbor_pairs, node_rows, normalized_topic_filter_values, optional_int, optional_string,
-    query_error, Direction, MAX_QUERY_RESULTS,
+    query_error, stored_topics_include, Direction, MAX_QUERY_RESULTS,
 };
 use super::status::{DecisionStatus, HypothesisStatus};
 
@@ -485,7 +485,12 @@ fn matches_filters(entry: &DecisionEntry, req: &DecisionLogRequest, project: Opt
             _ => return false,
         }
     }
-    if !req.topics.is_empty() && !req.topics.iter().any(|t| entry.topic_keys.contains(t)) {
+    if !req.topics.is_empty()
+        && !req
+            .topics
+            .iter()
+            .any(|topic| stored_topics_include(&entry.topic_keys, topic))
+    {
         return false;
     }
     if !req.statuses.is_empty() && !req.statuses.contains(&entry.status) {

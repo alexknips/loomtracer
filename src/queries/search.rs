@@ -22,7 +22,7 @@ use super::shared::{
     node_rows, normalized_filter_values, normalized_limit, normalized_query, normalized_statuses,
     normalized_topic_filter_values, optional_datetime, optional_int, optional_string,
     optional_string_list, parse_cursor, query_error, query_terms, recorded_floor_of,
-    relation_edges_by_kind, relation_sources, relation_targets,
+    relation_edges_by_kind, relation_sources, relation_targets, stored_topics_include,
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, DecisionStatus};
 use super::terms::{
@@ -957,12 +957,9 @@ fn document_matches_filters(
 ) -> bool {
     let decision = &document.result.decision;
     if !topic_keys.is_empty()
-        && !topic_keys.iter().all(|topic| {
-            decision
-                .topic_keys
-                .iter()
-                .any(|candidate| candidate == topic)
-        })
+        && !topic_keys
+            .iter()
+            .all(|topic| stored_topics_include(&decision.topic_keys, topic))
     {
         return false;
     }
@@ -1106,11 +1103,9 @@ fn collect_graph_search_results(
         let decided_at = optional_datetime(&row, "occurred_at")?;
         let decision_topic_keys = optional_string_list(&row, "topic_keys");
         if !topic_keys.is_empty()
-            && !topic_keys.iter().all(|topic| {
-                decision_topic_keys
-                    .iter()
-                    .any(|candidate| candidate == topic)
-            })
+            && !topic_keys
+                .iter()
+                .all(|topic| stored_topics_include(&decision_topic_keys, topic))
         {
             continue;
         }

@@ -10,5 +10,5 @@ Counts: contested=1, rejected=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Launch publicly now](decisions/2026-01-02-launch-publicly-now-orglaunc.md) | rejected | org-launch, product | human:pm |
-| 2026-01-02 | [Treat launch readiness as green](decisions/2026-01-02-treat-launch-readiness-as-green-orglaunc.md) | contested | org-launch, product | human:pm |
+| 2026-01-02 | [Launch publicly now](decisions/2026-01-02-launch-publicly-now-orglaunc.md) | rejected | org.launch, product | human:pm |
+| 2026-01-02 | [Treat launch readiness as green](decisions/2026-01-02-treat-launch-readiness-as-green-orglaunc.md) | contested | org.launch, product | human:pm |

@@ -10,4 +10,4 @@ Counts: contested=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Use a contractor for backend capacity](decisions/2026-01-02-use-a-contractor-for-backend-capacity-orgcapac.md) | contested | org-capacity, planning | human:manager |
+| 2026-01-02 | [Use a contractor for backend capacity](decisions/2026-01-02-use-a-contractor-for-backend-capacity-orgcapac.md) | contested | org.capacity, planning | human:manager |

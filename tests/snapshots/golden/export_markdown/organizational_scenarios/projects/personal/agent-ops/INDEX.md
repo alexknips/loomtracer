@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Use hosted Postgres for the short-run backend](decisions/2026-01-02-use-hosted-postgres-for-the-short-run-backend-orgremot.md) | accepted | org-remote-db, architecture, migration | human:architect |
+| 2026-01-02 | [Use hosted Postgres for the short-run backend](decisions/2026-01-02-use-hosted-postgres-for-the-short-run-backend-orgremot.md) | accepted | org.remote-db, architecture, migration | human:architect |

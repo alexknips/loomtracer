@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Open one full-time backend role with a focused loop](decisions/2026-01-02-open-one-full-time-backend-role-with-a-focused-loop-orgcapac.md) | accepted | org-capacity, planning, hiring | human:manager |
+| 2026-01-02 | [Open one full-time backend role with a focused loop](decisions/2026-01-02-open-one-full-time-backend-role-with-a-focused-loop-orgcapac.md) | accepted | org.capacity, planning, hiring | human:manager |

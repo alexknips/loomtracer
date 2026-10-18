@@ -726,10 +726,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   "nothing recorded on this topic" with exit 0. Every one of them now normalizes the topic it is
   given the way capture does (`Release Plan`, `release_plan` and `RELEASE-PLAN` find
   `release-plan`); a topic with no letter or digit names no key and is dropped from a filter
-  (`get_relevant_decisions` refuses it). A key that reached the ledger un-normalized (a
-  classifier draft, a blocker report, an event appended without capture) is found the same way:
-  the graph now holds every node's topic keys in that form. The ledger is untouched and nothing
-  is migrated; a server restart replays the ledger and names the old keys. (hivemind-vwoau)
+  (`get_relevant_decisions` refuses it). The stored side is normalized at comparison time too, so
+  a key that reached the ledger un-normalized (a classifier draft, a blocker report, an event
+  appended without capture, e.g. `org.incident`) is found by `org-incident` and `org.incident`
+  alike. Decisions, blockers and requests keep their topic keys as recorded and every read
+  returns them that way; nothing is rewritten or migrated. (hivemind-vwoau)
 - **MCP `recent_decisions`, `get_changed_decisions` and the dated timeline in
   `get_decision_neighborhood` now read the caller's tenant, not `local`.** Over stdio
   (`hivemind --tenant <id> mcp`) and over `POST /mcp` (a tenant header under the static key, or an
