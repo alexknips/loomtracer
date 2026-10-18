@@ -730,6 +730,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   The same pair superseded twice (a retried supersede) was also read as a branch on the in-memory
   graph, which the cell's graph cache holds; the walk now counts it once. `chain`
   (`get_supersession_chain`) still answers with an error at a real fork. (hivemind-pydlc)
+- **A node in the DOT graph export now draws on two lines instead of showing a literal `\n`.**
+  `hivemind dump --format dot`, the MCP `dump_graph` tool, the HTTP `/mcp` dump and the TUI
+  `--dot-output` export all escaped the line break they had just added, so Graphviz drew
+  `Use SQLite\nstatus: accepted` on one line. The title, statement or reason is escaped first and
+  the break is added after, for decisions, hypotheses, decision requests, blockers,
+  reaffirmations, notifications and the TUI neighborhood. A quote or backslash in the text is
+  still escaped. Nothing is stored differently; export again to get the fixed file.
+  (hivemind-2xdyr)
 - **`situational` and `get_situational_decisions` now match a multi-word topic key to the files
   being touched.** A decision with the topic `project-scope` never surfaced for
   `src/queries/project_scope.rs` or the branch `feature/project-scope`: the situation is split

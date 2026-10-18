@@ -6,6 +6,8 @@ pub mod run;
 
 // Public API - maintain external interface unchanged
 pub use args::*;
+#[cfg(feature = "tui")]
+pub(crate) use render::dot_label;
 pub use render::{exit_code_for_error, format_error, render_decision_dot};
 pub use run::run;
 

@@ -2586,42 +2586,42 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
     let edges = graph_edges(graph)?;
 
     for ((kind, id), properties) in &nodes {
-        let label = match kind {
+        let lines = match kind {
             NodeKind::Decision => {
                 let title =
                     graph_property_string(properties, "title").unwrap_or_else(|| id.clone());
                 let status = decision_status_name(derive_decision_status(graph, id)?);
-                label_with_status(&title, status)
+                lines_with_status(title, status)
             }
             NodeKind::DecisionRequest => graph_property_string(properties, "reason")
-                .map(|reason| prefixed_dot_label("Decision request", &reason))
-                .unwrap_or_else(|| id.clone()),
+                .map(|reason| prefixed_dot_lines("Decision request", reason))
+                .unwrap_or_else(|| vec![id.clone()]),
             NodeKind::Hypothesis => {
                 let statement =
                     graph_property_string(properties, "statement").unwrap_or_else(|| id.clone());
                 let status = hypothesis_status_name(derive_hypothesis_status(graph, id)?);
-                label_with_status(&statement, status)
+                lines_with_status(statement, status)
             }
             NodeKind::Blocker => graph_property_string(properties, "reason")
-                .map(|reason| prefixed_dot_label("Blocker", &reason))
-                .unwrap_or_else(|| id.clone()),
+                .map(|reason| prefixed_dot_lines("Blocker", reason))
+                .unwrap_or_else(|| vec![id.clone()]),
             NodeKind::Reaffirmation => graph_property_string(properties, "reason")
-                .map(|reason| prefixed_dot_label("Still holds", &reason))
-                .unwrap_or_else(|| id.clone()),
+                .map(|reason| prefixed_dot_lines("Still holds", reason))
+                .unwrap_or_else(|| vec![id.clone()]),
             NodeKind::Notification => graph_property_string(properties, "channel")
-                .map(|channel| prefixed_dot_label("Notification", &channel))
-                .unwrap_or_else(|| id.clone()),
-            _ => graph_property_string(properties, "content")
+                .map(|channel| prefixed_dot_lines("Notification", channel))
+                .unwrap_or_else(|| vec![id.clone()]),
+            _ => vec![graph_property_string(properties, "content")
                 .or_else(|| graph_property_string(properties, "label"))
                 .or_else(|| graph_property_string(properties, "text"))
-                .unwrap_or_else(|| id.clone()),
+                .unwrap_or_else(|| id.clone())],
         };
 
         let _ = writeln!(
             dot,
             "  \"{}\" [label=\"{}\", shape=box, style=filled, fillcolor=\"{}\"];",
             node_key(*kind, id),
-            escape_dot(&label),
+            dot_label(&lines),
             node_color(*kind)
         );
     }
@@ -2651,20 +2651,12 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
     Ok(dot)
 }
 
-fn label_with_status(label: &str, status: &str) -> String {
-    let mut output = String::with_capacity(label.len() + status.len() + "\\nstatus: ".len());
-    output.push_str(label);
-    output.push_str("\\nstatus: ");
-    output.push_str(status);
-    output
+fn lines_with_status(label: String, status: &str) -> Vec<String> {
+    vec![label, format!("status: {status}")]
 }
 
-fn prefixed_dot_label(prefix: &str, value: &str) -> String {
-    let mut output = String::with_capacity(prefix.len() + value.len() + 2);
-    output.push_str(prefix);
-    output.push_str("\\n");
-    output.push_str(value);
-    output
+fn prefixed_dot_lines(prefix: &str, value: String) -> Vec<String> {
+    vec![prefix.to_owned(), value]
 }
 
 fn graph_nodes(graph: &impl GraphView) -> Result<BTreeMap<(NodeKind, String), GraphProperties>> {
@@ -2848,6 +2840,18 @@ fn hypothesis_status_name(status: HypothesisStatus) -> &'static str {
         HypothesisStatus::Supported => "supported",
         HypothesisStatus::Refuted => "refuted",
     }
+}
+
+/// A DOT node label with one entry of `lines` per displayed line. Each line is escaped for a quoted
+/// DOT string, then the lines are joined with DOT's own line-break escape (a backslash and `n`).
+/// That break is added after the escaping, so Graphviz reads it as a break and not as a literal
+/// backslash followed by `n`.
+pub(crate) fn dot_label<S: AsRef<str>>(lines: &[S]) -> String {
+    lines
+        .iter()
+        .map(|line| escape_dot(line.as_ref()))
+        .collect::<Vec<_>>()
+        .join("\\n")
 }
 
 fn escape_dot(input: &str) -> String {

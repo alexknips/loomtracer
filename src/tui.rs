@@ -17,6 +17,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
+use crate::cli::dot_label;
 use crate::error::CliError;
 use crate::events::HypothesisKind;
 use crate::projector::{GraphView, NodeKind, RelationKind};
@@ -1518,20 +1519,18 @@ pub fn render_neighborhood_dot(neighborhood: &NeighborhoodView) -> String {
         .map(|node| (node.id.as_str(), node))
         .collect::<BTreeMap<_, _>>();
     for node in &neighborhood.nodes {
-        let mut label = format!("{}:{}", node.kind.table_name(), node.id);
+        let mut lines = vec![format!("{}:{}", node.kind.table_name(), node.id)];
         if let Some(status) = node.decision_status {
-            label.push_str("\\nstatus: ");
-            label.push_str(decision_status_label(status));
+            lines.push(format!("status: {}", decision_status_label(status)));
         }
         if let Some(status) = node.hypothesis_status {
-            label.push_str("\\nstatus: ");
-            label.push_str(hypothesis_status_label(status));
+            lines.push(format!("status: {}", hypothesis_status_label(status)));
         }
         let _ = writeln!(
             dot,
             "  \"{}\" [label=\"{}\", shape=box];",
             dot_node_key(node.kind, &node.id),
-            escape_dot(&label)
+            dot_label(&lines)
         );
     }
     for edge in &neighborhood.edges {
@@ -1801,10 +1800,6 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 
 fn dot_node_key(kind: NodeKind, id: &str) -> String {
     format!("{}:{}", kind.table_name(), id)
-}
-
-fn escape_dot(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn tui_io_error(context: &str, error: impl std::fmt::Display) -> crate::HivemindError {

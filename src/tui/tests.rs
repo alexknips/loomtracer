@@ -99,6 +99,38 @@ fn dot_export_renders_node_statuses_and_relation_labels() {
 }
 
 #[test]
+fn dot_export_breaks_a_label_with_one_backslash_and_still_escapes_the_text() {
+    let neighborhood = NeighborhoodView {
+        root: NeighborhoodRoot {
+            id: r#"d"1\"#.to_owned(),
+            kind: NodeKind::Decision,
+            present: true,
+            brief: None,
+        },
+        nodes: vec![NeighborNode {
+            id: r#"d"1\"#.to_owned(),
+            kind: NodeKind::Decision,
+            project: None,
+            project_label: None,
+            decision_status: Some(DecisionStatus::Accepted),
+            hypothesis_status: None,
+            label: None,
+        }],
+        edges: Vec::new(),
+        timeline: None,
+    };
+
+    let dot = render_neighborhood_dot(&neighborhood);
+
+    // The quote and the backslash in the id are escaped; the break before the status line is a
+    // single backslash and `n`, which Graphviz draws as a second line.
+    assert!(
+        dot.contains(r#"label="Decision:d\"1\\\nstatus: accepted""#),
+        "{dot}"
+    );
+}
+
+#[test]
 fn results_and_the_open_decision_say_whether_a_premise_was_looked_at_again() {
     use crate::queries::test_fixtures::reexamine_scenario;
 

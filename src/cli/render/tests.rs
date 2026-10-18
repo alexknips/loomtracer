@@ -1713,6 +1713,28 @@ fn the_decision_timeline_names_who_said_a_decision_still_holds() -> Result<()> {
 }
 
 #[test]
+fn the_dot_export_breaks_a_label_with_one_backslash_and_still_escapes_the_title() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision(
+        "d:quoted",
+        r#"A "quoted" \ title"#,
+        "human:alex",
+        "2026-01-01T00:00:00Z",
+    )?;
+    scenario.accept("d:quoted", "human:alex", "2026-01-01T00:00:01Z")?;
+    let dot = render_dot(&scenario.graph()?)?;
+
+    // The quote and the backslash in the title are escaped; the break before the status line is
+    // a single backslash and `n`, which Graphviz draws as a second line.
+    assert!(
+        dot.contains(r#"label="A \"quoted\" \\ title\nstatus: accepted""#),
+        "{dot}"
+    );
+    assert!(!dot.contains(r"\\nstatus"), "{dot}");
+    Ok(())
+}
+
+#[test]
 fn the_dot_export_draws_a_reaffirmation_with_the_decision_it_is_about() -> Result<()> {
     let scenario = reexamine_scenario()?;
     let dot = render_dot(&scenario.graph()?)?;
@@ -1720,7 +1742,7 @@ fn the_dot_export_draws_a_reaffirmation_with_the_decision_it_is_about() -> Resul
     // The node reads as its reason, and is tied to its decision and premise by dashed lines,
     // because it has no stored edge of its own.
     assert!(
-        dot.contains("Still holds\\\\nChecked again against the per-user cap"),
+        dot.contains("Still holds\\nChecked again against the per-user cap"),
         "{dot}"
     );
     let lines: Vec<&str> = dot
