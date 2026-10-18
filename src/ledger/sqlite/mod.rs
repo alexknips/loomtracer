@@ -27,6 +27,10 @@ const SQLITE_LOCK_RETRY_SLEEP_MS: u64 = 10;
 pub struct SqliteEventLedger {
     path: PathBuf,
     connection: Connection,
+    /// The tenant the plain [`EventLedger`] methods address: `local` for a ledger from
+    /// [`SqliteEventLedger::open`], the named tenant for one from
+    /// [`SqliteEventLedger::open_for_tenant`].
+    tenant_id: TenantId,
 }
 
 impl SqliteEventLedger {
@@ -40,7 +44,21 @@ impl SqliteEventLedger {
 
         initialize_schema(&connection)?;
 
-        Ok(Self { path, connection })
+        Ok(Self {
+            path,
+            connection,
+            tenant_id: TenantId::local(),
+        })
+    }
+
+    /// Opens the ledger bound to `tenant_id`, so its plain `append`, `read`, `replay_from`,
+    /// `latest_offset` and `bound_tenant` address that tenant. Errors if the tenant is not
+    /// registered (see [`SqliteEventLedger::ensure_known_tenant`]).
+    pub fn open_for_tenant(hivemind_dir: impl AsRef<Path>, tenant_id: &TenantId) -> Result<Self> {
+        let mut ledger = Self::open(hivemind_dir)?;
+        ledger.ensure_known_tenant(tenant_id)?;
+        ledger.tenant_id = tenant_id.clone();
+        Ok(ledger)
     }
 
     pub fn path(&self) -> &Path {
@@ -118,6 +136,10 @@ impl SqliteEventLedger {
 }
 
 impl EventLedger for SqliteEventLedger {
+    fn bound_tenant(&self) -> TenantId {
+        self.tenant_id.clone()
+    }
+
     fn append_for_tenant(&self, tenant_id: &TenantId, mut event: Event) -> Result<EventId> {
         event.tenant_id = tenant_id.clone(); // ubs:ignore: per-append copy; false positive from impl EventLedger for.
         let stored = row::StoredEvent::from_event(event)?;

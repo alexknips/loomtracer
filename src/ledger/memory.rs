@@ -34,6 +34,12 @@ impl InMemoryEventLedger {
 }
 
 impl EventLedger for InMemoryEventLedger {
+    /// The in-memory ledger is one store with no connection to bind: its plain methods are the
+    /// `local` tenant's.
+    fn bound_tenant(&self) -> TenantId {
+        TenantId::local()
+    }
+
     fn append_for_tenant(&self, tenant_id: &TenantId, mut event: Event) -> Result<EventId> {
         let mut state = self.state()?;
         event.tenant_id = tenant_id.clone(); // ubs:ignore: per-append copy; false positive from impl EventLedger for.

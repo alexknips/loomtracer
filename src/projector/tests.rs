@@ -3226,22 +3226,6 @@ impl EventLedger for BoundTenantLedger {
     fn bound_tenant(&self) -> TenantId {
         self.tenant_id.clone()
     }
-
-    fn append(&self, event: Event) -> Result<EventId> {
-        self.append_for_tenant(&self.tenant_id, event)
-    }
-
-    fn replay_from(
-        &self,
-        offset: EventId,
-        callback: &mut dyn FnMut(&Event) -> Result<()>,
-    ) -> Result<()> {
-        self.replay_from_for_tenant(&self.tenant_id, offset, callback)
-    }
-
-    fn latest_offset(&self) -> Result<EventId> {
-        self.latest_offset_for_tenant(&self.tenant_id)
-    }
 }
 
 /// `project_from_ledger` projects the tenant its ledger is bound to, not `local`: a rebuild and a

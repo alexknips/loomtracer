@@ -1249,8 +1249,8 @@ pub fn tool_definitions() -> Vec<Value> {
 // ---------------------------------------------------------------------------
 
 /// stdio's [`LedgerProvider`]: opens a directory- or Postgres-backed ledger
-/// per `config.ledger`. No tenancy or auth to resolve — the whole surface
-/// today is a single local tenant.
+/// per `config.ledger`, opened for `config.tenant_id` (the `--tenant` flag; `local` by default).
+/// No auth to resolve.
 struct StdioLedgerProvider<'a> {
     config: &'a McpConfig,
 }

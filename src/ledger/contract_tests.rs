@@ -617,6 +617,63 @@ pub fn assert_replay_into_non_empty_ledger<L: EventLedger>(
     Ok(())
 }
 
+/// The plain methods (`append`, `read`, `replay_from`, `latest_offset`) and `bound_tenant`
+/// address the tenant the ledger value was opened for, never `local` by default (hivemind-xm9by).
+/// The ledger also holds an event of `other`, written by name, that none of them shows.
+pub fn assert_plain_methods_address_the_bound_tenant<L: EventLedger>(
+    ledger: &L,
+    bound: &TenantId,
+    other: &TenantId,
+) -> Result<()> {
+    ledger.append_for_tenant(other, make_event("evidence-other", Uuid::new_v4()))?;
+    ledger.append(make_event("evidence-bound", Uuid::new_v4()))?;
+
+    require_equal("bound_tenant", &ledger.bound_tenant(), bound)?;
+
+    let read = ledger.read(0, 10)?;
+    let read_ids: Vec<&str> = read.iter().map(event_id_from_payload).collect();
+    require_equal("plain read", &read_ids, &vec!["evidence-bound"])?;
+    require_equal(
+        "the tenant a plain read stamps on its events",
+        &read[0].tenant_id,
+        bound,
+    )?;
+    require_equal(
+        "plain read against the named read",
+        &read,
+        &ledger.read_for_tenant(bound, 0, 10)?,
+    )?;
+
+    require_equal(
+        "plain latest_offset",
+        &ledger.latest_offset()?,
+        &ledger.latest_offset_for_tenant(bound)?,
+    )?;
+
+    let mut replayed = Vec::new();
+    ledger.replay_from(0, &mut |event| {
+        replayed.push(event_id_from_payload(event).to_owned());
+        Ok(())
+    })?;
+    require_equal(
+        "plain replay_from",
+        &replayed,
+        &vec!["evidence-bound".to_owned()],
+    )?;
+
+    let other_ids: Vec<String> = ledger
+        .read_for_tenant(other, 0, 10)?
+        .iter()
+        .map(|event| event_id_from_payload(event).to_owned())
+        .collect();
+    require_equal(
+        "the other tenant's own events",
+        &other_ids,
+        &vec!["evidence-other".to_owned()],
+    )?;
+    Ok(())
+}
+
 fn contract_failure(message: impl Into<String>) -> crate::HivemindError {
     CommandError::Invariant(message.into()).into()
 }

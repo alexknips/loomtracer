@@ -3729,10 +3729,7 @@ fn token_overlap_percent(left: &BTreeSet<String>, right: &BTreeSet<String>) -> u
     ((intersection * 200) / (left.len() as u32 + right.len() as u32)).min(100)
 }
 
-// Scans the ledger using `ledger.read` (= TenantId::local()).
-// Callers that need a non-local tenant must pass a TenantScopedLedger,
-// which redirects `read` to the correct tenant transparently.
-// debug_assert: do not call with a raw multi-tenant ledger without scoping first.
+// Scans the ledger using `ledger.read`, which addresses `ledger.bound_tenant()`.
 fn scan_ledger<L: EventLedger>(ledger: &L, predicate: impl Fn(&Event) -> bool) -> Result<bool> {
     let mut offset = 0;
     const PAGE_SIZE: usize = 1024;

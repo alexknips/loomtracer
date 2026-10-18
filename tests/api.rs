@@ -5289,6 +5289,181 @@ async fn mcp_http_write_under_a_person_credential_is_recorded_as_the_session_age
     assert!(!context.to_string().contains("human:"), "{context}"); // ubs:ignore
 }
 
+/// A JSON-RPC `tools/call` body for `/mcp`.
+fn mcp_tools_call_body(tool: &str, arguments: Value) -> Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": { "name": tool, "arguments": arguments },
+    })
+}
+
+/// Registers `acme` beside the default tenant in the SQLite ledger under `dir`.
+fn register_acme(dir: &Path) {
+    let ledger = hivemind::ledger::SqliteEventLedger::open(dir).expect("open ledger to provision");
+    ledger
+        .create_tenant(&hivemind::events::TenantId::new("acme").expect("valid tenant id"))
+        .expect("register acme");
+}
+
+/// Calls `tool` over `/mcp` as `tenant` (`request_for` builds the request under whichever
+/// credential the test is exercising) and returns its `structuredContent`.
+async fn mcp_tenant_tool(
+    app: &axum::Router,
+    request_for: &impl Fn(&str, Value) -> Request<Body>,
+    tool: &str,
+    arguments: Value,
+) -> Value {
+    let (status, body) = call(app.clone(), request_for(tool, arguments)).await;
+    assert_eq!(status, StatusCode::OK, "{tool}: {body}"); // ubs:ignore
+    assert_eq!(body["result"]["isError"], false, "{tool}: {body}"); // ubs:ignore
+    body["result"]["structuredContent"].clone()
+}
+
+fn mcp_capture_arguments(title: &str) -> Value {
+    serde_json::json!({
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
+        "grounding": [{"kind": "bet"}],
+        "title": title,
+        "rationale": "pins which tenant an MCP-over-HTTP read answers from",
+        "topic_keys": ["tenant-reads"],
+        "options": [{"label": "a"}]
+    })
+}
+
+fn ids_of(items: &Value, key: &str) -> Vec<String> {
+    items
+        .as_array()
+        .expect("items is an array") // ubs:ignore
+        .iter()
+        .filter_map(|item| item[key].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Captures a decision in the default tenant (`local_request`) and one in `acme`, retitles
+/// the `acme` one (`acme_request`), then reads as `acme`: `recent_decisions`,
+/// `get_changed_decisions` and the `get_decision_neighborhood` timeline answer from `acme`'s
+/// events only, and name nothing of the default tenant's (hivemind-xm9by).
+async fn assert_mcp_reads_answer_from_acme_only(
+    app: &axum::Router,
+    local_request: impl Fn(&str, Value) -> Request<Body>,
+    acme_request: impl Fn(&str, Value) -> Request<Body>,
+) {
+    let local = mcp_tenant_tool(
+        app,
+        &local_request,
+        "capture_decision",
+        mcp_capture_arguments("Local keeps a monolith"),
+    )
+    .await;
+    let local_id = local["decision_id"].as_str().expect("local id").to_owned(); // ubs:ignore
+    let acme = mcp_tenant_tool(
+        app,
+        &acme_request,
+        "capture_decision",
+        mcp_capture_arguments("Acme picks a queue"),
+    )
+    .await;
+    let acme_id = acme["decision_id"].as_str().expect("acme id").to_owned(); // ubs:ignore
+    mcp_tenant_tool(
+        app,
+        &acme_request,
+        "retitle_decision",
+        serde_json::json!({ "decision_id": acme_id, "to": "Acme picks a stream" }),
+    )
+    .await;
+
+    let window = serde_json::json!({ "since": "2000-01-01T00:00:00Z", "limit": 100 });
+    let recent = mcp_tenant_tool(app, &acme_request, "recent_decisions", window.clone()).await;
+    let changed = mcp_tenant_tool(app, &acme_request, "get_changed_decisions", window).await;
+    let why = mcp_tenant_tool(
+        app,
+        &acme_request,
+        "get_decision_neighborhood",
+        serde_json::json!({ "decision_id": acme_id }),
+    )
+    .await;
+
+    assert_eq!(
+        ids_of(&recent["data"]["items"], "decision_id"),
+        [acme_id.clone()],
+        "recent_decisions as acme: {recent}"
+    ); // ubs:ignore
+    assert_eq!(
+        ids_of(&changed["data"]["items"], "decision_id"),
+        [acme_id.clone()],
+        "get_changed_decisions as acme: {changed}"
+    ); // ubs:ignore
+    assert_eq!(
+        ids_of(&why["data"]["timeline"]["entries"], "kind"),
+        ["recorded", "retitled"],
+        "the why timeline as acme: {why}"
+    ); // ubs:ignore
+    for (what, answer) in [("recent", &recent), ("changed", &changed), ("why", &why)] {
+        assert!(
+            !answer.to_string().contains(&local_id),
+            "{what} as acme names the default tenant's decision {local_id}: {answer}"
+        ); // ubs:ignore
+    }
+}
+
+#[tokio::test]
+async fn mcp_http_recent_changed_and_why_timeline_read_the_tenant_of_the_header_under_a_static_key()
+{
+    let dir = test_ledger_dir();
+    register_acme(&dir);
+    let app = app_with_key(dir, "static-key");
+    let as_tenant = |tenant: &'static str| {
+        move |tool: &str, arguments: Value| {
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer static-key")
+                .header("x-hivemind-actor", "agent:test:tenant-reads")
+                .header("x-hivemind-tenant", tenant)
+                .body(Body::from(mcp_tools_call_body(tool, arguments).to_string()))
+                .unwrap()
+        }
+    };
+
+    assert_mcp_reads_answer_from_acme_only(&app, as_tenant("local"), as_tenant("acme")).await;
+}
+
+#[tokio::test]
+async fn mcp_http_recent_changed_and_why_timeline_read_the_tenant_an_agent_token_was_minted_for() {
+    let admin_key = "mcp-tenant-reads-admin";
+    let dir = test_ledger_dir();
+    register_acme(&dir);
+    let app = app_with_admin_key(dir, admin_key);
+    let (status, minted) = call(
+        app.clone(),
+        admin_post(
+            "/v1/agent-tokens",
+            serde_json::json!({
+                "agent_tool": "claude",
+                "agent_name": "acme-agent",
+                "tenant_id": "acme"
+            }),
+            admin_key,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{minted}"); // ubs:ignore
+    let token = minted["token_secret"].as_str().expect("token").to_owned(); // ubs:ignore
+    let session_id = open_mcp_session(&app, &token).await;
+
+    // The default tenant is written without a credential; acme only through its token.
+    let local_request =
+        |tool: &str, arguments: Value| mcp_post(mcp_tools_call_body(tool, arguments));
+    let acme_request =
+        |tool: &str, arguments: Value| mcp_authed_tool_call(&token, &session_id, tool, arguments);
+
+    assert_mcp_reads_answer_from_acme_only(&app, local_request, acme_request).await;
+}
+
 #[tokio::test]
 async fn mint_agent_token_requires_admin_key() {
     let dir = test_ledger_dir();

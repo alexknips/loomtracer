@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::events::{self, Event, EventId, EventPayload, EventType, TenantId};
+use crate::events::{self, Event, EventId, EventPayload, EventType};
 use crate::ledger::EventLedger;
 use crate::projector::{actor_kind, GraphView, NodeKind, RelationKind};
 use crate::Result;
@@ -252,7 +252,7 @@ fn proposer_of(graph: &impl GraphView, decision_id: &str) -> Result<Option<Strin
 /// the event itself. Reads only those three event types, in pages, so a ledger full of ingest
 /// batches costs no more than one without.
 fn direct_entries(ledger: &impl EventLedger, decision_id: &str) -> Result<Vec<Entry>> {
-    let tenant = TenantId::local();
+    let tenant = ledger.bound_tenant();
     let mut entries = Vec::new();
     let mut offset = 0;
     loop {

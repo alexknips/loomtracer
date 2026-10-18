@@ -1009,3 +1009,185 @@ fn mcp_m3_tools_are_tenant_isolated() {
 
     let _ = std::fs::remove_dir_all(&hivemind_dir);
 }
+
+/// Runs one `hivemind mcp` process under `tenant` (the default tenant when `None`), sends each
+/// `(tool, arguments)` call in order and returns every call's `structuredContent`. A call that
+/// answers `isError` fails the test.
+fn mcp_tool_session(
+    hivemind_dir: &std::path::Path,
+    tenant: Option<&str>,
+    calls: &[(&str, Value)],
+) -> Vec<Value> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
+    command.arg("--hivemind-dir").arg(hivemind_dir);
+    if let Some(tenant) = tenant {
+        command.arg("--tenant").arg(tenant);
+    }
+    let mut child = command
+        .arg("mcp")
+        .arg("--session-id")
+        .arg("tenant-reads-session")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+
+    let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
+    send_mcp_request(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize"}),
+    )
+    .expect("send initialize"); // ubs:ignore: test-only; panicking is correct in tests
+    read_mcp_response(&mut stdout).expect("read initialize"); // ubs:ignore: test-only; panicking is correct in tests
+
+    let mut answers = Vec::new();
+    for (index, (tool, arguments)) in calls.iter().enumerate() {
+        send_mcp_request(
+            &mut stdin,
+            json!({
+                "jsonrpc": "2.0", "id": index + 2, "method": "tools/call",
+                "params": { "name": tool, "arguments": arguments }
+            }),
+        )
+        .expect("send tool call"); // ubs:ignore: test-only; panicking is correct in tests
+        let reply = read_mcp_response(&mut stdout).expect("read tool call"); // ubs:ignore: test-only; panicking is correct in tests
+        assert_eq!(
+            // ubs:ignore: test-only assertion
+            reply["result"]["isError"],
+            Value::Bool(false),
+            "{tool} failed: {reply}"
+        );
+        answers.push(reply["result"]["structuredContent"].clone());
+    }
+    drop(stdin);
+    child.wait().expect("wait mcp"); // ubs:ignore: test-only; panicking is correct in tests
+    answers
+}
+
+fn tenant_capture_arguments(actor: &str, title: &str, topic: &str) -> Value {
+    json!({
+        "binds": {"level": "something", "statement": "Later work builds on it"},
+        "undo_cost": {"level": "cheap"},
+        "grounding": [{"kind": "bet"}],
+        "actor_id": actor,
+        "title": title,
+        "rationale": "Chosen so the tenant read test has something to find",
+        "topic_keys": [topic],
+        "options": [{"label": "plain option"}]
+    })
+}
+
+/// `recent_decisions`, `get_changed_decisions` and the `why` timeline read the ledger of the
+/// tenant the process was opened for (hivemind-xm9by): a tenant-b process sees the decision it
+/// just captured and its change, and none of the default tenant's.
+#[test]
+fn mcp_recent_changed_and_why_timeline_read_the_callers_tenant() {
+    let hivemind_dir = unique_dir("tenant-reads");
+    let _ = std::fs::create_dir_all(&hivemind_dir);
+    create_tenant(&hivemind_dir, "tenant-b");
+
+    let local = mcp_tool_session(
+        &hivemind_dir,
+        None,
+        &[(
+            "capture_decision",
+            tenant_capture_arguments("agent:test:local", "Local keeps a monolith", "local-shape"),
+        )],
+    );
+    let local_id = local[0]["decision_id"]
+        .as_str()
+        .expect("local decision_id") // ubs:ignore: test-only; panicking is correct in tests
+        .to_owned();
+
+    let captured = mcp_tool_session(
+        &hivemind_dir,
+        Some("tenant-b"),
+        &[(
+            "capture_decision",
+            tenant_capture_arguments("agent:test:tenant-b", "TenantB picks a queue", "b-shape"),
+        )],
+    );
+    let id_b = captured[0]["decision_id"]
+        .as_str()
+        .expect("tenant-b decision_id") // ubs:ignore: test-only; panicking is correct in tests
+        .to_owned();
+
+    let reads = mcp_tool_session(
+        &hivemind_dir,
+        Some("tenant-b"),
+        &[
+            (
+                "retitle_decision",
+                json!({
+                    "actor_id": "agent:test:tenant-b",
+                    "decision_id": id_b,
+                    "to": "TenantB picks a stream",
+                    "reason": "the queue became a stream"
+                }),
+            ),
+            (
+                "recent_decisions",
+                json!({ "since": "2000-01-01T00:00:00Z", "limit": 100 }),
+            ),
+            (
+                "get_changed_decisions",
+                json!({ "since": "2000-01-01T00:00:00Z", "limit": 100 }),
+            ),
+            ("get_decision_neighborhood", json!({ "decision_id": id_b })),
+        ],
+    );
+
+    let recent_ids: Vec<&str> = reads[1]["data"]["items"]
+        .as_array()
+        .expect("recent items") // ubs:ignore: test-only; panicking is correct in tests
+        .iter()
+        .filter_map(|item| item["decision_id"].as_str())
+        .collect();
+    assert_eq!(
+        // ubs:ignore: test-only assertion
+        recent_ids,
+        [id_b.as_str()],
+        "recent_decisions under tenant-b lists its own decision and not local's: {}",
+        reads[1]
+    );
+
+    let changed_ids: Vec<&str> = reads[2]["data"]["items"]
+        .as_array()
+        .expect("changed items") // ubs:ignore: test-only; panicking is correct in tests
+        .iter()
+        .filter_map(|item| item["decision_id"].as_str())
+        .collect();
+    assert_eq!(
+        // ubs:ignore: test-only assertion
+        changed_ids,
+        [id_b.as_str()],
+        "get_changed_decisions under tenant-b shows the retitle it just recorded: {}",
+        reads[2]
+    );
+
+    let timeline_kinds: Vec<&str> = reads[3]["data"]["timeline"]["entries"]
+        .as_array()
+        .expect("timeline entries") // ubs:ignore: test-only; panicking is correct in tests
+        .iter()
+        .filter_map(|entry| entry["kind"].as_str())
+        .collect();
+    assert_eq!(
+        // ubs:ignore: test-only assertion
+        timeline_kinds,
+        ["recorded", "retitled"],
+        "the why timeline under tenant-b is built from tenant-b's events: {}",
+        reads[3]
+    );
+
+    assert!(
+        // ubs:ignore: test-only assertion
+        !reads
+            .iter()
+            .any(|read| read.to_string().contains(&local_id)),
+        "nothing tenant-b read names the default tenant's decision {local_id}"
+    );
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}

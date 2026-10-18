@@ -164,20 +164,20 @@ pub trait EventLedger {
         Ok(found)
     }
 
-    /// The tenant the plain methods below (`append`, `read`, `replay_from`, `latest_offset`)
-    /// address: `local`, unless the ledger is bound to another tenant (the Postgres ledger opened
-    /// for one). A caller that names the tenant itself uses the `_for_tenant` methods; one that
-    /// takes "the ledger's own events" and needs `_for_tenant` reads too asks this.
-    fn bound_tenant(&self) -> TenantId {
-        TenantId::local()
-    }
+    /// The tenant this ledger value was opened for: the one the plain methods below (`append`,
+    /// `read`, `replay_from`, `latest_offset`) address, and the one a reader that takes "the
+    /// ledger's own events" and needs `_for_tenant` reads uses. Required, with no default, so a
+    /// ledger that holds several tenants' events must say which one it stands for; none can
+    /// quietly mean `local` (a caller that names the tenant itself uses the `_for_tenant`
+    /// methods).
+    fn bound_tenant(&self) -> TenantId;
 
     fn append(&self, event: Event) -> Result<EventId> {
-        self.append_for_tenant(&TenantId::local(), event)
+        self.append_for_tenant(&self.bound_tenant(), event)
     }
 
     fn read(&self, offset: EventId, limit: usize) -> Result<Vec<Event>> {
-        self.read_for_tenant(&TenantId::local(), offset, limit)
+        self.read_for_tenant(&self.bound_tenant(), offset, limit)
     }
 
     fn replay_from(
@@ -185,11 +185,11 @@ pub trait EventLedger {
         offset: EventId,
         callback: &mut dyn FnMut(&Event) -> Result<()>,
     ) -> Result<()> {
-        self.replay_from_for_tenant(&TenantId::local(), offset, callback)
+        self.replay_from_for_tenant(&self.bound_tenant(), offset, callback)
     }
 
     fn latest_offset(&self) -> Result<EventId> {
-        self.latest_offset_for_tenant(&TenantId::local())
+        self.latest_offset_for_tenant(&self.bound_tenant())
     }
 }
 
@@ -220,6 +220,10 @@ impl<'a, L: EventLedger + ?Sized> TenantScopedLedger<'a, L> {
 }
 
 impl<L: EventLedger + ?Sized> EventLedger for TenantScopedLedger<'_, L> {
+    fn bound_tenant(&self) -> TenantId {
+        self.tenant_id.clone()
+    }
+
     fn append_for_tenant(&self, _tenant_id: &TenantId, event: Event) -> Result<EventId> {
         self.ledger.append_for_tenant(&self.tenant_id, event)
     }
@@ -309,6 +313,10 @@ impl<L: EventLedger> TenantScopedOwnedLedger<L> {
 }
 
 impl<L: EventLedger> EventLedger for TenantScopedOwnedLedger<L> {
+    fn bound_tenant(&self) -> TenantId {
+        self.tenant_id.clone()
+    }
+
     fn append_for_tenant(&self, _tenant_id: &TenantId, event: Event) -> Result<EventId> {
         self.ledger.append_for_tenant(&self.tenant_id, event)
     }

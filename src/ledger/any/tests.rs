@@ -6,7 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::*;
 use crate::ledger::contract_tests::{
     assert_dedup_by_event_uuid, assert_grounding_events_round_trip, assert_monotonic_append,
-    assert_read_offset_and_limit, assert_replay_from_zero_in_order, assert_typed_and_id_reads,
+    assert_plain_methods_address_the_bound_tenant, assert_read_offset_and_limit,
+    assert_replay_from_zero_in_order, assert_typed_and_id_reads,
 };
 
 fn temp_hivemind_dir(prefix: &str) -> PathBuf {
@@ -64,6 +65,27 @@ fn contract_tests_pass_against_any_ledger_sqlite() -> Result<()> {
         assert_typed_and_id_reads(ledger, &TenantId::local())
     })?;
     Ok(())
+}
+
+/// A ledger opened for a tenant other than `local` answers for that tenant through every method,
+/// the plain ones and `bound_tenant` included (hivemind-xm9by): the plain `read` of a value opened
+/// for `acme` is `acme`'s events, not those of the `local` tenant every SQLite ledger is seeded
+/// with, which the contract writes an event to.
+#[test]
+fn a_sqlite_any_ledger_opened_for_another_tenant_addresses_that_tenant() -> Result<()> {
+    let dir = temp_hivemind_dir("bound-tenant");
+    let acme =
+        TenantId::new("acme").map_err(|e| crate::error::LedgerError::Storage(e.to_string()))?;
+    SqliteEventLedger::open(&dir)?.create_tenant(&acme)?;
+    let config = LedgerConfig {
+        hivemind_dir: dir.clone(),
+        database_url: None,
+    };
+
+    let ledger = AnyLedger::open(&config, &acme)?;
+    let result = assert_plain_methods_address_the_bound_tenant(&ledger, &acme, &TenantId::local());
+    let _ = fs::remove_dir_all(&dir);
+    result
 }
 
 #[cfg(not(feature = "shared-backend-postgres"))]

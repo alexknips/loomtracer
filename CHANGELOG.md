@@ -718,6 +718,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **MCP `recent_decisions`, `get_changed_decisions` and the dated timeline in
+  `get_decision_neighborhood` now read the caller's tenant, not `local`.** Over stdio
+  (`hivemind --tenant <id> mcp`) and over `POST /mcp` (a tenant header under the static key, or an
+  agent token minted for a tenant), these three tools read the `local` tenant's ledger whatever
+  tenant the call was opened for. A caller in tenant `acme` got `local`'s decisions (titles,
+  rationales, quotes, actors) from `recent_decisions` and none of its own, an empty
+  `get_changed_decisions`, and a `why` whose graph was `acme`'s but whose timeline was not. Only
+  the `local` tenant was ever read so far (the city cell has no other), so no wrong answer has been
+  seen; it would have been a cross-tenant read as soon as a second tenant existed. The ledger
+  value a call is opened with now carries its tenant, and `EventLedger::bound_tenant` has no
+  default: a ledger must say which tenant its plain `append`, `read`, `replay_from` and
+  `latest_offset` address, so none can quietly mean `local`. The REST routes, which pinned the
+  tenant themselves, are unchanged. (hivemind-xm9by)
 - **MCP `capture_decision` and `supersede_decision` no longer read the whole ledger, so a write
   answers in seconds instead of minutes and the client no longer times out on a capture that was
   recorded.** On the city cell (about 130,000 events, 127,000 of them raw transcripts) a capture

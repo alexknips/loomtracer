@@ -522,30 +522,9 @@ impl EventLedger for PostgresEventLedger {
         self.event_ids_for_uuids_for_tenant(tenant_id.as_str(), uuids)
     }
 
-    // Override defaults: self.tenant_id may differ from TenantId::local().
     fn bound_tenant(&self) -> TenantId {
         // The id was checked non-empty when this ledger was built, so `new` cannot refuse it.
         TenantId::new(self.tenant_id.as_str()).unwrap_or_default()
-    }
-
-    fn append(&self, event: Event) -> Result<EventId> {
-        self.append_for_tenant(&self.tenant_id, event)
-    }
-
-    fn read(&self, offset: EventId, limit: usize) -> Result<Vec<Event>> {
-        self.read_for_tenant(&self.tenant_id, offset, limit)
-    }
-
-    fn replay_from(
-        &self,
-        offset: EventId,
-        callback: &mut dyn FnMut(&Event) -> Result<()>,
-    ) -> Result<()> {
-        self.replay_from_for_tenant(&self.tenant_id, offset, callback)
-    }
-
-    fn latest_offset(&self) -> Result<EventId> {
-        self.latest_offset_for_tenant(&self.tenant_id)
     }
 }
 

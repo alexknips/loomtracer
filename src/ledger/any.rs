@@ -69,9 +69,10 @@ impl AnyLedger {
     }
 
     fn open_sqlite(hivemind_dir: &std::path::Path, tenant_id: &TenantId) -> Result<Self> {
-        let ledger = SqliteEventLedger::open(hivemind_dir)?;
-        ledger.ensure_known_tenant(tenant_id)?;
-        Ok(AnyLedger::Sqlite(ledger))
+        Ok(AnyLedger::Sqlite(SqliteEventLedger::open_for_tenant(
+            hivemind_dir,
+            tenant_id,
+        )?))
     }
 
     #[cfg(feature = "shared-backend-postgres")]
@@ -99,6 +100,14 @@ impl AnyLedger {
 }
 
 impl EventLedger for AnyLedger {
+    fn bound_tenant(&self) -> TenantId {
+        match self {
+            AnyLedger::Sqlite(l) => l.bound_tenant(),
+            #[cfg(feature = "shared-backend-postgres")]
+            AnyLedger::Postgres(l) => EventLedger::bound_tenant(l),
+        }
+    }
+
     fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> Result<EventId> {
         match self {
             AnyLedger::Sqlite(l) => l.append_for_tenant(tenant_id, event),

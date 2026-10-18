@@ -664,6 +664,10 @@ impl Scenario {
 pub(crate) struct TypedReadsOnly<'a>(pub(crate) &'a InMemoryEventLedger);
 
 impl EventLedger for TypedReadsOnly<'_> {
+    fn bound_tenant(&self) -> TenantId {
+        self.0.bound_tenant()
+    }
+
     fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> Result<EventId> {
         self.0.append_for_tenant(tenant_id, event)
     }

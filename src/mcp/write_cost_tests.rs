@@ -72,6 +72,10 @@ struct CountingLedger {
 }
 
 impl EventLedger for CountingLedger {
+    fn bound_tenant(&self) -> TenantId {
+        self.inner.bound_tenant()
+    }
+
     fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> crate::Result<EventId> {
         self.inner.append_for_tenant(tenant_id, event)
     }

@@ -375,10 +375,7 @@ impl ApiBackend {
         let _ = tenant_id;
         match self {
             ApiBackend::Sqlite(dir) => {
-                let ledger = SqliteEventLedger::open(dir.as_ref())
-                    .map_err(|e| ApiError::internal(e.to_string()))?;
-                ledger
-                    .ensure_known_tenant(tenant_id)
+                let ledger = SqliteEventLedger::open_for_tenant(dir.as_ref(), tenant_id)
                     .map_err(unknown_tenant_to_api_error)?;
                 Ok(ApiLedger::Sqlite(ledger))
             }
