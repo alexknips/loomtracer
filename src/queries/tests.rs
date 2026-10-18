@@ -20,8 +20,8 @@ use super::attribution::attribute_in_pages;
 use super::misfiled::scan_in_pages;
 use super::neighborhood::neighborhood_structure;
 use super::terms::{
-    content_query, outside_negation, resolver_question, resolver_terms, stem, RelatedWord,
-    WordMatch, WORD_GROUPS,
+    content_query, outside_negation, resolver_question, resolver_terms, stem,
+    topic_key_parts_within, RelatedWord, WordMatch, WORD_GROUPS,
 };
 use super::test_fixtures::Scenario;
 use super::*;
@@ -3127,6 +3127,184 @@ fn situational_decisions_do_not_surface_for_an_unrelated_path() -> Result<()> {
     assert_eq!(response.data.total_matches, 0);
     assert!(response.data.matches.is_empty());
     Ok(())
+}
+
+/// One decision per entry of `topic_keys`, none with evidence, so only the topic-key rule can
+/// make a decision surface.
+fn situational_topic_fixture(
+    decisions: &[(&str, &[&str])],
+) -> Result<(InMemoryEventLedger, MemoryGraph)> {
+    let ledger = InMemoryEventLedger::new();
+    for (index, (decision_id, topic_keys)) in decisions.iter().enumerate() {
+        ledger.append(test_event(
+            index as u128 + 1,
+            EventType::DecisionProposed,
+            "actor:planner",
+            json!({
+                "decision_id": decision_id,
+                "title": format!("Decision {decision_id}"),
+                "rationale": "Topic key matching",
+                "topic_keys": topic_keys,
+                "option_ids": [],
+                "chosen_option_id": null,
+                "hypothesis_ids": [],
+                "evidence_ids": []
+            }),
+            "2026-01-01T00:00:00Z",
+        ))?;
+    }
+    let graph = MemoryGraph::default();
+    rebuild_graph(&ledger, &graph)?;
+    Ok((ledger, graph))
+}
+
+fn situational_for(
+    ledger: &InMemoryEventLedger,
+    graph: &MemoryGraph,
+    path: &str,
+) -> Result<SituationalResults> {
+    Ok(get_situational_decisions(
+        &QueryContext::local(),
+        graph,
+        ledger,
+        &SituationalRequest {
+            paths: vec![path.to_owned()],
+            limit: 10,
+            ..SituationalRequest::default()
+        },
+    )?
+    .data)
+}
+
+fn situational_ids(results: &SituationalResults) -> Vec<&str> {
+    results
+        .matches
+        .iter()
+        .map(|m| m.decision.id.as_str())
+        .collect()
+}
+
+#[test]
+fn situational_multi_word_topic_key_matches_when_every_part_is_a_situation_term() -> Result<()> {
+    let (ledger, graph) = situational_topic_fixture(&[
+        ("decision:scope", &["project-scope"]),
+        ("decision:other", &["billing"]),
+    ])?;
+
+    // A file whose name spells the key with an underscore, and a branch that spells it with a hyphen.
+    for path in ["src/queries/project_scope.rs", "feature/project-scope"] {
+        let results = situational_for(&ledger, &graph, path)?;
+        assert_eq!(situational_ids(&results), vec!["decision:scope"], "{path}");
+        let found = &results.matches[0];
+        assert_eq!(
+            found.matched_via,
+            vec![MatchReason::TopicKey {
+                topic: "project-scope".to_owned()
+            }],
+            "{path}: the reason names the whole key, not one of its parts"
+        );
+    }
+
+    // Both parts are in the situation, so both count toward the score: `queries`, `project` and
+    // `scope` are the situation's terms and the key covers two of the three.
+    let results = situational_for(&ledger, &graph, "src/queries/project_scope.rs")?;
+    assert_eq!(
+        results.query_terms,
+        vec![
+            "project".to_owned(),
+            "queries".to_owned(),
+            "scope".to_owned()
+        ]
+    );
+    assert!((results.matches[0].score - 2.0 / 3.0).abs() < f64::EPSILON);
+    Ok(())
+}
+
+#[test]
+fn situational_multi_word_topic_key_needs_every_part() -> Result<()> {
+    let (ledger, graph) = situational_topic_fixture(&[("decision:scope", &["project-scope"])])?;
+
+    for path in [
+        "src/queries/project.rs",
+        "src/queries/scope.rs",
+        "src/projects/scoped.rs",
+        "src/billing/invoice.rs",
+    ] {
+        let results = situational_for(&ledger, &graph, path)?;
+        assert!(
+            results.matches.is_empty(),
+            "{path} holds only part of `project-scope`"
+        );
+    }
+
+    // The parts need not be next to each other or in the key's order: two touched paths that
+    // each hold one part together hold both.
+    let results = get_situational_decisions(
+        &QueryContext::local(),
+        &graph,
+        &ledger,
+        &SituationalRequest {
+            paths: vec![
+                "src/queries/scope.rs".to_owned(),
+                "src/project.rs".to_owned(),
+            ],
+            limit: 10,
+            ..SituationalRequest::default()
+        },
+    )?
+    .data;
+    assert_eq!(situational_ids(&results), vec!["decision:scope"]);
+    Ok(())
+}
+
+#[test]
+fn situational_topic_key_listed_twice_is_one_reason() -> Result<()> {
+    let (ledger, graph) = situational_topic_fixture(&[(
+        "decision:scope",
+        &["project-scope", "project-scope", "auth"],
+    )])?;
+
+    let results = situational_for(&ledger, &graph, "src/auth/project_scope.rs")?;
+    assert_eq!(
+        results.matches[0].matched_via,
+        vec![
+            MatchReason::TopicKey {
+                topic: "auth".to_owned()
+            },
+            MatchReason::TopicKey {
+                topic: "project-scope".to_owned()
+            },
+        ],
+        "one reason per key, in key order"
+    );
+    Ok(())
+}
+
+#[test]
+fn topic_key_parts_within_reads_the_key_like_a_path() {
+    let query: BTreeSet<&str> = ["api", "project", "scope"].into_iter().collect();
+    let parts = |key: &str| topic_key_parts_within(key, &query);
+
+    assert_eq!(parts("auth"), None);
+    assert_eq!(parts("api"), Some(vec!["api".to_owned()]));
+    assert_eq!(
+        parts("project-scope"),
+        Some(vec!["project".to_owned(), "scope".to_owned()])
+    );
+    assert_eq!(
+        parts("Project_Scope"),
+        Some(vec!["project".to_owned(), "scope".to_owned()]),
+        "case and separator do not matter"
+    );
+    assert!(
+        parts("project-scope-api").is_some() && parts("api-project-scope").is_some(),
+        "the order of the parts does not matter"
+    );
+    assert_eq!(parts("project-scope-auth"), None, "one part missing");
+    // A part no situation can hold (`path_terms` drops it) is not asked for.
+    assert_eq!(parts("test-api"), Some(vec!["api".to_owned()]));
+    assert_eq!(parts("test"), None, "a key of nothing but dropped parts");
+    assert_eq!(parts(""), None);
 }
 
 #[test]

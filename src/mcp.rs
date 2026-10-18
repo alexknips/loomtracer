@@ -840,7 +840,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "get_situational_decisions",
-            "description": "\"What should I know before I touch this?\" — decisions bearing on the given situation, no id or hand-typed question needed. Matches by exact topic_keys membership and by term overlap against evidence content (deterministic, no LLM); each result names which matched and includes held_up/reasons from get_decision_outcome verbatim. Topic matches are exact; evidence matches are a fuzzy heuristic over free text, not a structural path reference — treat matched_via[].kind accordingly.",
+            "description": "\"What should I know before I touch this?\" — decisions bearing on the given situation, no id or hand-typed question needed. Matches by topic key and by term overlap against evidence content (deterministic, no LLM); each result names which matched and includes held_up/reasons from get_decision_outcome verbatim. A topic key matches when every one of its parts is a term of the situation: `auth` for src/api/auth.rs, `project-scope` for src/queries/project_scope.rs or the branch feature/project-scope, not for src/queries/project.rs alone. Topic matches are structural; evidence matches are a fuzzy heuristic over free text, not a structural path reference — treat matched_via[].kind accordingly.",
             "inputSchema": {
                 "type": "object",
                 "required": ["paths"],

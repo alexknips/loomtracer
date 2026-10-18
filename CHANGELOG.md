@@ -718,6 +718,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`situational` and `get_situational_decisions` now match a multi-word topic key to the files
+  being touched.** A decision with the topic `project-scope` never surfaced for
+  `src/queries/project_scope.rs` or the branch `feature/project-scope`: the situation is split
+  into words (`queries`, `project`, `scope`) and the key was compared whole, so a kebab key could
+  not equal any of them and only a one-word key such as `auth` ever matched. A topic key now
+  matches when every one of its parts is a word of the situation, and the `topic_key` reason
+  names the whole key (`project-scope`). All parts are needed: `project-scope` does not surface
+  for `src/queries/project.rs` alone, and two touched paths that each hold one part together hold
+  both. A part the situation never holds (`test`, a one-letter part) is not asked for, and a key
+  made of nothing else matches nothing. A one-word key matches as before. The score counts the
+  situation words the key covers. Nothing is rewritten or migrated. (hivemind-1huzw)
 - **Topic filters now find a decision however the topic is typed.** Capture stores every topic
   key as lowercase kebab (`Release Plan` is `release-plan`, `MCP` is `mcp`), but the reads compared
   the typed text, so `hivemind query search --topic "Release Plan"`, `get_relevant_decisions`

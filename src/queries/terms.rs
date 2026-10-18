@@ -56,6 +56,19 @@ pub fn overlapping_terms(query_terms: &[String], candidate_terms: &[String]) -> 
     hits
 }
 
+/// The parts of a topic `key` when every one of them is among `query_terms`; `None` when any part
+/// is missing or the key has no part at all. The key is read the way a path is (`path_terms`): a
+/// stored key such as `project-scope` is kebab-case, so it is never equal to a single path term,
+/// but its parts `project` and `scope` are both terms of `src/queries/project_scope.rs` and of
+/// `feature/project-scope`. All parts are required, so `project-scope` does not fire for
+/// `src/queries/project.rs` alone. A part `path_terms` drops (`test`, a one-letter part) is not
+/// asked for, since no situation can hold it.
+pub fn topic_key_parts_within(key: &str, query_terms: &BTreeSet<&str>) -> Option<Vec<String>> {
+    let parts = path_terms(key);
+    let covered = !parts.is_empty() && parts.iter().all(|part| query_terms.contains(part.as_str()));
+    covered.then_some(parts)
+}
+
 /// Fraction of the unique terms in `query_terms` found in `candidate_terms`. `0.0` when
 /// `query_terms` is empty or there is no overlap; `1.0` when every query term is present
 /// in the candidate set. Deterministic term-frequency overlap, not BM25 or any

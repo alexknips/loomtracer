@@ -540,8 +540,9 @@ pub(crate) fn render_situational_summary(results: &SituationalResults) -> String
         if let Some(scope) = &item.scope {
             let _ = write!(output, "scope={}\t", summary_cell(&scope.label));
         }
-        // Exact topic_keys membership and fuzzy evidence-content overlap are visually
-        // distinguished so an agent doesn't over-trust the fuzzy half (AGENTS.md §6).
+        // Topic-key matches (every part of the key is a situation term) and fuzzy
+        // evidence-content overlap are visually distinguished so an agent doesn't over-trust
+        // the fuzzy half (AGENTS.md §6).
         for (index, reason) in item.matched_via.iter().enumerate() {
             if index > 0 {
                 output.push(' ');

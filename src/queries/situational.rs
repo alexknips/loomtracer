@@ -2,11 +2,12 @@
 //! from the working situation itself (touched paths, a branch name, a cwd) rather than
 //! a hand-typed question. See hivemind-tenv.2.
 //!
-//! Matching is entirely deterministic and portable: an exact `topic_keys` membership
-//! check (same primitive `get_relevant_decisions` uses) plus a term-overlap heuristic
-//! against evidence content, both read via the already-dispatched `node_rows`/
-//! `relation_edges` scans. No SQLite FTS, no `postgres.rs` changes, no LLM (AGENTS.md
-//! Principles 1/7) — this is the same tier of determinism as `search.rs`'s rank system.
+//! Matching is entirely deterministic and portable: a topic-key check (a key matches when
+//! every part of it, split like a path, is a term of the situation; see
+//! `terms::topic_key_parts_within`) plus a term-overlap heuristic against evidence content,
+//! both read via the already-dispatched `node_rows`/`relation_edges` scans. No SQLite FTS,
+//! no `postgres.rs` changes, no LLM (AGENTS.md Principles 1/7) — this is the same tier of
+//! determinism as `search.rs`'s rank system.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
@@ -28,7 +29,7 @@ use super::shared::{
     node_rows, normalized_limit, optional_int, optional_string, optional_string_list, parse_cursor,
     query_error, relation_edges,
 };
-use super::terms::{overlapping_terms, path_terms, text_terms};
+use super::terms::{overlapping_terms, path_terms, text_terms, topic_key_parts_within};
 use super::{QueryContext, QueryResponse};
 
 /// One reason a decision surfaced for the given situation, with enough detail that
@@ -36,7 +37,9 @@ use super::{QueryContext, QueryResponse};
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MatchReason {
-    /// Exact membership: the decision's `topic_keys` contains this term verbatim.
+    /// A topic key of the decision whose every part is a term of the situation: `auth` for
+    /// `src/api/auth.rs`, `project-scope` for `src/queries/project_scope.rs` or the branch
+    /// `feature/project-scope`. Structural, not fuzzy: no part may be missing.
     TopicKey { topic: String },
     /// Fuzzy: an evidence item this decision is `BASED_ON` shares these terms with the
     /// situation. Term overlap over free prose, not a structural path reference —
@@ -270,6 +273,8 @@ fn score_candidates(
             .insert(decision_id);
     }
 
+    let query_set: BTreeSet<&str> = query_terms.iter().map(String::as_str).collect();
+
     // Populated for every decision (not just matches) so the evidence pass below can
     // look candidates up by reference (`get_mut`) rather than by owned key (`entry`).
     let mut accumulated: BTreeMap<String, Accumulated> = BTreeMap::new();
@@ -281,18 +286,21 @@ fn score_candidates(
             },
             None => None,
         };
-        let topic_keys = optional_string_list(&row, "topic_keys");
-        let topic_terms: Vec<String> = topic_keys.iter().map(|t| t.to_ascii_lowercase()).collect();
         let mut entry = Accumulated {
             event_origin: optional_int(&row, "event_origin").unwrap_or(0),
             relation,
             ..Accumulated::default()
         };
-        for hit in overlapping_terms(query_terms, &topic_terms) {
-            entry.reasons.push(MatchReason::TopicKey {
-                topic: hit.clone(), // ubs:ignore: clone necessary — hit is also moved into matched_terms.insert(hit) below; the term is needed as both an owned reason field and an owned set member
-            });
-            entry.matched_terms.insert(hit);
+        // Keyed by the lowercased key, so a key stored twice or in two cases is one reason.
+        let mut covered: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for key in optional_string_list(&row, "topic_keys") {
+            if let Some(parts) = topic_key_parts_within(&key, &query_set) {
+                covered.entry(key.to_ascii_lowercase()).or_insert(parts);
+            }
+        }
+        for (topic, parts) in covered {
+            entry.matched_terms.extend(parts);
+            entry.reasons.push(MatchReason::TopicKey { topic });
         }
         accumulated.insert(decision_id, entry);
     }
