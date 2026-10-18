@@ -98,7 +98,8 @@ use super::search::{
     collect_resolver_candidates, out_heading, CloseMatch, ResolverCandidateRow, Standing,
 };
 use super::shared::{
-    optional_int, optional_string, query_error, query_timer_start, MAX_QUERY_RESULTS,
+    normalized_topic_filter_values, optional_int, optional_string, query_error, query_timer_start,
+    MAX_QUERY_RESULTS,
 };
 use super::terms::resolver_terms;
 use super::QueryResponse;
@@ -284,9 +285,7 @@ fn resolve_for(
     }
 
     let topic_keys: Vec<String> = topic_hint
-        .map(str::trim)
-        .filter(|topic| !topic.is_empty())
-        .map(|topic| vec![topic.to_owned()])
+        .map(|topic| normalized_topic_filter_values(&[topic.to_owned()]))
         .unwrap_or_default();
 
     let close = match asker {

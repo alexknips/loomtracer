@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 
+use crate::commands::normalize_topic_key;
 use crate::error::QueryError;
 use crate::floor::RecordedFloor;
 use crate::projector::{GraphParams, GraphRow, GraphValue, GraphView, NodeKind, RelationKind};
@@ -43,6 +44,19 @@ pub(crate) fn normalized_filter_values(values: &[String]) -> Vec<String> {
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// Topic filter keys in the form capture stores them: `normalize_topic_key` over each value,
+/// empty results dropped, duplicates collapsed. A filter typed `Release Plan` or `MCP` has to
+/// meet the stored `release-plan` and `mcp`, or the answer reads as "nothing on this topic".
+pub(crate) fn normalized_topic_filter_values(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| normalize_topic_key(value))
+        .filter(|value| !value.is_empty())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()

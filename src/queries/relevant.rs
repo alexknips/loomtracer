@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 
+use crate::commands::normalize_topic_key;
 use crate::projector::{GraphParams, GraphValue, GraphView};
 use crate::Result;
 
@@ -36,12 +37,13 @@ pub fn get_relevant_decisions(
     status_filter: Option<DecisionStatus>,
 ) -> Result<QueryResponse<Vec<RelevantDecision>>> {
     let started = Instant::now();
-    let topic = topic.trim();
-    if topic.is_empty() {
+    // Stored topic keys are lowercase kebab (`normalize_topic_key`), so the caller's `Release Plan`
+    // has to meet `release-plan`; a topic with no letter or digit left names no key at all.
+    let normalized_topic = normalize_topic_key(topic);
+    if normalized_topic.is_empty() {
         return Err(query_error("topic must not be empty").into());
     }
 
-    let normalized_topic = topic.to_owned();
     let count_rows = graph.query(
         "MATCH (d:`Decision`) WHERE $topic IN d.topic_keys RETURN count(d) AS count;",
         &GraphParams::from([(

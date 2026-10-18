@@ -12,8 +12,9 @@ use crate::Result;
 
 use super::shared::{
     decision_node_exists, node_rows, normalized_filter_values, normalized_limit, normalized_query,
-    optional_datetime, optional_int, optional_string, optional_string_list, parse_cursor,
-    query_error, relation_edges_by_kind, relation_targets, required_datetime, required_string,
+    normalized_topic_filter_values, optional_datetime, optional_int, optional_string,
+    optional_string_list, parse_cursor, query_error, relation_edges_by_kind, relation_targets,
+    required_datetime, required_string,
 };
 use super::status::{
     derive_decision_status, derive_hypothesis_status, DecisionStatus, HypothesisStatus,
@@ -371,7 +372,7 @@ fn active_decision_blockers(
 fn normalized_blocker_filters(filters: &DecisionBlockerFilters) -> DecisionBlockerFilters {
     DecisionBlockerFilters {
         decision_ids: normalized_filter_values(&filters.decision_ids),
-        topic_keys: normalized_filter_values(&filters.topic_keys),
+        topic_keys: normalized_topic_filter_values(&filters.topic_keys),
         required_owner_ids: normalized_filter_values(&filters.required_owner_ids),
         blocked_actor_ids: normalized_filter_values(&filters.blocked_actor_ids),
         priorities: filters

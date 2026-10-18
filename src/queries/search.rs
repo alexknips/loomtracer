@@ -20,9 +20,9 @@ use super::reexamine::{ReexamineMarker, ReexamineMarkers};
 use super::same_as::{fold_linked, RecordedCopy};
 use super::shared::{
     node_rows, normalized_filter_values, normalized_limit, normalized_query, normalized_statuses,
-    optional_datetime, optional_int, optional_string, optional_string_list, parse_cursor,
-    query_error, query_terms, recorded_floor_of, relation_edges_by_kind, relation_sources,
-    relation_targets,
+    normalized_topic_filter_values, optional_datetime, optional_int, optional_string,
+    optional_string_list, parse_cursor, query_error, query_terms, recorded_floor_of,
+    relation_edges_by_kind, relation_sources, relation_targets,
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, DecisionStatus};
 use super::terms::{
@@ -217,7 +217,7 @@ pub fn search_decisions(
     let started = Instant::now();
     let query = normalized_query(request.query.as_deref());
     let terms = query_terms(query.as_deref());
-    let topic_keys = normalized_filter_values(&request.topic_keys);
+    let topic_keys = normalized_topic_filter_values(&request.topic_keys);
     let statuses = normalized_statuses(&request.statuses);
     let actor_ids = normalized_filter_values(&request.actor_ids);
     let sources = normalized_filter_values(&request.sources);
@@ -356,7 +356,7 @@ fn search_with_ledger(
         Matching::Literal => SearchTerms::literal(&terms),
         Matching::Fluent { negated } => SearchTerms::fluent(&terms, negated),
     };
-    let topic_keys = normalized_filter_values(&request.topic_keys);
+    let topic_keys = normalized_topic_filter_values(&request.topic_keys);
     let statuses = normalized_statuses(&request.statuses);
     let actor_ids = normalized_filter_values(&request.actor_ids);
     let sources = normalized_filter_values(&request.sources);
@@ -483,7 +483,7 @@ pub fn search_decisions_fts_with_context(
     let started = Instant::now();
     let query = normalized_query(request.query.as_deref());
     let terms = query_terms(query.as_deref());
-    let topic_keys = normalized_filter_values(&request.topic_keys);
+    let topic_keys = normalized_topic_filter_values(&request.topic_keys);
     let statuses = normalized_statuses(&request.statuses);
     let actor_ids = normalized_filter_values(&request.actor_ids);
     let sources = normalized_filter_values(&request.sources);

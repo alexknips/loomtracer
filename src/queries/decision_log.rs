@@ -59,8 +59,8 @@ use super::project_label::ProjectLabels;
 use super::projects::{is_known_project, registered_project_names};
 use super::reexamine::{Propagation, ReexamineEntry};
 use super::shared::{
-    neighbor_pairs, node_rows, optional_int, optional_string, query_error, Direction,
-    MAX_QUERY_RESULTS,
+    neighbor_pairs, node_rows, normalized_topic_filter_values, optional_int, optional_string,
+    query_error, Direction, MAX_QUERY_RESULTS,
 };
 use super::status::{DecisionStatus, HypothesisStatus};
 
@@ -127,6 +127,12 @@ pub fn export_decision_log(
     req: &DecisionLogRequest,
     profile_section: Option<ProfileSection<'_>>,
 ) -> Result<DecisionLogOutcome> {
+    // Stored topic keys are lowercase kebab, so `--topic MCP` filters on `mcp`; the `Filters:`
+    // line the export prints then names the keys actually matched.
+    let req = &DecisionLogRequest {
+        topics: normalized_topic_filter_values(&req.topics),
+        ..req.clone()
+    };
     let registered = registered_project_names(ledger)?;
     let requested = match req.project.as_deref().map(str::trim) {
         Some("") => return Err(query_error("project must not be empty").into()),

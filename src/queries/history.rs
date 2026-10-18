@@ -25,7 +25,9 @@ use crate::Result;
 use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
 use super::project_label::ProjectLabels;
 use super::reexamine;
-use super::shared::{node_rows, normalized_query, recorded_floor_of};
+use super::shared::{
+    node_rows, normalized_query, normalized_topic_filter_values, recorded_floor_of,
+};
 use super::status::DecisionStandings;
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
@@ -1128,7 +1130,7 @@ fn normalized_recent_decision_filters(
     NormalizedRecentDecisionFilters {
         actor_patterns: normalized_string_values(request.actor_patterns.clone()),
         sources: normalized_string_values(request.sources.clone()),
-        topic_keys: normalized_string_values(request.topic_keys.clone()),
+        topic_keys: normalized_topic_filter_values(&request.topic_keys),
         statuses: request
             .statuses
             .iter()
@@ -1243,7 +1245,7 @@ fn normalized_added_since_filters(
         sources: normalized_string_values(request.sources.clone()),
         source_refs: normalized_string_values(request.source_refs.clone()),
         import_run_ids: normalized_string_values(request.import_run_ids.clone()),
-        topic_keys: normalized_string_values(request.topic_keys.clone()),
+        topic_keys: normalized_topic_filter_values(&request.topic_keys),
         statuses: request
             .statuses
             .iter()
@@ -2317,7 +2319,7 @@ fn normalized_history_filters(request: &HistoryFilterRequest) -> HistoryFilters 
         actor_ids: normalized_string_values(request.actor_ids.clone()),
         sources: normalized_string_values(request.sources.clone()),
         source_refs: normalized_string_values(request.source_refs.clone()),
-        topic_keys: normalized_string_values(request.topic_keys.clone()),
+        topic_keys: normalized_topic_filter_values(&request.topic_keys),
         statuses: request
             .statuses
             .iter()

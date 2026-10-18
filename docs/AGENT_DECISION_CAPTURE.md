@@ -615,7 +615,14 @@ the project out; the client does, and only asks the registry what is anchored.
 **Topic keys and the project's vocabulary.** A topic says what a decision is
 about; without a vocabulary every capture invents its own keys and recall by topic
 becomes a lottery. Keys are normalised to lowercase kebab (`Pricing Model` becomes
-`pricing-model`). A registered project has a vocabulary: the keys someone declared
+`pricing-model`). Every read normalises the topic it is given the same way, so
+`--topic "Pricing Model"`, `pricing_model` and `PRICING-MODEL` all find `pricing-model`:
+search, recall, `get_relevant_decisions`, the `--topic` hint that resolves a description
+to a decision, the decision-log export, active blockers and the recent, added-since
+and changed-since reads. A topic with no letter or digit in it names no key and is
+dropped from a filter (`get_relevant_decisions` refuses it).
+
+A registered project has a vocabulary: the keys someone declared
 for it. A capture filed under a registered project may use only those, so a new
 key has to be declared, and the capture says so:
 
