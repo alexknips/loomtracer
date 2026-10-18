@@ -1,0 +1,337 @@
+//! What classified captures state that no fact event of the ledger says (hivemind-u46nq).
+//!
+//! A capture (`ingest.batch_classified`) can state a decision's standing inside itself:
+//! `accepted_by`, `rejected_by`, `supersedes_id` and `premised_on_ids` on a decision, `refutes_ids`
+//! on evidence. The projector turns each into an edge, but the capture is no `decision.accepted`,
+//! `decision.rejected`, `decision.superseded` or `relation.added` event, so reading the fact events
+//! alone drops them. This reads those edges from the graph and gives each the shape of the event it
+//! stands for (a [`Step`]), so the one rule `ledger_facts` applies to events applies to them too:
+//! a decision a capture supersedes tells the decisions that follow from it, and a hypothesis a
+//! capture refutes tells the decisions that rested on it.
+//!
+//! Dating follows `status_events::capture_entries`. A decision's position is cited by the offset of
+//! the decision that made the capture and dated at its recorded time (the source turn's time when
+//! the capture names one, else the batch's). Evidence carries no time of its own, so a refutation
+//! takes the classification event's own time and recorder, read from the event with its captures
+//! left out. Nothing is guessed: an event that cannot be found gives `ts: null`.
+//!
+//! An edge a fact event already explains is not read a second time: the graph keeps one edge per
+//! pair, so an acceptance, rejection, supersession or refutation the ledger holds as its own event
+//! is that event's step and not a capture's.
+
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
+
+use chrono::{DateTime, Utc};
+
+use crate::events::{
+    DecisionAcceptedPayload, DecisionRejectedPayload, DecisionSupersededPayload, EventId,
+    EventPayload, EventType, RelationAddedPayload, RelationKind as EventRelationKind,
+};
+use crate::ledger::EventLedger;
+use crate::projector::{GraphView, NodeKind, RelationKind};
+use crate::queries::brief::is_classified_capture;
+use crate::queries::shared::{neighbor_pairs, query_error, relation_edges_with_origin, Direction};
+use crate::queries::status_events::{cited, proposer_of, recorded_of};
+use crate::Result;
+
+use super::Step;
+
+/// What the fact events already say, so the graph edges they wrote are not read again.
+#[derive(Default)]
+struct Stated {
+    /// `(decision, actor)` pairs that accepted.
+    accepted: BTreeSet<(String, String)>,
+    rejected: BTreeSet<(String, String)>,
+    /// `(old, new)` pairs.
+    superseded: BTreeSet<(String, String)>,
+    /// `(evidence, hypothesis)` pairs.
+    refuted: BTreeSet<(String, String)>,
+}
+
+impl Stated {
+    fn of(steps: &[Step]) -> Self {
+        let mut stated = Self::default();
+        for step in steps {
+            let actor = step.actor_id.clone().unwrap_or_default();
+            match &step.payload {
+                EventPayload::DecisionAccepted(accepted) => {
+                    stated
+                        .accepted
+                        .insert((accepted.decision_id.clone(), actor));
+                }
+                EventPayload::DecisionRejected(rejected) => {
+                    stated
+                        .rejected
+                        .insert((rejected.decision_id.clone(), actor));
+                }
+                EventPayload::DecisionSuperseded(superseded) => {
+                    stated.superseded.insert((
+                        superseded.old_decision_id.clone(),
+                        superseded.new_decision_id.clone(),
+                    ));
+                }
+                EventPayload::RelationAdded(relation)
+                    if relation.relation == EventRelationKind::Refutes =>
+                {
+                    stated
+                        .refuted
+                        .insert((relation.from_id.clone(), relation.to_id.clone()));
+                }
+                _ => {}
+            }
+        }
+        stated
+    }
+}
+
+/// The steps classified captures state beyond `events`, in the order they were stated: premises
+/// first, so a decision that premised on a hypothesis in the same capture that refutes it is told.
+/// `accepted_of` names the one decision whose acceptances are wanted.
+pub(super) fn steps(
+    graph: &impl GraphView,
+    ledger: &impl EventLedger,
+    events: &[Step],
+    accepted_of: Option<&str>,
+) -> Result<Vec<Step>> {
+    let stated = Stated::of(events);
+    let refutes = relation_edges_with_origin(graph, RelationKind::Refutes)?;
+
+    let mut steps = Vec::new();
+    // A premise only matters once something it premises on is refuted.
+    if !refutes.is_empty() {
+        steps.extend(premises(graph)?);
+    }
+    if let Some(decision_id) = accepted_of {
+        steps.extend(acceptances(graph, decision_id, &stated)?);
+    }
+    steps.extend(rejections(graph, &stated)?);
+    steps.extend(supersessions(graph, &stated)?);
+    steps.extend(refutations(ledger, refutes, &stated)?);
+    Ok(steps)
+}
+
+/// The decisions a capture premises on a hypothesis, directly or through the option it chose.
+fn premises(graph: &impl GraphView) -> Result<Vec<Step>> {
+    let mut steps = Vec::new();
+    for (decision_id, hypothesis_id, origin) in
+        relation_edges_with_origin(graph, RelationKind::PremisedOnDirect)?
+    {
+        if is_classified_capture(&decision_id) {
+            steps.push(relation_step(
+                EventRelationKind::Assumes,
+                decision_id,
+                hypothesis_id,
+                offset_of(origin, "a premise")?,
+            ));
+        }
+    }
+    for (option_id, hypothesis_id, origin) in
+        relation_edges_with_origin(graph, RelationKind::PremisedOn)?
+    {
+        if !is_classified_capture(&option_id) {
+            continue;
+        }
+        let origin = offset_of(origin, "a premise")?;
+        for (decision_id, _) in neighbor_pairs(
+            graph,
+            NodeKind::Option,
+            &option_id,
+            RelationKind::Chose,
+            NodeKind::Decision,
+            Direction::Incoming,
+        )? {
+            steps.push(relation_step(
+                EventRelationKind::Chose,
+                decision_id,
+                option_id.clone(), // ubs:ignore: one per decision that chose the option
+                origin,
+            ));
+        }
+        steps.push(relation_step(
+            EventRelationKind::Assumes,
+            option_id,
+            hypothesis_id,
+            origin,
+        ));
+    }
+    Ok(steps)
+}
+
+fn relation_step(
+    relation: EventRelationKind,
+    from_id: String,
+    to_id: String,
+    origin: EventId,
+) -> Step {
+    Step {
+        origin,
+        ts: None,
+        actor_id: None,
+        payload: EventPayload::RelationAdded(RelationAddedPayload {
+            relation,
+            from_id,
+            to_id,
+        }),
+    }
+}
+
+/// The acceptors a capture named for `decision_id`, at the time and offset it was recorded.
+fn acceptances(graph: &impl GraphView, decision_id: &str, stated: &Stated) -> Result<Vec<Step>> {
+    let recorded = recorded_of(graph, decision_id)?;
+    let mut steps = Vec::new();
+    for (actor_id, _) in neighbor_pairs(
+        graph,
+        NodeKind::Decision,
+        decision_id,
+        RelationKind::AcceptedBy,
+        NodeKind::Actor,
+        Direction::Outgoing,
+    )? {
+        if stated
+            .accepted
+            .contains(&(decision_id.to_owned(), actor_id.clone()))
+        // ubs:ignore: one key per acceptor
+        {
+            continue;
+        }
+        steps.push(Step {
+            origin: cited(recorded.offset, decision_id)?,
+            ts: recorded.at,
+            actor_id: Some(actor_id),
+            payload: EventPayload::DecisionAccepted(DecisionAcceptedPayload {
+                decision_id: decision_id.to_owned(),
+                delegated_by: None,
+            }),
+        });
+    }
+    Ok(steps)
+}
+
+/// The decisions a capture rejected, at the time and offset they were recorded.
+fn rejections(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
+    let mut steps = Vec::new();
+    for (decision_id, actor_id, edge_origin) in
+        relation_edges_with_origin(graph, RelationKind::RejectedBy)?
+    {
+        if stated
+            .rejected
+            .contains(&(decision_id.clone(), actor_id.clone()))
+        // ubs:ignore: one key per rejection
+        {
+            continue;
+        }
+        let recorded = recorded_of(graph, &decision_id)?;
+        steps.push(Step {
+            origin: cited(
+                recorded.offset.or_else(|| edge_offset(edge_origin)),
+                &decision_id,
+            )?,
+            ts: recorded.at,
+            actor_id: Some(actor_id),
+            payload: EventPayload::DecisionRejected(DecisionRejectedPayload {
+                decision_id,
+                reason: None,
+            }),
+        });
+    }
+    Ok(steps)
+}
+
+/// The decisions a capture replaces, at the time and offset the replacing decision was recorded
+/// and by whoever proposed it.
+fn supersessions(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
+    let mut steps = Vec::new();
+    // `SUPERSEDES` runs newer decision -> older decision.
+    for (newer_id, older_id, edge_origin) in
+        relation_edges_with_origin(graph, RelationKind::Supersedes)?
+    {
+        if newer_id == older_id
+            || stated
+                .superseded
+                .contains(&(older_id.clone(), newer_id.clone()))
+        // ubs:ignore: one key per supersession
+        {
+            continue;
+        }
+        let newer = recorded_of(graph, &newer_id)?;
+        steps.push(Step {
+            origin: cited(newer.offset.or_else(|| edge_offset(edge_origin)), &newer_id)?,
+            ts: newer.at,
+            actor_id: proposer_of(graph, &newer_id)?,
+            payload: EventPayload::DecisionSuperseded(DecisionSupersededPayload {
+                old_decision_id: older_id,
+                new_decision_id: newer_id,
+            }),
+        });
+    }
+    Ok(steps)
+}
+
+/// The hypotheses an evidence capture refutes, at the time and by the recorder of the
+/// classification event that wrote the edge.
+fn refutations(
+    ledger: &impl EventLedger,
+    refutes: Vec<(String, String, Option<i64>)>,
+    stated: &Stated,
+) -> Result<Vec<Step>> {
+    let mut steps = Vec::new();
+    let mut classifications: BTreeMap<EventId, (Option<DateTime<Utc>>, Option<String>)> =
+        BTreeMap::new();
+    for (evidence_id, hypothesis_id, edge_origin) in refutes {
+        if stated
+            .refuted
+            .contains(&(evidence_id.clone(), hypothesis_id.clone()))
+        // ubs:ignore: one key per refutation
+        {
+            continue;
+        }
+        let origin = offset_of(edge_origin, "a refutation")?;
+        let (ts, actor_id) = match classifications.entry(origin) {
+            Entry::Occupied(found) => found.get().clone(),
+            Entry::Vacant(slot) => slot.insert(classification_of(ledger, origin)?).clone(),
+        };
+        steps.push(Step {
+            origin,
+            ts,
+            actor_id,
+            payload: EventPayload::RelationAdded(RelationAddedPayload {
+                relation: EventRelationKind::Refutes,
+                from_id: evidence_id,
+                to_id: hypothesis_id,
+            }),
+        });
+    }
+    Ok(steps)
+}
+
+/// The time and recorder of the classification event at `origin`, read with its (large) captures
+/// left out. Absent when the ledger holds no such event.
+fn classification_of(
+    ledger: &impl EventLedger,
+    origin: EventId,
+) -> Result<(Option<DateTime<Utc>>, Option<String>)> {
+    let found = ledger.read_types_for_tenant(
+        &ledger.bound_tenant(),
+        &[EventType::IngestBatchClassified],
+        &["captures"],
+        origin.saturating_sub(1),
+        1,
+    )?;
+    Ok(found
+        .into_iter()
+        .find(|event| event.event_id == Some(origin))
+        .map_or((None, None), |event| (event.ts, Some(event.actor_id))))
+}
+
+fn edge_offset(edge_origin: Option<i64>) -> Option<EventId> {
+    edge_origin.and_then(|origin| EventId::try_from(origin).ok())
+}
+
+/// The offset of the event that wrote an edge. The projector gives every edge one; an edge with
+/// none cannot be placed in ledger order, so it is refused rather than listed without a citation.
+fn offset_of(edge_origin: Option<i64>, what: &str) -> Result<EventId> {
+    edge_offset(edge_origin).ok_or_else(|| {
+        query_error(format!("{what} the graph holds carries no ledger offset")).into()
+    })
+}

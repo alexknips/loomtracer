@@ -7,9 +7,12 @@ use crate::events::{RelationKind, TenantId};
 use crate::floor::{BindsAnswer, FloorAnswers, FloorVerdict, UndoCostAnswer};
 use crate::ledger::InMemoryEventLedger;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
-use crate::queries::test_fixtures::TypedReadsOnly;
+use crate::queries::test_fixtures::{
+    decision_capture, evidence_capture, ts as test_ts, Scenario, TypedReadsOnly,
+};
 use crate::queries::DecisionStatus;
 use crate::Result;
+use serde_json::json;
 
 use super::{
     get_changed_decisions, get_decision_timeline, ChangedDecisionsRequest, DecisionTimeline,
@@ -645,5 +648,408 @@ fn the_timeline_and_the_changed_list_never_read_the_whole_ledger() -> Result<()>
     let read_typed = get_changed_decisions(&graph, &guarded, &request)?;
     assert_eq!(read_typed.data, read_whole.data);
     assert_eq!(read_typed.data.total_matches, 1);
+    Ok(())
+}
+
+// A classified capture states positions inside itself (`accepted_by`, `rejected_by`,
+// `supersedes_id`, `premised_on_ids`, `refutes_ids`) and has no event of its own for any of them.
+// The timeline and the changed list read them from the graph (hivemind-u46nq).
+
+const CLASSIFIER: &str = "agent:claude:classifier";
+const ALEX: &str = "human:alex";
+
+fn capture_id(batch: crate::events::EventId, index: usize) -> String {
+    format!("capture:{batch}:{index}")
+}
+
+fn timeline_of(scenario: &Scenario, decision_id: &str) -> Result<DecisionTimeline> {
+    timeline(scenario.ledger(), decision_id)
+}
+
+fn changed_all(scenario: &Scenario) -> Result<super::ChangedDecisionsResults> {
+    Ok(changed(
+        scenario.ledger(),
+        &ChangedDecisionsRequest {
+            limit: 25,
+            ..ChangedDecisionsRequest::default()
+        },
+    )?
+    .data)
+}
+
+#[test]
+fn a_capture_accepted_at_capture_shows_its_acceptance_where_it_was_said() -> Result<()> {
+    let scenario = Scenario::new();
+    let batch = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        vec![decision_capture(
+            "Use Postgres",
+            json!({"accepted_by": [ALEX], "source_ts": "2026-10-11T07:30:00Z"}),
+        )],
+    )?;
+
+    let timeline = timeline(scenario.ledger(), &capture_id(batch, 0))?;
+
+    assert_eq!(kinds(&timeline), ["recorded", "accepted"]);
+    let accepted = &timeline.entries[1];
+    assert_eq!(accepted.event_origin, batch);
+    assert_eq!(accepted.citation_id, format!("event:{batch}"));
+    assert_eq!(accepted.ts, Some(test_ts("2026-10-11T07:30:00Z")));
+    assert_eq!(accepted.actor_id.as_deref(), Some(ALEX));
+    // Acceptance is the decision's ordinary life, not a revision.
+    assert!(changed_all(&scenario)?.items.is_empty());
+    Ok(())
+}
+
+#[test]
+fn an_acceptance_the_ledger_also_holds_is_listed_once_and_a_second_acceptor_is_listed_too(
+) -> Result<()> {
+    let scenario = Scenario::new();
+    let batch = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        vec![decision_capture(
+            "Use Postgres",
+            json!({"accepted_by": [ALEX]}),
+        )],
+    )?;
+    let id = capture_id(batch, 0);
+    scenario.accept(&id, ALEX, "2026-10-11T10:00:00Z")?;
+    scenario.accept(&id, "human:bea", "2026-10-11T11:00:00Z")?;
+
+    let timeline = timeline(scenario.ledger(), &id)?;
+
+    // Alex's acceptance is the event's, dated by it; Bea's is the event's too.
+    assert_eq!(kinds(&timeline), ["recorded", "accepted", "accepted"]);
+    assert_eq!(
+        timeline.entries[1].ts,
+        Some(test_ts("2026-10-11T10:00:00Z"))
+    );
+    assert_eq!(timeline.entries[2].actor_id.as_deref(), Some("human:bea"));
+    Ok(())
+}
+
+#[test]
+fn a_capture_rejected_at_capture_shows_its_rejection() -> Result<()> {
+    let scenario = Scenario::new();
+    let batch = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        vec![decision_capture(
+            "Use Mongo",
+            json!({"rejected_by": ["human:bea"]}),
+        )],
+    )?;
+
+    let timeline = timeline(scenario.ledger(), &capture_id(batch, 0))?;
+
+    assert_eq!(kinds(&timeline), ["recorded", "rejected"]);
+    assert_eq!(timeline.entries[1].event_origin, batch);
+    assert_eq!(timeline.entries[1].actor_id.as_deref(), Some("human:bea"));
+    Ok(())
+}
+
+/// A hand-recorded decision at 08:00 on the 10th that a capture of the 11th replaces
+/// (`supersedes_id`), and a decision that follows from it.
+fn superseded_by_a_capture() -> Result<(Scenario, crate::events::EventId)> {
+    let scenario = Scenario::new();
+    scenario.decision("decision-old", "Use tabs", ALEX, "2026-10-10T08:00:00Z")?;
+    scenario.decision(
+        "decision-follower",
+        "Indent with tabs",
+        ALEX,
+        "2026-10-10T09:00:00Z",
+    )?;
+    scenario.relation(
+        "FOLLOWS_FROM",
+        "decision-follower",
+        "decision-old",
+        ALEX,
+        None,
+        "2026-10-10T10:00:00Z",
+    )?;
+    let batch = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        vec![decision_capture(
+            "Use spaces",
+            json!({
+                "accepted_by": [ALEX],
+                "supersedes_id": "decision-old",
+                "source_ts": "2026-10-11T07:30:00Z",
+            }),
+        )],
+    )?;
+    Ok((scenario, batch))
+}
+
+#[test]
+fn a_decision_a_capture_replaces_shows_the_supersession_on_both_sides() -> Result<()> {
+    let (scenario, batch) = superseded_by_a_capture()?;
+    let replacement = capture_id(batch, 0);
+
+    let old = timeline(scenario.ledger(), "decision-old")?;
+    assert_eq!(kinds(&old), ["recorded", "superseded"]);
+    let superseded = &old.entries[1];
+    assert_eq!(
+        superseded.fact,
+        TimelineFact::Superseded {
+            by_id: replacement.clone()
+        }
+    );
+    assert_eq!(superseded.event_origin, batch);
+    assert_eq!(superseded.ts, Some(test_ts("2026-10-11T07:30:00Z")));
+    assert_eq!(superseded.actor_id.as_deref(), Some(ALEX));
+
+    let new = timeline(scenario.ledger(), &replacement)?;
+    assert_eq!(kinds(&new), ["recorded", "accepted", "supersedes"]);
+    assert_eq!(
+        new.entries[2].fact,
+        TimelineFact::Supersedes {
+            replaces_id: "decision-old".to_owned()
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn a_decision_a_capture_replaces_is_in_the_changed_list_with_its_followers() -> Result<()> {
+    let (scenario, batch) = superseded_by_a_capture()?;
+    let replacement = capture_id(batch, 0);
+
+    let results = changed_all(&scenario)?;
+
+    // The replaced decision and the one that follows from it; the replacement is the new answer.
+    let ids: Vec<&str> = results
+        .items
+        .iter()
+        .map(|item| item.decision_id.as_str())
+        .collect();
+    assert_eq!(ids, ["decision-follower", "decision-old"]);
+    let old = &results.items[1];
+    assert_eq!(old.status, DecisionStatus::Superseded);
+    assert_eq!(old.last_changed_at, Some(test_ts("2026-10-11T07:30:00Z")));
+    assert_eq!(old.changes.len(), 1);
+    assert_eq!(
+        old.changes[0].fact,
+        TimelineFact::Superseded {
+            by_id: replacement.clone()
+        }
+    );
+    assert_eq!(
+        results.items[0].changes[0].fact,
+        TimelineFact::PremiseSuperseded {
+            decision_id: "decision-old".to_owned(),
+            by_id: replacement,
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn a_supersession_the_ledger_also_holds_is_listed_once() -> Result<()> {
+    let (scenario, batch) = superseded_by_a_capture()?;
+    scenario.supersede(
+        "decision-old",
+        &capture_id(batch, 0),
+        ALEX,
+        "2026-10-11T12:00:00Z",
+    )?;
+
+    let old = timeline(scenario.ledger(), "decision-old")?;
+
+    // The event's own entry, dated by it, and not the capture's again.
+    assert_eq!(kinds(&old), ["recorded", "superseded"]);
+    assert_eq!(old.entries[1].ts, Some(test_ts("2026-10-11T12:00:00Z")));
+    Ok(())
+}
+
+#[test]
+fn a_refutation_a_capture_states_reaches_the_decisions_that_rested_on_the_hypothesis() -> Result<()>
+{
+    let scenario = Scenario::new();
+    scenario.hypothesis(
+        "hypothesis-cache",
+        "The cache hit rate stays high",
+        "assumption",
+        None,
+        "2026-10-10T07:00:00Z",
+    )?;
+    // Resting on it by an event, and by a capture's `premised_on_ids`.
+    scenario.decision(
+        "decision-by-event",
+        "Cache reads",
+        ALEX,
+        "2026-10-10T08:00:00Z",
+    )?;
+    scenario.relation(
+        "ASSUMES",
+        "decision-by-event",
+        "hypothesis-cache",
+        ALEX,
+        None,
+        "2026-10-10T08:01:00Z",
+    )?;
+    let premised = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-10T09:00:00Z",
+        vec![decision_capture(
+            "Cache sessions",
+            json!({"premised_on_ids": ["hypothesis-cache"]}),
+        )],
+    )?;
+    let refuted = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-12T09:00:00Z",
+        vec![evidence_capture(
+            "The load test missed the cache half the time",
+            json!({"refutes_ids": ["hypothesis-cache"]}),
+        )],
+    )?;
+    // Premised on it only after it was refuted: stale from the start, so not told again.
+    let late = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-13T09:00:00Z",
+        vec![decision_capture(
+            "Cache pages",
+            json!({"premised_on_ids": ["hypothesis-cache"]}),
+        )],
+    )?;
+    let evidence = capture_id(refuted, 0);
+    let refutation = TimelineFact::PremiseRefuted {
+        hypothesis_id: "hypothesis-cache".to_owned(),
+        evidence_id: evidence,
+    };
+
+    for id in ["decision-by-event".to_owned(), capture_id(premised, 0)] {
+        let timeline = timeline(scenario.ledger(), &id)?;
+        let entry = timeline
+            .entries
+            .iter()
+            .find(|entry| entry.fact == refutation)
+            .expect("the refutation reaches the decision");
+        assert_eq!(entry.event_origin, refuted);
+        // Evidence carries no time of its own: the classification's time and recorder.
+        assert_eq!(entry.ts, Some(test_ts("2026-10-12T09:00:00Z")));
+        assert_eq!(entry.actor_id.as_deref(), Some(CLASSIFIER));
+    }
+    assert_eq!(
+        kinds(&timeline(scenario.ledger(), &capture_id(late, 0))?),
+        ["recorded"]
+    );
+
+    let results = changed_all(&scenario)?;
+    let mut ids: Vec<&str> = results
+        .items
+        .iter()
+        .map(|item| item.decision_id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, [capture_id(premised, 0).as_str(), "decision-by-event"]);
+    Ok(())
+}
+
+#[test]
+fn a_premise_a_capture_rejected_reaches_the_decisions_that_followed_from_it_then() -> Result<()> {
+    // The follower names the capture as its premise before the capture is classified (the capture
+    // lands at offset 3), so it is told when the capture rejects it.
+    let told = Scenario::new();
+    told.decision(
+        "decision-follower",
+        "Indent with tabs",
+        ALEX,
+        "2026-10-10T09:00:00Z",
+    )?;
+    told.relation(
+        "FOLLOWS_FROM",
+        "decision-follower",
+        "capture:3:0",
+        ALEX,
+        None,
+        "2026-10-10T09:30:00Z",
+    )?;
+    let rejected = told.classified_captures(
+        CLASSIFIER,
+        "2026-10-10T10:00:00Z",
+        vec![decision_capture(
+            "Use tabs",
+            json!({"rejected_by": ["human:bea"]}),
+        )],
+    )?;
+    assert_eq!(rejected, 3);
+    let timeline = timeline(told.ledger(), "decision-follower")?;
+    assert_eq!(kinds(&timeline), ["recorded", "premise_rejected"]);
+    assert_eq!(timeline.entries[1].event_origin, rejected);
+
+    // A follower that started following only after the rejection was in doubt from the start.
+    let late = Scenario::new();
+    late.decision(
+        "decision-follower",
+        "Indent with tabs",
+        ALEX,
+        "2026-10-10T09:00:00Z",
+    )?;
+    let rejected = late.classified_captures(
+        CLASSIFIER,
+        "2026-10-10T10:00:00Z",
+        vec![decision_capture(
+            "Use tabs",
+            json!({"rejected_by": ["human:bea"]}),
+        )],
+    )?;
+    late.relation(
+        "FOLLOWS_FROM",
+        "decision-follower",
+        &capture_id(rejected, 0),
+        ALEX,
+        None,
+        "2026-10-10T11:00:00Z",
+    )?;
+    assert_eq!(
+        kinds(&timeline_of(&late, "decision-follower")?),
+        ["recorded"]
+    );
+    Ok(())
+}
+
+#[test]
+fn capture_stated_positions_are_read_without_reading_the_whole_ledger() -> Result<()> {
+    let (scenario, batch) = superseded_by_a_capture()?;
+    scenario.hypothesis(
+        "hypothesis-cache",
+        "The cache hit rate stays high",
+        "assumption",
+        None,
+        "2026-10-11T10:00:00Z",
+    )?;
+    scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T11:00:00Z",
+        vec![
+            decision_capture(
+                "Cache sessions",
+                json!({"premised_on_ids": ["hypothesis-cache"]}),
+            ),
+            evidence_capture(
+                "The load test missed",
+                json!({"refutes_ids": ["hypothesis-cache"]}),
+            ),
+        ],
+    )?;
+    let graph = graph(scenario.ledger())?;
+    let guarded = TypedReadsOnly(scenario.ledger());
+    let id = capture_id(batch, 0);
+
+    for decision_id in ["decision-old", id.as_str()] {
+        let whole = get_decision_timeline(&graph, scenario.ledger(), decision_id)?;
+        let typed = get_decision_timeline(&graph, &guarded, decision_id)?;
+        assert_eq!(typed.data, whole.data);
+    }
+    let request = ChangedDecisionsRequest::default();
+    let whole = get_changed_decisions(&graph, scenario.ledger(), &request)?;
+    let typed = get_changed_decisions(&graph, &guarded, &request)?;
+    assert_eq!(typed.data, whole.data);
+    assert!(typed.data.total_matches >= 3);
     Ok(())
 }

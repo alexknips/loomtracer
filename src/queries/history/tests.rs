@@ -5,7 +5,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::ledger::InMemoryEventLedger;
-use crate::queries::test_fixtures::ts as test_ts;
+use crate::queries::test_fixtures::{decision_capture, ts as test_ts};
 
 use super::*;
 
@@ -1946,5 +1946,98 @@ fn added_until_before_the_proposals_leaves_them_out_of_a_window_in_the_past() ->
 
     assert_eq!(added, vec![fixture.imported]);
     assert!(changed.is_empty());
+    Ok(())
+}
+
+// A classified capture can replace a decision a `decision.proposed` recorded (`supersedes_id`).
+// The ledger holds no `decision.superseded` for it, so the standing of the replaced decision is
+// the graph's, as a draft's is (hivemind-u46nq).
+
+/// A proposal recorded at 08:00 and a capture at 09:00 that replaces it; the replacement's id.
+fn proposal_replaced_by_a_capture() -> Result<(Scenario, String)> {
+    let scenario = Scenario::new();
+    scenario.decision(
+        "decision-old",
+        "Use tabs",
+        "human:alex",
+        "2026-10-11T08:00:00Z",
+    )?;
+    let batch = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        vec![decision_capture(
+            "Use spaces",
+            json!({"supersedes_id": "decision-old"}),
+        )],
+    )?;
+    Ok((scenario, format!("capture:{batch}:0")))
+}
+
+#[test]
+fn recent_decisions_list_a_proposal_a_capture_replaced_as_superseded() -> Result<()> {
+    let (scenario, replacement) = proposal_replaced_by_a_capture()?;
+    let graph = scenario.graph()?;
+
+    let response = get_recent_decisions(
+        scenario.ledger(),
+        &graph,
+        &recent_request("2026-10-11T07:00:00Z", None),
+    )?;
+
+    let status_of = |decision_id: &str| {
+        response
+            .data
+            .items
+            .iter()
+            .find(|item| item.decision_id == decision_id)
+            .map(|item| item.status)
+    };
+    assert_eq!(status_of("decision-old"), Some(DecisionStatus::Superseded));
+    assert_eq!(status_of(&replacement), Some(DecisionStatus::Proposed));
+
+    let superseded = RecentDecisionsRequest {
+        filters: RecentDecisionFilterRequest {
+            statuses: vec![DecisionStatus::Superseded],
+            ..RecentDecisionFilterRequest::default()
+        },
+        ..recent_request("2026-10-11T07:00:00Z", None)
+    };
+    assert_eq!(
+        recent_in(&scenario, &superseded)?,
+        vec!["decision-old".to_owned()]
+    );
+    let proposed = RecentDecisionsRequest {
+        filters: RecentDecisionFilterRequest {
+            statuses: vec![DecisionStatus::Proposed],
+            ..RecentDecisionFilterRequest::default()
+        },
+        ..recent_request("2026-10-11T07:00:00Z", None)
+    };
+    assert_eq!(recent_in(&scenario, &proposed)?, vec![replacement]);
+    Ok(())
+}
+
+#[test]
+fn added_since_gives_a_proposal_a_capture_replaced_its_standing() -> Result<()> {
+    let (scenario, _) = proposal_replaced_by_a_capture()?;
+    let graph = scenario.graph()?;
+
+    let response = get_decisions_added_since(
+        scenario.ledger(),
+        &graph,
+        &DecisionsAddedSinceRequest {
+            since_timestamp: Some(test_ts("2026-10-11T07:00:00Z")),
+            limit: 25,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?;
+
+    let old = response
+        .data
+        .added_decisions
+        .iter()
+        .find(|entry| entry.decision_id == "decision-old")
+        .ok_or_else(|| query_error("the proposal is added"))?;
+    assert_eq!(old.status, DecisionStatus::Superseded);
     Ok(())
 }

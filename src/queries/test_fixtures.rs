@@ -27,6 +27,48 @@ pub(crate) struct Scenario {
     sequence: Cell<u128>,
 }
 
+/// A decision capture as the classifier wrote it, said by `human:alex`, with the object `stated`
+/// laid over its fields: `accepted_by`, `rejected_by`, `supersedes_id`, `premised_on_ids`,
+/// `source_ts` and the like.
+pub(crate) fn decision_capture(title: &str, stated: Value) -> Value {
+    let mut capture = json!({
+        "kind": "decision",
+        "title": title,
+        "rationale": format!("Rationale for {title}, long enough to read on its own"),
+        "topic_keys": ["capture"],
+        "evidence_ids": [],
+        "options": null,
+        "chosen_option": null,
+        "extraction_confidence": 0.9,
+        "actor_id": "human:alex",
+    });
+    lay_over(&mut capture, stated);
+    capture
+}
+
+/// An evidence capture as the classifier wrote it, with the object `stated` laid over its fields:
+/// `refutes_ids`, `supports_ids`.
+pub(crate) fn evidence_capture(content: &str, stated: Value) -> Value {
+    let mut capture = json!({
+        "kind": "evidence",
+        "title": content,
+        "rationale": format!("Why {content} matters, long enough to read on its own"),
+        "topic_keys": ["capture"],
+        "evidence_ids": [],
+        "options": null,
+        "chosen_option": null,
+        "extraction_confidence": 0.9,
+    });
+    lay_over(&mut capture, stated);
+    capture
+}
+
+fn lay_over(capture: &mut Value, stated: Value) {
+    if let (Some(fields), Value::Object(stated)) = (capture.as_object_mut(), stated) {
+        fields.extend(stated);
+    }
+}
+
 pub(crate) fn ts(timestamp: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(timestamp)
         .expect("test timestamp parses")
@@ -351,6 +393,29 @@ impl Scenario {
             timestamp,
         )?;
         Ok(format!("capture:{event_id}:0"))
+    }
+
+    /// One `ingest.batch_classified` event holding `captures` as the classifier wrote them (see
+    /// [`decision_capture`] and [`evidence_capture`]). The capture at index `i` becomes the node
+    /// `capture:<event>:<i>`.
+    pub(crate) fn classified_captures(
+        &self,
+        recorder: &str,
+        timestamp: &str,
+        captures: Vec<Value>,
+    ) -> Result<EventId> {
+        self.push(
+            recorder,
+            EventType::IngestBatchClassified,
+            json!({
+                "batch_id": "batch:1",
+                "classifier_model": "claude-haiku-4-5-20251001",
+                "schema_version": "2",
+                "captures": captures,
+            }),
+            None,
+            timestamp,
+        )
     }
 
     /// `decision.scored`, schema version 2: a model's assessment of `decision_id`. The payload is

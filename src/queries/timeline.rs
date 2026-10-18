@@ -8,6 +8,12 @@
 //! (the same read `get_decisions_changed_since` does), plus the ask and the record from their own
 //! graph nodes (a classified capture has no `decision.proposed` event to read).
 //!
+//! A classified capture can also state positions inside itself: who accepted or rejected the
+//! decision, which decision it replaces, which hypotheses it premises on, and (on an evidence
+//! capture) which hypotheses it refutes. No fact event says those either, so `captured` reads them
+//! from the graph as the steps they stand for, and every rule below applies to them as to events
+//! (hivemind-u46nq).
+//!
 //! Rules this module keeps (Alex 09-21, qo11):
 //! - It reports facts and durations, never a verdict on a person. There are no averages, no
 //!   per-person figures and no grading. The one duration is `asked_to_decided_seconds` for one
@@ -182,8 +188,8 @@ pub fn get_decision_timeline(
         });
     }
 
-    let events = read_fact_events(ledger)?;
-    let mut entries: Vec<TimelineEntry> = ledger_facts(&events)?
+    let steps = read_steps(graph, ledger, Some(decision_id))?;
+    let mut entries: Vec<TimelineEntry> = ledger_facts(steps)?
         .into_iter()
         .filter(|fact| fact.decision_id == decision_id)
         .map(|fact| fact.entry)
@@ -316,8 +322,48 @@ const FACT_EVENT_TYPES: &[EventType] = &[
     EventType::RelationAdded,
 ];
 
-fn reads_payload(event_type: EventType) -> bool {
-    FACT_EVENT_TYPES.contains(&event_type)
+/// One dated statement about where a decision stands, in the shape [`ledger_facts`] reads: a fact
+/// event of the ledger, or what a classified capture states inside itself (`captured`).
+struct Step {
+    /// The ledger offset of the event that said it; a capture's is its classification event's.
+    origin: EventId,
+    ts: Option<DateTime<Utc>>,
+    actor_id: Option<String>,
+    payload: EventPayload,
+}
+
+/// Every step the decision facts are read from, in ledger order: the fact events, and the
+/// positions classified captures state that none of those events say. `accepted_of` names the one
+/// decision whose acceptances at capture are wanted (an acceptance moves nothing downstream, so the
+/// changed list needs none).
+fn read_steps(
+    graph: &impl GraphView,
+    ledger: &impl EventLedger,
+    accepted_of: Option<&str>,
+) -> Result<Vec<Step>> {
+    let mut steps = read_fact_events(ledger)?
+        .iter()
+        .map(step_of)
+        .collect::<Result<Vec<_>>>()?;
+    let stated = captured::steps(graph, ledger, &steps, accepted_of)?;
+    steps.extend(stated);
+    // Stable, so the steps of one capture keep the order they were stated in.
+    steps.sort_by_key(|step| step.origin);
+    Ok(steps)
+}
+
+fn step_of(event: &Event) -> Result<Step> {
+    let origin = event
+        .event_id
+        .ok_or_else(|| query_error("event_id is required for timeline queries"))?;
+    let payload = events::validate(event)
+        .map_err(|error| query_error(format!("invalid event {origin}: {error}")))?;
+    Ok(Step {
+        origin,
+        ts: event.ts,
+        actor_id: Some(event.actor_id.clone()), // ubs:ignore: the step owns its actor id
+        payload,
+    })
 }
 
 /// Every event `ledger_facts` reads, in ledger order, a page at a time. The SQL ledgers filter by
@@ -352,29 +398,26 @@ fn read_fact_events(ledger: &impl EventLedger) -> Result<Vec<Event>> {
     Ok(events)
 }
 
-/// Every dated fact the decision events of the ledger hold, in ledger order.
-fn ledger_facts(events: &[Event]) -> Result<Vec<LedgerFact>> {
+/// Every dated fact the steps hold, in the order given (ledger order).
+fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
     let mut facts = Vec::new();
     let mut premises = Premises::default();
 
-    for event in events {
-        if !reads_payload(event.event_type) {
-            continue;
-        }
-        let origin = event
-            .event_id
-            .ok_or_else(|| query_error("event_id is required for timeline queries"))?;
-        let payload = events::validate(event)
-            .map_err(|error| query_error(format!("invalid event {origin}: {error}")))?;
-
+    for Step {
+        origin,
+        ts,
+        actor_id,
+        payload,
+    } in steps
+    {
         let mut push = |decision_id: &str, fact: TimelineFact| {
             facts.push(LedgerFact {
                 decision_id: decision_id.to_owned(),
                 entry: TimelineEntry {
                     event_origin: origin,
                     citation_id: format!("event:{origin}"),
-                    ts: event.ts,
-                    actor_id: Some(event.actor_id.clone()), // ubs:ignore: the entry owns its actor id
+                    ts,
+                    actor_id: actor_id.clone(), // ubs:ignore: the entry owns its actor id
                     fact,
                 },
             });
@@ -586,9 +629,9 @@ pub fn get_changed_decisions(
     let cursor = normalized_query(request.cursor.as_deref());
     let after = cursor.as_deref().map(parse_changed_cursor).transpose()?;
 
-    let events = read_fact_events(ledger)?;
+    let steps = read_steps(graph, ledger, None)?;
     let mut changes: BTreeMap<String, Vec<TimelineEntry>> = BTreeMap::new();
-    for fact in ledger_facts(&events)? {
+    for fact in ledger_facts(steps)? {
         if !fact.entry.fact.is_revision() || !in_window(fact.entry.ts, request) {
             continue;
         }
@@ -715,6 +758,8 @@ fn in_window(ts: Option<DateTime<Utc>>, request: &ChangedDecisionsRequest) -> bo
     };
     request.since.is_none_or(|since| ts >= since) && request.until.is_none_or(|until| ts <= until)
 }
+
+mod captured;
 
 #[cfg(test)]
 mod tests;

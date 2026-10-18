@@ -215,12 +215,12 @@ fn proposed_entry(
 
 /// Where and when a decision was recorded, read from its own node: the offset of the event that
 /// created it and its `occurred_at`. Either is absent on a decision that is only referenced.
-struct Recorded {
-    offset: Option<EventId>,
-    at: Option<DateTime<Utc>>,
+pub(super) struct Recorded {
+    pub(super) offset: Option<EventId>,
+    pub(super) at: Option<DateTime<Utc>>,
 }
 
-fn recorded_of(graph: &impl GraphView, decision_id: &str) -> Result<Recorded> {
+pub(super) fn recorded_of(graph: &impl GraphView, decision_id: &str) -> Result<Recorded> {
     let Some(row) = node_row(graph, NodeKind::Decision, decision_id)? else {
         return Ok(Recorded {
             offset: None,
@@ -234,7 +234,7 @@ fn recorded_of(graph: &impl GraphView, decision_id: &str) -> Result<Recorded> {
     })
 }
 
-fn proposer_of(graph: &impl GraphView, decision_id: &str) -> Result<Option<String>> {
+pub(super) fn proposer_of(graph: &impl GraphView, decision_id: &str) -> Result<Option<String>> {
     Ok(neighbor_pairs(
         graph,
         NodeKind::Decision,
@@ -401,7 +401,7 @@ fn capture_entries(
 /// The offset of the capture that wrote a status edge, which is the offset of the decision that
 /// made the capture. The projector gives every recorded decision one; a decision with a status
 /// edge and none is refused rather than listed without a citation.
-fn cited(offset: Option<EventId>, decision_id: &str) -> Result<EventId> {
+pub(super) fn cited(offset: Option<EventId>, decision_id: &str) -> Result<EventId> {
     offset.ok_or_else(|| {
         query_error(format!(
             "{decision_id} names a status change but carries no ledger offset"

@@ -731,6 +731,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   default: a ledger must say which tenant its plain `append`, `read`, `replay_from` and
   `latest_offset` address, so none can quietly mean `local`. The REST routes, which pinned the
   tenant themselves, are unchanged. (hivemind-xm9by)
+- **A decision a passive capture accepted, rejected or replaced now shows it in its timeline and
+  the changed list, and `recent` lists a proposal a capture replaced as `superseded`.** A
+  classified capture can state positions inside itself (`accepted_by`, `rejected_by`,
+  `supersedes_id`, `premised_on_ids`, and `refutes_ids` on evidence). The graph, `status`, `why`
+  and re-examine saw them; the timeline (`why`'s `timeline`, `GET /v1/decisions/{id}/timeline`) and
+  `get_changed_decisions` read only the ledger's fact events and did not. A capture accepted at
+  capture had a timeline of just `recorded`; a decision replaced through a capture's
+  `supersedes_id` had no `superseded` entry and never reached the changed list, and the
+  decisions that followed from it got no `premise_superseded`. These now read the capture's
+  positions as the entries they stand for: `accepted` and `rejected` at the capture's offset and
+  the time the decision was said, `superseded` and `supersedes` for `supersedes_id`,
+  `premise_superseded` and `premise_rejected` for the followers, and `premise_refuted` for the
+  decisions that rested on a hypothesis an evidence capture refutes (dated by the classification
+  event, as evidence carries no time of its own). An acceptance, rejection, supersession or
+  refutation the ledger also holds as its own event is listed once, as that event. Separately,
+  `get_recent_decisions` and `get_decisions_added_since` took a proposal's status from the
+  ledger's events alone, so a `decision.proposed` decision a capture replaced was listed as
+  `accepted` or `proposed` and `--status superseded` did not find it; they now take it from the
+  graph, as classified drafts already did. (hivemind-u46nq)
 - **MCP `capture_decision` and `supersede_decision` no longer read the whole ledger, so a write
   answers in seconds instead of minutes and the client no longer times out on a capture that was
   recorded.** On the city cell (about 130,000 events, 127,000 of them raw transcripts) a capture

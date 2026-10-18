@@ -78,7 +78,8 @@ pub(super) struct ClassifiedDrafts {
 
 impl ClassifiedDrafts {
     /// Reads the drafts out of `graph`. `decisions` is every decision node of the graph by id
-    /// (`node_rows`), read once by the caller, who also needs the floor answers on it. `events` is
+    /// (`node_rows`), read once by the caller, who also needs the floor answers on it. `standings`
+    /// is where every decision stands, read once by the caller too. `events` is
     /// the ledger in offset order: each draft's creation is the classification event its node
     /// names. A draft that names an event the ledger does not hold is refused, not dropped: a
     /// window that quietly lost it would look complete.
@@ -86,6 +87,7 @@ impl ClassifiedDrafts {
         graph: &impl GraphView,
         events: &[Event],
         decisions: &BTreeMap<String, GraphRow>,
+        standings: &DecisionStandings,
     ) -> Result<Self> {
         let rows: Vec<(&String, &GraphRow)> = decisions
             .iter()
@@ -95,7 +97,6 @@ impl ClassifiedDrafts {
             return Ok(Self::default());
         }
 
-        let standings = DecisionStandings::load(graph)?;
         let targets = |relation: RelationKind| -> Result<HashMap<String, Vec<String>>> {
             let mut by_source: HashMap<String, Vec<String>> = HashMap::new();
             for (from, to) in relation_edges(graph, relation)? {

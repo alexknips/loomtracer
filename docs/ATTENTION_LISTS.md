@@ -152,6 +152,15 @@ premise then: a `premise_*` entry appears at the moment a premise stopped standi
 decisions that already premised on the hypothesis or followed from the decision. A decision that
 started resting on a refuted premise later was stale from the start; its `still_holds` says so.
 
+A classified capture can state positions inside itself (`accepted_by`, `rejected_by`,
+`supersedes_id`, `premised_on_ids`, and `refutes_ids` on an evidence capture) and has no event of
+its own for any of them. The timeline and the changed list read those from the graph and treat them
+as the entries they stand for, by the same rules. A decision's own positions share the capture's
+offset and are dated when the decision was said (the source turn's time when the capture names one,
+else the batch's), as in the status events below. A refutation is dated by the classification
+event, since evidence carries no time of its own; its `actor_id` is the classification's recorder.
+A position the ledger also holds as its own event is listed once, as that event.
+
 Entries follow the ledger's order. A decision imported with its source's own time can show an
 entry whose `ts` is earlier than the one before it; both are true.
 
@@ -204,6 +213,7 @@ at the same time.
 
 The dated facts come from the ledger events themselves, because the graph keeps no per-edge
 times. `get_changed_decisions` and the timeline read the ledger's events once per call, the same
-read `get_decisions_changed_since` does; the waiting and contested lists read the graph only. The
-status events read only the ledger's accept, reject and supersede events, plus the decision's own
-edges in the graph.
+read `get_decisions_changed_since` does, plus the graph edges a classified capture states (its
+acceptances, rejections, replaced decisions, premises and refutations); the waiting and contested
+lists read the graph only. The status events read only the ledger's accept, reject and supersede
+events, plus the decision's own edges in the graph.

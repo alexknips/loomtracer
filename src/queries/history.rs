@@ -26,6 +26,7 @@ use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
 use super::project_label::ProjectLabels;
 use super::reexamine;
 use super::shared::{node_rows, normalized_query, recorded_floor_of};
+use super::status::DecisionStandings;
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
 mod drafts;
@@ -538,6 +539,9 @@ pub fn get_recent_decisions(
     );
     let index = DecisionIndex::from_events(&events)?;
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
+    // Where a decision stands is the graph's word, which holds what a classified capture states
+    // inside itself (accepted, rejected, replaces) as well as the status events.
+    let standings = DecisionStandings::load(graph)?;
     let labels = ProjectLabels::from_events(&events);
     let filters = normalized_recent_decision_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
@@ -557,9 +561,7 @@ pub fn get_recent_decisions(
 
         let decision_id = payload.decision_id.clone();
         let entry = index.decisions.get(&decision_id);
-        let status = index
-            .status(&decision_id)
-            .unwrap_or(DecisionStatus::Proposed);
+        let status = standings.status_of(&decision_id);
         let topic_keys = entry
             .map(|entry| entry.topic_keys.clone())
             .unwrap_or_else(|| normalized_string_values(payload.topic_keys.clone()));
@@ -620,7 +622,8 @@ pub fn get_recent_decisions(
             hypothesis_ids,
         });
     }
-    for (decision_id, draft) in ClassifiedDrafts::load(graph, &events, &decision_rows)? {
+    for (decision_id, draft) in ClassifiedDrafts::load(graph, &events, &decision_rows, &standings)?
+    {
         if !draft.decided_between(Some(request.since_timestamp), request.until_timestamp)
             || !decision_matches_recent_filters(
                 &draft.topic_keys,
@@ -784,7 +787,8 @@ pub fn get_decisions_added_since(
     );
     let index = DecisionIndex::from_events(&events)?;
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
-    let mut drafts = ClassifiedDrafts::load(graph, &events, &decision_rows)?;
+    let standings = DecisionStandings::load(graph)?;
+    let mut drafts = ClassifiedDrafts::load(graph, &events, &decision_rows, &standings)?;
     let filters = normalized_added_since_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
@@ -851,9 +855,7 @@ pub fn get_decisions_added_since(
                     topic_keys: entry
                         .map(|entry| entry.topic_keys.clone())
                         .unwrap_or_default(),
-                    status: index
-                        .status(decision_id)
-                        .unwrap_or(DecisionStatus::Proposed),
+                    status: standings.status_of(decision_id),
                     option_ids: entry
                         .map(|entry| entry.option_ids.iter().cloned().collect::<Vec<_>>())
                         .unwrap_or_default(),
