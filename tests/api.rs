@@ -5388,12 +5388,12 @@ async fn assert_mcp_reads_answer_from_acme_only(
 
     assert_eq!(
         ids_of(&recent["data"]["items"], "decision_id"),
-        [acme_id.clone()],
+        std::slice::from_ref(&acme_id),
         "recent_decisions as acme: {recent}"
     ); // ubs:ignore
     assert_eq!(
         ids_of(&changed["data"]["items"], "decision_id"),
-        [acme_id.clone()],
+        std::slice::from_ref(&acme_id),
         "get_changed_decisions as acme: {changed}"
     ); // ubs:ignore
     assert_eq!(

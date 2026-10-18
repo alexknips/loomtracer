@@ -635,8 +635,8 @@ pub fn assert_plain_methods_address_the_bound_tenant<L: EventLedger>(
     require_equal("plain read", &read_ids, &vec!["evidence-bound"])?;
     require_equal(
         "the tenant a plain read stamps on its events",
-        &read[0].tenant_id,
-        bound,
+        &read.first().map(|event| event.tenant_id.clone()),
+        &Some(bound.clone()),
     )?;
     require_equal(
         "plain read against the named read",
