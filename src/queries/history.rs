@@ -702,11 +702,13 @@ fn recent_entry_of_draft(
     }
 }
 
-pub fn get_decisions_changed_since(
+/// Every change row in the request's window that passes its filters, oldest event first. The
+/// request's `limit` and `cursor` do not cut it: the pager and the id-set reader below each
+/// decide what to keep of the whole.
+fn changed_window_rows(
     ledger: &impl EventLedger,
     request: &ChangedSinceRequest,
-) -> Result<QueryResponse<DecisionsChangedSinceResults>> {
-    let started = Instant::now();
+) -> Result<(HistoryWindow, HistoryFilters, Vec<DecisionChangeRow>)> {
     let events = read_all_events(ledger)?;
     let latest_offset = ledger.latest_offset()?;
     let window = HistoryWindow::new(
@@ -718,9 +720,6 @@ pub fn get_decisions_changed_since(
     );
     let index = DecisionIndex::from_events(&events)?;
     let filters = normalized_history_filters(&request.filters);
-    let limit = normalized_history_limit(request.limit);
-    let cursor = normalized_query(request.cursor.as_deref());
-    let offset = parse_history_cursor(cursor.as_deref())?;
 
     let mut rows = Vec::new();
     for event in &events {
@@ -742,6 +741,38 @@ pub fn get_decisions_changed_since(
         }
     }
     rows.sort_by_key(|row| row.event_origin);
+    Ok((window, filters, rows))
+}
+
+/// The ids of every decision the window changed, and the boundary it resolved to. One pass over
+/// the window, not a page of it: a window of more than `MAX_QUERY_RESULTS` events, most of them
+/// naming no decision, still reports each decision it changed.
+pub fn get_changed_decision_ids_since(
+    ledger: &impl EventLedger,
+    since_offset: Option<EventId>,
+    since_timestamp: Option<DateTime<Utc>>,
+) -> Result<(ChangeBoundary, BTreeSet<String>)> {
+    let (window, _, rows) = changed_window_rows(
+        ledger,
+        &ChangedSinceRequest {
+            since_offset,
+            since_timestamp,
+            ..ChangedSinceRequest::default()
+        },
+    )?;
+    let ids = rows.into_iter().flat_map(|row| row.decision_ids).collect();
+    Ok((window.since(), ids))
+}
+
+pub fn get_decisions_changed_since(
+    ledger: &impl EventLedger,
+    request: &ChangedSinceRequest,
+) -> Result<QueryResponse<DecisionsChangedSinceResults>> {
+    let started = Instant::now();
+    let (window, filters, rows) = changed_window_rows(ledger, request)?;
+    let limit = normalized_history_limit(request.limit);
+    let cursor = normalized_query(request.cursor.as_deref());
+    let offset = parse_history_cursor(cursor.as_deref())?;
 
     let total_matches = rows.len();
     let items: Vec<DecisionChangeRow> = rows.into_iter().skip(offset).take(limit).collect();

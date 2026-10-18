@@ -3206,6 +3206,58 @@ fn situational_decisions_annotate_changed_since_boundary() -> Result<()> {
 }
 
 #[test]
+fn situational_changed_since_sees_a_change_past_the_first_page_of_events() -> Result<()> {
+    let (ledger, _) = situational_fixture()?;
+    let boundary = ledger.latest_offset()?;
+    // More events than one page of the changed-since rows holds, none of them naming a decision.
+    for n in 0..=(MAX_QUERY_RESULTS as u128) {
+        ledger.append(test_event(
+            1_000 + n,
+            EventType::EvidenceRecorded,
+            "actor:analyst",
+            json!({
+                "evidence_id": format!("evidence:filler-{n}"),
+                "content": "unrelated note",
+                "source": "test"
+            }),
+            "2026-01-02T00:00:00Z",
+        ))?;
+    }
+    // The only change to a matched decision is the last event in the window.
+    ledger.append(test_event(
+        9_999,
+        EventType::DecisionAccepted,
+        "actor:planner",
+        json!({ "decision_id": "decision:auth-legacy" }),
+        "2026-01-03T00:00:00Z",
+    ))?;
+    let graph = MemoryGraph::default();
+    rebuild_graph(&ledger, &graph)?;
+
+    let response = get_situational_decisions(
+        &QueryContext::local(),
+        &graph,
+        &ledger,
+        &SituationalRequest {
+            paths: vec!["src/api/auth.rs".to_owned()],
+            since_offset: Some(boundary),
+            limit: 10,
+            ..SituationalRequest::default()
+        },
+    )?;
+
+    let by_id: BTreeMap<&str, Option<bool>> = response
+        .data
+        .matches
+        .iter()
+        .map(|m| (m.decision.id.as_str(), m.changed_since))
+        .collect();
+    assert_eq!(by_id.get("decision:auth-legacy"), Some(&Some(true)));
+    assert_eq!(by_id.get("decision:auth"), Some(&Some(false)));
+    Ok(())
+}
+
+#[test]
 fn situational_decisions_reject_empty_situation() {
     let context = QueryContext::local();
     let graph = MemoryGraph::default();

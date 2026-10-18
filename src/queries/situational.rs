@@ -19,16 +19,14 @@ use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::decision::{get_decision_with_labels, DecisionView};
-use super::history::{
-    get_decisions_changed_since, ChangeBoundary, ChangedSinceRequest, HistoryFilterRequest,
-};
+use super::history::{get_changed_decision_ids_since, ChangeBoundary};
 use super::outcome::{get_decision_outcome_with_labels, DecisionOutcome};
 use super::project_label::ProjectLabels;
 use super::project_scope::{project_scope, MatchScope, ProjectScope, ScopeNote, ScopeRelation};
 use super::question::{newer_accepted_answers, QuestionAnswer};
 use super::shared::{
     node_rows, normalized_limit, optional_int, optional_string, optional_string_list, parse_cursor,
-    query_error, relation_edges, MAX_QUERY_RESULTS,
+    query_error, relation_edges,
 };
 use super::terms::{overlapping_terms, path_terms, text_terms};
 use super::{QueryContext, QueryResponse};
@@ -344,31 +342,16 @@ fn score_candidates(
 }
 
 /// Resolve `--since`/`--since-branch-point` into the boundary actually applied plus the
-/// set of decision ids touched within it. Reuses `get_decisions_changed_since`
+/// set of decision ids touched within it. Reuses the changed-since window
 /// (`EventLedger`-generic, offset/timestamp-based) rather than a new ranking signal —
 /// this is an annotation layered on top of the situational match set, per the parent
-/// epic's mayor-approved decision D.
+/// epic's mayor-approved decision D. It takes the whole window's id set, not a page of it:
+/// a page would call every decision changed past its end "unchanged".
 fn changed_decision_ids(
     context: &QueryContext,
     ledger: &impl EventLedger,
     request: &SituationalRequest,
 ) -> Result<(ChangeBoundary, BTreeSet<String>)> {
     let scoped = TenantScopedLedger::new(ledger, context.tenant_id.clone());
-    let response = get_decisions_changed_since(
-        &scoped,
-        &ChangedSinceRequest {
-            since_offset: request.since_offset,
-            since_timestamp: request.since_timestamp,
-            until_offset: None,
-            until_timestamp: None,
-            filters: HistoryFilterRequest::default(),
-            limit: MAX_QUERY_RESULTS,
-            cursor: None,
-        },
-    )?;
-    let mut ids = BTreeSet::new();
-    for item in &response.data.items {
-        ids.extend(item.decision_ids.iter().cloned());
-    }
-    Ok((response.data.resolved_since, ids))
+    get_changed_decision_ids_since(&scoped, request.since_offset, request.since_timestamp)
 }
