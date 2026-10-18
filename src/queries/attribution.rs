@@ -191,13 +191,27 @@ pub fn get_failure_attribution(
 }
 
 /// [`get_failure_attribution`] that also groups failures by conditions the caller derives.
-/// `conditions_of` is asked once for each analysed decision (at most `MAX_QUERY_RESULTS`), and
-/// its answer fills `by_condition`. A failed lookup fails the whole report rather than leaving
-/// that decision out of its groups unnoticed.
+/// `conditions_of` is asked once for each analysed decision, and its answer fills
+/// `by_condition`. A failed lookup fails the whole report rather than leaving that decision out
+/// of its groups unnoticed.
+///
+/// Every decision of the corpus is analysed, however many the ledger holds: the report is an
+/// aggregate, so a first page of it would be a different answer, not a smaller one.
 pub fn get_failure_attribution_with(
     graph: &impl GraphView,
     request: &FailureAttributionRequest,
     conditions_of: impl Fn(&str) -> Result<Vec<DecisionCondition>>,
+) -> Result<QueryResponse<FailureModeReport>> {
+    attribute_in_pages(graph, request, conditions_of, MAX_QUERY_RESULTS)
+}
+
+/// [`get_failure_attribution_with`] reading the corpus `page_size` decisions at a time, so a
+/// test can walk several pages without a ledger of `MAX_QUERY_RESULTS` decisions.
+pub(crate) fn attribute_in_pages(
+    graph: &impl GraphView,
+    request: &FailureAttributionRequest,
+    conditions_of: impl Fn(&str) -> Result<Vec<DecisionCondition>>,
+    page_size: usize,
 ) -> Result<QueryResponse<FailureModeReport>> {
     let started = Instant::now();
     let min_sample = if request.min_sample_size == 0 {
@@ -207,21 +221,29 @@ pub fn get_failure_attribution_with(
     };
 
     // 1. Load all outcomes.
-    let outcome_req = DecisionQualityCandidatesRequest {
-        since_event_origin: request.since_event_origin,
-        limit: 0, // 0 → MAX_QUERY_RESULTS
-        cursor: None,
-        only_with_signals: false,
-    };
-    let outcomes = get_decision_quality_candidates(graph, &outcome_req)?.data;
+    let outcomes = all_pages(|cursor| {
+        get_decision_quality_candidates(
+            graph,
+            &DecisionQualityCandidatesRequest {
+                since_event_origin: request.since_event_origin,
+                limit: page_size,
+                cursor,
+                only_with_signals: false,
+            },
+        )
+    })?;
 
     // 2. Load all contexts.
-    let context_req = DecisionContextRequest {
-        since_event_origin: request.since_event_origin,
-        limit: 0,
-        cursor: None,
-    };
-    let contexts = get_decision_context_candidates(graph, &context_req)?.data;
+    let contexts = all_pages(|cursor| {
+        get_decision_context_candidates(
+            graph,
+            &DecisionContextRequest {
+                since_event_origin: request.since_event_origin,
+                limit: page_size,
+                cursor,
+            },
+        )
+    })?;
 
     // 3. Join by decision_id → Vec<(outcome, context)>.
     let context_map: HashMap<String, DecisionContext> = contexts
@@ -234,13 +256,6 @@ pub fn get_failure_attribution_with(
         .into_iter()
         .filter_map(|o| context_map.get(&o.decision_id).cloned().map(|c| (o, c)))
         .collect();
-
-    // Enforce MAX_QUERY_RESULTS on the joined corpus to prevent runaway allocations.
-    let pairs = if pairs.len() > MAX_QUERY_RESULTS {
-        pairs.into_iter().take(MAX_QUERY_RESULTS).collect()
-    } else {
-        pairs
-    };
 
     // 4. Corpus stats.
     let total_decisions = pairs.len();
@@ -324,12 +339,33 @@ pub fn get_failure_attribution_with(
         findings,
     };
 
+    // Every decision was read (`all_pages`), so the report is never a partial one.
     Ok(QueryResponse {
         result_count,
         truncated: false,
         latency_ms: started.elapsed().as_millis(),
         data: report,
     })
+}
+
+/// Every row of a cursor-paged bulk read, page after page until a page is not `truncated`.
+/// The cursor of these reads is the number of rows already taken, which is the number collected
+/// so far because the callers ask for every row (`only_with_signals: false`) and a page that is
+/// `truncated` is a full page.
+fn all_pages<T>(
+    mut read_page: impl FnMut(Option<String>) -> Result<QueryResponse<Vec<T>>>,
+) -> Result<Vec<T>> {
+    let mut rows = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = read_page(cursor.take())?;
+        let truncated = page.truncated;
+        rows.extend(page.data);
+        if !truncated {
+            return Ok(rows);
+        }
+        cursor = Some(rows.len().to_string());
+    }
 }
 
 // ---------------------------------------------------------------------------

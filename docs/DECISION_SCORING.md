@@ -713,11 +713,12 @@ the product: the ledger stays portable and no tool is privileged.
 ### `analyze_failure_modes`
 
 The failure-mode analysis (which conditions go with decisions that did not hold up)
-groups decisions by the profile too. Its `by_condition` lists one group for each
-dimension and level: `framing`, `alternatives`, `information`, `reasoning`,
-`values_tradeoffs`, `bias_exposure` or `calibration`, each with the group label `none`,
-`partial`, `solid` or `not_assessed`, and the same `total`, `failed`, `failure_rate`,
-`effect_vs_baseline` and `confidence` as every other group. These groups sort decisions
+groups decisions by the profile too. It reads every decision in the tenant, however many
+there are, so `corpus_stats.total_decisions` is the decision count. Its `by_condition`
+lists one group for each dimension and level: `framing`, `alternatives`, `information`,
+`reasoning`, `values_tradeoffs`, `bias_exposure` or `calibration`, each with the group
+label `none`, `partial`, `solid` or `not_assessed`, and the same `total`, `failed`,
+`failure_rate`, `effect_vs_baseline` and `confidence` as every other group. These groups sort decisions
 and nothing else: what counts as a failure is still the outcome view's call
 (superseded, a premise that no longer stands, contested), a level is never itself a
 failure, and `not_assessed` is its own group, never folded into `none`. The groups take

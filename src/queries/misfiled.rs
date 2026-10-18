@@ -19,6 +19,7 @@
 //! report. It never moves a decision: the move is `hivemind move --decision
 //! <id> --to <project>` (`decision.moved`, recorded and reversible), run by
 //! whoever confirmed the list, so nothing is filed or re-filed by a rule.
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 use serde::Serialize;
@@ -93,13 +94,27 @@ pub fn require_registered_project(ledger: &impl EventLedger, handle: &str) -> Re
 
 /// Scan decisions for ones carrying a caller-named "foreign" topic key.
 /// Read-only: flags candidates for human review, moves nothing.
+///
+/// Reads every decision of the tenant. The candidates are ordered by decision id and `cursor`
+/// skips that many of them, so `truncated` with a cursor (`misfiled_next_cursor`) reaches every
+/// candidate however many decisions the tenant holds.
 pub fn scan_misfiled_decisions(
     graph: &impl GraphView,
     request: &MisfiledScanRequest,
 ) -> Result<QueryResponse<Vec<MisfiledDecisionCandidate>>> {
+    scan_in_pages(graph, request, MAX_QUERY_RESULTS)
+}
+
+/// [`scan_misfiled_decisions`] reading `page_size` search results at a time for each foreign
+/// key, so a test can walk several pages without `MAX_QUERY_RESULTS` matches.
+pub(crate) fn scan_in_pages(
+    graph: &impl GraphView,
+    request: &MisfiledScanRequest,
+    page_size: usize,
+) -> Result<QueryResponse<Vec<MisfiledDecisionCandidate>>> {
     let started = Instant::now();
 
-    let foreign: Vec<String> = request
+    let foreign: BTreeSet<String> = request
         .foreign_topic_keys
         .iter()
         .map(|key| normalize_topic_key(key))
@@ -111,52 +126,64 @@ pub fn scan_misfiled_decisions(
         );
     }
 
-    // One bounded fetch: beyond MAX_QUERY_RESULTS decisions in the tenant, this scan is itself
-    // truncated (never silently — `truncated` below says so) rather than
-    // paging to exhaustion on every call.
-    let search_request = SearchDecisionRequest {
-        limit: MAX_QUERY_RESULTS,
-        ..SearchDecisionRequest::default()
-    };
-    let searched = search_decisions(graph, &search_request)?;
-
-    let mut candidates: Vec<MisfiledDecisionCandidate> = searched
-        .data
-        .items
-        .into_iter()
-        .filter_map(|item| {
-            if let Some(project) = request.project.as_deref() {
-                if item.decision.project.as_deref() != Some(project) {
+    // Every decision that carries a foreign key, however many decisions the tenant holds: one
+    // search per key, filtered to that key and paged to its end. A search of the whole tenant
+    // would see only its first page, ordered by id, and a misfiled decision whose id sorts past
+    // it would never be reported.
+    let mut candidates: Vec<MisfiledDecisionCandidate> = Vec::new();
+    for key in &foreign {
+        let mut cursor = None;
+        loop {
+            let page = search_decisions(
+                graph,
+                &SearchDecisionRequest {
+                    topic_keys: vec![key.clone()],
+                    limit: page_size,
+                    cursor: cursor.take(),
+                    ..SearchDecisionRequest::default()
+                },
+            )?
+            .data;
+            candidates.extend(page.items.into_iter().filter_map(|item| {
+                if let Some(project) = request.project.as_deref() {
+                    if item.decision.project.as_deref() != Some(project) {
+                        return None;
+                    }
+                }
+                if let Some(destination) = request.move_to.as_deref() {
+                    if item.decision.project.as_deref() == Some(destination) {
+                        return None;
+                    }
+                }
+                let matched: Vec<String> = item
+                    .decision
+                    .topic_keys
+                    .iter()
+                    .filter(|topic| foreign.contains(topic.as_str()))
+                    .cloned()
+                    .collect();
+                if matched.is_empty() {
                     return None;
                 }
+                Some(MisfiledDecisionCandidate {
+                    decision_id: item.decision.id,
+                    title: item.decision.title,
+                    matched_topic_keys: matched,
+                    actor_ids: item.graph_context.actor_ids,
+                    project: item.decision.project,
+                    floor: item.decision.floor,
+                    proposed_move_to: request.move_to.clone(),
+                })
+            }));
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
             }
-            if let Some(destination) = request.move_to.as_deref() {
-                if item.decision.project.as_deref() == Some(destination) {
-                    return None;
-                }
-            }
-            let matched: Vec<String> = item
-                .decision
-                .topic_keys
-                .iter()
-                .filter(|topic| foreign.iter().any(|f| f == *topic))
-                .cloned()
-                .collect();
-            if matched.is_empty() {
-                return None;
-            }
-            Some(MisfiledDecisionCandidate {
-                decision_id: item.decision.id,
-                title: item.decision.title,
-                matched_topic_keys: matched,
-                actor_ids: item.graph_context.actor_ids,
-                project: item.decision.project,
-                floor: item.decision.floor,
-                proposed_move_to: request.move_to.clone(),
-            })
-        })
-        .collect();
+        }
+    }
+    // A decision that carries two foreign keys was found by both searches, with the same row.
     candidates.sort_by(|left, right| left.decision_id.cmp(&right.decision_id));
+    candidates.dedup_by(|later, earlier| later.decision_id == earlier.decision_id);
 
     let skip: usize = match request.cursor.as_deref() {
         None => 0,
@@ -173,10 +200,9 @@ pub fn scan_misfiled_decisions(
     let total_matches = candidates.len();
     let window: Vec<MisfiledDecisionCandidate> =
         candidates.into_iter().skip(skip).take(limit).collect();
-    // Truncated if the underlying decision search itself was truncated (more
-    // decisions exist than this scan looked at) or if this scan's own
-    // pagination window didn't reach every match it found.
-    let truncated = searched.truncated || skip + window.len() < total_matches;
+    // Every match was found, so the window is all that can be cut short: `truncated` says there
+    // are more behind it, and the cursor reaches them.
+    let truncated = skip + window.len() < total_matches;
 
     Ok(QueryResponse {
         result_count: window.len(),

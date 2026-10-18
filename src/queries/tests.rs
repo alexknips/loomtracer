@@ -16,6 +16,8 @@ use crate::projector::{
 };
 use crate::Result;
 
+use super::attribution::attribute_in_pages;
+use super::misfiled::scan_in_pages;
 use super::neighborhood::neighborhood_structure;
 use super::terms::{
     content_query, outside_negation, resolver_question, resolver_terms, stem, RelatedWord,
@@ -4805,6 +4807,174 @@ fn memory_graph_scan_misfiled_decisions_paginates() -> Result<()> {
         ]
     );
 
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Whole-ledger scans that take more than one page of decisions (hivemind-11adr)
+//
+// `analyze_failure_modes` and `scan_misfiled_decisions` read the whole ledger. Each used to take
+// one bulk read capped at `MAX_QUERY_RESULTS`: the attribution report analysed the first 1,000
+// decisions by offset, the misfiled scan the first 1,000 by id, and neither said it had stopped.
+// These run the scans with a page of three, so a ledger of a few decisions takes several pages
+// the way one of 1,500 takes two.
+// ---------------------------------------------------------------------------
+
+/// The page size the scans below read at.
+const SMALL_PAGE: usize = 3;
+
+/// `count` decisions proposed one event each, in the order of their ids (`decision:numbered-00`,
+/// `decision:numbered-01`, ...), each filed under the topic keys `topic_keys_of` gives its index.
+fn numbered_proposals(
+    count: usize,
+    topic_keys_of: impl Fn(usize) -> Vec<&'static str>,
+) -> Vec<Event> {
+    (0..count)
+        .map(|index| {
+            test_event(
+                index as u128 + 1,
+                EventType::DecisionProposed,
+                "agent:gc:polecat:gc-h9n78",
+                json!({
+                    "decision_id": format!("decision:numbered-{index:02}"),
+                    "title": format!("Numbered decision {index}"),
+                    "rationale": "Test fixture",
+                    "topic_keys": topic_keys_of(index),
+                    "option_ids": [],
+                    "chosen_option_id": null,
+                    "hypothesis_ids": [],
+                    "evidence_ids": []
+                }),
+                "2026-01-01T00:00:01Z",
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn memory_graph_failure_attribution_analyses_every_decision_when_the_corpus_takes_several_pages(
+) -> Result<()> {
+    let count = SMALL_PAGE * 2 + 2;
+    let mut events = numbered_proposals(count, |_| vec!["infra"]);
+    // The newest decision is the only one that did not hold up: it is past the first page of
+    // both bulk reads, so a report that stopped at the first page would count no failure.
+    events.push(test_event(
+        count as u128 + 1,
+        EventType::DecisionRejected,
+        "actor:alice",
+        json!({"decision_id": format!("decision:numbered-{:02}", count - 1)}),
+        "2026-01-01T00:00:02Z",
+    ));
+    let graph = graph_from_events(events)?;
+    let request = FailureAttributionRequest::default();
+
+    let asked = Cell::new(0_usize);
+    let paged = attribute_in_pages(
+        &graph,
+        &request,
+        |_| {
+            asked.set(asked.get() + 1);
+            Ok(Vec::new())
+        },
+        SMALL_PAGE,
+    )?;
+
+    assert_eq!(paged.data.corpus_stats.total_decisions, count);
+    assert_eq!(paged.result_count, count);
+    assert!(!paged.truncated);
+    assert_eq!(paged.data.corpus_stats.failed_decisions, 1);
+    assert_eq!(paged.data.corpus_stats.signal_breakdown.rejected_count, 1);
+    // Every decision was asked for its conditions, not the first page of them.
+    assert_eq!(asked.get(), count);
+    // The page size changes how the corpus is read and nothing in the answer.
+    let whole = get_failure_attribution(&graph, &request)?;
+    assert_eq!(paged.data.corpus_stats, whole.data.corpus_stats);
+    assert_eq!(paged.data.by_source, whole.data.by_source);
+    assert_eq!(paged.data.by_authorship, whole.data.by_authorship);
+    Ok(())
+}
+
+#[test]
+fn memory_graph_scan_misfiled_decisions_flags_a_decision_whose_id_sorts_past_the_first_page(
+) -> Result<()> {
+    let count = SMALL_PAGE * 2 + 2;
+    let mut events = numbered_proposals(count, |_| vec!["hivemind"]);
+    // The only foreign-topic decision sorts after every `decision:numbered-*` id.
+    events.push(test_event(
+        count as u128 + 1,
+        EventType::DecisionProposed,
+        "agent:gc:polecat:gc-h9n78",
+        json!({
+            "decision_id": "decision:zzz-foreign",
+            "title": "Beadline decision filed in the wrong ledger",
+            "rationale": "Test fixture",
+            "topic_keys": ["beadline"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+        "2026-01-01T00:00:02Z",
+    ));
+    let graph = graph_from_events(events)?;
+
+    let scan = scan_in_pages(
+        &graph,
+        &MisfiledScanRequest {
+            foreign_topic_keys: vec!["beadline".to_owned()],
+            ..MisfiledScanRequest::default()
+        },
+        SMALL_PAGE,
+    )?;
+
+    let ids: Vec<_> = scan.data.iter().map(|c| c.decision_id.as_str()).collect();
+    assert_eq!(ids, ["decision:zzz-foreign"]);
+    assert!(!scan.truncated);
+    Ok(())
+}
+
+#[test]
+fn memory_graph_scan_misfiled_decisions_cursor_reaches_every_match_past_the_first_page(
+) -> Result<()> {
+    let count = SMALL_PAGE * 2 + 2;
+    // Every decision is foreign, so one foreign key alone matches more than a page of them;
+    // every third also carries a second foreign key, so it is found by two searches and must
+    // still be one row.
+    let graph = graph_from_events(numbered_proposals(count, |index| {
+        if index % 3 == 0 {
+            vec!["beadline", "gc"]
+        } else {
+            vec!["beadline"]
+        }
+    }))?;
+    let request = |cursor: Option<String>| MisfiledScanRequest {
+        foreign_topic_keys: vec!["beadline".to_owned(), "gc".to_owned()],
+        limit: 5,
+        cursor,
+        ..MisfiledScanRequest::default()
+    };
+
+    let first = scan_in_pages(&graph, &request(None), SMALL_PAGE)?;
+    assert_eq!(first.result_count, 5);
+    assert!(
+        first.truncated,
+        "more matches than the scan's own page holds"
+    );
+
+    let cursor = misfiled_next_cursor(0, first.result_count).expect("a cursor to continue from");
+    let second = scan_in_pages(&graph, &request(Some(cursor)), SMALL_PAGE)?;
+    assert_eq!(second.result_count, count - 5);
+    assert!(!second.truncated);
+
+    let ids: Vec<_> = first
+        .data
+        .iter()
+        .chain(second.data.iter())
+        .map(|c| c.decision_id.clone())
+        .collect();
+    let distinct: BTreeSet<_> = ids.iter().collect();
+    assert_eq!(ids.len(), count, "every decision is listed");
+    assert_eq!(distinct.len(), count, "and none of them twice");
     Ok(())
 }
 

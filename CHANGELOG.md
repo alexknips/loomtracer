@@ -731,6 +731,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   appended without capture, e.g. `org.incident`) is found by `org-incident` and `org.incident`
   alike. Decisions, blockers and requests keep their topic keys as recorded and every read
   returns them that way; nothing is rewritten or migrated. (hivemind-vwoau)
+- **`analyze_failure_modes` and `scan_misfiled_decisions` now read every decision, not the first
+  1,000.** On a ledger of about 1,500 decisions, `analyze_failure_modes` reported
+  `corpus_stats.total_decisions: 1000` and every breakdown left out the 500 newest decisions,
+  and `scan_misfiled_decisions` looked only at the 1,000 alphabetically first decision ids, so a
+  misfiled decision whose id sorted later was never flagged and a re-run after moving the
+  flagged ones read clean. Neither reply said it had stopped early. The failure-mode report now
+  pages its outcome and context reads to the end and counts the whole corpus
+  (`total_decisions` is the decision count). The misfiled scan searches each foreign key across
+  the whole tenant, and its `truncated` / `next_cursor` page through every match, however many
+  decisions the tenant holds. (hivemind-11adr)
 - **MCP `recent_decisions`, `get_changed_decisions` and the dated timeline in
   `get_decision_neighborhood` now read the caller's tenant, not `local`.** Over stdio
   (`hivemind --tenant <id> mcp`) and over `POST /mcp` (a tenant header under the static key, or an

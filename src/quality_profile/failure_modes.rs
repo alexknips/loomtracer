@@ -18,9 +18,9 @@
 //! and never names the profile, so it stays a pure read and works without this module.
 //!
 //! # Cost
-//! What the analysis costs (one outcome and one context read per decision, at most
-//! `MAX_QUERY_RESULTS` decisions) plus one profile read per analysed decision: a handful of
-//! anchored lookups each, no scan, no model, no network.
+//! What the analysis costs (one outcome and one context read per decision, every decision of the
+//! corpus) plus one profile read per analysed decision: a handful of anchored lookups each, no
+//! scan, no model, no network.
 
 use crate::projector::GraphView;
 use crate::queries::{
