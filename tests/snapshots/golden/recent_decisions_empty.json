@@ -1,9 +1,5 @@
 {
   "data": {
-    "boundary_event_offsets": {
-      "since_timestamp_offset": 50,
-      "until_timestamp_offset": null
-    },
     "cursor": null,
     "filters": {
       "actor_patterns": [],
@@ -13,13 +9,13 @@
     },
     "items": [],
     "ledger_range": {
-      "from_offset_exclusive": 50,
+      "from_offset_exclusive": 0,
       "to_offset_inclusive": 50
     },
     "limit": 5,
     "next_cursor": null,
     "resolved_since": {
-      "offset": 50,
+      "offset": 0,
       "timestamp": "2030-01-01T00:00:00Z"
     },
     "resolved_until": {

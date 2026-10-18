@@ -288,7 +288,6 @@ pub struct RecentDecisionEntry {
 pub struct RecentDecisionsResults {
     pub resolved_since: ChangeBoundary,
     pub resolved_until: ChangeBoundary,
-    pub boundary_event_offsets: BoundaryEventOffsets,
     pub filters: RecentDecisionFilters,
     pub limit: usize,
     pub cursor: Option<String>,
@@ -302,12 +301,6 @@ pub struct RecentDecisionsResults {
 pub struct ChangeBoundary {
     pub offset: EventId,
     pub timestamp: Option<DateTime<Utc>>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-pub struct BoundaryEventOffsets {
-    pub since_timestamp_offset: Option<EventId>,
-    pub until_timestamp_offset: Option<EventId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -335,7 +328,6 @@ pub struct DecisionChangeRow {
 pub struct DecisionsChangedSinceResults {
     pub resolved_since: ChangeBoundary,
     pub resolved_until: ChangeBoundary,
-    pub boundary_event_offsets: BoundaryEventOffsets,
     pub filters: HistoryFilters,
     pub limit: usize,
     pub cursor: Option<String>,
@@ -441,7 +433,6 @@ pub struct ChangedDecisionEntry {
 pub struct DecisionsAddedSinceResults {
     pub resolved_since: ChangeBoundary,
     pub resolved_until: ChangeBoundary,
-    pub boundary_event_offsets: BoundaryEventOffsets,
     pub filters: DecisionsAddedSinceFilters,
     pub limit: usize,
     pub cursor: Option<String>,
@@ -527,7 +518,7 @@ pub fn get_recent_activity(
 }
 
 /// The decisions decided in the window, newest record first: the ones a `decision.proposed`
-/// recorded, windowed by their ledger position, and the ones a classifier drafted from a
+/// recorded, windowed by their own time (`ts`), and the ones a classifier drafted from a
 /// transcript, which the graph holds and no proposal records, windowed by the time they were said
 /// (`RecentDecisionEntry::decided_at`).
 pub fn get_recent_decisions(
@@ -538,7 +529,13 @@ pub fn get_recent_decisions(
     let started = Instant::now();
     let events = read_all_events(ledger)?;
     let latest_offset = ledger.latest_offset()?;
-    let window = resolve_recent_decisions_window(&events, latest_offset, request);
+    let window = HistoryWindow::new(
+        latest_offset,
+        None,
+        None,
+        Some(request.since_timestamp),
+        request.until_timestamp,
+    );
     let index = DecisionIndex::from_events(&events)?;
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
     let labels = ProjectLabels::from_events(&events);
@@ -548,88 +545,80 @@ pub fn get_recent_decisions(
     let offset = parse_history_cursor(cursor.as_deref())?;
 
     let mut items = Vec::new();
-    if window.until_offset >= window.since_offset {
-        for event in &events {
-            let event_id = event_id(event)?;
-            if event_id <= window.since_offset || event_id > window.until_offset {
-                continue;
-            }
-
-            let payload = events::validate(event).map_err(query_validation_error)?;
-            let EventPayload::DecisionProposed(payload) = payload else {
-                continue;
-            };
-
-            let decision_id = payload.decision_id.clone();
-            let entry = index.decisions.get(&decision_id);
-            let status = index
-                .status(&decision_id)
-                .unwrap_or(DecisionStatus::Proposed);
-            let topic_keys = entry
-                .map(|entry| entry.topic_keys.clone())
-                .unwrap_or_else(|| normalized_string_values(payload.topic_keys.clone()));
-            let actor_ids = entry
-                .map(|entry| entry.actor_ids.iter().cloned().collect::<Vec<_>>())
-                .unwrap_or_else(|| vec![event.actor_id.clone()]);
-
-            if !decision_matches_recent_filters(
-                &topic_keys,
-                status,
-                &actor_ids,
-                event.source,
-                &filters,
-            ) {
-                continue;
-            }
-
-            let option_ids = entry
-                .map(|entry| entry.option_ids.iter().cloned().collect::<Vec<_>>())
-                .unwrap_or(payload.option_ids.clone());
-            let evidence_ids = entry
-                .map(|entry| entry.evidence_ids.iter().cloned().collect::<Vec<_>>())
-                .unwrap_or(payload.evidence_ids.clone());
-            let hypothesis_ids = entry
-                .map(|entry| entry.hypothesis_ids.iter().cloned().collect::<Vec<_>>())
-                .unwrap_or(payload.hypothesis_ids.clone());
-
-            // The same rule the projector applies: where the latest `decision.moved` took the
-            // decision, else the handle on the proposal, else (no handle, or an event that
-            // predates the field) the recorder's personal project.
-            let moved_to = entry.and_then(|entry| entry.moved_to.as_deref());
-            let project = match (moved_to, payload.project) {
-                (Some(moved_to), _) => moved_to.to_owned(), // ubs:ignore: entry owns its handle
-                (None, Some(handle)) => handle,
-                (None, None) => personal_project_handle(&event.actor_id),
-            };
-            // The same rule the projector applies to `title`: the latest `decision.retitled`
-            // wins over the proposal's own title (hivemind-ydmp) — without this override,
-            // `query recent` / `recent_decisions` stay stale forever after a retitle even
-            // though recall/why/digest/search read straight off the projected node.
-            let retitled_to = entry.and_then(|entry| entry.retitled_to.as_deref());
-            let title = match retitled_to {
-                Some(to) => to.to_owned(), // ubs:ignore: entry owns its handle
-                None => payload.title,
-            };
-            items.push(RecentDecisionEntry {
-                floor: floor_of(&decision_rows, &decision_id),
-                decision_id,
-                title,
-                rationale: payload.rationale,
-                quote: payload.quote,
-                question: payload.question,
-                status,
-                project_label: labels.label(&project),
-                project,
-                topic_keys,
-                actor_ids,
-                decided_at: event.ts,
-                creation: decision_event_provenance(event)?,
-                chosen_option_id: payload.chosen_option_id,
-                option_ids,
-                evidence_ids,
-                hypothesis_ids,
-            });
+    for event in &events {
+        if !window.contains(event_id(event)?, event.ts) {
+            continue;
         }
+
+        let payload = events::validate(event).map_err(query_validation_error)?;
+        let EventPayload::DecisionProposed(payload) = payload else {
+            continue;
+        };
+
+        let decision_id = payload.decision_id.clone();
+        let entry = index.decisions.get(&decision_id);
+        let status = index
+            .status(&decision_id)
+            .unwrap_or(DecisionStatus::Proposed);
+        let topic_keys = entry
+            .map(|entry| entry.topic_keys.clone())
+            .unwrap_or_else(|| normalized_string_values(payload.topic_keys.clone()));
+        let actor_ids = entry
+            .map(|entry| entry.actor_ids.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or_else(|| vec![event.actor_id.clone()]);
+
+        if !decision_matches_recent_filters(&topic_keys, status, &actor_ids, event.source, &filters)
+        {
+            continue;
+        }
+
+        let option_ids = entry
+            .map(|entry| entry.option_ids.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or(payload.option_ids.clone());
+        let evidence_ids = entry
+            .map(|entry| entry.evidence_ids.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or(payload.evidence_ids.clone());
+        let hypothesis_ids = entry
+            .map(|entry| entry.hypothesis_ids.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or(payload.hypothesis_ids.clone());
+
+        // The same rule the projector applies: where the latest `decision.moved` took the
+        // decision, else the handle on the proposal, else (no handle, or an event that
+        // predates the field) the recorder's personal project.
+        let moved_to = entry.and_then(|entry| entry.moved_to.as_deref());
+        let project = match (moved_to, payload.project) {
+            (Some(moved_to), _) => moved_to.to_owned(), // ubs:ignore: entry owns its handle
+            (None, Some(handle)) => handle,
+            (None, None) => personal_project_handle(&event.actor_id),
+        };
+        // The same rule the projector applies to `title`: the latest `decision.retitled`
+        // wins over the proposal's own title (hivemind-ydmp) — without this override,
+        // `query recent` / `recent_decisions` stay stale forever after a retitle even
+        // though recall/why/digest/search read straight off the projected node.
+        let retitled_to = entry.and_then(|entry| entry.retitled_to.as_deref());
+        let title = match retitled_to {
+            Some(to) => to.to_owned(), // ubs:ignore: entry owns its handle
+            None => payload.title,
+        };
+        items.push(RecentDecisionEntry {
+            floor: floor_of(&decision_rows, &decision_id),
+            decision_id,
+            title,
+            rationale: payload.rationale,
+            quote: payload.quote,
+            question: payload.question,
+            status,
+            project_label: labels.label(&project),
+            project,
+            topic_keys,
+            actor_ids,
+            decided_at: event.ts,
+            creation: decision_event_provenance(event)?,
+            chosen_option_id: payload.chosen_option_id,
+            option_ids,
+            evidence_ids,
+            hypothesis_ids,
+        });
     }
     for (decision_id, draft) in ClassifiedDrafts::load(graph, &events, &decision_rows)? {
         if !draft.decided_between(Some(request.since_timestamp), request.until_timestamp)
@@ -662,24 +651,14 @@ pub fn get_recent_decisions(
         truncated: next_cursor.is_some(),
         latency_ms: started.elapsed().as_millis(),
         data: RecentDecisionsResults {
-            resolved_since: ChangeBoundary {
-                offset: window.since_offset,
-                timestamp: Some(request.since_timestamp),
-            },
-            resolved_until: ChangeBoundary {
-                offset: window.until_offset,
-                timestamp: request.until_timestamp,
-            },
-            boundary_event_offsets: window.boundary_event_offsets,
+            resolved_since: window.since(),
+            resolved_until: window.until(),
             filters: filters.into_view(),
             limit,
             cursor,
             next_cursor,
             total_matches,
-            ledger_range: LedgerRange {
-                from_offset_exclusive: window.since_offset,
-                to_offset_inclusive: window.until_offset,
-            },
+            ledger_range: window.ledger_range(),
             items: page,
         },
     })
@@ -727,7 +706,13 @@ pub fn get_decisions_changed_since(
     let started = Instant::now();
     let events = read_all_events(ledger)?;
     let latest_offset = ledger.latest_offset()?;
-    let window = resolve_change_window(&events, latest_offset, request);
+    let window = HistoryWindow::new(
+        latest_offset,
+        request.since_offset,
+        request.until_offset,
+        request.since_timestamp,
+        request.until_timestamp,
+    );
     let index = DecisionIndex::from_events(&events)?;
     let filters = normalized_history_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
@@ -735,24 +720,21 @@ pub fn get_decisions_changed_since(
     let offset = parse_history_cursor(cursor.as_deref())?;
 
     let mut rows = Vec::new();
-    if window.until_offset >= window.since_offset {
-        for event in &events {
-            let event_id = event_id(event)?;
-            if event_id <= window.since_offset || event_id > window.until_offset {
-                continue;
-            }
-            let stale_row = stale_premise_change_row(event, &index)?;
-            for row in std::iter::once(decision_change_row(event, &index)?).chain(stale_row) {
-                if matches_history_filters(
-                    &row.actor_id,
-                    row.source,
-                    row.source_ref.as_deref(),
-                    &row.decision_ids,
-                    &filters,
-                    &index,
-                ) {
-                    rows.push(row);
-                }
+    for event in &events {
+        if !window.contains(event_id(event)?, event.ts) {
+            continue;
+        }
+        let stale_row = stale_premise_change_row(event, &index)?;
+        for row in std::iter::once(decision_change_row(event, &index)?).chain(stale_row) {
+            if matches_history_filters(
+                &row.actor_id,
+                row.source,
+                row.source_ref.as_deref(),
+                &row.decision_ids,
+                &filters,
+                &index,
+            ) {
+                rows.push(row);
             }
         }
     }
@@ -768,24 +750,14 @@ pub fn get_decisions_changed_since(
         truncated: next_cursor.is_some(),
         latency_ms: started.elapsed().as_millis(),
         data: DecisionsChangedSinceResults {
-            resolved_since: ChangeBoundary {
-                offset: window.since_offset,
-                timestamp: request.since_timestamp,
-            },
-            resolved_until: ChangeBoundary {
-                offset: window.until_offset,
-                timestamp: request.until_timestamp,
-            },
-            boundary_event_offsets: window.boundary_event_offsets,
+            resolved_since: window.since(),
+            resolved_until: window.until(),
             filters,
             limit,
             cursor,
             next_cursor,
             total_matches,
-            ledger_range: LedgerRange {
-                from_offset_exclusive: window.since_offset,
-                to_offset_inclusive: window.until_offset,
-            },
+            ledger_range: window.ledger_range(),
             items,
         },
     })
@@ -794,7 +766,7 @@ pub fn get_decisions_changed_since(
 /// The decisions added in the window, and the ones it changed. A decision a classifier drafted
 /// from a transcript is added when the classification that recorded it falls inside the request's
 /// offset bounds and the turn time it was said at (`AddedDecisionEntry::decided_at`) inside its
-/// timestamp bounds; a proposal is windowed by its ledger position alone.
+/// timestamp bounds; a proposal is windowed by its own time (`ts`) and the caller's offset bounds.
 pub fn get_decisions_added_since(
     ledger: &impl EventLedger,
     graph: &impl GraphView,
@@ -803,7 +775,13 @@ pub fn get_decisions_added_since(
     let started = Instant::now();
     let events = read_all_events(ledger)?;
     let latest_offset = ledger.latest_offset()?;
-    let window = resolve_added_since_window(&events, latest_offset, request);
+    let window = HistoryWindow::new(
+        latest_offset,
+        request.since_offset,
+        request.until_offset,
+        request.since_timestamp,
+        request.until_timestamp,
+    );
     let index = DecisionIndex::from_events(&events)?;
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
     let mut drafts = ClassifiedDrafts::load(graph, &events, &decision_rows)?;
@@ -819,7 +797,7 @@ pub fn get_decisions_added_since(
     for event in &events {
         let event_id = event_id(event)?;
         let payload = events::validate(event).map_err(query_validation_error)?;
-        let in_window = event_id > window.since_offset && event_id <= window.until_offset;
+        let in_window = window.contains(event_id, event.ts);
         if matches!(payload, EventPayload::DecisionProposed(_)) {
             for decision_id in decision_ids_for_payload(&payload, &index) {
                 creation_events.entry(decision_id).or_insert(event);
@@ -886,10 +864,9 @@ pub fn get_decisions_added_since(
                         .map(|entry| entry.hypothesis_ids.iter().cloned().collect::<Vec<_>>())
                         .unwrap_or_default(),
                     decided_at: creation.as_ref().and_then(|prov| prov.ts),
-                    created_in_window: creation.as_ref().is_some_and(|prov| {
-                        prov.event_origin > window.since_offset
-                            && prov.event_origin <= window.until_offset
-                    }),
+                    created_in_window: creation
+                        .as_ref()
+                        .is_some_and(|prov| window.contains(prov.event_origin, prov.ts)),
                     creation,
                 }
             }
@@ -1023,15 +1000,8 @@ pub fn get_decisions_added_since(
         truncated: next_cursor.is_some(),
         latency_ms: started.elapsed().as_millis(),
         data: DecisionsAddedSinceResults {
-            resolved_since: ChangeBoundary {
-                offset: window.since_offset,
-                timestamp: request.since_timestamp,
-            },
-            resolved_until: ChangeBoundary {
-                offset: window.until_offset,
-                timestamp: request.until_timestamp,
-            },
-            boundary_event_offsets: window.boundary_event_offsets,
+            resolved_since: window.since(),
+            resolved_until: window.until(),
             filters: filters.into_view(),
             limit,
             cursor,
@@ -1039,10 +1009,7 @@ pub fn get_decisions_added_since(
             total_matches,
             total_added,
             total_changed_existing: total_changed,
-            ledger_range: LedgerRange {
-                from_offset_exclusive: window.since_offset,
-                to_offset_inclusive: window.until_offset,
-            },
+            ledger_range: window.ledger_range(),
             added_decisions: added_page,
             changed_existing_decisions: changed_page,
         },
@@ -1349,41 +1316,77 @@ fn extract_import_run_id(source_ref: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-#[derive(Debug)]
-struct ResolvedAddedSinceWindow {
+/// The window a history request cuts the ledger to. Offset bounds bound it only when the caller
+/// gave them; a timestamp bound is tested against each event's own `ts`, never turned into an
+/// offset, because event time does not rise with ledger offset: an importer or a classified
+/// transcript answer is dated at its source's time, so an event appended now can carry a `ts`
+/// from last week. Cutting at "the last offset dated before the bound" would drop every
+/// proposal appended before such an event.
+#[derive(Clone, Copy, Debug)]
+struct HistoryWindow {
+    /// Exclusive; 0 when the caller gave no offset.
     since_offset: EventId,
+    /// Inclusive; the ledger's latest offset when the caller gave no offset.
     until_offset: EventId,
-    boundary_event_offsets: BoundaryEventOffsets,
+    /// Exclusive.
+    since_timestamp: Option<DateTime<Utc>>,
+    /// Inclusive.
+    until_timestamp: Option<DateTime<Utc>>,
 }
 
-fn resolve_added_since_window(
-    events: &[Event],
-    latest_offset: EventId,
-    request: &DecisionsAddedSinceRequest,
-) -> ResolvedAddedSinceWindow {
-    let since_timestamp_offset = request
-        .since_timestamp
-        .map(|timestamp| timestamp_boundary_offset(events, timestamp));
-    let until_timestamp_offset = request
-        .until_timestamp
-        .map(|timestamp| timestamp_boundary_offset(events, timestamp));
-
-    let mut since_offset = request.since_offset.unwrap_or_default();
-    if let Some(offset) = since_timestamp_offset {
-        since_offset = since_offset.max(offset);
-    }
-    let mut until_offset = request.until_offset.unwrap_or(latest_offset);
-    if let Some(offset) = until_timestamp_offset {
-        until_offset = until_offset.min(offset);
+impl HistoryWindow {
+    fn new(
+        latest_offset: EventId,
+        since_offset: Option<EventId>,
+        until_offset: Option<EventId>,
+        since_timestamp: Option<DateTime<Utc>>,
+        until_timestamp: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            since_offset: since_offset.unwrap_or_default(),
+            until_offset: until_offset.unwrap_or(latest_offset),
+            since_timestamp,
+            until_timestamp,
+        }
     }
 
-    ResolvedAddedSinceWindow {
-        since_offset,
-        until_offset,
-        boundary_event_offsets: BoundaryEventOffsets {
-            since_timestamp_offset,
-            until_timestamp_offset,
-        },
+    /// Whether the event at `offset`, dated `ts`, is in the window: inside the offset bounds and
+    /// after `since_timestamp` and no later than `until_timestamp`, the same half-open cut
+    /// `ClassifiedDraft::decided_between` makes. With a timestamp bound, an event with no `ts`
+    /// is not in the window.
+    fn contains(&self, offset: EventId, ts: Option<DateTime<Utc>>) -> bool {
+        if offset <= self.since_offset || offset > self.until_offset {
+            return false;
+        }
+        if self.since_timestamp.is_none() && self.until_timestamp.is_none() {
+            return true;
+        }
+        let Some(ts) = ts else {
+            return false;
+        };
+        self.since_timestamp.is_none_or(|since| ts > since)
+            && self.until_timestamp.is_none_or(|until| ts <= until)
+    }
+
+    fn since(&self) -> ChangeBoundary {
+        ChangeBoundary {
+            offset: self.since_offset,
+            timestamp: self.since_timestamp,
+        }
+    }
+
+    fn until(&self) -> ChangeBoundary {
+        ChangeBoundary {
+            offset: self.until_offset,
+            timestamp: self.until_timestamp,
+        }
+    }
+
+    fn ledger_range(&self) -> LedgerRange {
+        LedgerRange {
+            from_offset_exclusive: self.since_offset,
+            to_offset_inclusive: self.until_offset,
+        }
     }
 }
 
@@ -1501,87 +1504,6 @@ pub(super) fn read_all_events(ledger: &impl EventLedger) -> Result<Vec<Event>> {
     }
 
     Ok(events)
-}
-
-#[derive(Debug)]
-struct ResolvedRecentDecisionsWindow {
-    since_offset: EventId,
-    until_offset: EventId,
-    boundary_event_offsets: BoundaryEventOffsets,
-}
-
-fn resolve_recent_decisions_window(
-    events: &[Event],
-    latest_offset: EventId,
-    request: &RecentDecisionsRequest,
-) -> ResolvedRecentDecisionsWindow {
-    let since_timestamp_offset = timestamp_boundary_offset(events, request.since_timestamp);
-    let until_timestamp_offset = request
-        .until_timestamp
-        .map(|timestamp| timestamp_boundary_offset(events, timestamp));
-
-    let since_offset = since_timestamp_offset;
-    let mut until_offset = latest_offset;
-    if let Some(offset) = until_timestamp_offset {
-        until_offset = until_offset.min(offset);
-    }
-
-    ResolvedRecentDecisionsWindow {
-        since_offset,
-        until_offset,
-        boundary_event_offsets: BoundaryEventOffsets {
-            since_timestamp_offset: Some(since_timestamp_offset),
-            until_timestamp_offset,
-        },
-    }
-}
-
-#[derive(Debug)]
-struct ResolvedChangeWindow {
-    since_offset: EventId,
-    until_offset: EventId,
-    boundary_event_offsets: BoundaryEventOffsets,
-}
-
-fn resolve_change_window(
-    events: &[Event],
-    latest_offset: EventId,
-    request: &ChangedSinceRequest,
-) -> ResolvedChangeWindow {
-    let since_timestamp_offset = request
-        .since_timestamp
-        .map(|timestamp| timestamp_boundary_offset(events, timestamp));
-    let until_timestamp_offset = request
-        .until_timestamp
-        .map(|timestamp| timestamp_boundary_offset(events, timestamp));
-
-    let mut since_offset = request.since_offset.unwrap_or_default();
-    if let Some(offset) = since_timestamp_offset {
-        since_offset = since_offset.max(offset);
-    }
-
-    let mut until_offset = request.until_offset.unwrap_or(latest_offset);
-    if let Some(offset) = until_timestamp_offset {
-        until_offset = until_offset.min(offset);
-    }
-
-    ResolvedChangeWindow {
-        since_offset,
-        until_offset,
-        boundary_event_offsets: BoundaryEventOffsets {
-            since_timestamp_offset,
-            until_timestamp_offset,
-        },
-    }
-}
-
-fn timestamp_boundary_offset(events: &[Event], timestamp: DateTime<Utc>) -> EventId {
-    events
-        .iter()
-        .filter(|event| event.ts.is_some_and(|event_ts| event_ts <= timestamp))
-        .filter_map(|event| event.event_id)
-        .max()
-        .unwrap_or_default()
 }
 
 #[derive(Clone, Debug, Default)]

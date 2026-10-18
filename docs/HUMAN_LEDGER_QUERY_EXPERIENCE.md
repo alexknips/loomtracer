@@ -170,19 +170,23 @@ LLMs, mutate state, or rank beyond explicit ledger ordering.
 `get_decisions_changed_since(request)` returns oldest-first changes in a
 resolved ledger window:
 
-- `resolved_since` and `resolved_until`: concrete offsets, plus caller-supplied
-  timestamps when timestamp bounds were used.
-- `boundary_event_offsets`: timestamp-to-offset resolutions so the same query
-  can be replayed exactly.
+- `resolved_since` and `resolved_until`: the offset bounds (the caller's, else
+  0 and the latest offset), plus caller-supplied timestamps when timestamp
+  bounds were used.
 - `filters`, `limit`, `cursor`, `next_cursor`, `total_matches`, and
   `ledger_range`.
 - `items`: event rows classified as `new_decision`, `status_change`,
   `new_evidence`, `refuted_assumption`, `supersession`, or `context_change`,
   with the same citation and affected-node fields as timeline rows.
 
-Offset bounds are canonical. A `since_offset` is exclusive; `until_offset` is
-inclusive. Timestamp bounds resolve to the greatest event offset at or before
-the timestamp, then the query uses those offsets.
+A `since_offset` is exclusive; `until_offset` is inclusive. Offsets bound a
+window only when the caller gives them. A timestamp bound is tested against each
+event's own `ts`: an event is in the window when it was dated after the `since`
+timestamp and no later than the `until` timestamp, whatever its offset. Event
+time does not rise with offset (an importer or a classified transcript answer is
+dated at its source's time, not at append time), so a timestamp is never turned
+into an offset. Offset and timestamp bounds given together both apply. An event
+with no `ts` is outside any window with a timestamp bound.
 
 `export_read_only_summary(request)` wraps either query for sharing:
 

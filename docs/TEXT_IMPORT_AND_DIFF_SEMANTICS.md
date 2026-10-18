@@ -277,7 +277,6 @@ ledger offsets or RFC 3339 timestamps resolved by CLI/application code.
 The response must include:
 
 - `resolved_since` and `resolved_until`.
-- `boundary_event_offsets` when timestamp bounds are used.
 - `added_decisions`: decision nodes whose creation event origin is inside the
   window.
 - `changed_existing_decisions`: existing decision nodes that gained status
@@ -300,9 +299,13 @@ time of the turn it was said in, the same value `GET /v1/graph` reports) is insi
 timestamp bounds, because a classification can come days after the conversation. The same
 rule dates it in `recent_decisions`, `search_decisions`, `digest` and `review`.
 
-Offset bounds are canonical. Timestamp bounds are resolved to ledger offsets at
-query time and the response includes those offsets so the same diff can be
-replayed exactly.
+Offsets bound a window only when the caller gives them. A timestamp bound is
+tested against each event's own `ts` (after `since`, no later than `until`),
+whatever its offset, because event time does not rise with offset: an importer
+or a classified transcript answer is dated at its source's time, not at append
+time. The response echoes the offset bounds and the timestamps, so the same diff
+can be replayed exactly; `ledger_range.to_offset_inclusive` is the offset to
+poll from next.
 
 ## Relative Dates
 

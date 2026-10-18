@@ -4346,8 +4346,8 @@ fn resolve_situational_since(
 
 /// Resolves `--since-branch-point` to the timestamp of the commit where the current
 /// branch diverged from `base`, so "what changed since I last worked here" is one call
-/// (`get_decisions_changed_since` resolves that timestamp to a concrete ledger offset —
-/// offset bounds are canonical, per docs/SEARCH_DESIGN.md).
+/// (`get_decisions_changed_since` tests each event's own `ts` against it, so a back-dated
+/// event cannot move the boundary).
 fn git_branch_point_timestamp(base: &str) -> Result<DateTime<Utc>> {
     let merge_base = std::process::Command::new("git")
         .args(["merge-base", "HEAD", base])

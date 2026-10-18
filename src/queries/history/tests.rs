@@ -106,7 +106,7 @@ fn changed_since_classifies_decision_history_and_paginates() -> Result<()> {
 }
 
 #[test]
-fn changed_since_resolves_timestamp_bounds_to_offsets() -> Result<()> {
+fn changed_since_windows_by_event_timestamp_and_leaves_the_offsets_unbounded() -> Result<()> {
     let ledger = fixture_ledger()?;
 
     let response = get_decisions_changed_since(
@@ -119,16 +119,13 @@ fn changed_since_resolves_timestamp_bounds_to_offsets() -> Result<()> {
         },
     )?;
 
-    assert_eq!(response.data.resolved_since.offset, 3);
-    assert_eq!(response.data.resolved_until.offset, 6);
-    assert_eq!(
-        response.data.boundary_event_offsets.since_timestamp_offset,
-        Some(3)
-    );
-    assert_eq!(
-        response.data.boundary_event_offsets.until_timestamp_offset,
-        Some(6)
-    );
+    // Only the timestamps bound the window, so the offsets are the whole ledger's.
+    assert_eq!(response.data.resolved_since.offset, 0);
+    assert_eq!(response.data.resolved_since.timestamp, Some(ts(3)));
+    assert_eq!(response.data.resolved_until.offset, 8);
+    assert_eq!(response.data.resolved_until.timestamp, Some(ts(6)));
+    assert_eq!(response.data.ledger_range.from_offset_exclusive, 0);
+    assert_eq!(response.data.ledger_range.to_offset_inclusive, 8);
     assert_eq!(
         response
             .data
@@ -631,7 +628,7 @@ fn added_since_classifies_changed_existing_when_creation_is_before_window() -> R
 }
 
 #[test]
-fn added_since_resolves_timestamps_to_offsets_and_reports_boundaries() -> Result<()> {
+fn added_since_windows_by_event_timestamp_and_reports_the_bounds() -> Result<()> {
     let ledger = fixture_ledger()?;
 
     let response = get_decisions_added_since(
@@ -645,16 +642,10 @@ fn added_since_resolves_timestamps_to_offsets_and_reports_boundaries() -> Result
         },
     )?;
 
-    assert_eq!(response.data.resolved_since.offset, 2);
-    assert_eq!(response.data.resolved_until.offset, 5);
-    assert_eq!(
-        response.data.boundary_event_offsets.since_timestamp_offset,
-        Some(2)
-    );
-    assert_eq!(
-        response.data.boundary_event_offsets.until_timestamp_offset,
-        Some(5)
-    );
+    assert_eq!(response.data.resolved_since.offset, 0);
+    assert_eq!(response.data.resolved_since.timestamp, Some(ts(2)));
+    assert_eq!(response.data.resolved_until.offset, 8);
+    assert_eq!(response.data.resolved_until.timestamp, Some(ts(5)));
     assert_eq!(response.data.total_added, 2);
     assert_eq!(response.data.total_changed_existing, 0);
     Ok(())
@@ -1658,5 +1649,302 @@ fn a_draft_said_before_the_window_is_only_changed_by_an_acceptance_in_it() -> Re
 
     assert!(added.is_empty());
     assert_eq!(changed, vec![said_today]);
+    Ok(())
+}
+
+// ── event time does not rise with ledger offset (hivemind-rk3p8) ──
+//
+// An importer or a classified transcript answer dates its event at its source's time, not at
+// append time, so an event appended last can carry the oldest `ts` in the ledger. A time window
+// is cut by each event's own `ts`, never by the offset of the last event dated before the bound.
+
+use crate::commands::{CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding};
+use crate::events::EventProvenance;
+
+const BEFORE_THE_PROPOSALS: &str = "2026-10-18T09:45:00Z";
+
+struct BackDatedLedger {
+    ledger: InMemoryEventLedger,
+    first: String,
+    second: String,
+    imported: String,
+}
+
+/// Appended in this order, each dated as shown:
+///
+/// 1. `first` proposed at 10:00
+/// 2. `second` proposed at 10:05
+/// 3. `first` accepted at 10:30
+/// 4. evidence recorded at 09:30, a classified answer written late for a turn of the morning
+/// 5. `imported` proposed on 2026-09-01, a document imported today
+fn back_dated_ledger() -> Result<BackDatedLedger> {
+    let ledger = InMemoryEventLedger::new();
+    let first = propose_at(&ledger, "2026-10-18T10:00:00Z", "Use the batch queue")?;
+    let second = propose_at(&ledger, "2026-10-18T10:05:00Z", "Use the streaming queue")?;
+    commands_at(&ledger, "2026-10-18T10:30:00Z").accept_decision(&first, "human:alex")?;
+    commands_at(&ledger, "2026-10-18T09:30:00Z")
+        .record_evidence("human:alex", "Queue depth stayed flat overnight")?;
+    let imported = propose_at(&ledger, "2026-09-01T00:00:00Z", "Keep the old retry policy")?;
+    Ok(BackDatedLedger {
+        ledger,
+        first,
+        second,
+        imported,
+    })
+}
+
+fn commands_at<'a>(ledger: &'a InMemoryEventLedger, at: &str) -> Commands<'a, InMemoryEventLedger> {
+    Commands::new_with_context(
+        ledger,
+        CommandContext::local(EventProvenance::cli()).with_event_ts(Some(test_ts(at))),
+    )
+}
+
+/// An open recommendation (a chosen option, kept at `proposed`), dated `at` along with its option.
+fn propose_at(ledger: &InMemoryEventLedger, at: &str, title: &str) -> Result<String> {
+    let commands = commands_at(ledger, at);
+    let option_id = commands.record_option("human:alex", "Adopt it", "Adopt the change")?;
+    commands.propose_decision(DecisionProposalInput {
+        grounding: Grounding::NotAsked,
+        expressed_confidence: None,
+        actor_id: "human:alex",
+        title,
+        rationale: "The window test needs a rationale to read on its own",
+        topic_keys: &["history".to_owned()],
+        option_ids: std::slice::from_ref(&option_id),
+        option_labels: &["Adopt it".to_owned()],
+        chosen_option_id: Some(option_id.as_str()),
+        decided_by: None,
+        still_proposed: true,
+        hypothesis_ids: &[],
+        evidence_ids: &[],
+        quote: None,
+        question: None,
+        delegated_by: None,
+        project: None,
+        floor: FloorInput::NotAsked,
+    })
+}
+
+/// The proposals, acceptances and evidence a changed-since window holds, oldest offset first,
+/// leaving out the option events recorded along with each proposal.
+fn changed_in(
+    ledger: &InMemoryEventLedger,
+    request: ChangedSinceRequest,
+) -> Result<Vec<(EventId, EventType)>> {
+    Ok(get_decisions_changed_since(ledger, &request)?
+        .data
+        .items
+        .into_iter()
+        .map(|row| (row.event_origin, row.event_type))
+        .filter(|(_, event_type)| {
+            matches!(
+                event_type,
+                EventType::DecisionProposed
+                    | EventType::DecisionAccepted
+                    | EventType::EvidenceRecorded
+            )
+        })
+        .collect())
+}
+
+fn event_types(changes: &[(EventId, EventType)]) -> Vec<EventType> {
+    changes.iter().map(|(_, event_type)| *event_type).collect()
+}
+
+fn added_ids(
+    ledger: &InMemoryEventLedger,
+    request: &DecisionsAddedSinceRequest,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let data = get_decisions_added_since(ledger, &graph_of(ledger)?, request)?.data;
+    Ok((
+        data.added_decisions
+            .into_iter()
+            .map(|entry| entry.decision_id)
+            .collect(),
+        data.changed_existing_decisions
+            .into_iter()
+            .map(|entry| entry.decision_id)
+            .collect(),
+    ))
+}
+
+#[test]
+fn recent_decisions_since_a_time_between_them_lists_the_proposals_a_back_dated_event_follows(
+) -> Result<()> {
+    let fixture = back_dated_ledger()?;
+    let graph = graph_of(&fixture.ledger)?;
+
+    let response = get_recent_decisions(
+        &fixture.ledger,
+        &graph,
+        &recent_request(BEFORE_THE_PROPOSALS, None),
+    )?;
+
+    // Newest record first. The import dated 2026-09-01 is outside the window though it was
+    // appended last.
+    let listed: Vec<_> = response
+        .data
+        .items
+        .iter()
+        .map(|item| item.decision_id.clone())
+        .collect();
+    assert_eq!(listed, vec![fixture.second, fixture.first]);
+    Ok(())
+}
+
+#[test]
+fn recent_decisions_until_before_the_proposals_leaves_them_out_of_a_window_in_the_past(
+) -> Result<()> {
+    let fixture = back_dated_ledger()?;
+    let graph = graph_of(&fixture.ledger)?;
+
+    let response = get_recent_decisions(
+        &fixture.ledger,
+        &graph,
+        &recent_request("2026-08-01T00:00:00Z", Some(BEFORE_THE_PROPOSALS)),
+    )?;
+
+    let listed: Vec<_> = response
+        .data
+        .items
+        .iter()
+        .map(|item| item.decision_id.clone())
+        .collect();
+    assert_eq!(listed, vec![fixture.imported]);
+    Ok(())
+}
+
+#[test]
+fn changed_since_a_time_between_them_lists_the_changes_a_back_dated_event_follows() -> Result<()> {
+    let fixture = back_dated_ledger()?;
+
+    let changes = changed_in(
+        &fixture.ledger,
+        ChangedSinceRequest {
+            since_timestamp: Some(test_ts(BEFORE_THE_PROPOSALS)),
+            limit: 25,
+            ..ChangedSinceRequest::default()
+        },
+    )?;
+
+    // The evidence dated 09:30 and the import dated 2026-09-01 are outside the window though
+    // they were appended last.
+    assert_eq!(
+        event_types(&changes),
+        vec![
+            EventType::DecisionProposed,
+            EventType::DecisionProposed,
+            EventType::DecisionAccepted,
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn changed_until_before_the_proposals_leaves_them_out_of_a_window_in_the_past() -> Result<()> {
+    let fixture = back_dated_ledger()?;
+
+    let changes = changed_in(
+        &fixture.ledger,
+        ChangedSinceRequest {
+            until_timestamp: Some(test_ts(BEFORE_THE_PROPOSALS)),
+            limit: 25,
+            ..ChangedSinceRequest::default()
+        },
+    )?;
+
+    // The proposals and the acceptance, recorded today, are outside a window that ends before
+    // them though they were appended first.
+    assert_eq!(
+        event_types(&changes),
+        vec![EventType::EvidenceRecorded, EventType::DecisionProposed]
+    );
+    Ok(())
+}
+
+#[test]
+fn an_offset_the_caller_gives_still_bounds_a_time_window() -> Result<()> {
+    let fixture = back_dated_ledger()?;
+    let since_timestamp = Some(test_ts(BEFORE_THE_PROPOSALS));
+    let both_proposals = changed_in(
+        &fixture.ledger,
+        ChangedSinceRequest {
+            since_timestamp,
+            limit: 25,
+            ..ChangedSinceRequest::default()
+        },
+    )?;
+    let (first_proposal, _) = both_proposals[0];
+
+    let changes = changed_in(
+        &fixture.ledger,
+        ChangedSinceRequest {
+            since_offset: Some(first_proposal),
+            since_timestamp,
+            limit: 25,
+            ..ChangedSinceRequest::default()
+        },
+    )?;
+
+    assert_eq!(
+        event_types(&changes),
+        vec![EventType::DecisionProposed, EventType::DecisionAccepted]
+    );
+    Ok(())
+}
+
+#[test]
+fn added_since_a_time_between_them_lists_the_proposals_a_back_dated_event_follows() -> Result<()> {
+    let fixture = back_dated_ledger()?;
+
+    let (added, changed) = added_ids(
+        &fixture.ledger,
+        &DecisionsAddedSinceRequest {
+            since_timestamp: Some(test_ts(BEFORE_THE_PROPOSALS)),
+            limit: 25,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?;
+
+    assert_eq!(added, vec![fixture.first, fixture.second]);
+    assert!(changed.is_empty());
+    Ok(())
+}
+
+#[test]
+fn added_since_a_time_after_a_proposal_reports_its_later_change_not_the_back_dated_import(
+) -> Result<()> {
+    let fixture = back_dated_ledger()?;
+
+    let (added, changed) = added_ids(
+        &fixture.ledger,
+        &DecisionsAddedSinceRequest {
+            since_timestamp: Some(test_ts("2026-10-18T10:15:00Z")),
+            limit: 25,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?;
+
+    assert!(added.is_empty());
+    assert_eq!(changed, vec![fixture.first]);
+    Ok(())
+}
+
+#[test]
+fn added_until_before_the_proposals_leaves_them_out_of_a_window_in_the_past() -> Result<()> {
+    let fixture = back_dated_ledger()?;
+
+    let (added, changed) = added_ids(
+        &fixture.ledger,
+        &DecisionsAddedSinceRequest {
+            until_timestamp: Some(test_ts(BEFORE_THE_PROPOSALS)),
+            limit: 25,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?;
+
+    assert_eq!(added, vec![fixture.imported]);
+    assert!(changed.is_empty());
     Ok(())
 }
