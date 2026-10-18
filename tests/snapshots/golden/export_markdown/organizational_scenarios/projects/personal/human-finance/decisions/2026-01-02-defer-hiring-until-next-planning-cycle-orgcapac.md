@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:human:finance"
 project_label: "finance's personal project"
 occurred_at: "2026-01-02T00:50:08+00:00"
-topic_keys: ["org.capacity", "planning"]
+topic_keys: ["org-capacity", "planning"]
 proposer: "human:finance"
 source: "api"
 source_ref: "hiring-capacity-planning"
@@ -22,7 +22,7 @@ Project: finance's personal project
 
 ## Context
 
-Topic keys: org.capacity, planning
+Topic keys: org-capacity, planning
 
 Hypotheses premised on:
 - A contractor can cover the next milestone without onboarding drag. (org:capacity:hypothesis:contractor-covers-gap): **refuted**

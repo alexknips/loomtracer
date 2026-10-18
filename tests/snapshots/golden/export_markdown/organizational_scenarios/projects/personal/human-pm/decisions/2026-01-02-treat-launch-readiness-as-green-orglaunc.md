@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:human:pm"
 project_label: "pm's personal project"
 occurred_at: "2026-01-02T00:30:08+00:00"
-topic_keys: ["org.launch", "product"]
+topic_keys: ["org-launch", "product"]
 proposer: "human:pm"
 source: "api"
 source_ref: "product-launch-readiness"
@@ -22,7 +22,7 @@ Project: pm's personal project
 
 ## Context
 
-Topic keys: org.launch, product
+Topic keys: org-launch, product
 
 Hypotheses premised on:
 - The full public launch is ready this week. (org:launch:hypothesis:launch-ready): **refuted**

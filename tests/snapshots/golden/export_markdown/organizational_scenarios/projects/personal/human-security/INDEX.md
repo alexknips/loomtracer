@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Escalate export issue to critical severity](decisions/2026-01-02-escalate-export-issue-to-critical-severity-orgsecur.md) | accepted | org.security, security, legal | human:legal |
+| 2026-01-02 | [Escalate export issue to critical severity](decisions/2026-01-02-escalate-export-issue-to-critical-severity-orgsecur.md) | accepted | org-security, security, legal | human:legal |

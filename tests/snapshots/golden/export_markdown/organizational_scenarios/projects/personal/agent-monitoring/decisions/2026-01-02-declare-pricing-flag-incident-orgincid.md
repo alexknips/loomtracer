@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:agent:monitoring"
 project_label: "monitoring agents' personal project"
 occurred_at: "2026-01-02T00:10:08+00:00"
-topic_keys: ["org.incident", "operations"]
+topic_keys: ["org-incident", "operations"]
 proposer: "agent:monitoring"
 source: "api"
 source_ref: "production-incident-response"
@@ -22,7 +22,7 @@ Project: monitoring agents' personal project
 
 ## Context
 
-Topic keys: org.incident, operations
+Topic keys: org-incident, operations
 
 Hypotheses premised on:
 - The new pricing flag is causing the checkout regression. (org:incident:hypothesis:flag-regression): supported

@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:human:security"
 project_label: "security's personal project"
 occurred_at: "2026-01-02T00:40:11+00:00"
-topic_keys: ["org.security", "security", "legal"]
+topic_keys: ["org-security", "security", "legal"]
 proposer: "human:security"
 source: "api"
 source_ref: "security-vulnerability-triage"
@@ -22,7 +22,7 @@ Project: security's personal project
 
 ## Context
 
-Topic keys: org.security, security, legal
+Topic keys: org-security, security, legal
 
 Hypotheses premised on:
 - The export endpoint still requires tenant authentication. (org:security:hypothesis:auth-required): **refuted**

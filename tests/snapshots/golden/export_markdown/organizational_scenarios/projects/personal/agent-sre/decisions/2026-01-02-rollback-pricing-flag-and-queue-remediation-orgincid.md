@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:agent:sre"
 project_label: "sre agents' personal project"
 occurred_at: "2026-01-02T00:10:13+00:00"
-topic_keys: ["org.incident", "operations", "customer-comms"]
+topic_keys: ["org-incident", "operations", "customer-comms"]
 proposer: "agent:sre"
 source: "api"
 source_ref: "production-incident-response"
@@ -22,7 +22,7 @@ Project: sre agents' personal project
 
 ## Context
 
-Topic keys: org.incident, operations, customer-comms
+Topic keys: org-incident, operations, customer-comms
 
 Hypotheses premised on:
 - The new pricing flag is causing the checkout regression. (org:incident:hypothesis:flag-regression): supported

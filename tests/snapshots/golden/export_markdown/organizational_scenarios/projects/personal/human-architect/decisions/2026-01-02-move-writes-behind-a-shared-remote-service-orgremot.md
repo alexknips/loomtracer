@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:human:architect"
 project_label: "architect's personal project"
 occurred_at: "2026-01-02T00:20:10+00:00"
-topic_keys: ["org.remote-db", "architecture", "security"]
+topic_keys: ["org-remote-db", "architecture", "security"]
 proposer: "human:architect"
 source: "api"
 source_ref: "remote-db-architecture-choice"
@@ -22,7 +22,7 @@ Project: architect's personal project
 
 ## Context
 
-Topic keys: org.remote-db, architecture, security
+Topic keys: org-remote-db, architecture, security
 
 Hypotheses premised on:
 - A service-owned write path can meet security and operational constraints. (org:remote-db:hypothesis:service-owned-writes): supported

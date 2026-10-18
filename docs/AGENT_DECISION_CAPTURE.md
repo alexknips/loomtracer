@@ -622,6 +622,11 @@ to a decision, the decision-log export, active blockers and the recent, added-si
 and changed-since reads. A topic with no letter or digit in it names no key and is
 dropped from a filter (`get_relevant_decisions` refuses it).
 
+A key that reached the ledger in another form (a classifier draft, a blocker report or an
+event appended without capture) is found the same way: the graph is replayed from the
+ledger with every node's keys in this form, so a filter typed `Release.Plan` meets a key
+stored as `Release.Plan`. The ledger keeps what was written, and no migration is needed.
+
 A registered project has a vocabulary: the keys someone declared
 for it. A capture filed under a registered project may use only those, so a new
 key has to be declared, and the capture says so:

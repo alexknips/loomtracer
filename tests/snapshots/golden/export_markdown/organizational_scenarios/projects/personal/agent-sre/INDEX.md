@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Rollback pricing flag and queue remediation](decisions/2026-01-02-rollback-pricing-flag-and-queue-remediation-orgincid.md) | accepted | org.incident, operations, customer-comms | human:oncall |
+| 2026-01-02 | [Rollback pricing flag and queue remediation](decisions/2026-01-02-rollback-pricing-flag-and-queue-remediation-orgincid.md) | accepted | org-incident, operations, customer-comms | human:oncall |

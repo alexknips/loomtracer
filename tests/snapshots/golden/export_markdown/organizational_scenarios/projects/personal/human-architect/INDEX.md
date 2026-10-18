@@ -10,4 +10,4 @@ Counts: accepted=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Move writes behind a shared remote service](decisions/2026-01-02-move-writes-behind-a-shared-remote-service-orgremot.md) | accepted | org.remote-db, architecture, security | human:security-reviewer |
+| 2026-01-02 | [Move writes behind a shared remote service](decisions/2026-01-02-move-writes-behind-a-shared-remote-service-orgremot.md) | accepted | org-remote-db, architecture, security | human:security-reviewer |

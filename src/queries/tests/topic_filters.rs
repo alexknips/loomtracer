@@ -57,7 +57,7 @@ fn propose(commands: &Commands<'_, AnyLedger>, title: &str, topic: &str) -> Resu
     })
 }
 
-fn blocker_event(decision_id: &str) -> Event {
+fn blocker_event(decision_id: &str, topic_key: &str) -> Event {
     Event {
         tenant_id: Default::default(),
         event_id: None,
@@ -72,7 +72,7 @@ fn blocker_event(decision_id: &str) -> Event {
             "blocker_id": "blocker:release",
             "blocked_actor_id": "agent:worker",
             "decision_id": decision_id,
-            "topic_keys": ["release-plan"],
+            "topic_keys": [topic_key],
             "blocked_ref": "task:ship",
             "blocked_ref_type": "task",
             "reason": "Waiting on the date",
@@ -94,7 +94,7 @@ fn fixture() -> Result<Fixture> {
     let commands = Commands::new(&ledger);
     let release_plan = propose(&commands, "Ship the release on Fridays", "Release Plan")?;
     propose(&commands, "Charge per seat", "Billing")?;
-    ledger.append(blocker_event(&release_plan))?;
+    ledger.append(blocker_event(&release_plan, "release-plan"))?;
     let graph = MemoryGraph::default();
     rebuild_graph(&ledger, &graph)?;
     Ok(Fixture {
@@ -368,6 +368,164 @@ fn active_blockers_filter_by_the_topic_as_typed() -> Result<()> {
             },
         )?;
         assert_eq!(response.data.total_matches, 1, "blockers for {typed:?}");
+    }
+    Ok(())
+}
+
+// Events appended without the commands layer (classifier drafts, blocker reports, imports,
+// fixtures) can carry topic keys exactly as typed. The ledger keeps them untouched; the graph
+// replays them in the stored form, so a filter finds them whichever way it is typed.
+
+/// The key as the legacy events carry it, then the ways it is typed to find `release-plan`.
+const LEGACY_KEY: &str = "Release.Plan";
+
+fn legacy_proposed_event(option_id: &str) -> Event {
+    Event {
+        tenant_id: Default::default(),
+        event_id: None,
+        event_uuid: Uuid::from_u128(0xdec1),
+        correlation_id: Some("topic-filter-test".to_owned()),
+        causation_event_id: None,
+        event_type: EventType::DecisionProposed,
+        actor_id: "human:alex".to_owned(),
+        source: EventSource::Api,
+        source_ref: Some("topic-filter-test".to_owned()),
+        payload: json!({
+            "decision_id": "decision:legacy-release",
+            "title": "Ship the release on Fridays",
+            "rationale": "Reasons that do not matter to a topic filter",
+            "topic_keys": [LEGACY_KEY, "release plan", "!!!"],
+            "option_ids": [option_id],
+            "option_labels": ["Do it"],
+            "chosen_option_id": option_id,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+        ts: Some(
+            Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+                .single()
+                .expect("valid timestamp"),
+        ),
+    }
+}
+
+fn legacy_fixture() -> Result<Fixture> {
+    let dir = tempfile::tempdir().map_err(query_error)?;
+    let ledger = AnyLedger::Sqlite(SqliteEventLedger::open(dir.path())?);
+    let commands = Commands::new(&ledger);
+    let option_id = commands.record_option("human:alex", "Do it", "Do it")?;
+    ledger.append(legacy_proposed_event(&option_id))?;
+    propose(&commands, "Charge per seat", "Billing")?;
+    ledger.append(blocker_event("decision:legacy-release", LEGACY_KEY))?;
+    let graph = MemoryGraph::default();
+    rebuild_graph(&ledger, &graph)?;
+    Ok(Fixture {
+        _dir: dir,
+        ledger,
+        graph,
+        release_plan: "decision:legacy-release".to_owned(),
+    })
+}
+
+#[test]
+fn the_graph_holds_stored_topic_keys_in_capture_form() -> Result<()> {
+    let f = legacy_fixture()?;
+    let decision = get_decision(&f.graph, &f.release_plan)?
+        .data
+        .expect("the legacy decision projects");
+    assert_eq!(
+        decision.topic_keys,
+        ["release-plan"],
+        "both spellings collapse to one key and the key with no letter or digit is dropped"
+    );
+    Ok(())
+}
+
+#[test]
+fn every_topic_filter_finds_a_decision_stored_with_a_key_as_typed() -> Result<()> {
+    let f = legacy_fixture()?;
+    let context = QueryContext::local();
+    let expected = [f.release_plan.as_str()];
+    let since = Utc
+        .with_ymd_and_hms(2000, 1, 1, 0, 0, 0)
+        .single()
+        .expect("valid timestamp");
+
+    for typed in TYPED_FORMS.into_iter().chain([LEGACY_KEY]) {
+        let request = search_request(typed);
+        assert_eq!(
+            found(&search_decisions(&f.graph, &request)?.data),
+            expected,
+            "graph search for {typed:?}"
+        );
+        assert_eq!(
+            found(&search_decisions_with_ledger(&context, &f.ledger, &f.graph, &request)?.data),
+            expected,
+            "portable search for {typed:?}"
+        );
+
+        let relevant = get_relevant_decisions(&f.graph, typed, None)?;
+        let ids: Vec<&str> = relevant
+            .data
+            .iter()
+            .map(|d| d.decision.id.as_str())
+            .collect();
+        assert_eq!(ids, expected, "relevant for {typed:?}");
+
+        match resolve_decision_for_reading(&f.graph, "Ship the release", Some(typed))?.data {
+            ResolveOutcome::Resolved { candidate } => {
+                assert_eq!(candidate.decision_id, f.release_plan, "resolve {typed:?}");
+            }
+            other => panic!("topic hint {typed:?} should resolve, got {other:?}"),
+        }
+
+        let blockers = get_active_decision_blockers(
+            &f.graph,
+            &ActiveDecisionBlockersRequest {
+                filters: DecisionBlockerFilters {
+                    topic_keys: vec![typed.to_owned()],
+                    ..DecisionBlockerFilters::default()
+                },
+                limit: 10,
+                cursor: None,
+            },
+        )?;
+        assert_eq!(blockers.data.total_matches, 1, "blockers for {typed:?}");
+
+        let recent = get_recent_decisions(
+            &f.ledger,
+            &f.graph,
+            &RecentDecisionsRequest {
+                since_timestamp: since,
+                until_timestamp: None,
+                filters: RecentDecisionFilterRequest {
+                    topic_keys: vec![typed.to_owned()],
+                    ..RecentDecisionFilterRequest::default()
+                },
+                limit: 10,
+                cursor: None,
+            },
+        )?;
+        assert_eq!(recent.data.total_matches, 1, "recent for {typed:?}");
+
+        let outcome = export_decision_log(
+            &f.graph,
+            &f.ledger,
+            &DecisionLogRequest {
+                topics: vec![typed.to_owned()],
+                ..DecisionLogRequest::default()
+            },
+            None,
+        )?;
+        let DecisionLogOutcome::Exported(export) = outcome else {
+            panic!("a topic filter exports, never a project miss");
+        };
+        let exported = export
+            .files
+            .keys()
+            .filter(|path| path.contains("/decisions/"))
+            .count();
+        assert_eq!(exported, 1, "one decision exported for {typed:?}");
     }
     Ok(())
 }

@@ -1002,6 +1002,22 @@ fn grounding_edge_properties(
     properties
 }
 
+/// A node's `topic_keys` as the graph holds them: every key through `normalize_topic_key`, empty
+/// results dropped, repeats collapsed, first-seen order kept. Capture already stores keys this
+/// way; deriving it here carries the events that did not (classifier drafts, blocker reports,
+/// anything appended without the commands layer) into the same form on replay, with the ledger
+/// untouched. Every topic filter normalizes what it is typed the same way, so `Release Plan`
+/// meets `release-plan` however the key was written.
+fn graph_topic_keys(keys: &[String]) -> GraphValue {
+    let mut seen = BTreeSet::new();
+    GraphValue::StringList(
+        keys.iter()
+            .map(|key| normalize_topic_key(key))
+            .filter(|key| !key.is_empty() && seen.insert(key.clone()))
+            .collect(),
+    )
+}
+
 /// A decision's link segment is capped shorter than `normalize_topic_key`'s own 64-character
 /// budget (`commands::MAX_TOPIC_KEY_LEN`) — a URL slug and a topic key aren't the same length
 /// budget to keep coupled, and 60 matches the id-tail suffix room `assign_decision_slug` needs.
@@ -1191,10 +1207,7 @@ fn project_decision_proposed(
             ("title", GraphValue::String(payload.title.clone())),
             ("rationale", GraphValue::String(payload.rationale.clone())),
             ("slug", slug),
-            (
-                "topic_keys",
-                GraphValue::StringList(payload.topic_keys.clone()),
-            ),
+            ("topic_keys", graph_topic_keys(&payload.topic_keys)),
             (
                 "expressed_confidence",
                 payload
@@ -1417,7 +1430,7 @@ fn project_decision_requested(
     );
     request_properties.insert(
         "topic_keys".to_owned(),
-        GraphValue::StringList(payload.topic_keys.clone()),
+        graph_topic_keys(&payload.topic_keys),
     );
     request_properties.insert(
         "reason".to_owned(),
@@ -1703,7 +1716,7 @@ fn project_blocker_reported(
     );
     blocker_properties.insert(
         "topic_keys".to_owned(),
-        GraphValue::StringList(payload.topic_keys.clone()),
+        graph_topic_keys(&payload.topic_keys),
     );
     blocker_properties.insert(
         "blocked_ref".to_owned(),
@@ -2282,7 +2295,7 @@ fn project_capture_decision(
     );
     props.insert(
         "topic_keys".to_owned(),
-        GraphValue::StringList(capture.topic_keys.clone()),
+        graph_topic_keys(&capture.topic_keys),
     );
     if !session.session_ids.is_empty() {
         props.insert(
@@ -2432,7 +2445,7 @@ fn project_capture_evidence(
     );
     props.insert(
         "topic_keys".to_owned(),
-        GraphValue::StringList(capture.topic_keys.clone()),
+        graph_topic_keys(&capture.topic_keys),
     );
     graph.upsert_node(NodeKind::Evidence, node_id, &props)?;
 
@@ -2494,7 +2507,7 @@ fn project_capture_blocker(
     );
     props.insert(
         "topic_keys".to_owned(),
-        GraphValue::StringList(capture.topic_keys.clone()),
+        graph_topic_keys(&capture.topic_keys),
     );
     graph.upsert_node(NodeKind::Blocker, node_id, &props)?;
 
@@ -2532,7 +2545,7 @@ fn project_capture_decision_request(
     );
     props.insert(
         "topic_keys".to_owned(),
-        GraphValue::StringList(capture.topic_keys.clone()),
+        graph_topic_keys(&capture.topic_keys),
     );
     graph.upsert_node(NodeKind::DecisionRequest, node_id, &props)?;
 

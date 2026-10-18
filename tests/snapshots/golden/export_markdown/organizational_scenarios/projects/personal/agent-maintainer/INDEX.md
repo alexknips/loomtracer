@@ -10,4 +10,4 @@ Counts: superseded=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Classify export issue as low severity](decisions/2026-01-02-classify-export-issue-as-low-severity-orgsecur.md) | superseded → [Escalate export issue to critical severity](../human-security/decisions/2026-01-02-escalate-export-issue-to-critical-severity-orgsecur.md) | org.security, security | agent:maintainer |
+| 2026-01-02 | [Classify export issue as low severity](decisions/2026-01-02-classify-export-issue-as-low-severity-orgsecur.md) | superseded → [Escalate export issue to critical severity](../human-security/decisions/2026-01-02-escalate-export-issue-to-critical-severity-orgsecur.md) | org-security, security | agent:maintainer |

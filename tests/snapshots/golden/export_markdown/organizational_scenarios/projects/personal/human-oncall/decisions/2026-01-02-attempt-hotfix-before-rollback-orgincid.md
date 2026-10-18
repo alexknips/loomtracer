@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:human:oncall"
 project_label: "oncall's personal project"
 occurred_at: "2026-01-02T00:10:10+00:00"
-topic_keys: ["org.incident", "operations"]
+topic_keys: ["org-incident", "operations"]
 proposer: "human:oncall"
 source: "api"
 source_ref: "production-incident-response"
@@ -22,7 +22,7 @@ Project: oncall's personal project
 
 ## Context
 
-Topic keys: org.incident, operations
+Topic keys: org-incident, operations
 
 Hypotheses premised on:
 - A hotfix can land before customer impact expands. (org:incident:hypothesis:hotfix-fast-enough): **refuted**

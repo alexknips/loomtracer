@@ -10,4 +10,4 @@ Counts: rejected=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Defer hiring until next planning cycle](decisions/2026-01-02-defer-hiring-until-next-planning-cycle-orgcapac.md) | rejected | org.capacity, planning | human:finance |
+| 2026-01-02 | [Defer hiring until next planning cycle](decisions/2026-01-02-defer-hiring-until-next-planning-cycle-orgcapac.md) | rejected | org-capacity, planning | human:finance |

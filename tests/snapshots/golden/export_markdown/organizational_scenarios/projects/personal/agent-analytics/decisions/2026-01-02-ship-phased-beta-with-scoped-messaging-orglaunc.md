@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:agent:analytics"
 project_label: "analytics agents' personal project"
 occurred_at: "2026-01-02T00:30:13+00:00"
-topic_keys: ["org.launch", "product", "support"]
+topic_keys: ["org-launch", "product", "support"]
 proposer: "agent:analytics"
 source: "api"
 source_ref: "product-launch-readiness"
@@ -22,7 +22,7 @@ Project: analytics agents' personal project
 
 ## Context
 
-Topic keys: org.launch, product, support
+Topic keys: org-launch, product, support
 
 Hypotheses premised on:
 - A phased beta can capture value while containing support and compliance risk. (org:launch:hypothesis:phased-rollout): supported

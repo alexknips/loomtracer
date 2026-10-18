@@ -718,6 +718,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Topic filters now find a decision however the topic is typed.** Capture stores every topic
+  key as lowercase kebab (`Release Plan` is `release-plan`, `MCP` is `mcp`), but the reads compared
+  the typed text, so `hivemind query search --topic "Release Plan"`, `get_relevant_decisions`
+  with `Release Plan`, `hivemind export --topic MCP`, the `--topic` hint of `why` and
+  `disagree`, active blockers and the recent, added-since and changed-since reads all answered
+  "nothing recorded on this topic" with exit 0. Every one of them now normalizes the topic it is
+  given the way capture does (`Release Plan`, `release_plan` and `RELEASE-PLAN` find
+  `release-plan`); a topic with no letter or digit names no key and is dropped from a filter
+  (`get_relevant_decisions` refuses it). A key that reached the ledger un-normalized (a
+  classifier draft, a blocker report, an event appended without capture) is found the same way:
+  the graph now holds every node's topic keys in that form. The ledger is untouched and nothing
+  is migrated; a server restart replays the ledger and names the old keys. (hivemind-vwoau)
 - **MCP `recent_decisions`, `get_changed_decisions` and the dated timeline in
   `get_decision_neighborhood` now read the caller's tenant, not `local`.** Over stdio
   (`hivemind --tenant <id> mcp`) and over `POST /mcp` (a tenant header under the static key, or an

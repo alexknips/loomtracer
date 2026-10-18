@@ -10,4 +10,4 @@ Counts: superseded=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Attempt hotfix before rollback](decisions/2026-01-02-attempt-hotfix-before-rollback-orgincid.md) | superseded → [Rollback pricing flag and queue remediation](../agent-sre/decisions/2026-01-02-rollback-pricing-flag-and-queue-remediation-orgincid.md) | org.incident, operations | human:product-owner |
+| 2026-01-02 | [Attempt hotfix before rollback](decisions/2026-01-02-attempt-hotfix-before-rollback-orgincid.md) | superseded → [Rollback pricing flag and queue remediation](../agent-sre/decisions/2026-01-02-rollback-pricing-flag-and-queue-remediation-orgincid.md) | org-incident, operations | human:product-owner |

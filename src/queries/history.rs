@@ -566,7 +566,7 @@ pub fn get_recent_decisions(
         let status = standings.status_of(&decision_id);
         let topic_keys = entry
             .map(|entry| entry.topic_keys.clone())
-            .unwrap_or_else(|| normalized_string_values(payload.topic_keys.clone()));
+            .unwrap_or_else(|| normalized_topic_filter_values(&payload.topic_keys));
         let actor_ids = entry
             .map(|entry| entry.actor_ids.iter().cloned().collect::<Vec<_>>())
             .unwrap_or_else(|| vec![event.actor_id.clone()]);
@@ -1578,7 +1578,7 @@ impl DecisionIndex {
                         .decisions
                         .entry(payload.decision_id.clone())
                         .or_default();
-                    entry.topic_keys = normalized_string_values(payload.topic_keys);
+                    entry.topic_keys = normalized_topic_filter_values(&payload.topic_keys);
                     entry.actor_ids.insert(event.actor_id.clone());
                     entry.option_ids.extend(payload.option_ids);
                     entry.evidence_ids.extend(payload.evidence_ids);
@@ -1596,13 +1596,13 @@ impl DecisionIndex {
                 EventPayload::DecisionRequested(payload) => {
                     if let Some(decision_id) = payload.decision_id {
                         index.decisions.entry(decision_id).or_default().topic_keys =
-                            normalized_string_values(payload.topic_keys);
+                            normalized_topic_filter_values(&payload.topic_keys);
                     }
                 }
                 EventPayload::BlockerReported(payload) => {
                     if let Some(decision_id) = payload.decision_id {
                         index.decisions.entry(decision_id).or_default().topic_keys =
-                            normalized_string_values(payload.topic_keys);
+                            normalized_topic_filter_values(&payload.topic_keys);
                     }
                 }
                 EventPayload::DecisionAccepted(payload) => {

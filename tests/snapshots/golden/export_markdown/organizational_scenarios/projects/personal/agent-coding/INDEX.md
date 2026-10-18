@@ -10,4 +10,4 @@ Counts: superseded=1
 
 | Date | Decision | Status | Topics | Decided by |
 |---|---|---|---|---|
-| 2026-01-02 | [Keep prototype storage embedded](decisions/2026-01-02-keep-prototype-storage-embedded-orgremot.md) | superseded → [Move writes behind a shared remote service](../human-architect/decisions/2026-01-02-move-writes-behind-a-shared-remote-service-orgremot.md) | org.remote-db, architecture | agent:coding |
+| 2026-01-02 | [Keep prototype storage embedded](decisions/2026-01-02-keep-prototype-storage-embedded-orgremot.md) | superseded → [Move writes behind a shared remote service](../human-architect/decisions/2026-01-02-move-writes-behind-a-shared-remote-service-orgremot.md) | org-remote-db, architecture | agent:coding |

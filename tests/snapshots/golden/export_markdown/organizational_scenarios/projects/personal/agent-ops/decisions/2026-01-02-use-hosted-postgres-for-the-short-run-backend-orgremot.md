@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:agent:ops"
 project_label: "ops agents' personal project"
 occurred_at: "2026-01-02T00:20:13+00:00"
-topic_keys: ["org.remote-db", "architecture", "migration"]
+topic_keys: ["org-remote-db", "architecture", "migration"]
 proposer: "agent:ops"
 source: "api"
 source_ref: "remote-db-architecture-choice"
@@ -22,7 +22,7 @@ Project: ops agents' personal project
 
 ## Context
 
-Topic keys: org.remote-db, architecture, migration
+Topic keys: org-remote-db, architecture, migration
 
 Hypotheses premised on:
 - A service-owned write path can meet security and operational constraints. (org:remote-db:hypothesis:service-owned-writes): supported

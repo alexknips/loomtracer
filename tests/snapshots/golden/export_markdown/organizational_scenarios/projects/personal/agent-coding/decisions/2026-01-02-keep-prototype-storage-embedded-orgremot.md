@@ -6,7 +6,7 @@ floor: "not_asked"
 project: "personal:agent:coding"
 project_label: "coding agents' personal project"
 occurred_at: "2026-01-02T00:20:08+00:00"
-topic_keys: ["org.remote-db", "architecture"]
+topic_keys: ["org-remote-db", "architecture"]
 proposer: "agent:coding"
 source: "api"
 source_ref: "remote-db-architecture-choice"
@@ -22,7 +22,7 @@ Project: coding agents' personal project
 
 ## Context
 
-Topic keys: org.remote-db, architecture
+Topic keys: org-remote-db, architecture
 
 Hypotheses premised on:
 - A local embedded store is enough for the first shared pilot. (org:remote-db:hypothesis:embedded-sufficient): **refuted**
