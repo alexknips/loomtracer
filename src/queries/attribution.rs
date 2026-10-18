@@ -364,7 +364,7 @@ fn all_pages<T>(
         if !truncated {
             return Ok(rows);
         }
-        cursor = Some(rows.len().to_string());
+        cursor = Some(rows.len().to_string()); // ubs:ignore: one cursor string per page, not per row
     }
 }
 

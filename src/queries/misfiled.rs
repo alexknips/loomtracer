@@ -31,7 +31,7 @@ use crate::projector::GraphView;
 use crate::Result;
 
 use super::projects::{get_project, ProjectOutcome};
-use super::search::{search_decisions, SearchDecisionRequest};
+use super::search::{search_decisions, DecisionSearchResult, SearchDecisionRequest};
 use super::shared::{query_error, MAX_QUERY_RESULTS};
 use super::QueryResponse;
 
@@ -129,61 +129,64 @@ pub(crate) fn scan_in_pages(
     // Every decision that carries a foreign key, however many decisions the tenant holds: one
     // search per key, filtered to that key and paged to its end. A search of the whole tenant
     // would see only its first page, ordered by id, and a misfiled decision whose id sorts past
-    // it would never be reported.
-    let mut candidates: Vec<MisfiledDecisionCandidate> = Vec::new();
-    for key in &foreign {
-        let mut cursor = None;
+    // it would never be reported. Each key's request is built once; only its cursor moves.
+    let mut searches: Vec<SearchDecisionRequest> = foreign
+        .iter()
+        .map(|key| SearchDecisionRequest {
+            topic_keys: vec![key.clone()],
+            limit: page_size,
+            ..SearchDecisionRequest::default()
+        })
+        .collect();
+    let mut found: Vec<DecisionSearchResult> = Vec::new();
+    for search in &mut searches {
         loop {
-            let page = search_decisions(
-                graph,
-                &SearchDecisionRequest {
-                    topic_keys: vec![key.clone()],
-                    limit: page_size,
-                    cursor: cursor.take(),
-                    ..SearchDecisionRequest::default()
-                },
-            )?
-            .data;
-            candidates.extend(page.items.into_iter().filter_map(|item| {
-                if let Some(project) = request.project.as_deref() {
-                    if item.decision.project.as_deref() != Some(project) {
-                        return None;
-                    }
-                }
-                if let Some(destination) = request.move_to.as_deref() {
-                    if item.decision.project.as_deref() == Some(destination) {
-                        return None;
-                    }
-                }
-                let matched: Vec<String> = item
-                    .decision
-                    .topic_keys
-                    .iter()
-                    .filter(|topic| foreign.contains(topic.as_str()))
-                    .cloned()
-                    .collect();
-                if matched.is_empty() {
-                    return None;
-                }
-                Some(MisfiledDecisionCandidate {
-                    decision_id: item.decision.id,
-                    title: item.decision.title,
-                    matched_topic_keys: matched,
-                    actor_ids: item.graph_context.actor_ids,
-                    project: item.decision.project,
-                    floor: item.decision.floor,
-                    proposed_move_to: request.move_to.clone(),
-                })
-            }));
-            cursor = page.next_cursor;
-            if cursor.is_none() {
+            let page = search_decisions(graph, search)?.data;
+            found.extend(page.items);
+            search.cursor = page.next_cursor;
+            if search.cursor.is_none() {
                 break;
             }
         }
     }
     // A decision that carries two foreign keys was found by both searches, with the same row.
-    candidates.sort_by(|left, right| left.decision_id.cmp(&right.decision_id));
-    candidates.dedup_by(|later, earlier| later.decision_id == earlier.decision_id);
+    found.sort_by(|left, right| left.decision.id.cmp(&right.decision.id));
+    found.dedup_by(|later, earlier| later.decision.id == earlier.decision.id);
+
+    let candidates: Vec<MisfiledDecisionCandidate> = found
+        .into_iter()
+        .filter_map(|item| {
+            if let Some(project) = request.project.as_deref() {
+                if item.decision.project.as_deref() != Some(project) {
+                    return None;
+                }
+            }
+            if let Some(destination) = request.move_to.as_deref() {
+                if item.decision.project.as_deref() == Some(destination) {
+                    return None;
+                }
+            }
+            let matched: Vec<String> = item
+                .decision
+                .topic_keys
+                .iter()
+                .filter(|topic| foreign.contains(topic.as_str()))
+                .cloned()
+                .collect();
+            if matched.is_empty() {
+                return None;
+            }
+            Some(MisfiledDecisionCandidate {
+                decision_id: item.decision.id,
+                title: item.decision.title,
+                matched_topic_keys: matched,
+                actor_ids: item.graph_context.actor_ids,
+                project: item.decision.project,
+                floor: item.decision.floor,
+                proposed_move_to: request.move_to.clone(),
+            })
+        })
+        .collect();
 
     let skip: usize = match request.cursor.as_deref() {
         None => 0,
