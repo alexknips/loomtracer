@@ -1008,11 +1008,11 @@ pub fn tool_definitions() -> Vec<Value> {
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum results to return (1–1000, default 25)."
+                        "description": "Maximum results to return (1–1000, default 25). With `only_with_signals`, the number of decisions a page examines: it returns those that carry a signal, so it can hold fewer, or none."
                     },
                     "cursor": {
                         "type": "string",
-                        "description": "Pagination cursor from a previous response's `next_cursor` field."
+                        "description": "Pagination cursor from a previous response's `next_cursor` field. Keep following it while `truncated` is true; an empty page can still be truncated."
                     },
                     "only_with_signals": {
                         "type": "boolean",

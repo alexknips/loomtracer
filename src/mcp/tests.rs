@@ -4632,6 +4632,115 @@ mod transport_parity {
         }
     }
 
+    /// `decision_quality_candidates` with `only_with_signals` pages by decisions examined, not by
+    /// decisions returned (hivemind-nwfw6): six decisions, two rejected and so carrying a signal,
+    /// walked at a limit of one and of two. Every signalled decision turns up once, an empty page
+    /// still hands over a cursor while it is truncated, and the cursor always moves forward.
+    #[tokio::test]
+    async fn decision_quality_candidates_only_with_signals_walks_every_signal_once_across_transports(
+    ) {
+        let titles = [
+            "Adopt async billing queue",
+            "Cache reads in memory",
+            "Shard the billing table",
+            "Retire the cron runner",
+            "Move logs to object storage",
+            "Pin the toolchain version",
+        ];
+        let rejected = [2, 4];
+
+        for (name, over_http) in [("stdio", false), ("http", true)] {
+            let dir = unique_dir(&format!("parity-{name}-signal-walk"));
+            let call = |tool: &'static str, arguments: Value| {
+                let dir = dir.clone();
+                async move {
+                    let response = if over_http {
+                        http_call(&dir, tool, arguments).await
+                    } else {
+                        stdio_call(&dir, tool, arguments)
+                    };
+                    let result = &response["result"];
+                    assert_eq!(result["isError"], false, "{name} {tool}: {result:?}"); // ubs:ignore: test-only assertion
+                    result["structuredContent"].clone() // ubs:ignore: test-only; index guaranteed by test setup
+                }
+            };
+
+            let mut ids = Vec::new();
+            for title in titles {
+                let reply = call(
+                    "capture_decision",
+                    json!({
+                        "binds": {"level": "something", "statement": "Later work builds on it"},
+                        "undo_cost": {"level": "cheap"},
+                        "grounding": [{"kind": "bet"}],
+                        "title": title,
+                        "rationale": "seed for the signal walk, long enough to read on its own",
+                        "topic_keys": ["signal-walk"],
+                        "options": [{"label": "only"}],
+                    }),
+                )
+                .await;
+                ids.push(
+                    reply["decision_id"]
+                        .as_str() // ubs:ignore: test-only; chain continues to expect
+                        .expect("decision id") // ubs:ignore: test-only; panicking is correct in tests
+                        .to_owned(),
+                );
+            }
+            for index in rejected {
+                call(
+                    "disagree_decision",
+                    json!({"decision_id": ids[index], "reason": "does not hold"}),
+                )
+                .await;
+            }
+            let signalled: Vec<&str> = rejected.iter().map(|&index| ids[index].as_str()).collect();
+
+            for limit in [1, 2] {
+                let mut seen: Vec<String> = Vec::new();
+                let mut cursor: Option<String> = None;
+                let mut pages = 0;
+                loop {
+                    pages += 1;
+                    assert!(
+                        pages <= titles.len() + 1,
+                        "{name}: limit {limit}: the walk must end"
+                    ); // ubs:ignore: test-only assertion
+                    let mut arguments = json!({"limit": limit, "only_with_signals": true});
+                    if let Some(cursor) = &cursor {
+                        arguments["cursor"] = json!(cursor);
+                    }
+                    let page = call("decision_quality_candidates", arguments).await;
+                    let items = page["data"].as_array().expect("data array"); // ubs:ignore: test-only; panicking is correct in tests
+                    seen.extend(
+                        items
+                            .iter()
+                            .filter_map(|item| item["decision_id"].as_str().map(str::to_owned)),
+                    );
+                    if page["truncated"] == json!(false) {
+                        assert_eq!(page["next_cursor"], Value::Null, "{name}: limit {limit}"); // ubs:ignore: test-only assertion
+                        break;
+                    }
+                    let next = page["next_cursor"]
+                        .as_str()
+                        .unwrap_or_else(|| {
+                            panic!("{name}: limit {limit}: truncated without a cursor: {page:?}")
+                        }) // ubs:ignore: test-only; panicking is correct in tests
+                        .to_owned();
+                    assert_eq!(
+                        next,
+                        (pages * limit).to_string(),
+                        "{name}: limit {limit}: the cursor is the decisions examined"
+                    ); // ubs:ignore: test-only assertion
+                    cursor = Some(next);
+                }
+                assert_eq!(seen, signalled, "{name}: limit {limit}: each signal, once");
+                // ubs:ignore: test-only assertion
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     #[tokio::test]
     async fn scan_misfiled_decisions_names_the_matching_topic_across_transports() {
         let (stdio, http) = run_seeded(

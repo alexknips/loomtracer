@@ -68,13 +68,13 @@ use crate::queries::{
     get_reexamine_items as query_get_reexamine_items,
     get_supersession_chain as query_get_supersession_chain,
     get_waiting_requests as query_get_waiting_requests, misfiled_next_cursor, outcome_next_cursor,
-    require_registered_project, resolve_decision_by_description, resolve_decision_for_reading,
-    scan_misfiled_decisions as query_scan_misfiled_decisions, upstream_of, ChangedDecisionsRequest,
-    ContestedDecisionsRequest, DecisionContextRequest, DecisionQualityCandidatesRequest,
-    DecisionStatus, FailureAttributionRequest, MisfiledScanRequest, NeighborhoodRequest,
-    OpenWhyRequest, QueryContext, QueryResponse, RecentDecisionFilterRequest,
-    RecentDecisionsRequest, ReexamineRequest, ResolveOutcome, ResolvedCandidate,
-    SituationalRequest, WaitingRequestsRequest, DEFAULT_REEXAMINE_PAGE_SIZE,
+    outcome_page_len, require_registered_project, resolve_decision_by_description,
+    resolve_decision_for_reading, scan_misfiled_decisions as query_scan_misfiled_decisions,
+    upstream_of, ChangedDecisionsRequest, ContestedDecisionsRequest, DecisionContextRequest,
+    DecisionQualityCandidatesRequest, DecisionStatus, FailureAttributionRequest,
+    MisfiledScanRequest, NeighborhoodRequest, OpenWhyRequest, QueryContext, QueryResponse,
+    RecentDecisionFilterRequest, RecentDecisionsRequest, ReexamineRequest, ResolveOutcome,
+    ResolvedCandidate, SituationalRequest, WaitingRequestsRequest, DEFAULT_REEXAMINE_PAGE_SIZE,
 };
 use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
 use crate::summarize::{RecallRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT};
@@ -2284,16 +2284,19 @@ pub(crate) fn rank_decisions_by_importance(
 // ---------------------------------------------------------------------------
 
 /// A page of a cursor-paged read tool: the [`query_output`] envelope plus `next_cursor`, which
-/// resumes the walk when the page was `truncated` and is `null` otherwise. `next_cursor_of` is the
-/// cursor helper of the tool's own query module, so a tool keeps the cursor its query defines.
+/// resumes the walk when the page was `truncated` and is `null` otherwise. `scanned` is how many
+/// rows the page looked at, which is `result_count` unless the query drops rows after reading them.
+/// `next_cursor_of` is the cursor helper of the tool's own query module, so a tool keeps the cursor
+/// its query defines.
 fn paged_output<T: serde::Serialize>(
     response: &QueryResponse<T>,
     cursor: Option<&str>,
+    scanned: usize,
     next_cursor_of: fn(usize, usize) -> Option<String>,
 ) -> Result<ToolOutput, CoreError> {
     let skip: usize = cursor.and_then(|c| c.parse().ok()).unwrap_or(0);
     let next_cursor = if response.truncated {
-        next_cursor_of(skip, response.result_count)
+        next_cursor_of(skip, scanned)
     } else {
         None
     };
@@ -2378,7 +2381,8 @@ impl DecisionQualityCandidatesArgs {
 }
 
 /// The core for the `decision_quality_candidates` MCP tool: one page of decisions with their
-/// outcome signals, `next_cursor` set when more follow.
+/// outcome signals, `next_cursor` set when more follow. A truncated page examined a full window of
+/// decisions, so the cursor moves past that window, however few of its decisions the page kept.
 pub(crate) fn decision_quality_candidates(
     graph: &impl GraphView,
     args: DecisionQualityCandidatesArgs,
@@ -2388,6 +2392,7 @@ pub(crate) fn decision_quality_candidates(
     paged_output(
         &response,
         args.request.cursor.as_deref(),
+        outcome_page_len(&args.request),
         outcome_next_cursor,
     )
 }
@@ -2443,6 +2448,7 @@ pub(crate) fn decision_context_candidates(
     paged_output(
         &response,
         args.request.cursor.as_deref(),
+        response.result_count,
         context_next_cursor,
     )
 }
@@ -2493,6 +2499,7 @@ pub(crate) fn scan_misfiled_decisions<P: LedgerProvider>(
     paged_output(
         &response,
         args.request.cursor.as_deref(),
+        response.result_count,
         misfiled_next_cursor,
     )
 }

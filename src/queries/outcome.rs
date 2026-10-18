@@ -205,19 +205,29 @@ pub(crate) fn get_decision_outcome_with_labels(
 // Bulk quality-candidates query
 // ---------------------------------------------------------------------------
 
+/// How many decisions one page of [`get_decision_quality_candidates`] examines.
+pub fn outcome_page_len(request: &DecisionQualityCandidatesRequest) -> usize {
+    if request.limit == 0 {
+        MAX_QUERY_RESULTS
+    } else {
+        request.limit.min(MAX_QUERY_RESULTS)
+    }
+}
+
 /// Return outcome records for all decisions (or a filtered subset), paginated.
 /// Intended as the primary data-pull endpoint for external quality scorers.
+///
+/// A page examines a window of [`outcome_page_len`] decisions in `event_origin` order, and the
+/// cursor is the position in that scan. With `only_with_signals` the page keeps the decisions of
+/// its window that carry a signal, so it can hold fewer than the page length, or none: `truncated`
+/// still says whether decisions remain past the window, and [`outcome_next_cursor`] resumes there.
 pub fn get_decision_quality_candidates(
     graph: &impl GraphView,
     request: &DecisionQualityCandidatesRequest,
 ) -> Result<QueryResponse<Vec<DecisionOutcome>>> {
     let started = Instant::now();
     let now = Utc::now();
-    let limit = if request.limit == 0 {
-        MAX_QUERY_RESULTS
-    } else {
-        request.limit.min(MAX_QUERY_RESULTS)
-    };
+    let limit = outcome_page_len(request);
     let skip: usize = match request.cursor.as_deref() {
         None => 0,
         Some(c) => c
@@ -239,7 +249,6 @@ pub fn get_decision_quality_candidates(
         )?
     };
 
-    let total = decision_rows.len();
     let paged: Vec<_> = decision_rows
         .into_iter()
         .skip(skip)
@@ -260,7 +269,6 @@ pub fn get_decision_quality_candidates(
         }
     }
 
-    let _ = total; // available for future use in metadata
     Ok(QueryResponse {
         result_count: outcomes.len(),
         truncated,
@@ -470,9 +478,12 @@ fn query_review_positions(graph: &impl GraphView, decision_id: &str) -> Result<R
 // Cursor helpers (public for MCP serialization)
 // ---------------------------------------------------------------------------
 
-pub fn outcome_next_cursor(skip: usize, window_len: usize) -> Option<String> {
-    if window_len > 0 {
-        Some((skip + window_len).to_string())
+/// The cursor after a page that started at `skip` and examined `scanned` decisions. It counts the
+/// decisions looked at, never the ones returned: `only_with_signals` returns fewer than it looked
+/// at, and a cursor counted in those would re-read decisions and stall on a window with none.
+pub fn outcome_next_cursor(skip: usize, scanned: usize) -> Option<String> {
+    if scanned > 0 {
+        Some((skip + scanned).to_string())
     } else {
         None
     }

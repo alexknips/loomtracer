@@ -4244,6 +4244,106 @@ fn bulk_query_only_with_signals_filters_clean_decisions() -> Result<()> {
     Ok(())
 }
 
+/// Seven decisions in ledger order; `d:3`, `d:4` and `d:7` are contested, the rest carry no signal.
+fn sparse_signal_graph() -> OutcomeGraph {
+    let mut graph = OutcomeGraph::default();
+    for n in 1..=7 {
+        graph = graph.add_decision(&format!("d:{n}"), n * 10);
+    }
+    for contested in ["d:3", "d:4", "d:7"] {
+        graph = graph
+            .add_edge(RelationKind::AcceptedBy, contested, "actor:alice")
+            .add_edge(RelationKind::RejectedBy, contested, "actor:bob");
+    }
+    graph
+}
+
+/// Walks `only_with_signals` pages of `limit` decisions to the end the way the MCP tool does: each
+/// truncated page must hand over a cursor, which moves on from where the page started. Returns the
+/// decisions seen, in order, and the pages taken.
+fn walk_signalled_candidates(
+    graph: &OutcomeGraph,
+    limit: usize,
+) -> Result<(Vec<String>, Vec<usize>)> {
+    let mut seen = Vec::new();
+    let mut page_sizes = Vec::new();
+    let mut skip = 0;
+    let mut cursor = None;
+    for _ in 0..=graph.node_origins.len() {
+        let request = DecisionQualityCandidatesRequest {
+            limit,
+            cursor: cursor.take(),
+            only_with_signals: true,
+            ..Default::default()
+        };
+        let page = get_decision_quality_candidates(graph, &request)?;
+        page_sizes.push(page.result_count);
+        seen.extend(page.data.iter().map(|o| o.decision_id.clone()));
+        if !page.truncated {
+            return Ok((seen, page_sizes));
+        }
+        let next = outcome_next_cursor(skip, outcome_page_len(&request))
+            .expect("a truncated page hands over a cursor");
+        skip = next.parse().expect("the cursor is an offset");
+        cursor = Some(next);
+    }
+    panic!("the walk never reached a page that was not truncated: {page_sizes:?}");
+}
+
+#[test]
+fn bulk_query_only_with_signals_pages_through_sparse_signals_once_each() -> Result<()> {
+    let graph = sparse_signal_graph();
+
+    for limit in [1, 2, 3, 4] {
+        let (seen, page_sizes) = walk_signalled_candidates(&graph, limit)?;
+        assert_eq!(
+            seen,
+            ["d:3", "d:4", "d:7"],
+            "limit {limit}: every decision with a signal, once, in ledger order"
+        );
+        // A window with no signal is an empty page that still goes on, not the end of the walk.
+        if limit == 2 {
+            assert_eq!(page_sizes, [0, 2, 0, 1], "limit {limit}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn bulk_query_only_with_signals_cursor_counts_decisions_examined() -> Result<()> {
+    let graph = sparse_signal_graph();
+
+    // The first window (d:1, d:2) holds no signal: the page is empty, truncated, and resumes at 2.
+    let first = DecisionQualityCandidatesRequest {
+        limit: 2,
+        only_with_signals: true,
+        ..Default::default()
+    };
+    let page = get_decision_quality_candidates(&graph, &first)?;
+    assert_eq!(page.result_count, 0);
+    assert!(page.truncated);
+    assert_eq!(
+        outcome_next_cursor(0, outcome_page_len(&first)).as_deref(),
+        Some("2")
+    );
+
+    // The second window (d:3, d:4) returns two, and the cursor moves past the window, not past the
+    // two it kept: resuming at 4 reads d:5 and d:6, not d:3 again.
+    let second = DecisionQualityCandidatesRequest {
+        cursor: Some("2".to_owned()),
+        ..first
+    };
+    let page = get_decision_quality_candidates(&graph, &second)?;
+    let ids: Vec<&str> = page.data.iter().map(|o| o.decision_id.as_str()).collect();
+    assert_eq!(ids, ["d:3", "d:4"]);
+    assert!(page.truncated);
+    assert_eq!(
+        outcome_next_cursor(2, outcome_page_len(&second)).as_deref(),
+        Some("4")
+    );
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // get_decision_outcome / get_decision_quality_candidates against a REAL
 // MemoryGraph (hivemind-kj0i). Every test above this point exercises

@@ -111,7 +111,8 @@ pub use open_why::{
 };
 pub use outcome::{
     get_decision_outcome, get_decision_outcome_at, get_decision_quality_candidates,
-    outcome_next_cursor, DecisionOutcome, DecisionQualityCandidatesRequest, OutcomeReason,
+    outcome_next_cursor, outcome_page_len, DecisionOutcome, DecisionQualityCandidatesRequest,
+    OutcomeReason,
 };
 pub use project_scope::{MatchScope, ScopeNote, ScopeRelation, ScopedProject};
 pub use projects::{

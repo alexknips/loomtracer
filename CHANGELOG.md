@@ -752,6 +752,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   (`total_decisions` is the decision count). The misfiled scan searches each foreign key across
   the whole tenant, and its `truncated` / `next_cursor` page through every match, however many
   decisions the tenant holds. (hivemind-11adr)
+- **`decision_quality_candidates` with `only_with_signals` no longer repeats decisions across
+  pages or ends the walk early.** A page examines `limit` decisions and keeps the ones that carry
+  a signal, but `next_cursor` moved on by the number kept. On a ledger of about 1,500 decisions
+  at `limit` 25, a page that kept two returned `next_cursor: "2"`, and the next page read the same
+  two again; a window of 25 with no signal returned `next_cursor: null` while `truncated` was
+  still `true`, so the walk stopped with every newer decision unread. The cursor now counts the
+  decisions examined, so each decision with a signal comes back once and a truncated page always
+  has a cursor. A page can hold fewer than `limit` decisions, or none, and still be truncated:
+  keep following `next_cursor` until `truncated` is `false`. (hivemind-nwfw6)
 - **MCP `recent_decisions`, `get_changed_decisions` and the dated timeline in
   `get_decision_neighborhood` now read the caller's tenant, not `local`.** Over stdio
   (`hivemind --tenant <id> mcp`) and over `POST /mcp` (a tenant header under the static key, or an
