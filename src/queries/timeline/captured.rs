@@ -37,38 +37,39 @@ use crate::Result;
 
 use super::Step;
 
-/// What the fact events already say, so the graph edges they wrote are not read again.
+/// What the fact events already say, so the graph edges they wrote are not read again. The pairs
+/// borrow from the steps, so asking whether an edge is stated allocates nothing.
 #[derive(Default)]
-struct Stated {
+struct Stated<'a> {
     /// `(decision, actor)` pairs that accepted.
-    accepted: BTreeSet<(String, String)>,
-    rejected: BTreeSet<(String, String)>,
+    accepted: BTreeSet<(&'a str, &'a str)>,
+    rejected: BTreeSet<(&'a str, &'a str)>,
     /// `(old, new)` pairs.
-    superseded: BTreeSet<(String, String)>,
+    superseded: BTreeSet<(&'a str, &'a str)>,
     /// `(evidence, hypothesis)` pairs.
-    refuted: BTreeSet<(String, String)>,
+    refuted: BTreeSet<(&'a str, &'a str)>,
 }
 
-impl Stated {
-    fn of(steps: &[Step]) -> Self {
+impl<'a> Stated<'a> {
+    fn of(steps: &'a [Step]) -> Self {
         let mut stated = Self::default();
         for step in steps {
-            let actor = step.actor_id.clone().unwrap_or_default();
+            let actor = step.actor_id.as_deref().unwrap_or_default();
             match &step.payload {
                 EventPayload::DecisionAccepted(accepted) => {
                     stated
                         .accepted
-                        .insert((accepted.decision_id.clone(), actor));
+                        .insert((accepted.decision_id.as_str(), actor));
                 }
                 EventPayload::DecisionRejected(rejected) => {
                     stated
                         .rejected
-                        .insert((rejected.decision_id.clone(), actor));
+                        .insert((rejected.decision_id.as_str(), actor));
                 }
                 EventPayload::DecisionSuperseded(superseded) => {
                     stated.superseded.insert((
-                        superseded.old_decision_id.clone(),
-                        superseded.new_decision_id.clone(),
+                        superseded.old_decision_id.as_str(),
+                        superseded.new_decision_id.as_str(),
                     ));
                 }
                 EventPayload::RelationAdded(relation)
@@ -76,7 +77,7 @@ impl Stated {
                 {
                     stated
                         .refuted
-                        .insert((relation.from_id.clone(), relation.to_id.clone()));
+                        .insert((relation.from_id.as_str(), relation.to_id.as_str()));
                 }
                 _ => {}
             }
@@ -177,7 +178,11 @@ fn relation_step(
 }
 
 /// The acceptors a capture named for `decision_id`, at the time and offset it was recorded.
-fn acceptances(graph: &impl GraphView, decision_id: &str, stated: &Stated) -> Result<Vec<Step>> {
+fn acceptances(
+    graph: &impl GraphView,
+    decision_id: &str,
+    stated: &Stated<'_>,
+) -> Result<Vec<Step>> {
     let recorded = recorded_of(graph, decision_id)?;
     let mut steps = Vec::new();
     for (actor_id, _) in neighbor_pairs(
@@ -188,11 +193,7 @@ fn acceptances(graph: &impl GraphView, decision_id: &str, stated: &Stated) -> Re
         NodeKind::Actor,
         Direction::Outgoing,
     )? {
-        if stated
-            .accepted
-            .contains(&(decision_id.to_owned(), actor_id.clone()))
-        // ubs:ignore: one key per acceptor
-        {
+        if stated.accepted.contains(&(decision_id, actor_id.as_str())) {
             continue;
         }
         steps.push(Step {
@@ -200,7 +201,7 @@ fn acceptances(graph: &impl GraphView, decision_id: &str, stated: &Stated) -> Re
             ts: recorded.at,
             actor_id: Some(actor_id),
             payload: EventPayload::DecisionAccepted(DecisionAcceptedPayload {
-                decision_id: decision_id.to_owned(),
+                decision_id: decision_id.to_owned(), // ubs:ignore: each step owns its decision id
                 delegated_by: None,
             }),
         });
@@ -209,15 +210,14 @@ fn acceptances(graph: &impl GraphView, decision_id: &str, stated: &Stated) -> Re
 }
 
 /// The decisions a capture rejected, at the time and offset they were recorded.
-fn rejections(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
+fn rejections(graph: &impl GraphView, stated: &Stated<'_>) -> Result<Vec<Step>> {
     let mut steps = Vec::new();
     for (decision_id, actor_id, edge_origin) in
         relation_edges_with_origin(graph, RelationKind::RejectedBy)?
     {
         if stated
             .rejected
-            .contains(&(decision_id.clone(), actor_id.clone()))
-        // ubs:ignore: one key per rejection
+            .contains(&(decision_id.as_str(), actor_id.as_str()))
         {
             continue;
         }
@@ -240,7 +240,7 @@ fn rejections(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
 
 /// The decisions a capture replaces, at the time and offset the replacing decision was recorded
 /// and by whoever proposed it.
-fn supersessions(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
+fn supersessions(graph: &impl GraphView, stated: &Stated<'_>) -> Result<Vec<Step>> {
     let mut steps = Vec::new();
     // `SUPERSEDES` runs newer decision -> older decision.
     for (newer_id, older_id, edge_origin) in
@@ -249,8 +249,7 @@ fn supersessions(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
         if newer_id == older_id
             || stated
                 .superseded
-                .contains(&(older_id.clone(), newer_id.clone()))
-        // ubs:ignore: one key per supersession
+                .contains(&(older_id.as_str(), newer_id.as_str()))
         {
             continue;
         }
@@ -273,7 +272,7 @@ fn supersessions(graph: &impl GraphView, stated: &Stated) -> Result<Vec<Step>> {
 fn refutations(
     ledger: &impl EventLedger,
     refutes: Vec<(String, String, Option<i64>)>,
-    stated: &Stated,
+    stated: &Stated<'_>,
 ) -> Result<Vec<Step>> {
     let mut steps = Vec::new();
     let mut classifications: BTreeMap<EventId, (Option<DateTime<Utc>>, Option<String>)> =
@@ -281,16 +280,16 @@ fn refutations(
     for (evidence_id, hypothesis_id, edge_origin) in refutes {
         if stated
             .refuted
-            .contains(&(evidence_id.clone(), hypothesis_id.clone()))
-        // ubs:ignore: one key per refutation
+            .contains(&(evidence_id.as_str(), hypothesis_id.as_str()))
         {
             continue;
         }
         let origin = offset_of(edge_origin, "a refutation")?;
-        let (ts, actor_id) = match classifications.entry(origin) {
-            Entry::Occupied(found) => found.get().clone(),
-            Entry::Vacant(slot) => slot.insert(classification_of(ledger, origin)?).clone(),
+        let classification = match classifications.entry(origin) {
+            Entry::Occupied(found) => found.into_mut(),
+            Entry::Vacant(slot) => slot.insert(classification_of(ledger, origin)?),
         };
+        let (ts, actor_id) = classification.clone(); // ubs:ignore: each step owns its recorder
         steps.push(Step {
             origin,
             ts,
