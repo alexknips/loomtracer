@@ -159,6 +159,17 @@ fn proposed_event(sequence: u128, decision_id: &str, proposer: &str) -> Event {
     )
 }
 
+/// `new_id` supersedes `old_id`.
+fn superseded_event(sequence: u128, old_id: &str, new_id: &str) -> Event {
+    test_event(
+        sequence,
+        EventType::DecisionSuperseded,
+        "agent:scribe",
+        json!({ "old_decision_id": old_id, "new_decision_id": new_id }),
+        "2026-01-01T02:00:00Z",
+    )
+}
+
 #[test]
 fn decision_standings_give_every_decision_the_status_and_deciders_derive_status_gives() -> Result<()>
 {
@@ -3731,6 +3742,133 @@ fn compact_view_resolves_to_terminal_in_supersession_chain() -> Result<()> {
         .data
         .ok_or_else(|| query_error("terminal view found"))?;
     assert_eq!(terminal_view.decision.id, "d:new");
+    Ok(())
+}
+
+fn fork(at: &str, side: SupersessionSide, candidates: &[&str]) -> SupersessionFork {
+    SupersessionFork {
+        at: at.to_owned(),
+        side,
+        candidates: candidates.iter().map(|id| (*id).to_owned()).collect(),
+    }
+}
+
+#[test]
+fn compact_view_of_a_decision_two_others_superseded_says_no_single_terminal_exists() -> Result<()> {
+    // d:w was superseded by d:x, which d:a and d:b then each superseded.
+    let graph = graph_from_events([
+        proposed_event(1, "d:w", "agent:scribe"),
+        proposed_event(2, "d:x", "agent:scribe"),
+        proposed_event(3, "d:a", "agent:scribe"),
+        proposed_event(4, "d:b", "agent:scribe"),
+        superseded_event(5, "d:w", "d:x"),
+        superseded_event(6, "d:x", "d:a"),
+        superseded_event(7, "d:x", "d:b"),
+    ])?;
+    let expected = fork("d:x", SupersessionSide::Newer, &["d:a", "d:b"]);
+
+    let line = walk_supersession(&graph, "d:w")?.data;
+    assert_eq!(line.chain.decision_ids, vec!["d:w", "d:x"]);
+    assert_eq!(line.chain.input_index, 0);
+    assert_eq!(line.forks, vec![expected.clone()]);
+
+    let error = get_supersession_chain(&graph, "d:w").expect_err("a branched chain is not a chain");
+    assert!(
+        format!("{error}").contains("supersession chain branched at d:x: 2 candidates"),
+        "the strict chain still says where it branches: {error}"
+    );
+
+    // From the fork itself and from anything older in its chain, the view ends at the fork:
+    // d:x is shown as what it is, superseded, with the two decisions that followed it named.
+    for start in ["d:x", "d:w"] {
+        let view = get_compact_view(&graph, start)?
+            .data
+            .ok_or_else(|| query_error("view found"))?;
+        assert_eq!(view.decision.id, "d:x", "from {start}");
+        assert_eq!(view.decision.status, DecisionStatus::Superseded);
+        let summary = view
+            .supersession_chain
+            .ok_or_else(|| query_error("supersession summary present"))?;
+        assert_eq!(summary.chain_length, 2, "from {start}");
+        assert_eq!(summary.oldest_id, "d:w");
+        assert_eq!(summary.forks, vec![expected.clone()]);
+        assert_eq!(view.elided.superseded_decision_count, 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn compact_view_of_a_decision_that_superseded_two_lists_both() -> Result<()> {
+    let graph = graph_from_events([
+        proposed_event(1, "d:y", "agent:scribe"),
+        proposed_event(2, "d:z", "agent:scribe"),
+        proposed_event(3, "d:x", "agent:scribe"),
+        superseded_event(4, "d:y", "d:x"),
+        superseded_event(5, "d:z", "d:x"),
+    ])?;
+    let expected = fork("d:x", SupersessionSide::Older, &["d:y", "d:z"]);
+
+    let line = walk_supersession(&graph, "d:x")?.data;
+    assert_eq!(line.chain.decision_ids, vec!["d:x"]);
+    assert_eq!(line.forks, vec![expected.clone()]);
+    let error = get_supersession_chain(&graph, "d:x").expect_err("a branched chain is not a chain");
+    assert!(format!("{error}").contains("supersession chain branched at d:x: 2 candidates"));
+
+    let view = get_compact_view(&graph, "d:x")?
+        .data
+        .ok_or_else(|| query_error("view found"))?;
+    assert_eq!(view.decision.id, "d:x");
+    assert_ne!(view.decision.status, DecisionStatus::Superseded);
+    let summary = view
+        .supersession_chain
+        .ok_or_else(|| query_error("a decision that superseded two has a supersession summary"))?;
+    assert_eq!(summary.chain_length, 1);
+    assert_eq!(summary.oldest_id, "d:x");
+    assert_eq!(summary.forks, vec![expected]);
+    assert_eq!(
+        view.elided.superseded_decision_count, 2,
+        "both decisions it superseded are counted as elided"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_pair_superseded_twice_is_one_step_not_a_branch() -> Result<()> {
+    let graph = graph_from_events([
+        proposed_event(1, "d:old", "agent:scribe"),
+        proposed_event(2, "d:new", "agent:scribe"),
+        superseded_event(3, "d:old", "d:new"),
+        // The same pair again, as a client retries after a timeout.
+        superseded_event(4, "d:old", "d:new"),
+    ])?;
+    // The premise: MemoryGraph keys an edge by the event that wrote it, so the graph returns
+    // the successor once per supersede event.
+    let rows = graph.query(
+        "MATCH (other:`Decision`)-[:`SUPERSEDES`]->(d:`Decision` {id: $id}) RETURN other.id AS id ORDER BY other.id;",
+        &GraphParams::from([("id".to_owned(), GraphValue::String("d:old".to_owned()))]),
+    )?;
+    assert_eq!(rows.len(), 2, "one neighbour row per supersede event");
+
+    let chain = get_supersession_chain(&graph, "d:old")?.data;
+    assert_eq!(chain.decision_ids, vec!["d:old", "d:new"]);
+    assert_eq!(chain.input_index, 0);
+    assert!(walk_supersession(&graph, "d:old")?.data.forks.is_empty());
+
+    let view = get_compact_view(&graph, "d:old")?
+        .data
+        .ok_or_else(|| query_error("view found"))?;
+    assert_eq!(view.decision.id, "d:new");
+    let summary = view
+        .supersession_chain
+        .ok_or_else(|| query_error("supersession summary present"))?;
+    assert_eq!(summary.chain_length, 2);
+    assert!(summary.forks.is_empty());
+    assert_eq!(view.elided.superseded_decision_count, 1);
+    let json = serde_json::to_value(&summary).map_err(|e| query_error(e.to_string()))?;
+    assert!(
+        json.get("forks").is_none(),
+        "a straight line serializes as before"
+    );
     Ok(())
 }
 

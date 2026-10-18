@@ -718,6 +718,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind_compact_view` and chain-mode `summarize_decisions` no longer fail on a decision
+  that was superseded twice.** Once a decision had two superseders, or superseded two decisions,
+  both answered "supersession chain branched" for it and for everything older in its chain (MCP,
+  REST, CLI and TUI), though the write side allows both and concurrent supersessions are meant to
+  both stand. The compact view now ends the line at the fork and lists it under
+  `supersession_chain.forks` (`at`, `side` older or newer, `candidates`); nothing is picked as the
+  current decision, and the decision shown reads `superseded`. A decision that superseded several
+  counts them all in `elided.superseded_decision_count`. The chain summary names each branch's
+  decisions, cites them, and reads "Current status: none" when no single decision is current.
+  The same pair superseded twice (a retried supersede) was also read as a branch on the in-memory
+  graph, which the cell's graph cache holds; the walk now counts it once. `chain`
+  (`get_supersession_chain`) still answers with an error at a real fork. (hivemind-pydlc)
 - **`situational` and `get_situational_decisions` now match a multi-word topic key to the files
   being touched.** A decision with the topic `project-scope` never surfaced for
   `src/queries/project_scope.rs` or the branch `feature/project-scope`: the situation is split

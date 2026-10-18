@@ -68,11 +68,16 @@ pub(crate) fn render_compact_view_summary(view: &Option<CompactView>) -> String 
     }
     write_floor_lines(&mut out, &v.decision.floor);
     if let Some(chain) = &v.supersession_chain {
-        out.push_str(&format!(
-            "  superseded {} earlier decision(s); oldest: {}\n",
-            chain.chain_length - 1,
-            chain.oldest_id
-        ));
+        if chain.chain_length > 1 {
+            out.push_str(&format!(
+                "  superseded {} earlier decision(s); oldest: {}\n",
+                chain.chain_length - 1,
+                chain.oldest_id
+            ));
+        }
+        for fork in &chain.forks {
+            out.push_str(&format!("  BRANCHED: {}\n", fork.note()));
+        }
     }
     if let Some(contest) = &v.contest {
         out.push_str(&format!(

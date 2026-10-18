@@ -16,10 +16,63 @@ pub struct SupersessionChain {
     pub input_index: usize,
 }
 
-pub fn get_supersession_chain(
+/// Which way along SUPERSEDES from a decision a fork lies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SupersessionSide {
+    /// The decision supersedes several decisions.
+    Older,
+    /// Several decisions supersede the decision: nobody settled on a single successor.
+    Newer,
+}
+
+/// A decision with more than one neighbour on one side of its supersession line, which the line
+/// cannot continue past.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SupersessionFork {
+    pub at: String,
+    pub side: SupersessionSide,
+    /// The distinct decisions on that side of `at`, in id order.
+    pub candidates: Vec<String>,
+}
+
+impl SupersessionFork {
+    /// The fork in a sentence; the one place the compact view's renderers and the chain summary
+    /// get their wording, so they cannot disagree.
+    pub fn note(&self) -> String {
+        let candidates = self.candidates.join(", ");
+        match self.side {
+            SupersessionSide::Older => format!(
+                "{} supersedes {} decisions ({candidates})",
+                self.at,
+                self.candidates.len()
+            ),
+            SupersessionSide::Newer => format!(
+                "{} is superseded by {} decisions ({candidates}), so no single decision is current",
+                self.at,
+                self.candidates.len()
+            ),
+        }
+    }
+}
+
+/// The supersession line through a decision, as far as it runs without forking.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SupersessionLine {
+    pub chain: SupersessionChain,
+    /// Where the line stopped for lack of a single next decision: at most one fork per side,
+    /// the older side first.
+    pub forks: Vec<SupersessionFork>,
+}
+
+/// The line through `decision_id` in both directions. A fork ends the line on that side and is
+/// reported in [`SupersessionLine::forks`]: the write side lets two decisions supersede the same
+/// one, and a decision supersede several, so a fork is a fact of the ledger and not a failure.
+/// A cycle is still an error.
+pub fn walk_supersession(
     graph: &impl GraphView,
     decision_id: &str,
-) -> Result<QueryResponse<SupersessionChain>> {
+) -> Result<QueryResponse<SupersessionLine>> {
     let started = query_timer_start();
     if decision_id.trim().is_empty() {
         return Err(query_error("decision_id must not be empty").into());
@@ -28,33 +81,9 @@ pub fn get_supersession_chain(
     let mut visited = BTreeSet::new();
     visited.insert(decision_id.to_owned());
 
-    let mut older = Vec::new();
-    let mut cursor = decision_id.to_owned();
-    loop {
-        let older_neighbors = supersession_neighbors(graph, &cursor, WalkDirection::Older)?;
-        let Some(next) = choose_single_neighbor(&cursor, older_neighbors)? else {
-            break;
-        };
-        if !visited.insert(next.clone()) {
-            return Err(query_error(format!("cycle detected on edge {cursor} -> {next}")).into());
-        }
-        older.push(next.clone());
-        cursor = next;
-    }
-
-    let mut newer = Vec::new();
-    let mut cursor = decision_id.to_owned();
-    loop {
-        let newer_neighbors = supersession_neighbors(graph, &cursor, WalkDirection::Newer)?;
-        let Some(next) = choose_single_neighbor(&cursor, newer_neighbors)? else {
-            break;
-        };
-        if !visited.insert(next.clone()) {
-            return Err(query_error(format!("cycle detected on edge {next} -> {cursor}")).into());
-        }
-        newer.push(next.clone());
-        cursor = next;
-    }
+    let (mut older, older_fork) =
+        walk_side(graph, decision_id, SupersessionSide::Older, &mut visited)?;
+    let (newer, newer_fork) = walk_side(graph, decision_id, SupersessionSide::Newer, &mut visited)?;
 
     older.reverse();
     let input_index = older.len();
@@ -66,28 +95,87 @@ pub fn get_supersession_chain(
         result_count: decision_ids.len(),
         truncated: false,
         latency_ms: started.elapsed().as_millis(),
-        data: SupersessionChain {
-            decision_ids,
-            input_index,
+        data: SupersessionLine {
+            chain: SupersessionChain {
+                decision_ids,
+                input_index,
+            },
+            forks: older_fork.into_iter().chain(newer_fork).collect(),
         },
     })
 }
 
-enum WalkDirection {
-    Older,
-    Newer,
+/// The chain through `decision_id`, or an error when it forks. Callers that can say what a fork
+/// is use [`walk_supersession`].
+pub fn get_supersession_chain(
+    graph: &impl GraphView,
+    decision_id: &str,
+) -> Result<QueryResponse<SupersessionChain>> {
+    let line = walk_supersession(graph, decision_id)?;
+    if let Some(fork) = line.data.forks.first() {
+        return Err(query_error(format!(
+            "supersession chain branched at {}: {} candidates",
+            fork.at,
+            fork.candidates.len()
+        ))
+        .into());
+    }
+    Ok(QueryResponse {
+        result_count: line.result_count,
+        truncated: line.truncated,
+        latency_ms: line.latency_ms,
+        data: line.data.chain,
+    })
 }
 
+/// Walk from `start` along one side until the line ends or forks. Returns the decisions walked,
+/// nearest first, and the fork that stopped the walk, if any.
+fn walk_side(
+    graph: &impl GraphView,
+    start: &str,
+    side: SupersessionSide,
+    visited: &mut BTreeSet<String>,
+) -> Result<(Vec<String>, Option<SupersessionFork>)> {
+    let mut walked = Vec::new();
+    let mut cursor = start.to_owned();
+    loop {
+        let mut neighbors = supersession_neighbors(graph, &cursor, side)?;
+        if neighbors.len() > 1 {
+            let fork = SupersessionFork {
+                at: cursor,
+                side,
+                candidates: neighbors,
+            };
+            return Ok((walked, Some(fork)));
+        }
+        let Some(next) = neighbors.pop() else {
+            return Ok((walked, None));
+        };
+        if !visited.insert(next.clone()) {
+            let edge = match side {
+                SupersessionSide::Older => format!("{cursor} -> {next}"),
+                SupersessionSide::Newer => format!("{next} -> {cursor}"),
+            };
+            return Err(query_error(format!("cycle detected on edge {edge}")).into());
+        }
+        walked.push(next.clone());
+        cursor = next;
+    }
+}
+
+/// The distinct decisions on `side` of `decision_id`, in id order. A pair superseded twice (a
+/// retried supersede after a client timeout) is two edges on a graph that keys edges by the
+/// event that wrote them, but one neighbour.
 fn supersession_neighbors(
     graph: &impl GraphView,
     decision_id: &str,
-    direction: WalkDirection,
+    side: SupersessionSide,
 ) -> Result<Vec<String>> {
-    let cypher = match direction {
-        WalkDirection::Older => {
+    let cypher = match side {
+        SupersessionSide::Older => {
             "MATCH (d:`Decision` {id: $id})-[:`SUPERSEDES`]->(other:`Decision`) RETURN other.id AS id ORDER BY other.id;"
         }
-        WalkDirection::Newer => {
+        SupersessionSide::Newer => {
             "MATCH (other:`Decision`)-[:`SUPERSEDES`]->(d:`Decision` {id: $id}) RETURN other.id AS id ORDER BY other.id;"
         }
     };
@@ -96,20 +184,9 @@ fn supersession_neighbors(
         &GraphParams::from([("id".to_owned(), GraphValue::String(decision_id.to_owned()))]),
     )?;
 
-    let mut ids = Vec::new();
+    let mut ids = BTreeSet::new();
     for row in rows {
-        ids.push(required_string(&row, "id")?);
+        ids.insert(required_string(&row, "id")?);
     }
-    Ok(ids)
-}
-
-fn choose_single_neighbor(current: &str, neighbors: Vec<String>) -> Result<Option<String>> {
-    if neighbors.len() <= 1 {
-        return Ok(neighbors.into_iter().next());
-    }
-    Err(query_error(format!(
-        "supersession chain branched at {current}: {} candidates",
-        neighbors.len()
-    ))
-    .into())
+    Ok(ids.into_iter().collect())
 }

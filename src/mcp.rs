@@ -956,7 +956,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "decision_id": { "type": "string", "description": "The decision to compact. Provide this or `description`, not both. If mid-chain, the terminal (newest) decision in the supersession chain is used as the focal node." },
+                    "decision_id": { "type": "string", "description": "The decision to compact. Provide this or `description`, not both. If mid-chain, the terminal (newest) decision in the supersession chain is used as the focal node. When the chain forks (several decisions superseded the same one, or one decision superseded several), no single terminal exists: the decision where it forks is the focal node and `supersession_chain.forks` names the decisions on the far side." },
                     "description": { "type": "string", "description": "Free-text description to resolve to a decision when the id is not known." },
                     "topic": { "type": "string", "description": "Narrows description resolution to decisions carrying this topic key." }
                 }

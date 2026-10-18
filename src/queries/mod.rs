@@ -160,7 +160,10 @@ pub use status_events::{
     get_decision_status_events, DecisionStatusEvents, StatusActor, StatusEvent, StatusEventKind,
 };
 pub use suggestion_acks::acknowledged_finding_ids;
-pub use supersession::{get_supersession_chain, SupersessionChain};
+pub use supersession::{
+    get_supersession_chain, walk_supersession, SupersessionChain, SupersessionFork,
+    SupersessionLine, SupersessionSide,
+};
 pub use terms::{
     content_query, overlap_score, overlapping_terms, path_terms, text_terms, ContentQuery,
 };

@@ -21,7 +21,9 @@ use super::reexamine::{
 };
 use super::shared::{query_error, MAX_QUERY_RESULTS};
 use super::status::{DecisionStatus, HypothesisStatus};
-use super::supersession::get_supersession_chain;
+use super::supersession::{
+    walk_supersession, SupersessionFork, SupersessionLine, SupersessionSide,
+};
 use super::{get_active_decision_blockers, QueryResponse};
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,11 @@ pub struct PremiseSummaryView {
 pub struct SupersessionSummary {
     pub chain_length: usize,
     pub oldest_id: String,
+    /// Where the line stops because more than one decision comes next: a decision that two
+    /// actors superseded (no single decision is current, and the one shown is superseded), or
+    /// one that supersedes several. Absent when the line runs straight.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub forks: Vec<SupersessionFork>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -147,8 +154,9 @@ pub fn get_compact_view_at(
         });
     };
 
-    // 2. Supersession chain → find terminal (newest, last in chain)
-    let chain = get_supersession_chain(graph, decision_id)?.data;
+    // 2. Supersession line → find terminal (newest, last in line). A line that forks has no
+    // single terminal: it ends at the fork, and the fork is reported with the summary.
+    let SupersessionLine { chain, forks } = walk_supersession(graph, decision_id)?.data;
     let terminal_id = chain
         .decision_ids
         .last()
@@ -209,11 +217,19 @@ pub fn get_compact_view_at(
     // -----------------------------------------------------------------------
     // Supersession summary (omit when the decision is not part of a chain)
     // -----------------------------------------------------------------------
-    let superseded_decision_count = chain.decision_ids.len().saturating_sub(1);
-    let supersession_chain = if chain.decision_ids.len() > 1 {
+    // The decisions an older fork names are superseded too, though the line does not run through
+    // them.
+    let superseded_decision_count = chain.decision_ids.len().saturating_sub(1)
+        + forks
+            .iter()
+            .filter(|fork| fork.side == SupersessionSide::Older)
+            .map(|fork| fork.candidates.len())
+            .sum::<usize>();
+    let supersession_chain = if chain.decision_ids.len() > 1 || !forks.is_empty() {
         Some(SupersessionSummary {
             chain_length: chain.decision_ids.len(),
             oldest_id: chain.decision_ids.first().cloned().unwrap_or_default(),
+            forks,
         })
     } else {
         None

@@ -74,6 +74,13 @@ SupersessionSummary {
     chain_length: usize,         // total decisions in chain
     oldest_id: String,           // root of the chain (oldest decision)
     // caller can call get_supersession_chain for the full ordered list
+    forks: Vec<SupersessionFork>, // omitted when the line runs straight; see below
+}
+
+SupersessionFork {
+    at: String,                  // the decision the line cannot continue past
+    side: older | newer,         // newer: several decisions superseded `at`; older: `at` superseded several
+    candidates: Vec<String>,     // the distinct decisions on that side, in id order
 }
 
 ContestView {
@@ -113,12 +120,31 @@ ElidedSummary {
 The implementation wraps existing Layer-2 functions only:
 
 1. `get_decision(graph, decision_id)` — resolve the focal decision
-2. `get_supersession_chain(graph, decision_id)` — find the terminal node + chain metadata
+2. `walk_supersession(graph, decision_id)` — find the terminal node + chain metadata. Unlike
+   `get_supersession_chain`, which errors when the chain branches, it ends the line at a fork and
+   reports it (see "Branched supersession")
 3. `get_decision(graph, terminal_id)` — if terminal differs from focal
 4. `get_decision_neighborhood(graph, terminal_id, NeighborhoodRequest::all())` — walk the subgraph
 5. `get_active_decision_blockers(graph, ...)` — find unresolved blockers
 
 No direct graph queries (Cypher/SQL) in the compactification layer. All graph access goes through Layer-2.
+
+### Branched supersession
+
+The write side lets two decisions supersede the same one, and one decision supersede several;
+concurrent supersessions both stand. Neither is an error for the compact view:
+
+- **Superseded by several.** No single terminal exists. The view's `decision` is the decision the
+  line reaches before the fork, shown as what it is (`superseded`), and
+  `supersession_chain.forks` names the decisions that superseded it. Nothing is picked as current.
+- **Supersedes several.** The view is of that decision; `forks` names the decisions it
+  superseded, and `elided.superseded_decision_count` counts them.
+- **The same pair superseded twice** (a retried supersede) is one step, not a fork: the walk
+  de-duplicates neighbour ids.
+
+`get_supersession_chain` (the CLI's `chain`) keeps returning an error at a fork, since its answer
+is one ordered list. Chain-mode `summarize_decisions` renders the line and then each fork with its
+candidates, cites them, and states "Current status: none" when no single decision is current.
 
 ---
 
@@ -146,7 +172,7 @@ Every `CompactView` response:
 
 1. Is typed distinctly from `NeighborhoodView` — callers cannot mistake it for a full view
 2. Includes `elided: ElidedSummary` — counts and event_origins for everything dropped
-3. If `elided.superseded_decision_count > 0`, the response includes `supersession_chain` with `oldest_id` so audit is a single follow-up query away
+3. If `elided.superseded_decision_count > 0`, the response includes `supersession_chain` with `oldest_id` so audit is a single follow-up query away. A branched chain is reported in `supersession_chain.forks`, never failed on and never resolved to one branch
 4. A contested decision is **never** compacted — if `decision.status == Contested`, `contest` is always present with both actor lists
 
 ---
