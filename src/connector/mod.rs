@@ -293,8 +293,10 @@ impl Connector for GitFileConnector {
         // the newline git puts before the file names.
         let mut tokens = stdout.split('\0').filter(|t| !t.is_empty()).peekable();
         while let Some(header) = tokens.next() {
-            let parts: Vec<&str> = header.splitn(3, '\x1f').collect();
-            let [commit_hash, date_str, author_name] = parts[..] else {
+            let mut fields = header.splitn(3, '\x1f');
+            let (Some(commit_hash), Some(date_str), Some(author_name)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
                 let msg = format!(
                     "unreadable git log record for {}: {header:?}",
                     source_id.doc_id
