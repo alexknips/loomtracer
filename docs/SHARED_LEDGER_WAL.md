@@ -10,6 +10,9 @@ The enforced conditions are:
 - SQLite `journal_mode=WAL`.
 - SQLite `synchronous=NORMAL`.
 - A 30 second `busy_timeout` on every connection.
+- Schema setup runs once per ledger file and is stamped in `PRAGMA user_version`.
+  Opening a ledger already at the current version issues no write statement, so a
+  read (an HTTP `GET`, a CLI query) never queues behind a running append.
 - Event appends are single-row autocommit `INSERT OR IGNORE` statements.
 - Writers use local filesystem locking that SQLite can rely on.
 

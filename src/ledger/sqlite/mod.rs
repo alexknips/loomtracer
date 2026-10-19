@@ -22,6 +22,9 @@ use super::{omit_payload_keys_from, EventLedger};
 const LEDGER_DB_NAME: &str = "ledger.sqlite";
 const SQLITE_BUSY_TIMEOUT_MS: u64 = 30_000;
 const SQLITE_LOCK_RETRY_SLEEP_MS: u64 = 10;
+/// Stamped into the file's `PRAGMA user_version` once `initialize_schema` has brought it
+/// current. Bump it with any change to that function so existing ledgers run it again.
+const SCHEMA_VERSION: i64 = 1;
 
 #[derive(Debug)]
 pub struct SqliteEventLedger {
@@ -42,7 +45,16 @@ impl SqliteEventLedger {
             .busy_timeout(Duration::from_millis(SQLITE_BUSY_TIMEOUT_MS))
             .map_err(storage_error)?;
 
-        initialize_schema(&connection)?;
+        // Per connection, unlike the journal mode and the schema, which live in the file.
+        connection
+            .execute_batch("PRAGMA synchronous=NORMAL;")
+            .map_err(storage_error)?;
+        // Schema setup writes (the tenants seed starts a write transaction even when it inserts
+        // nothing), so a ledger already at this version skips it: opening one for a read never
+        // queues behind a running append.
+        if stored_schema_version(&connection)? != SCHEMA_VERSION {
+            initialize_schema(&connection)?;
+        }
 
         Ok(Self {
             path,
@@ -368,11 +380,19 @@ impl EventLedger for SqliteEventLedger {
     }
 }
 
+fn stored_schema_version(connection: &Connection) -> Result<i64> {
+    let version =
+        retry_sqlite_lock(|| connection.query_row("PRAGMA user_version;", [], |row| row.get(0)))
+            .map_err(storage_error)?;
+    Ok(version)
+}
+
+/// Idempotent: brings a ledger of any earlier shape to the current one, then stamps
+/// [`SCHEMA_VERSION`] so [`SqliteEventLedger::open`] skips it from then on.
 fn initialize_schema(connection: &Connection) -> Result<()> {
     retry_sqlite_lock(|| {
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
              CREATE TABLE IF NOT EXISTS events (
                  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
                  tenant_id TEXT NOT NULL DEFAULT 'local',
@@ -416,6 +436,7 @@ fn initialize_schema(connection: &Connection) -> Result<()> {
             "CREATE INDEX IF NOT EXISTS events_tenant_type_idx
                  ON events (tenant_id, type, event_id);",
         )?;
+        connection.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         Ok(())
     })
     .map_err(storage_error)?;

@@ -1709,6 +1709,52 @@ async fn why_resolves_by_id_and_by_description() {
 }
 
 #[tokio::test]
+async fn why_answers_while_another_connection_holds_the_ledger_write_lock() {
+    let dir = test_ledger_dir();
+
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Why read under a write lock: reads must not queue behind appends",
+                "rationale": "A GET opens the ledger per request; that open must not take the write lock",
+                "topic_keys": ["read-under-write-lock"],
+                "options": [{"label": "opt"}]
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "capture: {body}"); // ubs:ignore
+    let decision_id = body["decision_id"].as_str().unwrap().to_owned();
+
+    // A fresh router has an empty graph cache, so the GET reads the ledger itself. Another
+    // connection sits in a write transaction, as a running append does.
+    let reader = app(dir.clone());
+    let writer = rusqlite::Connection::open(dir.join("ledger.sqlite")).expect("open writer");
+    writer
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("take the write lock");
+
+    let answered = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        call(
+            reader,
+            get_req(&format!("/v1/decisions/why?id={decision_id}")),
+        ),
+    )
+    .await;
+    writer.execute_batch("ROLLBACK").expect("release the lock");
+
+    let (status, body) = answered.expect("why waited on the write lock another connection holds");
+    assert_eq!(status, StatusCode::OK, "why under a write lock: {body}"); // ubs:ignore
+    assert_eq!(body["data"]["root"]["id"], decision_id); // ubs:ignore
+}
+
+#[tokio::test]
 async fn why_and_verify_answer_a_description_that_shares_half_its_words_and_name_what_is_missing() {
     let dir = test_ledger_dir();
 

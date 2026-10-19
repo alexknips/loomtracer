@@ -2,9 +2,9 @@
 #[cfg(test)]
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Barrier};
+use std::sync::{mpsc, Arc, Barrier};
 use std::thread;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::OptionalExtension;
 use uuid::Uuid;
@@ -27,7 +27,7 @@ use crate::util::require_agent_actor_id;
 use crate::Result;
 
 use super::super::backend_error::storage_error;
-use super::SqliteEventLedger;
+use super::{SqliteEventLedger, SCHEMA_VERSION};
 
 #[test]
 fn append_assigns_monotonic_ids() -> Result<()> {
@@ -220,6 +220,85 @@ fn concurrent_first_open_initializes_schema_once() -> Result<()> {
     }
 
     let _ = fs::remove_dir_all(dir.as_ref());
+    Ok(())
+}
+
+#[test]
+fn opening_an_initialized_ledger_does_not_wait_for_the_write_lock() -> Result<()> {
+    let dir = temp_hivemind_dir("open-without-write-lock");
+    drop(SqliteEventLedger::open(&dir)?);
+
+    // Another connection sits in a write transaction, as a running append does.
+    let writer = rusqlite::Connection::open(dir.join("ledger.sqlite")).map_err(storage_error)?;
+    writer
+        .execute_batch("BEGIN IMMEDIATE")
+        .map_err(storage_error)?;
+
+    let (sender, receiver) = mpsc::channel();
+    let open_dir = dir.clone();
+    thread::spawn(move || {
+        let opened = SqliteEventLedger::open_for_tenant(&open_dir, &TenantId::local()).map(|_| ());
+        let _ = sender.send(opened);
+    });
+    let opened = receiver.recv_timeout(Duration::from_secs(5));
+
+    writer.execute_batch("ROLLBACK").map_err(storage_error)?;
+    let _ = fs::remove_dir_all(&dir);
+    opened.map_err(|_| storage_error("open waited on the write lock another connection holds"))?
+}
+
+#[test]
+fn first_open_stamps_the_schema_version_so_later_opens_skip_setup() -> Result<()> {
+    with_sqlite_ledger("schema-version-stamp", |ledger| {
+        let stamped: i64 = ledger
+            .connection
+            .query_row("PRAGMA user_version;", [], |row| row.get(0))
+            .map_err(storage_error)?;
+        assert_eq!(stamped, SCHEMA_VERSION);
+        Ok(())
+    })
+}
+
+#[test]
+fn opening_a_ledger_from_before_the_schema_stamp_migrates_it_and_keeps_its_events() -> Result<()> {
+    let dir = temp_hivemind_dir("pre-stamp-migration");
+    fs::create_dir_all(&dir).map_err(storage_error)?;
+    let legacy = rusqlite::Connection::open(dir.join("ledger.sqlite")).map_err(storage_error)?;
+    legacy
+        .execute_batch(
+            "CREATE TABLE events (
+                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 event_uuid TEXT NOT NULL UNIQUE,
+                 type TEXT NOT NULL,
+                 actor_id TEXT NOT NULL,
+                 correlation_id TEXT,
+                 causation_event_id INTEGER,
+                 payload TEXT NOT NULL,
+                 ts TEXT NOT NULL
+             );
+             INSERT INTO events (event_uuid, type, actor_id, payload, ts)
+             VALUES ('legacy-uuid', 'evidence.recorded', 'actor:test', '{}', '2026-01-01T00:00:00Z');",
+        )
+        .map_err(storage_error)?;
+    drop(legacy);
+
+    let ledger = SqliteEventLedger::open(&dir)?;
+    let kept: i64 = ledger
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE tenant_id = 'local' AND event_uuid = 'legacy-uuid'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    let stamped: i64 = ledger
+        .connection
+        .query_row("PRAGMA user_version;", [], |row| row.get(0))
+        .map_err(storage_error)?;
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_eq!(kept, 1);
+    assert_eq!(stamped, SCHEMA_VERSION);
     Ok(())
 }
 
