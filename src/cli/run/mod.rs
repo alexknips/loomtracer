@@ -59,10 +59,10 @@ use crate::queries::{
     ChangedSinceRequest, ContestedDecisionsRequest, DecisionBlockerFilters, DecisionLogExport,
     DecisionLogOutcome, DecisionLogRequest, DecisionStatus, DecisionsAddedSinceFilterRequest,
     DecisionsAddedSinceRequest, HistoryFilterRequest, MisfiledScanRequest, NeighborhoodRequest,
-    OpenWhyRequest, ProjectDecisionsRequest, ProjectListRequest, ProjectOutcome, QueryContext,
-    ReadOnlyExportQuery, ReadOnlyExportRequest, RecentActivityRequest, RecentDecisionEntry,
-    RecentDecisionFilterRequest, RecentDecisionsRequest, ResolveOutcome, ResolvedCandidate,
-    SearchDecisionRequest, SituationalRequest, WaitingRequestsRequest,
+    OpenWhyRequest, OptionLabel, ProjectDecisionsRequest, ProjectListRequest, ProjectOutcome,
+    QueryContext, ReadOnlyExportQuery, ReadOnlyExportRequest, RecentActivityRequest,
+    RecentDecisionEntry, RecentDecisionFilterRequest, RecentDecisionsRequest, ResolveOutcome,
+    ResolvedCandidate, SearchDecisionRequest, SituationalRequest, WaitingRequestsRequest,
 };
 use crate::slack_app::{
     handle_slack_command, slack_app_manifest, slack_oauth_install_url, SlackAppStore,
@@ -3344,13 +3344,7 @@ fn render_review_item<W: IoWrite>(
     } else {
         for option in &item.options {
             let chosen = item.chosen_option_id.as_deref() == Some(option.option_id.as_str());
-            let note = match (&option.recorded_as, chosen) {
-                (Some(recorded), true) => format!(" (chosen; recorded as: {recorded})"),
-                (Some(recorded), false) => format!(" (recorded as: {recorded})"),
-                (None, true) => " (chosen)".to_owned(),
-                (None, false) => String::new(),
-            };
-            writeln!(output, "  - {}{note}", option.label).map_err(cli_io_error)?;
+            write_review_option(output, option, chosen)?;
         }
     }
     writeln!(output, "Evidence:").map_err(cli_io_error)?;
@@ -3380,6 +3374,24 @@ fn render_review_item<W: IoWrite>(
         }
     }
     Ok(())
+}
+
+/// One option line of the review prompt: the label a person reads, then what the choice and the
+/// recorded form add. Written piece by piece, so no line is built as a `String` per option.
+fn write_review_option<W: IoWrite>(
+    output: &mut W,
+    option: &OptionLabel,
+    chosen: bool,
+) -> Result<()> {
+    write!(output, "  - {}", option.label).map_err(cli_io_error)?;
+    match (&option.recorded_as, chosen) {
+        (Some(recorded), true) => write!(output, " (chosen; recorded as: {recorded})"),
+        (Some(recorded), false) => write!(output, " (recorded as: {recorded})"),
+        (None, true) => write!(output, " (chosen)"),
+        (None, false) => Ok(()),
+    }
+    .map_err(cli_io_error)?;
+    writeln!(output).map_err(cli_io_error)
 }
 
 fn prompt_line<R: BufRead, W: IoWrite>(
