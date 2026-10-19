@@ -1059,12 +1059,15 @@ fn cut_slug_at_word(slug: &str, max: usize) -> &str {
 }
 
 /// The part of a decision id usable as a slug collision-breaker: lowercase alphanumeric
-/// characters only, the `decision-` prefix dropped when present. Mirrors
-/// `queries::decision_log::short_id`, but keeps the whole tail instead of capping it at 8 —
-/// `assign_decision_slug` grows into only as much of it as a collision actually needs.
+/// characters only, the `decision-` prefix dropped when present, or the `capture:` prefix of a
+/// classified draft's id (`capture:<event offset>:<index>`) — every draft would otherwise start
+/// its suffix with the same `capt`. Mirrors `queries::decision_log::short_id`, but keeps the
+/// whole tail instead of capping it at 8 — `assign_decision_slug` grows into only as much of it
+/// as a collision actually needs.
 fn decision_id_tail(decision_id: &str) -> String {
     decision_id
         .strip_prefix("decision-")
+        .or_else(|| decision_id.strip_prefix("capture:"))
         .unwrap_or(decision_id)
         .chars()
         .filter(char::is_ascii_alphanumeric)
@@ -1093,12 +1096,13 @@ fn existing_decision_slugs(graph: &impl GraphView) -> Result<BTreeSet<String>> {
 
 /// Assigns this decision's stable link segment: the bare title-slug for whichever decision
 /// claims it first, a growing id-tail suffix for every later collision on the same base. Called
-/// only from `project_decision_proposed`, so it runs exactly once per decision, in ledger order
-/// (ledger offset is this system's notion of time — docs/GRAPH_CONTRACT.md), which makes "first"
-/// deterministic on replay too: the same ledger always assigns the same slugs in the same order.
-/// No other projector function writes this property, so a later retitle or annotation — whatever
-/// event does that next — leaves a decision's slug, and therefore its link, unchanged
-/// (hivemind-nidp).
+/// only from `project_decision_proposed` and `project_capture_decision` (a draft from the classify
+/// queue), the two functions that create a Decision node, so it runs exactly once per decision, in
+/// ledger order (ledger offset is this system's notion of time — docs/GRAPH_CONTRACT.md), which
+/// makes "first" deterministic on replay too: the same ledger always assigns the same slugs in
+/// the same order. No other projector function writes this property, so a later retitle or
+/// annotation — whatever event does that next — leaves a decision's slug, and therefore its
+/// link, unchanged (hivemind-nidp, hivemind-qq1is).
 fn assign_decision_slug(
     graph: &impl GraphView,
     decision_id: &str,
@@ -2275,6 +2279,11 @@ fn project_capture_decision(
     props.insert(
         "title".to_owned(),
         GraphValue::String(capture.title.clone()),
+    );
+    // Assigned once, here, at first projection — see `assign_decision_slug`.
+    props.insert(
+        "slug".to_owned(),
+        assign_decision_slug(graph, node_id, &capture.title)?,
     );
     props.insert(
         "rationale".to_owned(),

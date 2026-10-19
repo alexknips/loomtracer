@@ -895,6 +895,219 @@ fn decision_proposed_with_a_colliding_title_gets_a_suffixed_slug() -> Result<()>
     Ok(())
 }
 
+/// A Decision node's `title`, or `None` if the node has none (not projected).
+fn decision_title(graph: &impl GraphView, decision_id: &str) -> Result<Option<GraphValue>> {
+    let rows = graph.query(
+        "MATCH (node:`Decision` {id: $id}) RETURN node.id AS id, node.title AS title ORDER BY node.id;",
+        &GraphParams::from([(
+            "id".to_owned(),
+            GraphValue::String(decision_id.to_owned()),
+        )]),
+    )?;
+    Ok(rows
+        .into_iter()
+        .next()
+        .and_then(|row| row.get("title").cloned()))
+}
+
+/// A classified batch holding one `decision` capture per title, as the classify queue records
+/// drafts. Its decision nodes are `capture:<the batch's ledger offset>:<index>`.
+fn classified_drafts_batch(batch_id: &str, titles: &[&str]) -> Event {
+    let captures: Vec<serde_json::Value> = titles
+        .iter()
+        .map(|title| {
+            let mut capture = classified_decision_capture(None, &[], &[]);
+            capture["title"] = json!(title);
+            capture
+        })
+        .collect();
+    event(
+        EventType::IngestBatchClassified,
+        "agent:claude:classifier",
+        json!({
+            "batch_id": batch_id,
+            "classifier_model": "claude-haiku-4-5-20251001",
+            "schema_version": "2",
+            "captures": captures
+        }),
+    )
+}
+
+fn decision_proposed_titled(decision_id: &str, title: &str) -> Event {
+    event(
+        EventType::DecisionProposed,
+        "actor:alice",
+        json!({
+            "decision_id": decision_id,
+            "title": title,
+            "rationale": "Proposed after a draft with the same title",
+            "topic_keys": ["usage"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+    )
+}
+
+#[test]
+fn a_classified_draft_stores_a_slug_kebab_cased_from_the_title() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let ledger = InMemoryEventLedger::new();
+    let offset = ledger.append(classified_drafts_batch(
+        "batch:slug-solo",
+        &["Run every seat on one model"],
+    ))?;
+
+    let graph = MemoryGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    assert_eq!(
+        decision_slug(&graph, &format!("capture:{offset}:0"))?,
+        Some(GraphValue::String("run-every-seat-on-one-model".to_owned())),
+        "a draft from the classify queue is given a link the way a proposal is"
+    );
+    Ok(())
+}
+
+#[test]
+fn drafts_of_one_batch_with_the_same_title_get_different_slugs() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let ledger = InMemoryEventLedger::new();
+    let offset = ledger.append(classified_drafts_batch(
+        "batch:slug-twins",
+        &["Run every seat on one model", "Run every seat on one model"],
+    ))?;
+
+    let graph = MemoryGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    assert_eq!(
+        decision_slug(&graph, &format!("capture:{offset}:0"))?,
+        Some(GraphValue::String("run-every-seat-on-one-model".to_owned())),
+        "the first draft of the batch claims the bare slug"
+    );
+    assert_eq!(
+        decision_slug(&graph, &format!("capture:{offset}:1"))?,
+        // decision_id_tail("capture:1:1") = "11", shorter than the minimum suffix, so the counter
+        // fallback applies: a test ledger's offsets are tiny, a real one's tail is 4+ digits.
+        Some(GraphValue::String(
+            "run-every-seat-on-one-model-11-2".to_owned()
+        )),
+        "the second draft with this title gets an id-tail suffix, not the same link"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_later_proposal_with_a_drafts_title_does_not_take_the_drafts_link() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let title = "Run every seat on one model";
+    let ledger = InMemoryEventLedger::new();
+    let offset = ledger.append(classified_drafts_batch("batch:slug-draft-first", &[title]))?;
+    ledger.append(decision_proposed_titled("decision:newer", title))?;
+
+    let graph = MemoryGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    assert_eq!(
+        decision_slug(&graph, &format!("capture:{offset}:0"))?,
+        Some(GraphValue::String("run-every-seat-on-one-model".to_owned())),
+        "the draft keeps the bare slug it claimed first"
+    );
+    assert_eq!(
+        decision_slug(&graph, "decision:newer")?,
+        Some(GraphValue::String(
+            "run-every-seat-on-one-model-deci".to_owned()
+        )),
+        "the later proposal is suffixed, so a saved link to the draft still opens the draft"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_draft_after_a_proposal_with_its_title_takes_a_suffix() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let title = "Run every seat on one model";
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(decision_proposed_titled("decision:older", title))?;
+    let offset = ledger.append(classified_drafts_batch("batch:slug-draft-later", &[title]))?;
+
+    let graph = MemoryGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    assert_eq!(
+        decision_slug(&graph, "decision:older")?,
+        Some(GraphValue::String("run-every-seat-on-one-model".to_owned())),
+        "the older proposal keeps the bare slug"
+    );
+    assert_eq!(
+        decision_slug(&graph, &format!("capture:{offset}:0"))?,
+        // The draft is the ledger's second event: decision_id_tail("capture:2:0") = "20".
+        Some(GraphValue::String(
+            "run-every-seat-on-one-model-20-2".to_owned()
+        )),
+        "a draft that comes second is suffixed, not given the proposal's link"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_draft_id_tail_is_its_offset_and_index_not_its_prefix() {
+    assert_eq!(decision_id_tail("capture:1234:5"), "12345");
+    assert_eq!(decision_id_tail("decision-AB12-cd34"), "ab12cd34");
+    assert_eq!(decision_id_tail("decision:other"), "decisionother");
+}
+
+#[test]
+fn retitling_a_draft_leaves_its_slug_unchanged() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let title = "Run every seat on one model";
+    let ledger = InMemoryEventLedger::new();
+    let offset = ledger.append(classified_drafts_batch("batch:slug-retitle", &[title]))?;
+    let draft_id = format!("capture:{offset}:0");
+    ledger.append(event(
+        EventType::DecisionRetitled,
+        "human:bob",
+        json!({ "decision_id": draft_id, "from": title, "to": "Run every seat on two models" }),
+    ))?;
+    // A decision whose title is the draft's NEW title: if the retitle had moved the draft's
+    // link, this is the one that would collide with it.
+    ledger.append(decision_proposed_titled(
+        "decision:two-models",
+        "Run every seat on two models",
+    ))?;
+
+    let graph = MemoryGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    assert_eq!(
+        decision_title(&graph, &draft_id)?,
+        Some(GraphValue::String(
+            "Run every seat on two models".to_owned()
+        )),
+        "the retitle took effect"
+    );
+    assert_eq!(
+        decision_slug(&graph, &draft_id)?,
+        Some(GraphValue::String("run-every-seat-on-one-model".to_owned())),
+        "the draft's link still follows the title it was first recorded under"
+    );
+    assert_eq!(
+        decision_slug(&graph, "decision:two-models")?,
+        Some(GraphValue::String(
+            "run-every-seat-on-two-models".to_owned()
+        )),
+        "a decision that takes the draft's new title is not made to avoid it"
+    );
+    Ok(())
+}
+
 /// The slug rule before hivemind-q9l1 (cut at the cap wherever it falls; an apostrophe is a word
 /// break), kept so the tests below can show which titles the new rule leaves alone.
 fn slug_before_q9l1(title: &str) -> String {

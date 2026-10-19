@@ -3922,6 +3922,69 @@ async fn graph_decisions_with_the_same_title_get_different_slugs() {
     assert_eq!(node_slug(&second), Some(second_slug)); // ubs:ignore
 }
 
+/// hivemind-qq1is over HTTP: a draft from the classify queue gets a stable link like any other
+/// decision, so `GET /v1/graph` carries its slug, and a decision captured later under the same
+/// title is suffixed instead of taking the draft's link.
+#[tokio::test]
+async fn graph_classified_draft_carries_a_slug_a_later_same_titled_decision_does_not_take() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/ingest",
+            ingest_json_at(
+                "slug-draft-batch",
+                "slug-draft-session",
+                "2026-09-30T10:00:00Z",
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}"); // ubs:ignore
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/classify-queue/submit",
+            serde_json::json!({
+                "batch_ids": ["slug-draft-batch"],
+                "captures": [keyed_capture_json("Graph draft slug test", &["graph-standing"])],
+                "model": "agent:worker-a"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    let draft = format!("capture:{}:0", body["event_id"].as_u64().expect("event_id")); // ubs:ignore
+    let later = capture_for_graph(&dir, "Graph draft slug test", None, None).await;
+
+    let (status, graph) = call(app(dir), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "GET /v1/graph: {graph}"); // ubs:ignore
+
+    assert_eq!(
+        graph_decision(&graph, &draft)["slug"],
+        "graph-draft-slug-test",
+        "the draft keeps the bare slug it claimed first: {graph}"
+    ); // ubs:ignore
+    let later_slug = graph_decision(&graph, &later)["slug"]
+        .as_str()
+        .expect("the later decision has a slug") // ubs:ignore
+        .to_owned();
+    assert!(
+        later_slug.starts_with("graph-draft-slug-test-"),
+        "the later decision is suffixed, so a link to the draft still opens the draft: {later_slug}"
+    ); // ubs:ignore
+    let node = graph["nodes"]
+        .as_array()
+        .expect("nodes array") // ubs:ignore
+        .iter()
+        .find(|n| n["id"] == format!("Decision:{draft}"))
+        .expect("the draft is a node"); // ubs:ignore
+    assert_eq!(
+        node["slug"], "graph-draft-slug-test",
+        "`nodes[]` carries the draft's slug too: {node}"
+    ); // ubs:ignore
+}
+
 /// The `decisions` entry of a `GET /v1/graph` body for this decision id.
 fn graph_decision<'a>(graph: &'a Value, decision_id: &str) -> &'a Value {
     graph["decisions"]

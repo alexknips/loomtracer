@@ -93,10 +93,11 @@ a reader needs without reconstructing them from edges:
     (apostrophes dropped, so `reader's` is `readers`) and cut at the last whole word that
     fits in 60 characters (a first word longer than that is cut at 60), with a growing
     id-tail suffix (`-a1b2`, then longer) for a later decision whose title
-    slugs to the same thing. Assigned once, when `decision.proposed` is first projected
-    (ledger order, so replay always assigns the same slugs); nothing projected after that
-    touches it, so a retitle (or any other annotation) does not move a decision's link. `null`
-    only for a decision from an event predating this field.
+    slugs to the same thing. Assigned once, when the decision is first projected — its
+    `decision.proposed`, or the `ingest.batch_classified` that recorded it as a draft from the
+    classify queue (ledger order, so replay always assigns the same slugs); nothing projected
+    after that touches it, so a retitle (or any other annotation) does not move a decision's
+    link. `null` only for a decision from an event predating this field.
 - **`nodes[]` with `kind: "Decision"`** carry `decided_at` and `slug` the same way, so a
   whole-graph view can show when each decision was made, and link to it, without a second
   lookup into `decisions[]`.
