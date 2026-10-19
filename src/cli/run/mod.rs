@@ -2526,27 +2526,17 @@ pub(crate) fn run_review_session<R: BufRead, W: IoWrite>(
     )
 }
 
-fn build_import_extractor(
-    args: &ImportDocumentsArgs,
-) -> Result<Option<DocumentCandidateExtractor>> {
+/// The prose extractor the flags name, if any. Clap refuses `--extractor-command` beside
+/// `--llm-response`, and `--extractor-arg` without `--extractor-command` or beside
+/// `--llm-response`, while parsing, before the ledger is opened (hivemind-f9l9y), so at most one
+/// source is set here.
+fn build_import_extractor(args: &ImportDocumentsArgs) -> Option<DocumentCandidateExtractor> {
     match (&args.extractor_command, &args.llm_response) {
-        (None, None) => Ok(None),
-        (Some(_), Some(_)) => Err(CliError::InvalidInput(
-            "use either --extractor-command or --llm-response, not both".to_owned(),
-        )
-        .into()),
-        (Some(_), None) => Ok(Some(DocumentCandidateExtractor::Command {
+        (Some(_), _) => Some(DocumentCandidateExtractor::Command {
             args: args.extractor_args.clone(),
-        })),
-        (None, Some(path)) => {
-            if !args.extractor_args.is_empty() {
-                return Err(CliError::InvalidInput(
-                    "--extractor-arg requires --extractor-command".to_owned(),
-                )
-                .into());
-            }
-            Ok(Some(DocumentCandidateExtractor::ResponseFile(path.clone())))
-        }
+        }),
+        (None, Some(path)) => Some(DocumentCandidateExtractor::ResponseFile(path.clone())),
+        (None, None) => None,
     }
 }
 
@@ -2683,7 +2673,7 @@ fn run_import(cli: &Cli, import: &ImportArgs) -> Result<String> {
                     conflict_resolution: args.on_conflict.as_ingest_action(),
                 },
             )?;
-            if let Some(extractor) = build_import_extractor(args)? {
+            if let Some(extractor) = build_import_extractor(args) {
                 apply_prose_extraction(
                     &scoped_ledger,
                     &mut report,

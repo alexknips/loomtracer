@@ -471,6 +471,10 @@ hivemind --actor alice --json import documents --on-conflict supersede ./notes/
 hivemind --actor alice import documents --extractor-command hivemind-extractor ./notes/memo.txt
 ```
 
+`--extractor-command` and `--llm-response` are alternatives, and `--extractor-arg` needs
+`--extractor-command`. A command line that breaks either rule exits 2 before the ledger is
+opened, so nothing is recorded, not even the `Decision:` blocks in the input.
+
 PDFs and OCR-backed text are prepared before import. The preparation command
 does not write ledger events; it materializes reviewable text with source/page
 metadata, then the reviewed output can be imported through the same document

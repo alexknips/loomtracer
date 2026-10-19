@@ -2077,11 +2077,22 @@ pub struct ImportDocumentsArgs {
     pub on_conflict: ImportDocumentConflictAction,
 
     /// Extractor command to use for prose documents (auto-detection: no Decision: blocks).
-    #[arg(long = "extractor-command", value_enum)]
+    #[arg(
+        long = "extractor-command",
+        value_enum,
+        conflicts_with = "llm_response"
+    )]
     pub extractor_command: Option<DocumentExtractorCommandArg>,
 
-    /// Extra arguments forwarded to the extractor command.
-    #[arg(long = "extractor-arg", value_name = "ARG")]
+    /// Extra arguments forwarded to the extractor command (requires --extractor-command).
+    // `requires` alone is not enough: clap drops a requirement that conflicts with a present arg,
+    // so beside --llm-response (which conflicts with --extractor-command) it would pass.
+    #[arg(
+        long = "extractor-arg",
+        value_name = "ARG",
+        requires = "extractor_command",
+        conflicts_with = "llm_response"
+    )]
     pub extractor_args: Vec<String>,
 
     /// Path to a pre-computed LLM response file for prose extraction (mutually exclusive with --extractor-command).
