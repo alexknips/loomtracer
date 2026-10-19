@@ -748,6 +748,11 @@ changed files nothing, so it is safe on a schedule. A finding whose basis change
 connector never reads Linear back, so closing a ticket does not file it again. A backlog longer
 than `--limit` is filed one page per run (`truncated: true` says more remain).
 
+A run with nothing to file is the normal case on a schedule. With `--json` it prints the same
+report as a run that files something, with `scanned: 0`, `filed: 0` and `issues: []`, so
+`hivemind --json --actor agent:<name> quality-scan | jq .filed` reads `0`. Without `--json` it
+says `quality-scan: no unacknowledged finding — nothing to file` in a sentence.
+
 A run stops at the first ticket Linear refuses: the findings it filed stay acknowledged and the
 rest are filed by the next run. If a ticket was filed but its acknowledgement could not be
 recorded, the error names the ticket and the finding, because the next run would file that

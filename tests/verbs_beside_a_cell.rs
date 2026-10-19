@@ -630,6 +630,38 @@ fn the_ten_other_verbs_with_a_local_ledger_work_and_say_which_ledger_they_used()
     }
 }
 
+/// hivemind-r2076: a scan with nothing to file used to print a sentence under `--json`, so the
+/// notice had nowhere to go but a trailing text line. It is the same report now, with the notice
+/// as a key.
+#[test]
+fn quality_scan_json_with_nothing_to_file_carries_the_notice_as_a_key() {
+    let dir = unique_dir("quality-scan-json");
+    make_ledger_with_decision(&dir);
+
+    let output = hivemind(
+        &dir,
+        Some(CELL),
+        &[
+            "--actor",
+            "human:reviewer",
+            "--json",
+            "quality-scan",
+            "--dry-run",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let answer: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("quality-scan --json prints a JSON object even with nothing to file"); // ubs:ignore: test-only; panicking is correct in tests
+    assert_eq!(answer["filed"], 0, "{answer}");
+    assert_eq!(answer["issues"], serde_json::json!([]), "{answer}");
+    let notice = answer["notice"].as_str().unwrap_or_default(); // ubs:ignore: test-only; a missing notice fails the assertion below
+    assert!(
+        notice.contains(CELL) && notice.contains("`hivemind quality-scan`"),
+        "the report says whose ledger it scanned: {answer}"
+    );
+}
+
 #[test]
 fn a_write_with_a_local_ledger_really_lands_in_that_ledger() {
     // The notice says anything recorded went to the local ledger. Prove it did, for the verbs that

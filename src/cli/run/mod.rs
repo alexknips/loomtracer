@@ -4666,13 +4666,19 @@ fn run_quality_scan(cli: &Cli, args: &QualityScanArgs) -> Result<String> {
     // acknowledged straight away, so a second run over an unchanged graph files nothing.
     let pending = pending_findings(&graph, &request, Utc::now())?;
 
-    if pending.data.findings.is_empty() {
+    // Nothing to file is the steady state of a scan on a schedule. `--json` still answers with the
+    // report, zero counts and no issues, so a pipe into `jq .filed` works on a clean ledger too;
+    // only the text mode says it in a sentence.
+    let nothing_pending = pending.data.findings.is_empty();
+    if nothing_pending && !cli.json {
         return Ok("quality-scan: no unacknowledged finding — nothing to file".to_owned());
     }
 
     let base_url = args.hivemind_base_url.as_deref();
 
-    let issues: Vec<serde_json::Value> = if args.dry_run {
+    let issues: Vec<serde_json::Value> = if nothing_pending {
+        Vec::new()
+    } else if args.dry_run {
         pending
             .data
             .findings
@@ -4734,7 +4740,7 @@ fn run_quality_scan(cli: &Cli, args: &QualityScanArgs) -> Result<String> {
         "issues": issues,
     });
 
-    format_json_value(cli.json || true, &output)
+    format_json_value(cli.json, &output)
 }
 
 // ---------------------------------------------------------------------------

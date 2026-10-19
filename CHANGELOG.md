@@ -718,6 +718,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind --json quality-scan` prints its report when there is nothing to file.** It printed
+  the JSON report when a finding was waiting and a plain sentence when none was, so a scan on a
+  schedule (`hivemind --json --actor agent:x quality-scan --dry-run | jq .filed`) worked until
+  the first time the ledger was clean, which is the normal state. With `--json` the clean answer
+  is the same report with `filed: 0` and `issues: []`; beside a cell (`HIVEMIND_API_URL` set) the
+  notice that the local ledger was used is its `notice` key, not a trailing text line. Without
+  `--json` the sentence stays, and a scan with findings prints the report indented, as other
+  commands do, instead of on one line. (hivemind-r2076)
 - **`hivemind digest` keeps the newest decisions of a window and lets you read the rest.** A
   window that held more than 50 decisions showed an arbitrary 50, in decision-id order (a random
   uuid, with classifier drafts, `capture:<n>:<i>`, ahead of every other), and the rest could not
