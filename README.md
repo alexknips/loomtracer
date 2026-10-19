@@ -468,7 +468,7 @@ or `add_context`:
 hivemind --actor alice --json import documents --file ./notes/decision.md
 hivemind --actor alice --json import documents --on-conflict supersede ./notes/
 # Prose extraction via extractor command:
-hivemind --actor alice import documents --extractor-command hivemind-extractor ./notes/memo.txt
+hivemind --actor alice import documents --extractor-command hivemind-document-extractor ./notes/memo.txt
 ```
 
 `--extractor-command` and `--llm-response` are alternatives, and `--extractor-arg` needs

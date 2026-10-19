@@ -346,16 +346,14 @@ Same-as candidates that exceed the threshold but require human confirmation
 hivemind import connector same-as-candidates --since-run <import_run_id> --json
 
 # Confirm one
-hivemind import connector confirm-same-as \
+hivemind --actor human:alice import connector confirm-same-as \
   --left <decision_id_a> \
-  --right <decision_id_b> \
-  --actor human:alice
+  --right <decision_id_b>
 
 # Retract a previous same-as
-hivemind import connector retract-same-as \
+hivemind --actor human:alice import connector retract-same-as \
   --left <decision_id_a> \
-  --right <decision_id_b> \
-  --actor human:alice
+  --right <decision_id_b>
 ```
 
 SPA flow (non-technical users): same-as candidates surface in a review panel
@@ -385,14 +383,14 @@ hivemind connector auth confluence \
 
 # Import a document (walks all versions by default)
 hivemind --actor human:alice \
-  import connector \
+  import connector run \
   --url "https://docs.google.com/document/d/<id>" \
   --max-versions 20 \
   --json
 
 # Import a git-tracked file
 hivemind --actor human:alice \
-  import connector \
+  import connector run \
   --url "./docs/ADR-001.md" \
   --max-versions 50 \
   --json

@@ -194,4 +194,4 @@ Every `CompactView` response:
 
 3. **Supersession chain oldest_id only vs full chain** — the spec provides `oldest_id` in `SupersessionSummary` and relies on a follow-up `get_supersession_chain` call for the ordered list. Alternative: embed the full `decision_ids: Vec<String>` in `SupersessionSummary`. Which is cheaper for the caller?
 
-4. **CLI surface** — `hivemind query compact-view` as a new subcommand vs `hivemind query neighborhood --compact` flag. Separate subcommand is cleaner (distinct return type); flag is discoverable. Preference?
+4. **CLI surface** — `hivemind query compact-view` as a new subcommand vs `hivemind query get_decision_neighborhood --compact` flag. Separate subcommand is cleaner (distinct return type); flag is discoverable. Preference?

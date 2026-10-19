@@ -375,8 +375,7 @@ looks like an implicit calendar guess.
 The minimum local demo flow is:
 
 ```bash
-hivemind import documents ./decision-notes \
-  --actor alice \
+hivemind --actor alice import documents ./decision-notes \
   --format markdown \
   --json
 

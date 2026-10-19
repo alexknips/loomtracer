@@ -25,7 +25,7 @@ the list on the next call. Nothing is ranked, scored or inferred, and nothing is
 | Contested | `hivemind query get_contested_decisions` | `get_contested_decisions` | `GET /v1/attention/contested` |
 | Open why | `hivemind query get_open_why_decisions` | `get_open_why_decisions` | `GET /v1/attention/open-why` |
 | Changed | `hivemind query get_changed_decisions` | `get_changed_decisions` | `GET /v1/attention/changed` |
-| Timeline of one decision | `hivemind why` (JSON `data.timeline`, text `timeline:` block) | `get_decision_neighborhood` (`data.timeline`) | `GET /v1/decisions/{id}/timeline`, and `GET /v1/decisions/why` (`data.timeline`) |
+| Timeline of one decision | `hivemind query why` (JSON `data.timeline`, text `timeline:` block) | `get_decision_neighborhood` (`data.timeline`) | `GET /v1/decisions/{id}/timeline`, and `GET /v1/decisions/why` (`data.timeline`) |
 | Status events of one decision | not yet | not yet | `GET /v1/decisions/{id}/status-events` |
 
 The CLI prints JSON; add `--summary` for text. The stdio server, the HTTP endpoint and the CLI

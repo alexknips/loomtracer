@@ -477,7 +477,7 @@ person's answer is recorded in every checkout.
 
 The decision names the same question as the ask (`--question`, not `--answers`: a
 request id only resolves to its question's text, so the two hooks share no state),
-which is what makes `hivemind why` show `asked_at` beside `answered_at` and takes
+which is what makes `hivemind query why` show `asked_at` beside `answered_at` and takes
 the request off the waiting list.
 
 Only real asks are written. The tool call is the act and its time is the ask's

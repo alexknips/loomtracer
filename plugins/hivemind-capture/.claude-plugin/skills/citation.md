@@ -87,7 +87,7 @@ Or as a separate evidence capture referencing the source:
 
 ## Future enhancement
 
-Once the ld68 connector layer is merged, `hivemind import connector --url <url>
+Once the ld68 connector layer is merged, `hivemind import connector run --url <url>
 --max-versions 1` will handle version pinning automatically and create a proper
 evidence node with full source provenance. Until then, use the manual citation
 approach above.

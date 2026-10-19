@@ -261,7 +261,7 @@ when a question was asked and when it was answered:
 | `PreToolUse` | the agent calls `AskUserQuestion` | one ask per question (MCP `request_decision`): the question, who asked, the time of the call |
 | `PostToolUse` | you have answered | one decision per answered question (MCP `capture_decision`) that answers the same question |
 
-The ask and the decision name the same question, so `hivemind why` on the decision
+The ask and the decision name the same question, so `hivemind query why` on the decision
 shows `asked_at` and `answered_at`, and the request leaves the waiting list
 (`hivemind query get_waiting_requests`). The two hooks share no state.
 
