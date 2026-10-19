@@ -92,3 +92,4 @@ src/queries/reexamine/surfaces.rs
 src/queries/upstream/tests.rs
 src/summarize/tests/chain.rs
 src/summarize/tests/digest_window.rs
+src/util/tests.rs
