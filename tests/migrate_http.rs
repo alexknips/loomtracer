@@ -350,9 +350,22 @@ fn a_source_whose_link_points_at_nothing_is_refused_before_anything_is_sent() {
 fn a_source_with_no_events_is_a_wrong_path_not_a_finished_move() {
     let cell = start_cell();
     let empty = scratch("empty");
+    SqliteEventLedger::open(&empty).expect("empty source ledger");
 
     let error = migrate(&empty, &cell, &cell.key_file, &["--json"]).expect_err("must be refused");
     assert!(error.contains("nothing to migrate"), "{error}");
+}
+
+#[test]
+fn a_source_folder_with_no_ledger_is_refused_and_not_made() {
+    let cell = start_cell();
+    let typo = scratch("hivemnd");
+
+    let error = migrate(&typo, &cell, &cell.key_file, &["--json", "--dry-run"])
+        .expect_err("must be refused");
+    assert!(error.contains(&typo.display().to_string()), "{error}");
+    assert!(error.contains("none was created"), "{error}");
+    assert!(!typo.exists(), "the typo'd folder was made");
 }
 
 #[test]

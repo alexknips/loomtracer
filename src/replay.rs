@@ -6,7 +6,7 @@
 //! numbers its events itself, and on a ledger that already holds events the numbers differ. So a
 //! causation link travels as the *uuid* of the cause and is renumbered to wherever the cause sits
 //! in the destination. Dedup is by `event_uuid`: running a replay again appends nothing the
-//! destination already holds. Nothing here ranks, infers or rewrites.
+//! destination already holds. Nothing here ranks or infers; the only payload text it rewrites is a draft id (below).
 //!
 //! A classifier draft is the other thing named by an event number: its id is
 //! `capture:<offset of its batch event>:<index>`, and events that act on the draft (accepted,

@@ -38,6 +38,17 @@ pub(super) fn run_migrate(cli: &Cli, args: &MigrateArgs) -> Result<String> {
     let source_tenant = cli_tenant(cli)?;
     let destination_tenant = TenantId::new(args.to_tenant.trim().to_owned())
         .map_err(|error| CliError::InvalidInput(format!("--to-tenant is invalid: {error}")))?;
+    // `open` makes a ledger where there is none, and a typo in --from would leave an empty one
+    // behind for every later read to answer "0 decisions" from.
+    if !SqliteEventLedger::exists_in(&source_dir) {
+        return Err(CliError::InvalidInput(format!(
+            "`hivemind migrate` moves the events of a local ledger, and there is none under {}: \
+             nothing was moved and none was created. Check --from (or --hivemind-dir) for a typo \
+             and point it at the folder that holds the ledger",
+            source_dir.display()
+        ))
+        .into());
+    }
     let source = SqliteEventLedger::open(&source_dir)?;
 
     // Read the whole source once without a destination: whatever it holds that cannot be carried

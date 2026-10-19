@@ -718,6 +718,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind migrate --from <typo>` no longer leaves an empty ledger at the typo.** It opened
+  the source before checking anything, and opening makes a ledger, so a mistyped `--from` ended
+  with "nothing to migrate" and a `ledger.sqlite` behind it; every later read of that folder
+  (`hivemind --hivemind-dir ./hivemnd query ...`) passed the no-ledger check and answered "0
+  decisions". A source folder that holds no ledger is now refused before it is opened (exit 2,
+  naming the folder), whether or not the folder exists, and nothing is created. A ledger that
+  exists but holds no events for the tenant still gets "nothing to migrate". (hivemind-eapb1)
 - **`hivemind --json quality-scan` prints its report when there is nothing to file.** It printed
   the JSON report when a finding was waiting and a plain sentence when none was, so a scan on a
   schedule (`hivemind --json --actor agent:x quality-scan --dry-run | jq .filed`) worked until

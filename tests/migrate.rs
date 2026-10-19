@@ -214,6 +214,54 @@ mod migrate_tests {
         );
     }
 
+    /// A typo in `--from` is refused before the source is opened: opening makes a ledger, and an
+    /// empty one left at the typo would answer every later read with "0 decisions".
+    #[test]
+    fn migrate_from_a_folder_with_no_ledger_refuses_and_creates_nothing() {
+        let parent = tempfile::tempdir().expect("tempdir");
+        let missing = parent.path().join("hivemnd");
+        let empty = parent.path().join("empty");
+        std::fs::create_dir(&empty).expect("create empty folder");
+
+        for source in [&missing, &empty] {
+            let cli = Cli {
+                actor: "human:test".to_owned(),
+                actor_given: hivemind::cli::ActorGiven(true),
+                tenant: "local".to_owned(),
+                json: true,
+                database_url: None,
+                hivemind_dir: std::path::PathBuf::from("/nonexistent"),
+                graph_backend: None,
+                verbose: 0,
+                command: Command::Migrate(MigrateArgs {
+                    from: Some(source.display().to_string()),
+                    to: None,
+                    to_url: Some("https://cell.invalid".to_owned()),
+                    admin_key_file: Some(parent.path().join("admin.key")),
+                    to_tenant: unique_tenant("no-ledger"),
+                    dry_run: true,
+                }),
+            };
+
+            let error = hivemind::cli::run(&cli).expect_err("a source with no ledger is refused");
+
+            assert_eq!(hivemind::cli::exit_code_for_error(&error).code(), 2);
+            assert!(
+                error.to_string().contains(&source.display().to_string()),
+                "the refusal names the folder: {error}"
+            );
+            assert!(
+                !SqliteEventLedger::exists_in(source),
+                "{} was given a ledger",
+                source.display()
+            );
+        }
+        assert!(
+            !missing.exists(),
+            "the folder that was not there is not made"
+        );
+    }
+
     #[test]
     fn migrate_from_flag_strips_sqlite_prefix() {
         let Some(pg_url) = skip_if_no_postgres() else {

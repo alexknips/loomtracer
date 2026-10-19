@@ -292,6 +292,7 @@ impl CellBesideVerb {
             // Servers over a local dir: the standing rmdi1 ruling is that they ignore the variable.
             Command::Mcp(_) | Command::Serve(_) => return None,
             // Reads the explicit source dir it is given and writes to the destination it names.
+            // It refuses a source with no ledger itself, before it opens one.
             Command::Migrate(_) => return None,
             Command::Map(_) => Self::Map,
             Command::Digest(_) => Self::Digest,
