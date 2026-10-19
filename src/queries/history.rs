@@ -23,6 +23,7 @@ use crate::projector::{GraphRow, GraphView, NodeKind};
 use crate::Result;
 
 use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
+use super::brief::{option_label_of, OptionLabel};
 use super::project_label::ProjectLabels;
 use super::reexamine;
 use super::shared::{
@@ -283,7 +284,9 @@ pub struct RecentDecisionEntry {
     #[serde(flatten)]
     pub floor: RecordedFloor,
     pub chosen_option_id: Option<String>,
-    pub option_ids: Vec<String>,
+    /// The options as a person reads them (`OptionLabel::label`), each with the id the choice
+    /// names, so a reader shows `Async (chosen)` and never `option-<uuid>`.
+    pub options: Vec<OptionLabel>,
     pub evidence_ids: Vec<String>,
     pub hypothesis_ids: Vec<String>,
 }
@@ -542,6 +545,7 @@ pub fn get_recent_decisions(
     );
     let index = DecisionIndex::from_events(&events)?;
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
+    let option_rows = node_rows(graph, NodeKind::Option)?;
     // Where a decision stands is the graph's word, which holds what a classified capture states
     // inside itself (accepted, rejected, replaces) as well as the status events.
     let standings = DecisionStandings::load(graph)?;
@@ -620,7 +624,7 @@ pub fn get_recent_decisions(
             decided_at: event.ts,
             creation: decision_event_provenance(event)?,
             chosen_option_id: payload.chosen_option_id,
-            option_ids,
+            options: option_labels_of(&option_rows, &option_ids),
             evidence_ids,
             hypothesis_ids,
         });
@@ -639,7 +643,14 @@ pub fn get_recent_decisions(
             continue;
         }
         let floor = floor_of(&decision_rows, &decision_id);
-        items.push(recent_entry_of_draft(decision_id, draft, &labels, floor));
+        let options = option_labels_of(&option_rows, &draft.option_ids);
+        items.push(recent_entry_of_draft(
+            decision_id,
+            draft,
+            &labels,
+            floor,
+            options,
+        ));
     }
     items.sort_by(|left, right| {
         Reverse(left.creation.event_origin)
@@ -678,11 +689,23 @@ fn floor_of(decisions: &BTreeMap<String, GraphRow>, decision_id: &str) -> Record
         .map_or_else(RecordedFloor::not_asked, recorded_floor_of)
 }
 
+/// The labels of a decision's options, in the order its option ids are given.
+fn option_labels_of(
+    option_rows: &BTreeMap<String, GraphRow>,
+    option_ids: &[String],
+) -> Vec<OptionLabel> {
+    option_ids
+        .iter()
+        .map(|option_id| option_label_of(option_id, option_rows.get(option_id)))
+        .collect()
+}
+
 fn recent_entry_of_draft(
     decision_id: String,
     draft: ClassifiedDraft,
     labels: &ProjectLabels,
     floor: RecordedFloor,
+    options: Vec<OptionLabel>,
 ) -> RecentDecisionEntry {
     RecentDecisionEntry {
         floor,
@@ -699,7 +722,7 @@ fn recent_entry_of_draft(
         decided_at: draft.decided_at,
         creation: draft.creation,
         chosen_option_id: draft.chosen_option_id,
-        option_ids: draft.option_ids,
+        options,
         evidence_ids: draft.evidence_ids,
         hypothesis_ids: draft.hypothesis_ids,
     }

@@ -3339,15 +3339,18 @@ fn render_review_item<W: IoWrite>(
         writeln!(output, "Quote: \"{quote}\"").map_err(cli_io_error)?;
     }
     writeln!(output, "Options:").map_err(cli_io_error)?;
-    if item.option_ids.is_empty() {
+    if item.options.is_empty() {
         writeln!(output, "  - <none>").map_err(cli_io_error)?;
     } else {
-        for option_id in &item.option_ids {
-            if item.chosen_option_id.as_deref() == Some(option_id.as_str()) {
-                writeln!(output, "  - {option_id} (chosen)").map_err(cli_io_error)?;
-            } else {
-                writeln!(output, "  - {option_id}").map_err(cli_io_error)?;
-            }
+        for option in &item.options {
+            let chosen = item.chosen_option_id.as_deref() == Some(option.option_id.as_str());
+            let note = match (&option.recorded_as, chosen) {
+                (Some(recorded), true) => format!(" (chosen; recorded as: {recorded})"),
+                (Some(recorded), false) => format!(" (recorded as: {recorded})"),
+                (None, true) => " (chosen)".to_owned(),
+                (None, false) => String::new(),
+            };
+            writeln!(output, "  - {}{note}", option.label).map_err(cli_io_error)?;
         }
     }
     writeln!(output, "Evidence:").map_err(cli_io_error)?;

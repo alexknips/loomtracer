@@ -33,9 +33,15 @@
         "evidence_ids": [],
         "floor": "not_asked",
         "hypothesis_ids": [],
-        "option_ids": [
-          "option-001-a",
-          "option-001-b"
+        "options": [
+          {
+            "label": "option-001-a",
+            "option_id": "option-001-a"
+          },
+          {
+            "label": "option-001-b",
+            "option_id": "option-001-b"
+          }
         ],
         "project": "personal:actor:planner",
         "project_label": "actor:planner's personal project",

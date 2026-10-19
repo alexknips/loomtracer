@@ -21,7 +21,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::floor::RecordedFloor;
-use crate::projector::{GraphView, NodeKind};
+use crate::projector::{GraphRow, GraphView, NodeKind};
 use crate::Result;
 
 use super::context::{get_decision_context, linked_actor_ids, ReviewShape};
@@ -395,19 +395,23 @@ fn superseder_occurred_at(graph: &impl GraphView, by_id: &str) -> Result<Option<
 
 pub(super) fn resolve_option_label(graph: &impl GraphView, option_id: &str) -> Result<OptionLabel> {
     let row = node_row(graph, NodeKind::Option, option_id)?;
+    Ok(option_label_of(option_id, row.as_ref()))
+}
+
+/// The label of an option from its node row. An option with no node, or a node with no label,
+/// reads as its id.
+pub(super) fn option_label_of(option_id: &str, row: Option<&GraphRow>) -> OptionLabel {
     let label = row
-        .as_ref()
         .and_then(|row| optional_string(row, "label"))
         .unwrap_or_else(|| option_id.to_owned());
     let recorded_as = row
-        .as_ref()
         .and_then(|row| optional_string(row, "recorded_label"))
         .filter(|recorded| *recorded != label);
-    Ok(OptionLabel {
+    OptionLabel {
         option_id: option_id.to_owned(),
         label,
         recorded_as,
-    })
+    }
 }
 
 /// `occurred_at`, `expressed_confidence`, `slug`, `session_ids` -- see `decision_capture_facts`.

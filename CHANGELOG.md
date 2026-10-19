@@ -718,6 +718,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind review` shows a decision's options by their labels, so the reviewer can see what
+  was chosen.** The prompt listed each option by its node id (`option-3f1c…`, with `(chosen)`
+  after one of them), which told a person nothing about an agent's choice. It now reads
+  `Async (chosen)` and `Sync`, and a label that was recorded as a slug shows what was recorded
+  beside it (`Upheld (recorded as: name-a-upheld)`). `query recent` / `recent_decisions` carry
+  the same labels: each item's `option_ids` list is replaced by `options`, a list of
+  `{option_id, label, recorded_as?}` (`chosen_option_id` still names the choice). Options list
+  in option-id order, as before. (hivemind-7v77s)
 - **`hivemind_compact_view` and chain-mode `summarize_decisions` no longer fail on a decision
   that was superseded twice.** Once a decision had two superseders, or superseded two decisions,
   both answered "supersession chain branched" for it and for everything older in its chain (MCP,

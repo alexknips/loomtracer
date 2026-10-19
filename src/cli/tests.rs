@@ -3565,6 +3565,69 @@ fn query_fluent_verb_reports_not_found_for_no_match() -> CliTestResult {
 }
 
 #[test]
+fn review_prompt_shows_option_labels_and_marks_the_chosen_one() -> CliTestResult {
+    let hivemind_dir = unique_test_dir("review-option-labels");
+    let hivemind_dir_arg = hivemind_dir.to_string_lossy().into_owned();
+    run(&Cli::parse_from([
+        "hivemind",
+        "--actor",
+        "agent:codex:one",
+        "--hivemind-dir",
+        hivemind_dir_arg.as_str(),
+        "emit",
+        "decision.proposed",
+        "--title",
+        "Pick the queue",
+        "--rationale",
+        "Producers must not block on consumers",
+        "--topic-keys",
+        "queue",
+        "--options",
+        "Sync,Async",
+        "--chose",
+        "Async",
+    ]))?;
+
+    let review_cli = Cli::parse_from([
+        "hivemind",
+        "--actor",
+        "human:lead",
+        "--hivemind-dir",
+        hivemind_dir_arg.as_str(),
+        "review",
+        "--actor",
+        "agent:*",
+        "--since",
+        "2000-01-01",
+    ]);
+    let Command::Review(review_args) = &review_cli.command else {
+        return Err("expected review command".into());
+    };
+    let mut input = std::io::Cursor::new("n\n".as_bytes());
+    let mut prompts = Vec::new();
+    run_review_session(&review_cli, review_args, &mut input, &mut prompts)?;
+    let prompts = String::from_utf8(prompts)?;
+
+    // The options list in option-id order, which is random for a fresh capture, so each line is
+    // asserted on its own.
+    ensure(
+        prompts.contains("\n  - Async (chosen)\n"),
+        "review prompt names the chosen option by its label",
+    )?;
+    ensure(
+        prompts.contains("\n  - Sync\n"),
+        "review prompt names the other option by its label",
+    )?;
+    ensure(
+        !prompts.contains("option-"),
+        "review prompt shows no opaque option id",
+    )?;
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    Ok(())
+}
+
+#[test]
 fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> CliTestResult {
     let hivemind_dir = unique_test_dir("review-cli");
     let hivemind_dir_arg = hivemind_dir.to_string_lossy().into_owned();
