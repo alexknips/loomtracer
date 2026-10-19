@@ -3,13 +3,20 @@
 use std::cell::RefCell;
 
 use chrono::{TimeZone, Utc};
-use serde_json::json;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::commands::{CommandContext, Commands, GroundingPlan};
 use crate::error::CommandError;
-use crate::events::{Event, EventId, EventSource, EventType, TenantId};
+use crate::events::{
+    CaptureItem, Event, EventId, EventProvenance, EventSource, EventType,
+    IngestBatchReceivedPayload, TenantId,
+};
 use crate::ledger::contract_tests::make_event;
 use crate::ledger::{EventLedger, InMemoryEventLedger, SqliteEventLedger};
+use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
+use crate::queries::{get_decision_brief, DecisionBrief, DecisionStatus};
 use crate::{HivemindError, Result};
 
 use super::{
@@ -354,5 +361,326 @@ fn event_fields_other_than_causation_are_not_touched_by_a_replay() -> Result<()>
     assert_eq!(stored.source_ref.as_deref(), Some("ref-1"));
     assert_eq!(stored.actor_id, event.actor_id);
     assert_eq!(stored.ts, Some(event.ts));
+    Ok(())
+}
+
+// --- classifier drafts (hivemind-sh1ic) ---
+//
+// A draft is `capture:<offset of its batch event>:<index>`, and the events that act on it carry
+// that id. The destination numbers its events itself, so the offset has to be renamed on the way.
+
+const PROPOSED_ONLY: &str = include_str!("../../tests/fixtures/transcripts/proposed_only.json");
+const ALEX: &str = "human:alex@example.com";
+const RECORDER: &str = "agent:hivemind:classifier";
+
+/// A received batch and the classifier's captures for it, as the transcript fixtures hold them.
+#[derive(Deserialize)]
+struct Fixture {
+    batch: IngestBatchReceivedPayload,
+    captures: Vec<CaptureItem>,
+}
+
+fn invariant(error: impl std::fmt::Display) -> HivemindError {
+    CommandError::Invariant(error.to_string()).into()
+}
+
+fn commands(ledger: &InMemoryEventLedger) -> Commands<'_, InMemoryEventLedger> {
+    Commands::new_with_context(
+        ledger,
+        CommandContext::new(TenantId::local(), EventProvenance::agent(RECORDER)),
+    )
+}
+
+/// Receives the fixture's batch as `batch_id` and records its one decision as a classified draft:
+/// two events, the draft being the second. Returns the draft's id.
+fn record_draft(ledger: &InMemoryEventLedger, batch_id: &str) -> Result<String> {
+    let fixture: Fixture = serde_json::from_str(PROPOSED_ONLY).map_err(invariant)?;
+    let commands = commands(ledger);
+    commands.record_ingest_batch(
+        "agent:claude:hook",
+        batch_id,
+        &fixture.batch.agent_tool,
+        &fixture.batch.session_id,
+        fixture.batch.turns,
+    )?;
+    let recorded = commands.record_ingest_batch_classified(
+        RECORDER,
+        &[batch_id.to_owned()],
+        "test-model",
+        "2",
+        fixture.captures,
+        None,
+    )?;
+    Ok(format!("capture:{}:0", recorded.event_id))
+}
+
+fn brief_of(ledger: &InMemoryEventLedger, decision_id: &str) -> Result<DecisionBrief> {
+    let graph = MemoryGraph::default();
+    rebuild_graph_for_tenant(ledger, &TenantId::local(), &graph)?;
+    get_decision_brief(&graph, decision_id)?
+        .data
+        .ok_or_else(|| invariant(format!("{decision_id} is not in the graph")))
+}
+
+fn events_of(ledger: &InMemoryEventLedger, event_type: EventType) -> Result<Vec<Event>> {
+    Ok(ledger
+        .read(0, 1000)?
+        .into_iter()
+        .filter(|event| event.event_type == event_type)
+        .collect())
+}
+
+fn replay_event_of(event_type: EventType, payload: Value) -> ReplayEvent {
+    ReplayEvent {
+        event_type,
+        payload,
+        ..replay_event("draft", None)
+    }
+}
+
+#[test]
+fn a_moved_draft_keeps_its_acceptance_and_its_link_and_no_destination_draft_gains_them(
+) -> Result<()> {
+    let tenant = TenantId::local();
+    let source = InMemoryEventLedger::new();
+    let old_id = record_draft(&source, "batch-moved")?;
+    let source_commands = commands(&source);
+    source_commands.accept_decision(&old_id, ALEX)?;
+    source_commands.ground_and_answer(
+        ALEX,
+        &old_id,
+        &GroundingPlan {
+            new_assumptions: vec!["the flake is the test clock".to_owned()],
+            ..GroundingPlan::default()
+        },
+        None,
+    )?;
+    source_commands.retitle_decision_to(ALEX, &old_id, "Retry the gate once", None)?;
+
+    // The destination already holds a batch of its own at the same offsets, so the moved draft's
+    // old id names that batch's draft there.
+    let destination = InMemoryEventLedger::new();
+    let resident = record_draft(&destination, "batch-resident")?;
+    assert_eq!(resident, old_id, "the ids collide");
+
+    let mut send = |batch, dry_run| replay_events(&destination, &tenant, batch, dry_run);
+    replay_source(&source, &tenant, false, &mut send)?;
+
+    let landed = events_of(&destination, EventType::IngestBatchClassified)?
+        .into_iter()
+        .filter_map(|event| event.event_id)
+        .max()
+        .ok_or_else(|| invariant("no classified batch landed"))?;
+    let moved = format!("capture:{landed}:0");
+    assert_ne!(
+        moved, old_id,
+        "the draft is numbered where its batch landed"
+    );
+
+    let draft = brief_of(&destination, &moved)?;
+    assert_eq!(draft.status, DecisionStatus::Accepted);
+    assert_eq!(draft.decided_by.decider_ids, [ALEX]);
+    assert_eq!(draft.title, "Retry the gate once");
+    let assumes: Vec<Event> = events_of(&destination, EventType::RelationAdded)?
+        .into_iter()
+        .filter(|event| event.payload["relation"] == "ASSUMES")
+        .collect();
+    assert_eq!(assumes.len(), 1);
+    assert_eq!(assumes[0].payload["from_id"], moved);
+
+    let untouched = brief_of(&destination, &resident)?;
+    assert_eq!(untouched.status, DecisionStatus::Proposed);
+    assert!(untouched.decided_by.decider_ids.is_empty());
+    assert_eq!(
+        untouched.title,
+        "Retry the nightly gate once before failing it"
+    );
+
+    // A second run writes nothing, so the draft is not renamed twice.
+    let again = replay_source(&source, &tenant, false, &mut send)?;
+    assert_eq!(again.counts.new_events, 0);
+    Ok(())
+}
+
+#[test]
+fn a_draft_id_travels_as_the_uuid_of_its_batch_event_and_a_sentence_about_one_is_left_alone(
+) -> Result<()> {
+    let tenant = TenantId::local();
+    let source = InMemoryEventLedger::new();
+    let old_id = record_draft(&source, "batch-wire")?;
+    commands(&source).accept_decision(&old_id, ALEX)?;
+    let sentence = format!("{old_id} is the draft that matters");
+    let mut note = make_event("note", Uuid::new_v4());
+    note.payload = json!({"evidence_id": "note", "content": sentence, "source": "test"});
+    source.append(note)?;
+
+    let batch_event = events_of(&source, EventType::IngestBatchClassified)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| invariant("no classified batch"))?;
+
+    let sent = RefCell::new(Vec::new());
+    let destination = InMemoryEventLedger::new();
+    let mut send = |batch: Vec<ReplayEvent>, dry_run| {
+        sent.borrow_mut().extend(batch.clone());
+        replay_events(&destination, &tenant, batch, dry_run)
+    };
+    replay_source(&source, &tenant, false, &mut send)?;
+
+    let wire = sent.borrow();
+    let accepted = wire
+        .iter()
+        .find(|event| event.event_type == EventType::DecisionAccepted)
+        .ok_or_else(|| invariant("the acceptance was not sent"))?;
+    assert_eq!(
+        accepted.payload["decision_id"],
+        format!("capture:{}:0", batch_event.event_uuid)
+    );
+    let note = wire
+        .iter()
+        .find(|event| event.payload["evidence_id"] == "note")
+        .ok_or_else(|| invariant("the note was not sent"))?;
+    assert_eq!(note.payload["content"], sentence.as_str());
+    Ok(())
+}
+
+#[test]
+fn a_draft_whose_batch_arrived_in_an_earlier_request_is_numbered_by_where_it_landed() -> Result<()>
+{
+    let destination = InMemoryEventLedger::new();
+    let tenant = TenantId::local();
+    for index in 0..3 {
+        destination.append(make_event(&format!("resident-{index}"), Uuid::new_v4()))?;
+    }
+    let batch = replay_event("batch", None);
+    replay_events(&destination, &tenant, vec![batch.clone()], false)?;
+
+    let acting = replay_event_of(
+        EventType::RelationAdded,
+        json!({
+            "from_id": format!("capture:{}:1", batch.event_uuid),
+            "to_id": format!("capture:{}:0:opt:retry_once", batch.event_uuid),
+            "relation": "FOLLOWS_FROM",
+            "nested": [{"deeper": format!("capture:{}:12", batch.event_uuid)}],
+        }),
+    );
+    replay_events(&destination, &tenant, vec![acting.clone()], false)?;
+
+    let stored = destination.read(4, 1)?;
+    let payload = &stored
+        .first()
+        .ok_or_else(|| invariant("the event was not appended"))?
+        .payload;
+    // The batch event landed as the destination's fourth event.
+    assert_eq!(payload["from_id"], "capture:4:1");
+    assert_eq!(payload["to_id"], "capture:4:0:opt:retry_once");
+    assert_eq!(payload["nested"][0]["deeper"], "capture:4:12");
+    assert_eq!(payload["relation"], "FOLLOWS_FROM");
+    Ok(())
+}
+
+#[test]
+fn a_draft_id_by_offset_is_refused_and_nothing_is_written() -> Result<()> {
+    let destination = InMemoryEventLedger::new();
+    let tenant = TenantId::local();
+    let fine = replay_event("fine", None);
+    let acceptance = replay_event_of(
+        EventType::DecisionAccepted,
+        json!({"decision_id": "capture:2:0"}),
+    );
+    let classified = replay_event_of(
+        EventType::IngestBatchClassified,
+        json!({"captures": [{"restates_id": "capture:7:0:opt:retry_once"}]}),
+    );
+
+    for refused in [acceptance, classified] {
+        for dry_run in [false, true] {
+            let error = replay_events(
+                &destination,
+                &tenant,
+                vec![fine.clone(), refused.clone()],
+                dry_run,
+            )
+            .err()
+            .map(validation_message)
+            .unwrap_or_default();
+            assert!(error.contains("by the offset of its batch"), "{error}");
+        }
+    }
+    assert_eq!(
+        destination.latest_offset()?,
+        0,
+        "the fine event was not written either"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_draft_whose_batch_is_nowhere_writes_nothing() -> Result<()> {
+    let destination = InMemoryEventLedger::new();
+    let tenant = TenantId::local();
+    let fine = replay_event("fine", None);
+    let orphan = replay_event_of(
+        EventType::DecisionAccepted,
+        json!({"decision_id": format!("capture:{}:0", Uuid::new_v4())}),
+    );
+
+    let error = replay_events(
+        &destination,
+        &tenant,
+        vec![fine.clone(), orphan.clone()],
+        false,
+    )
+    .err()
+    .map(validation_message)
+    .unwrap_or_default();
+    assert!(error.contains("names a draft of event"), "{error}");
+    assert_eq!(destination.latest_offset()?, 0);
+
+    // The batch may sit in an earlier request that a dry run did not write.
+    let counts = replay_events(&destination, &tenant, vec![fine, orphan], true)?;
+    assert_eq!(counts.new_events, 2);
+    Ok(())
+}
+
+#[test]
+fn a_source_draft_naming_no_earlier_event_is_refused_before_anything_is_sent() -> Result<()> {
+    let tenant = TenantId::local();
+    let destination = InMemoryEventLedger::new();
+    let mut send = |batch, dry_run| replay_events(&destination, &tenant, batch, dry_run);
+
+    // Event 2 acts on a draft of event 99; the source has no such event.
+    let dangling = InMemoryEventLedger::new();
+    dangling.append(make_event("first", Uuid::new_v4()))?;
+    let mut acceptance = make_event("second", Uuid::new_v4());
+    acceptance.event_type = EventType::DecisionAccepted;
+    acceptance.payload = json!({"decision_id": "capture:99:0"});
+    dangling.append(acceptance)?;
+    let error = replay_source(&dangling, &tenant, false, &mut send)
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        error.contains("is not an earlier event of the source ledger"),
+        "{error}"
+    );
+
+    // A string already in the form a draft id takes between ledgers cannot be told from one the
+    // move made, so it is refused too.
+    let ambiguous = InMemoryEventLedger::new();
+    let mut acceptance = make_event("third", Uuid::new_v4());
+    acceptance.event_type = EventType::DecisionAccepted;
+    acceptance.payload = json!({"decision_id": format!("capture:{}:0", Uuid::new_v4())});
+    ambiguous.append(acceptance)?;
+    let error = replay_source(&ambiguous, &tenant, false, &mut send)
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        error.contains("the form a draft id takes between ledgers"),
+        "{error}"
+    );
+
+    assert_eq!(destination.latest_offset()?, 0, "nothing was sent");
     Ok(())
 }

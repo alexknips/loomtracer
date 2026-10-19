@@ -517,6 +517,14 @@ What a move guarantees:
   already holds events a source event lands at a different `event_id` than it had. Each
   causation link is carried as the *uuid* of its cause and renumbered to wherever the cause
   landed.
+- **A draft keeps the events that act on it.** A decision the classifier drafted is named
+  `capture:<offset of its batch event>:<index>`, and its acceptance, retitle, score and links
+  carry that id. The move sends each such id with the batch event's *uuid* in place of the
+  offset and the cell writes the offset where that batch event landed, so the moved draft
+  keeps its acceptance and its links and no draft already in the tenant gains them. This
+  covers every payload string that is exactly a draft id (or its `:opt:` option node). A
+  `suggestion.surfaced` on a draft keeps the `finding_id` it was surfaced under, a hash that
+  includes the old id, so that finding can be surfaced again for the moved draft.
 - **A re-run writes nothing.** An event is skipped when the tenant already holds its uuid,
   so an interrupted move can simply be run again. An event already in the tenant is left as
   it is, including a causation id an earlier copy wrote.
@@ -525,9 +533,11 @@ What a move guarantees:
   and the command fails if any is missing. Counts alone would prove nothing on a tenant that
   held events before.
 - **Refusals happen before the first event is sent:** a causation link whose cause is not an
-  earlier event of the source ledger, a `notification.sent` or `blocker.resolved` event whose
-  payload names event ids (those numbers cannot be carried to another ledger), and an empty
-  source (a wrong `--from` or `--tenant`). An unknown destination tenant is a 404 and a wrong
+  earlier event of the source ledger, a draft id whose batch is not an earlier event of the
+  source ledger, a draft id sent to the cell by its offset instead of its batch event's uuid
+  (the cell cannot tell which batch it meant), a `notification.sent` or `blocker.resolved`
+  event whose payload names event ids (those numbers cannot be carried to another ledger), and
+  an empty source (a wrong `--from` or `--tenant`). An unknown destination tenant is a 404 and a wrong
   admin key a 401; neither writes anything.
 
 Rehearse against a scratch server first, with the same source, and compare the counts:

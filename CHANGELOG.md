@@ -718,6 +718,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Moving a ledger into a cell no longer attaches a classifier draft's acceptance, retitle,
+  score or link to a different draft.** A draft's id is `capture:<offset of its batch
+  event>:<index>`, and `hivemind migrate` / `POST /v1/ledger/replay` renumber every event in the
+  destination, but the events that act on a draft (`decision.accepted`, `decision.rejected`,
+  `decision.retitled`, `decision.moved`, `decision.reaffirmed`, `decision.scored`,
+  `relation.added`, `suggestion.surfaced`, a later classification that supersedes or restates it,
+  and the rest) were copied with the old id. On a destination that already held events, the
+  acceptance landed on whatever draft sat at that offset there and the moved draft read
+  `proposed`, while the move reported success. The source now sends each draft id as
+  `capture:<uuid of the batch event>:<index>` and the destination writes it as
+  `capture:<where that batch event landed>:<index>`; an id sent in the offset form is refused,
+  and nothing is written, because the destination cannot tell which batch it meant. A draft id
+  that names no earlier event of the source ledger is refused before the first event is sent.
+  Replay clients that send draft ids themselves must use the uuid form. A `suggestion.surfaced`
+  on a draft keeps its `finding_id`, a hash of the old id, so the moved draft's finding reads as
+  not yet surfaced and can be surfaced again. (hivemind-sh1ic)
 - **`hivemind review` shows a decision's options by their labels, so the reviewer can see what
   was chosen.** The prompt listed each option by its node id (`option-3f1c…`, with `(chosen)`
   after one of them), which told a person nothing about an agent's choice. It now reads
