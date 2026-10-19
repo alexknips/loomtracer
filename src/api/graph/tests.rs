@@ -57,7 +57,7 @@ impl EventLedger for AppendsWhenReplayStarts {
         offset: EventId,
         callback: &mut dyn FnMut(&Event) -> crate::Result<()>,
     ) -> crate::Result<()> {
-        let late = std::mem::take(&mut *self.late.lock().expect("late lock")); // ubs:ignore: test-only
+        let late = std::mem::take(&mut *self.late.lock().expect("late lock"));
         for event in late {
             self.inner.append_for_tenant(tenant_id, event)?;
         }
@@ -125,7 +125,7 @@ fn refresh(ledger: &impl EventLedger, cache: &GraphCache) -> Arc<MemoryGraph> {
 }
 
 fn cached_offset(cache: &GraphCache) -> Option<EventId> {
-    let guard = cache.read().expect("cache lock"); // ubs:ignore: test-only
+    let guard = cache.read().expect("cache lock");
     guard.get(&TenantId::local()).map(|(offset, _)| *offset)
 }
 
