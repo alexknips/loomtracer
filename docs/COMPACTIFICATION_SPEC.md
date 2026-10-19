@@ -159,9 +159,12 @@ Returns `CompactView` as JSON by default; `--summary` renders human-readable tex
 **MCP tool (new tool in `src/mcp.rs`):**
 ```
 Tool name: hivemind_compact_view
-Input:  { decision_id: string }
+Input:  { decision_id?: string, description?: string, topic?: string }  // exactly one of decision_id, description
 Output: CompactView (JSON)
 ```
+A `description` is resolved to a decision the way the CLI's `compact-view` does
+(see `docs/AGENT_FLUENT_QUERYING.md`); an ambiguous or unmatched one is a
+successful `{outcome: "ambiguous" | "not_found"}` reply, not an error.
 This satisfies the M3 parent epic's requirement for MCP tool exposure.
 
 ---

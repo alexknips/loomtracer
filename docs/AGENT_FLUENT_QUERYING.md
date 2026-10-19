@@ -1,20 +1,54 @@
 # Agent-Fluent Follow-Up Verbs — Design Document (tenv.1)
 
-Status: **SHIPPED** (was DRAFT as of 2026-09-07). The CLI surface landed via
-`hivemind-tenv.1`/`hivemind-tenv.2`. MCP+HTTP backend parity for the resolver
-and the `why`/`verify`/`disagree`/`supersede` verbs landed via
-`hivemind-ot72.5`–`hivemind-ot72.8` (2026-09-21); `get_supersession_chain` and
-`compact-view` remain `decision_id`-only over MCP (`hivemind-ot72.9`,
-`hivemind-ot72.10`, both still open). §1.5 below covers backend portability
-and §3.4 covers current MCP status. The §7 open questions below are the
-historical record of what alex actually decided at each checkpoint — kept for
-the rationale, not because the design is still speculative. See also
+Status: **SHIPPED** (was DRAFT as of 2026-09-07). "What shipped" below is the
+current behaviour. §0 onward is the design as written on 2026-09-07, kept for
+the rationale; where it names a flag, alias or status that differs from "What
+shipped", "What shipped" is right. See also
 [`docs/AGENT_DECISION_CONTEXT.md`](AGENT_DECISION_CONTEXT.md) for how this
 resolver fits into the two shipped interaction models (MCP vs. the
 `hivemind-context` CLI plugin).
 Bead: hivemind-tenv.1
 Parent epic: hivemind-tenv
 Author: gastown.rictus (polecat), 2026-09-07
+
+---
+
+## What shipped
+
+The CLI surface landed via `hivemind-tenv.1`/`hivemind-tenv.2`; MCP and HTTP
+parity for the resolver landed via `hivemind-ot72.4`–`hivemind-ot72.10`.
+
+- **CLI verbs.** Each takes a free-text description as its positional
+  argument, or an id: `disagree` and `move` (`--decision <id>`), `supersede`
+  (`--old <id>`), `ground` and `reaffirm` (`--id <id>`), `reexamine`
+  (`--decision "<description>"` or `--id <id>`, no positional), and under
+  `query`: `chain` (`get_supersession_chain`), `why`
+  (`get_decision_neighborhood`), `verify` (`get_decision_outcome`) and
+  `compact-view` (all `--id <id>`). `--pick N` settles an ambiguous
+  description and `--topic T` narrows it, on every one of them except
+  `reexamine`, which takes `--pick N` only. The single-decision outcome verb
+  is `query verify`: the name `review` proposed in §3.1 was not used, so as
+  not to share a word with the bulk `hivemind review` report.
+- **`#N` continuation.** Every description lookup overwrites
+  `<hivemind-dir>/.last-candidates-<session>.json` with its numbered
+  candidates; `<session>` is `$HIVEMIND_SESSION`, or `default` when it is
+  unset, so parallel agents on one ledger directory do not collide. A later
+  invocation's bare `#N` in place of a description reads that file and picks
+  entry N (§5). There is no `--from-last` flag and no
+  `$HIVEMIND_LAST_CANDIDATES` variable.
+- **MCP.** Every tool that acts on one decision takes `description` and
+  `topic` in place of `decision_id`, with nothing required: `why`
+  (`get_decision_neighborhood`), `verify` (`get_decision_outcome`),
+  `get_supersession_chain`, `hivemind_compact_view`, `disagree_decision`,
+  `supersede_decision`, `move_decision`, `ground_decision`,
+  `reaffirm_decision`. `get_decision`, `get_decision_context` and
+  `score_decision` stay id-only, since they are called on a decision already
+  resolved. An ambiguous or unmatched description is a success reply with
+  `data.outcome` `"ambiguous"` or `"not_found"`; there is no `#N` (§3.4).
+- **HTTP.** `GET /v1/decisions/{situational,recall,why,verify}` resolve a
+  description; the supersession-chain and compact-view reads and the write
+  routes (`disagreements`, `supersessions`, `reaffirmations`) take the id in
+  the path (§3.4).
 
 ---
 
@@ -42,11 +76,11 @@ Scope (this bead, tenv.1):
 - One shared resolve-by-description primitive in `src/queries`.
 - Free-text positional input (with `--id` / `--pick N` escape hatches) on:
   `disagree`, `supersede`, `get_supersession_chain`, `get_decision_neighborhood`
-  (aliased `why`), `compact-view`, and a **new** `review` query verb backed by
-  `get_decision_outcome` (see §3.1 — this is not the existing `review`
-  subcommand).
+  (aliased `why`), `compact-view`, and a **new** query verb backed by
+  `get_decision_outcome`, proposed as `review` and shipped as `verify` (see
+  §3.1 — it is not the existing `review` subcommand).
 - A shared output contract (`DecisionBrief`) used by every verb above.
-- The short-handle continuation mechanism (`#N`, `--from-last`).
+- The short-handle continuation mechanism (`#N`).
 - Tests on both backends (SQLite `MemoryGraph`/`SqliteEventLedger` +
   `shared-backend-postgres` feature).
 
@@ -620,10 +654,10 @@ names outright (rank 0: its id or title, or the question it records) is Resolved
 where the words sit orders the list without ever picking from it (hivemind-293q,
 *what the question is about*, §1.1).
 
-`--pick N` selects candidate `#N` from the *immediately preceding* resolver
-call in the same invocation (used together with `--from-last`, §5) or is
-rejected with a clear error if there is no prior candidate list to pick
-from. `--id <decision_id>` bypasses resolution entirely — the existing
+`--pick N` selects candidate N of the ambiguous list the description resolves
+to in the same invocation (so it goes with a description; a later invocation
+uses the bare `#N` handle, §5) and is rejected with a clear error if N is out
+of range. `--id <decision_id>` bypasses resolution entirely — the existing
 `decision_node_exists` check (`shared.rs:15`) becomes the validation path
 for both the new positional-description mode and the legacy `--id` mode, so
 `--id` behavior for existing scripts/callers is unchanged.
@@ -696,9 +730,13 @@ Option<String>` as the first positional field on each `*Args` struct
 (`QueryRecallArgs`, `args.rs:1007`), so existing flag-only invocations are
 unaffected (the field is optional) and `--id` continues to work unchanged.
 
+The table is the plan as written: "Today" is the state before `tenv.1`, and
+the flag names in it are the ones that existed then. Two rows shipped
+differently, and say so; "What shipped" lists the flags as they are.
+
 | Verb | Today | Change |
 |---|---|---|
-| `disagree` | `--decision <id> --reason <r>` (`args.rs:281`) | add positional `Option<String>` description; `--decision`/`--id` stays the escape hatch |
+| `disagree` | `--decision <id> --reason <r>` (`args.rs:281`) | add positional `Option<String>` description; `--decision` stays the escape hatch (shipped with `--decision` only, no `--id`) |
 | `supersede` | `--old <id> --title ... --rationale ...` (`args.rs:290`) | add positional description resolving `--old`; rest unchanged |
 | `move` (**new**, hivemind-s15q.11) | does not exist | positional description or `--decision <id>`, plus `--to <project>` `[--pick N] [--topic T] [--reason R]`; the same write gate as `disagree`/`supersede`; where the decision is now is read from the ledger, never typed |
 | `ground` (**new**, hivemind-gwhr.4) | does not exist | positional description or `--id <id>`, plus `[--pick N] [--topic T]` and the capture grounding flags (`--rests-on-decision`, `--rests-on-evidence` with `--evidence-source`, `--rests-on-assumption`, `--bet`) and `--answers "<question>"` (hivemind-zdsh.16; may stand alone); the same write gate as `disagree`/`supersede`; says what an existing decision rests on, or which question it answers, after the fact |
@@ -707,7 +745,7 @@ unaffected (the field is optional) and `--id` continues to work unchanged.
 | `get_supersession_chain` | `--id <id>` (`QueryDecisionArgs`, `args.rs:940`) | add positional description; **new alias** `chain` (friendlier name per bead item b) |
 | `get_decision_neighborhood` | `--id <id> --depth --relations --compact` (`args.rs:959`) | add positional description; **new alias** `why` |
 | `compact-view` | `--id <id>` (`QueryDecisionArgs`) | add positional description |
-| `review` (**new**) | does not exist as a single-decision verb today | see §3.1 |
+| `review` (**new**) | does not exist as a single-decision verb today | see §3.1; shipped as the `verify` alias of `get_decision_outcome` |
 
 **`ground` and the capture verbs share one grounding vocabulary.** A decision
 captured without saying what it rests on reads `rests on: nothing declared` in the
@@ -791,6 +829,9 @@ side by side (`hivemind review` = bulk report, `hivemind query review
 <description>` = single-decision outcome check) — an alternate name
 (`verify`, `held-up`) may be clearer as the query-subcommand alias.
 
+**Shipped as `verify`.** `get_decision_outcome` has the alias `verify`
+(`hivemind query verify <description>`); `review` stays the bulk report only.
+
 ### 3.2 `--pick N` and `--topic`
 
 `--topic` is added as an optional narrowing filter on every fluent verb
@@ -834,11 +875,12 @@ the same `decision_id`/`description`/`topic` selectors plus a `grounding` array;
 `description` inside it (a premise decision) returns the same
 `{outcome, field: "grounding[i]"}` shapes below.
 
-**Still id-only over MCP** (no fluent parity yet): `get_supersession_chain`
-(`hivemind-ot72.9`, open) and `hivemind_compact_view`
-(`hivemind-ot72.10`, open) both still require `decision_id`.
-`get_decision_context` and `get_decision` are not on the fluent-parity
-roadmap at all — they stay id-only by design, since both are meant to be
+`get_supersession_chain` (`hivemind-ot72.9`) and `hivemind_compact_view`
+(`hivemind-ot72.10`) take the same `decision_id`/`description`/`topic` selectors,
+so every MCP tool that acts on one decision is fluent.
+
+**Id-only over MCP by design:** `get_decision`, `get_decision_context` and
+`score_decision` require `decision_id`, since all three are meant to be
 called once a decision is already resolved (e.g. right after a fluent
 `why`/`verify` call), not as a first fluent hop.
 
@@ -861,13 +903,14 @@ needing a separate error-handling path for "nothing matched." This is one
 contract shared verbatim by CLI (`--json`), MCP, and the four fluent HTTP
 routes (`docs/DEPLOYMENT.md`, `docs/SELF_HOSTING.md`): a description that matches
 nothing is HTTP 200 with `data.outcome: "not_found"`, and a 404 is only for an `id` that
-names no decision. Outside it are the two still-id-only MCP tools above, and
-the HTTP write routes (`disagree`/`supersede`), which remain `decision_id`-path-only
-and are not fluent over HTTP at all today. `tests/read_surface_parity.rs` asks `why` and
-`verify` the same questions through the CLI, the plugin's `why.sh`/`verify.sh`, HTTP and
-MCP and compares the envelopes, so one surface cannot answer with another
-decision, list where the others answer, or leave off the `close_match` line
-(hivemind-ctok).
+names no decision. Outside it are the three id-only MCP tools above, and
+the HTTP routes that act on one decision by the id in the path
+(`supersession-chain`, `compact-view` and the `disagreements`, `supersessions`
+and `reaffirmations` writes), which are not fluent over HTTP.
+`tests/read_surface_parity.rs` asks `why` and `verify` the same questions
+through the CLI, the plugin's `why.sh`/`verify.sh`, HTTP and MCP and compares
+the envelopes, so one surface cannot answer with another decision, list where
+the others answer, or leave off the `close_match` line (hivemind-ctok).
 
 ---
 
@@ -1295,14 +1338,16 @@ candidates, per grep — this is new ground).
 
 **Design:** every resolver-backed response — both `Ambiguous` candidate
 lists and `Resolved` single answers — writes its candidate set to a
-session-local file: `--from-last <path>` (default
-`$HIVEMIND_LAST_CANDIDATES` env var if set, else a fixed path under the
-CLI's existing config/state directory — same directory class already used
-for local ledger state, not `/tmp`). The file holds the numbered candidate
-list (`decision_id` + title + rank, JSON) from the most recent resolver
-call. A subsequent invocation's `#N` positional argument (recognized by a
-`#` prefix, distinct from a free-text description) reads that file, picks
-entry `N`, and resolves directly — equivalent to `--pick N` but addressable
+session-local file in the HiveMind directory,
+`<hivemind-dir>/.last-candidates-<session>.json`, where `<session>` is
+`$HIVEMIND_SESSION` (any character outside `A-Za-z0-9_-` becomes `_`) or
+`default` when it is unset. (The draft put the path behind a
+`--from-last <path>` flag and a `$HIVEMIND_LAST_CANDIDATES` variable; neither
+was built.) The file holds the numbered candidate list (JSON) from the most
+recent resolver call. A subsequent invocation's `#N` positional argument
+(recognized by a `#` prefix, distinct from a free-text description) reads
+that file, picks entry `N`, and resolves directly — equivalent to
+`--pick N` but addressable
 across separate CLI invocations within a session, which `--pick N` alone
 (single-invocation only, per §1.4) cannot do. The same `#N` names a premise:
 `--rests-on-decision '#N'` on `decision.capture`, `supersede` and `ground` picks
@@ -1312,12 +1357,10 @@ re-run.
 This keeps the mechanism simple: no server-side session state, no new
 ledger writes (continuation state is not decision memory — it's UI
 convenience and explicitly does not belong in the ledger per AGENTS.md §2,
-"not a chat archive or conversational memory store"), one file, overwritten
-on every resolver call. Concurrent sessions on the same machine sharing the
-same file is an accepted rough edge for v1 (Open Question 6: is a
-session/PID-scoped filename needed, or is "last resolver call in this
-directory" fine for a single-engineer-plus-agents tool per the VISION.md
-"who it's for" framing?).
+"not a chat archive or conversational memory store"), one file per session,
+overwritten on every resolver call. Concurrent sessions on one ledger
+directory are kept apart by `$HIVEMIND_SESSION` (Open Question 6, settled
+below); sessions that leave it unset share the `default` file.
 
 ---
 
@@ -1406,13 +1449,18 @@ the reference regenerated in the site repo so `cli.md` stays accurate — see
    having `hivemind review` (bulk) and `hivemind query review <desc>`
    (single-decision) coexist under the same word is exactly the kind of
    ambiguity this whole bead exists to eliminate for agents.
+   **Settled: `verify`.**
 
 6. **Continuation file scope.** Single fixed path (last resolver call,
    process-global) or session/PID-scoped? Recommendation: fixed path for
    v1, matching the single-engineer-plus-agents scope in VISION.md.
+   **Settled otherwise** (mayor, `hivemind-tenv.1`, 2026-09-07): the file is
+   scoped by `$HIVEMIND_SESSION`, so parallel agents sharing one ledger
+   directory do not overwrite each other's candidates (§5).
 
 7. **`get_supersession_chain` alias name.** Bead item (b) asks for "a
    friendlier alias" but does not name it. Recommendation: `chain`.
+   **Settled: `chain`.**
 
 ---
 
@@ -1434,6 +1482,11 @@ still keyed by a concrete `decision_id`, exactly as today, once resolved.
 ---
 
 ## 9. Summary and Next Steps
+
+*Written before implementation. The resolver (`src/queries/resolve.rs`), the
+`DecisionBrief` (`src/queries/brief.rs`), the CLI verbs and the MCP parity
+all shipped; "What shipped" at the top is the current state, and the steps
+below are the plan as it stood.*
 
 This design adds one shared, deterministic resolve-by-description primitive
 (reusing `search.rs`'s existing rank-tiering, adding an `event_origin`
