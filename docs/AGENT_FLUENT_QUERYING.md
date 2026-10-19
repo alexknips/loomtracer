@@ -645,7 +645,7 @@ arm, for every fluent verb except `search`.
 `search` is the one place backend choice is visible, and only at
 the ranking layer: `search_decisions_any` (`src/queries/search.rs`)
 dispatches SQLite to FTS5 (`search_decisions_fts_with_context`, backed by
-the `decision_search_fts` virtual table) and Postgres to a portable
+a per-search in-memory `decision_search_fts` virtual table) and Postgres to a portable
 in-memory term matcher (`search_decisions_with_ledger`) reusing the same
 `collect_graph_search_results` tiering the resolver uses, since Postgres has
 no FTS5 equivalent available. Both paths converged on one ordinal ranking

@@ -45,7 +45,7 @@ generic ledger/graph path used by Postgres (`search_decisions_with_ledger`):
       statements, and supersession ids.
 2. Stable decision id tie-breaker.
 
-SQLite still rebuilds a `decision_search_fts` FTS5 index and uses its `MATCH`
+SQLite still builds a `decision_search_fts` FTS5 index per search and uses its `MATCH`
 clause to select the candidate set for a text query, but the FTS5 `bm25` score
 is a storage-bound retrieval detail (see `docs/SEARCH_DESIGN.md`'s
 Storage-Bound Behaviors) — it is never part of the sort key. This is what
@@ -57,13 +57,16 @@ TUI can expand into `get_decision` or `get_decision_neighborhood`.
 
 ## Backend Strategy
 
-The query reads the graph projection, not raw ledger JSON, then rebuilds a
-derived `decision_search_fts` table in the SQLite ledger file. The table is
-not source of truth: it is dropped and recreated from replayed graph state on
-search, so deleting it or replaying the ledger reproduces the same results.
+The query reads the graph projection, not raw ledger JSON, then builds a
+`decision_search_fts` table in a private in-memory SQLite database that lives
+for that one search. Nothing is written to `ledger.sqlite`: a search never takes
+the ledger's write lock, and concurrent searches, including ones for different
+tenants of the same ledger file, never share an index. The table is not source
+of truth: it is built from the graph state the search read, so replaying the
+ledger reproduces the same results.
 
 For Kuzu, the same graph-query surface is used to pull projected nodes and
-edges before rebuilding the SQLite FTS index. This avoids response-shape
+edges before building the per-search SQLite FTS index. This avoids response-shape
 divergence while the project is still local-first. A later Kuzu or remote index
 can replace the temporary SQLite index, but it must preserve the DTO and
 ordering contract or version the response.
