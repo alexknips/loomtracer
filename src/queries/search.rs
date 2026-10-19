@@ -501,8 +501,8 @@ pub fn search_decisions_fts_with_context(
 
     let documents =
         collect_graph_search_results(graph, None, &SearchTerms::literal(&[]), &[], &[], &[], &[])?;
-    rebuild_decision_search_fts(ledger, &documents)?;
-    let fts_decision_ids = query_decision_search_fts(ledger, query.as_deref())?;
+    let index = build_decision_search_fts(&documents)?;
+    let fts_decision_ids = query_decision_search_fts(&index, query.as_deref())?;
 
     let mut documents_by_id = documents
         .into_iter()
@@ -782,15 +782,18 @@ pub(crate) fn out_heading(candidates: &[Standing]) -> Vec<bool> {
         .collect()
 }
 
+/// Builds the FTS5 index for one search in a private in-memory database and hands back the
+/// connection that holds it. The index is a per-request scratch table: nothing is written to the
+/// ledger file, so a search never takes the ledger's write lock and two concurrent searches
+/// (including ones for different tenants) never see each other's documents.
 // ubs:ignore: This helper only executes static FTS SQL and uses rusqlite params! for document values.
-fn rebuild_decision_search_fts(
-    // ubs:ignore: FTS rebuild uses static SQL plus rusqlite parameter binding; ledger is not interpolated SQL.
-    ledger: &SqliteEventLedger,
-    // ubs:ignore: FTS rebuild uses static SQL plus rusqlite parameter binding; documents are bound as parameters.
+fn build_decision_search_fts(
+    // ubs:ignore: FTS build uses static SQL plus rusqlite parameter binding; documents are bound as parameters.
     documents: &[ScoredDecisionSearchResult],
-    // ubs:ignore: FTS rebuild uses static SQL plus rusqlite parameter binding.
-) -> Result<()> {
-    let mut connection = open_decision_search_connection(ledger)?;
+    // ubs:ignore: FTS build uses static SQL plus rusqlite parameter binding.
+) -> Result<Connection> {
+    let mut connection = Connection::open_in_memory()
+        .map_err(|error| query_error(format!("open decision search index: {error}")))?;
     let transaction = connection
         .transaction()
         .map_err(|error| query_error(format!("begin decision search index rebuild: {error}")))?;
@@ -869,8 +872,8 @@ fn rebuild_decision_search_fts(
     }
     transaction
         .commit()
-        .map_err(|error| query_error(format!("commit decision search index rebuild: {error}")))?;
-    Ok(())
+        .map_err(|error| query_error(format!("commit decision search index build: {error}")))?;
+    Ok(connection)
 }
 
 /// Returns the decision ids FTS5 considers a match for `query` (or every indexed decision id
@@ -878,12 +881,11 @@ fn rebuild_decision_search_fts(
 /// (rank, id) ordinal scheme, so FTS5 here only selects the candidate set.
 fn query_decision_search_fts(
     // ubs:ignore: FTS query uses static SQL with MATCH bound via rusqlite params.
-    ledger: &SqliteEventLedger,
+    connection: &Connection,
     // ubs:ignore: Caller text is converted to an FTS expression and bound as ?1.
     query: Option<&str>,
     // ubs:ignore: SQL text in this function is static and parameterized.
 ) -> Result<Vec<String>> {
-    let connection = open_decision_search_connection(ledger)?;
     let mut decision_ids = Vec::new();
     // ubs:ignore: Query text is converted to an FTS expression and bound as ?1 below.
     if let Some(query) = query {
@@ -924,12 +926,6 @@ fn query_decision_search_fts(
         }
     }
     Ok(decision_ids)
-}
-
-fn open_decision_search_connection(ledger: &SqliteEventLedger) -> Result<Connection> {
-    // ubs:ignore: ledger.path() is a trusted local SQLite path, not request input.
-    Ok(Connection::open(ledger.path())
-        .map_err(|error| query_error(format!("open decision search index: {error}")))?)
 }
 
 /// Whether a decision decided at `decided_at` falls in `[since, until]`. With no bound every
