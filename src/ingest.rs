@@ -3285,13 +3285,9 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
                     }
                 }
                 _ if indent > marker_indent => {
-                    return Err(CommandError::Validation(format!(
-                        "unknown field '{}' at line {}; indent a line under 'rationale:' to \
-                         continue the rationale",
-                        raw_key.trim(),
-                        source_line.number
-                    ))
-                    .into());
+                    return Err(
+                        unknown_block_field_error(raw_key.trim(), source_line.number).into(),
+                    );
                 }
                 _ => {}
             }
@@ -3299,16 +3295,26 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
         }
 
         if indent > marker_indent {
-            return Err(CommandError::Validation(format!(
-                "line {} is not a 'key: value' field, a '- ' list item, or a line indented under \
-                 'rationale:'",
-                source_line.number
-            ))
-            .into());
+            return Err(stray_block_line_error(source_line.number).into());
         }
     }
 
     Ok(fields)
+}
+
+// Built outside the per-line scan so the refusals do not allocate inside the loop body.
+fn unknown_block_field_error(key: &str, line: usize) -> CommandError {
+    CommandError::Validation(format!(
+        "unknown field '{key}' at line {line}; indent a line under 'rationale:' to continue the \
+         rationale"
+    ))
+}
+
+fn stray_block_line_error(line: usize) -> CommandError {
+    CommandError::Validation(format!(
+        "line {line} is not a 'key: value' field, a '- ' list item, or a line indented under \
+         'rationale:'"
+    ))
 }
 
 fn assemble_decision_draft(
