@@ -101,25 +101,6 @@ const ALLOWED: &[Allowed] = &[
     },
 ];
 
-/// README tools the MCP table does not list yet (hivemind-te9ee).
-const MCP_TABLE_MISSING: &[&str] = &[
-    "analyze_failure_modes",
-    "classify_queue_list",
-    "classify_queue_submit",
-    "decision_context_candidates",
-    "decision_quality_candidates",
-    "get_decision_context",
-    "get_decision_neighborhood",
-    "get_decision_outcome",
-    "get_situational_decisions",
-    "get_suggestions",
-    "rank_decisions_by_importance",
-    "request_decision",
-    "scan_decision_quality",
-    "scan_misfiled_decisions",
-    "score_decision",
-];
-
 /// Info strings of fenced blocks that hold shell commands. Other blocks (json, yaml, rust, ...)
 /// are not commands even when a line starts with `hivemind`.
 const SHELL_FENCES: &[&str] = &["", "bash", "sh", "shell", "zsh", "console", "shell-session"];
@@ -735,20 +716,12 @@ fn readme_lists_every_mcp_tool() {
         .iter()
         .filter_map(|tool| tool["name"].as_str().map(str::to_string))
         .collect();
-    let missing: Vec<&String> = served
-        .difference(&listed)
-        .filter(|name| !MCP_TABLE_MISSING.contains(&name.as_str()))
-        .collect();
+    let missing: Vec<&String> = served.difference(&listed).collect();
     let unknown: Vec<&String> = listed.difference(&served).collect();
-    let stale: Vec<&&str> = MCP_TABLE_MISSING
-        .iter()
-        .filter(|name| listed.contains(**name))
-        .collect();
     assert!(
-        missing.is_empty() && unknown.is_empty() && stale.is_empty(),
+        missing.is_empty() && unknown.is_empty(),
         "README's MCP table lists {} tools and the server has {}. Not in the table: {missing:?}. \
-         In the table but not served: {unknown:?}. In MCP_TABLE_MISSING but now listed (remove \
-         them): {stale:?}",
+         In the table but not served: {unknown:?}",
         listed.len(),
         served.len()
     );

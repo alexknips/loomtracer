@@ -53,17 +53,23 @@ the agent that ran them; a `HIVEMIND_ACTOR` that already names an agent is kept.
 To capture and query the first real decision in the current directory:
 
 ```bash
-hivemind --actor human:alice --hivemind-dir ./hivemind emit decision.proposed \
+hivemind --actor human:alice --hivemind-dir ./hivemind emit decision.capture \
   --title "Use HiveMind for architecture decisions" \
   --rationale "We need a durable record of what was decided, why, and by whom" \
   --topic-keys onboarding,architecture \
   --options "HiveMind,Notes" \
-  --chose "HiveMind"
+  --chose "HiveMind" \
+  --rests-on-assumption "Architecture choices are revisited often enough to need a record" \
+  --binds "Later architecture decisions are recorded here, not left in chat" \
+  --cheap-to-undo
 
 hivemind --hivemind-dir ./hivemind query search_decisions \
   --topic onboarding \
   --limit 5
 ```
+
+The three answers at the end (what it rests on, what it binds, what undoing it
+costs) are required; [CLI Shape](#cli-shape) says why.
 
 ## What HiveMind Does Today
 
@@ -71,9 +77,10 @@ hivemind --hivemind-dir ./hivemind query search_decisions \
   option, and relation events. The `commands` module validates invariants and
   appends to the ledger; both CLI and MCP write through the same internal
   functions.
-- **Project.** Ledger events are projected into a graph view with five node
-  types: `Decision`, `Actor`, `Evidence`, `Option`, and `Hypothesis`. Status
-  (`proposed`, `accepted`, `contested`, `superseded`) is derived from explicit
+- **Project.** Ledger events are projected into a graph view of `Decision`,
+  `Option`, `Evidence`, `Hypothesis` and `Question` nodes, plus the `Actor`s
+  who acted and the `Project`s decisions are filed under. Status (`proposed`,
+  `accepted`, `rejected`, `contested`, `superseded`) is derived from explicit
   graph edges, not stored.
 - **Read.** Query code derives status, walks supersession chains, and surfaces
   contested decisions through deterministic graph reads. Search includes
@@ -142,8 +149,8 @@ open. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the current state
 model and what is marked temporary.
 
 Out of scope today: compactification, similarity search, semantic ranking,
-LLM-backed query, multi-tenant shared backend, federation. These belong to
-the agentic layer above the ledger and to the shared-backend front —
+LLM-backed query, federation. The first four belong to the agentic layer above
+the ledger; federation is a later step on the shared-backend front —
 [`STRATEGY.md`](STRATEGY.md) tracks where each one stands.
 
 ## Self-hosting
@@ -157,6 +164,9 @@ cp .env.example .env
 sed -i "s/change-me-before-production/$(openssl rand -hex 32)/g" .env
 docker compose up --build -d
 ```
+
+A cell is a shared backend: every request is authenticated and scoped to one
+tenant (see [`docs/MULTI_TENANCY.md`](docs/MULTI_TENANCY.md)).
 
 Then install the capture plugin and start capturing decisions — see
 [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md) for the full runbook (auth,
@@ -185,7 +195,7 @@ asset and verifies its SHA-256 checksum before copying `hivemind` into
 curl -fsSL https://raw.githubusercontent.com/alexknips/hivemind/master/scripts/install.sh | sh
 ```
 
-Set `HIVEMIND_VERSION=v0.5.0` to install a specific release tag or
+Set `HIVEMIND_VERSION=v0.7.0` to install a specific release tag or
 `HIVEMIND_INSTALL_DIR=/usr/local/bin` to choose another destination.
 
 Verify the installed binary:
@@ -275,17 +285,11 @@ hivemind --actor alice emit evidence.recorded \
 
 hivemind --actor alice emit hypothesis.recorded \
   --statement "Embedded storage keeps onboarding under five minutes"
-
-hivemind emit decision.proposed \
-  --title "Use embedded storage for the local prototype" \
-  --rationale "It keeps the local install single-process and easy to replay" \
-  --topic-keys architecture,storage \
-  --options "SQLite,Postgres" \
-  --chose "SQLite"
 ```
 
-Agents can use the noninteractive capture path. It defaults the actor to a
-stable `agent:<tool>:<name>` and writes events with `source=agent`:
+Decisions go through `decision.capture`. Agents can use it noninteractively: run
+by an agent with no `--actor` typed, it records a stable `agent:<tool>:<name>`
+and writes events with `source=agent`; a typed `--actor` is recorded as typed:
 
 ```bash
 hivemind --hivemind-dir ./hivemind/ emit decision.capture \
@@ -353,8 +357,13 @@ to install it. The plugin provides:
 - `/hivemind-capture:capture` — capture a decision, evidence, or hypothesis
 - `/hivemind-capture:capture-decision` — legacy decision-only shorthand
 - `/hivemind-capture:query-decisions` — free-text recall: "what did we decide about X?"
+- `/hivemind-capture:batch-capture` — classify the recent conversation with a
+  Haiku subagent in your own session and capture the durable decisions in it
+  (keyless)
 - `/hivemind-capture:classify-queue` — drain the pending classification queue
   using your subscription seat (**no `ANTHROPIC_API_KEY` required**)
+- Hooks on Claude Code's `AskUserQuestion` tool: the question an agent puts to
+  you is recorded as an ask, and your answer as a decision that answers it
 - A `hivemind` MCP server wired to `hivemind mcp`
 - A session-start directive: every session is told (about 595 characters) to call
   `recall_decisions` before acting and `capture_decision` for a rule learned from a
@@ -363,6 +372,31 @@ to install it. The plugin provides:
   Turn it off with `HIVEMIND_DIRECTIVE_DISABLE=1`.
 
 See `plugins/hivemind-capture/README.md` for uninstall and verification steps.
+
+A second plugin from the same marketplace, `plugins/hivemind-context`, is the
+read and contest side: it consults, verifies and pushes back on decisions by
+describing them, never by id, through the local CLI (it ships no MCP server).
+Install it next to the capture plugin:
+
+```text
+/plugin install hivemind-context@hivemind
+```
+
+- `/hivemind-context:situational` — "what should I know before I touch this?",
+  from the current diff, paths or branch
+- `/hivemind-context:recall` — "what did we decide about X?"
+- `/hivemind-context:why` and `/hivemind-context:verify` — a decision's
+  rationale and neighborhood, and whether it held up
+- `/hivemind-context:importance` — which decisions carry the most impact, and
+  who decided them
+- `/hivemind-context:disagree` and `/hivemind-context:supersede` — contest or
+  replace a decision
+- `/hivemind-context:ground`, `/hivemind-context:reexamine` and
+  `/hivemind-context:reaffirm` — say what a decision rests on, list the
+  decisions whose premise changed, and say one still holds
+
+See `plugins/hivemind-context/README.md` for the full list and the install
+steps.
 
 **Keyless capture:** `ANTHROPIC_API_KEY` is optional. Without it the server
 runs without a background classifier; run `/hivemind-capture:classify-queue`
@@ -416,7 +450,7 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 
 | Tool | Layer | Wraps |
 | --- | --- | --- |
-| `capture_decision` | write | `emit decision.proposed` |
+| `capture_decision` | write | `emit decision.capture` |
 | `capture_evidence` | write | `emit evidence.recorded` |
 | `capture_hypothesis` | write | `emit hypothesis.recorded` |
 | `disagree_decision` | write | `disagree` |
@@ -426,9 +460,14 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `ground_decision` | write | `ground` |
 | `reaffirm_decision` | write | `reaffirm` |
 | `acknowledge_suggestion` | write | (MCP only) |
+| `request_decision` | write | `ask` |
+| `classify_queue_submit` | write | `classify-queue submit` (MCP over HTTP only) |
 | `get_decision` | read | `query get_decision` |
 | `get_relevant_decisions` | read | `query get_relevant_decisions` |
+| `get_situational_decisions` | read | `query situational` |
 | `get_supersession_chain` | read | `query get_supersession_chain` |
+| `get_decision_neighborhood` | read | `query get_decision_neighborhood` |
+| `get_decision_outcome` | read | `query get_decision_outcome` |
 | `search_decisions` | read | `query search_decisions` |
 | `recent_decisions` | read | `query recent_decisions` |
 | `get_waiting_requests` | read | `query get_waiting_requests` |
@@ -436,22 +475,30 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `get_open_why_decisions` | read | `query get_open_why_decisions` |
 | `get_reexamine_items` | read | `reexamine` |
 | `get_changed_decisions` | read | `query get_changed_decisions` |
+| `score_decision` | read | `query score_decision` |
+| `scan_decision_quality` | read | `query scan_decision_quality` |
+| `get_suggestions` | read | `query get_suggestions` |
+| `rank_decisions_by_importance` | read | `query rank_decisions_by_importance` |
+| `scan_misfiled_decisions` | read | `query scan_misfiled_decisions` |
+| `get_decision_context` | read | (MCP only) |
+| `decision_context_candidates` | read | (MCP only) |
+| `decision_quality_candidates` | read | (MCP only) |
+| `analyze_failure_modes` | read | (MCP only) |
+| `classify_queue_list` | read | `classify-queue list` (MCP over HTTP only) |
 | `dump_graph` | read | `dump --format dot` |
 | `recall_decisions` | layer-3 | search + ranked digest |
 | `hivemind_compact_view` | layer-3 | compact subgraph projection |
 | `summarize_decisions` | layer-3 | decision digest |
 
-Every capture requires an explicit `actor_id`. Prefix it with the originating
-tool, e.g. `agent:claude:<name>` (a stable identity, not a raw session id),
-so provenance stays readable. The server records `source=agent` for every
-write; pass `--session-id` to override the generated default. Anonymous
-writes are rejected because the underlying `Commands` API requires a
-non-empty actor.
+`actor_id` is optional on every capture tool. Left out, it defaults to
+`agent:<tool>:<name>` (a stable identity, not a raw session id), where the tool
+is `--agent-tool` if given, else taken from the environment, else from the MCP
+client's own name (`claude` for Claude Code, `codex` for Codex). Pass `actor_id`
+to record a different actor. The server records `source=agent` for every write;
+pass `--session-id` to override the generated session default. Anonymous writes
+are still impossible: the underlying `Commands` API requires a non-empty actor.
 
 `HIVEMIND_DIR` selects the ledger directory if `--hivemind-dir` is not set.
-`HIVEMIND_GRAPH_BACKEND` is honored the same way the CLI honors it, so a
-shared `kuzu` projection works under MCP when the `graph-kuzu` feature is
-compiled in.
 
 Local markdown or text decision notes can be imported without network access.
 All imported decisions land in the ledger as **unreviewed** (proposed, not

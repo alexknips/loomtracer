@@ -12,7 +12,7 @@
 #   3. Set the remaining secrets:
 #        fly secrets set HIVEMIND_API_KEY=<strong-random-secret> --app hivemind-tti3sa
 #      Optional (enables Layer-3 classifier on ingest):
-#        fly secrets set HIVEMIND_ANTHROPIC_API_KEY=<key> --app hivemind-tti3sa
+#        fly secrets set ANTHROPIC_API_KEY=<key> --app hivemind-tti3sa
 #
 #   4. Deploy from a CLEAN clone of origin/master (the rig root may sit on a
 #      stale branch — do not deploy from it):
