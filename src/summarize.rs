@@ -8,6 +8,7 @@
 //! - Every cited decision ID in the summary is listed in `cited_decision_ids`.
 //! - No inference, no invention.
 
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::time::Instant;
@@ -22,7 +23,7 @@ use crate::queries::{
     content_query, fold_linked_results, get_decision, option_label_unit, search_decisions_any,
     search_decisions_fluent, walk_supersession, DecisionSearchResult, DecisionStatus, DecisionView,
     GroundingState, QueryContext, QueryResponse, ScopeNote, SearchDecisionRequest,
-    SupersessionLine, SupersessionSide,
+    SupersessionLine, SupersessionSide, MAX_QUERY_RESULTS,
 };
 use crate::Result;
 
@@ -623,7 +624,8 @@ pub fn recall_decisions(
 // weekly_digest — Layer-3: window-scoped decision digest
 // ---------------------------------------------------------------------------
 
-/// Maximum decisions returned in a single digest window.
+/// Maximum decisions in one page of a digest. A window that holds more is read page by page
+/// (`DigestRequest::cursor`), newest first.
 pub const DIGEST_MAX_DECISIONS: usize = 50;
 
 pub struct DigestRequest {
@@ -631,6 +633,8 @@ pub struct DigestRequest {
     pub until: DateTime<Utc>,
     pub actor_ids: Vec<String>,
     pub limit: usize,
+    /// Where to continue: the `next_cursor` of the previous page. `None` reads the newest.
+    pub cursor: Option<String>,
 }
 
 /// One entry in the digest — one decision with its full rationale context.
@@ -649,6 +653,10 @@ pub struct DigestEntry {
     /// `DecisionView::project` / `project_label`).
     pub project: Option<String>,
     pub project_label: String,
+    /// When it was decided, the time the digest window and its order go by (see
+    /// `DecisionSearchResult::decided_at`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decided_at: Option<DateTime<Utc>>,
     pub actor_ids: Vec<String>,
     /// The human whose delegated scope an agent's self-acceptance fell within
     /// (hivemind-zdsh.6). `None` for every decision not decided under a delegation.
@@ -674,9 +682,12 @@ pub struct DigestEntry {
 pub struct DigestResponse {
     pub since: DateTime<Utc>,
     pub until: DateTime<Utc>,
+    /// This page of the window, newest decided first (ties by decision id).
     pub entries: Vec<DigestEntry>,
     pub total_in_window: usize,
+    /// The window holds decisions after this page: `next_cursor` reads them.
     pub truncated: bool,
+    pub next_cursor: Option<String>,
     /// Rendered prose text (mode-1 compatible; no LLM required).
     pub text: String,
     pub cited_decision_ids: Vec<String>,
@@ -684,9 +695,12 @@ pub struct DigestResponse {
 
 /// Build a textual decision digest for a time window.
 ///
-/// Deterministic graph assembly: pulls all decisions proposed in [since, until],
-/// optionally filtered by actor. Renders a human-readable prose digest with full
-/// rationale context. Every claim is backed by a cited decision ID.
+/// Deterministic graph assembly: pulls all decisions decided in [since, until],
+/// optionally filtered by actor, and keeps them newest decided first (ties by decision
+/// id). A window that holds more than one page (`limit`, at most `DIGEST_MAX_DECISIONS`)
+/// gives the newest page and a `next_cursor` for the rest, so no decision of the window is
+/// out of reach. Renders a human-readable prose digest with full rationale context. Every
+/// claim is backed by a cited decision ID.
 pub fn weekly_digest(
     context: &QueryContext,
     ledger: &AnyLedger,
@@ -695,27 +709,26 @@ pub fn weekly_digest(
 ) -> crate::Result<QueryResponse<DigestResponse>> {
     let started = Instant::now();
     let limit = request.limit.clamp(1, DIGEST_MAX_DECISIONS);
+    let offset = digest_offset(request.cursor.as_deref())?;
 
-    let search_req = SearchDecisionRequest {
-        query: None,
-        topic_keys: vec![],
-        statuses: vec![],
-        actor_ids: request.actor_ids.clone(), // ubs:ignore: clone necessary — building owned SearchDecisionRequest from borrowed DigestRequest fields
-        sources: vec![],
-        since: Some(request.since),
-        until: Some(request.until),
-        limit,
-        cursor: None,
-        project: None,
-    };
-    let search_response = search_decisions_any(context, ledger, graph, &search_req)?;
-    let truncated = search_response.truncated;
-    let total_in_window = search_response.data.total_matches;
+    let mut window = decisions_in_window(context, ledger, graph, request)?;
+    window.sort_by(newest_first);
+    let total_in_window = window.len();
+    if offset > 0 && offset >= total_in_window {
+        return Err(crate::QueryError::Execution(format!(
+            "cursor {offset} is past the end of the window, which holds {total_in_window} decision(s)"
+        ))
+        .into());
+    }
+    let page: Vec<DecisionSearchResult> = window.into_iter().skip(offset).take(limit).collect();
+    let next_offset = offset + page.len();
+    let next_cursor = (next_offset < total_in_window).then(|| next_offset.to_string());
+    let truncated = next_cursor.is_some();
 
     let option_label_cache = load_option_label_cache(graph)?;
 
-    let mut entries: Vec<DigestEntry> = Vec::with_capacity(search_response.data.items.len());
-    for item in search_response.data.items {
+    let mut entries: Vec<DigestEntry> = Vec::with_capacity(page.len());
+    for item in page {
         let entry = build_digest_entry(item, &option_label_cache);
         entries.push(entry);
     }
@@ -725,7 +738,12 @@ pub fn weekly_digest(
         .map(|e| e.decision_id.clone()) // ubs:ignore: clone necessary — building owned Vec from borrowed entries
         .collect();
 
-    let text = render_digest_text(&entries, request.since, request.until, truncated);
+    let page_position = DigestPage {
+        offset,
+        total: total_in_window,
+        next_cursor: next_cursor.as_deref(),
+    };
+    let text = render_digest_text(&entries, request.since, request.until, &page_position);
 
     Ok(QueryResponse {
         result_count: entries.len(),
@@ -737,10 +755,61 @@ pub fn weekly_digest(
             entries,
             total_in_window,
             truncated,
+            next_cursor,
             text,
             cited_decision_ids,
         },
     })
+}
+
+/// A digest cursor is the number of decisions already read, as `search` counts its own.
+fn digest_offset(cursor: Option<&str>) -> crate::Result<usize> {
+    match cursor {
+        None => Ok(0),
+        Some(cursor) => cursor.trim().parse::<usize>().map_err(|error| {
+            crate::QueryError::Execution(format!("cursor must be a non-negative offset: {error}"))
+                .into()
+        }),
+    }
+}
+
+/// Every decision decided in the window, in the order `search` lists them (which is not the
+/// order a digest keeps: with no question, `search` ties every decision and falls back to its
+/// random id). `search` pages at `MAX_QUERY_RESULTS`; read them all, so the order is chosen over
+/// the whole window and not within a page.
+fn decisions_in_window(
+    context: &QueryContext,
+    ledger: &AnyLedger,
+    graph: &impl GraphView,
+    request: &DigestRequest,
+) -> crate::Result<Vec<DecisionSearchResult>> {
+    let mut window = Vec::new();
+    let mut cursor = None;
+    loop {
+        let search_req = SearchDecisionRequest {
+            actor_ids: request.actor_ids.clone(), // ubs:ignore: clone necessary — building owned SearchDecisionRequest from borrowed DigestRequest fields
+            since: Some(request.since),
+            until: Some(request.until),
+            limit: MAX_QUERY_RESULTS,
+            cursor,
+            ..SearchDecisionRequest::default()
+        };
+        let page = search_decisions_any(context, ledger, graph, &search_req)?.data;
+        window.extend(page.items);
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => return Ok(window),
+        }
+    }
+}
+
+/// Newest decided first; a decision the graph has no time for last (a window only holds dated
+/// ones); decisions decided at the same moment by decision id.
+fn newest_first(left: &DecisionSearchResult, right: &DecisionSearchResult) -> Ordering {
+    right
+        .decided_at
+        .cmp(&left.decided_at)
+        .then_with(|| left.decision.id.cmp(&right.decision.id))
 }
 
 fn load_option_label_cache(
@@ -807,6 +876,7 @@ fn build_digest_entry(
         status: d.status,
         project: d.project.clone(), // ubs:ignore: clone necessary — building owned DigestEntry
         project_label: d.project_label.clone(), // ubs:ignore: clone necessary — building owned DigestEntry
+        decided_at: item.decided_at,
         actor_ids: ctx.actor_ids.clone(), // ubs:ignore: clone necessary — building owned DigestEntry from borrowed SearchGraphContext
         delegated_by: ctx.delegated_by.clone(), // ubs:ignore: clone necessary — building owned DigestEntry from borrowed SearchGraphContext
         option_labels,
@@ -820,11 +890,21 @@ fn build_digest_entry(
     }
 }
 
+/// Where a digest page sits in its window: what the note on a page that is not the whole window
+/// says it shows and how to read the rest.
+struct DigestPage<'a> {
+    /// Decisions of the window before this page.
+    offset: usize,
+    /// Decisions in the whole window.
+    total: usize,
+    next_cursor: Option<&'a str>,
+}
+
 fn render_digest_text(
     entries: &[DigestEntry],
     since: DateTime<Utc>,
     until: DateTime<Utc>,
-    truncated: bool,
+    page: &DigestPage<'_>,
 ) -> String {
     if entries.is_empty() {
         return format!(
@@ -946,11 +1026,20 @@ fn render_digest_text(
         out.push('\n');
     }
 
-    if truncated {
-        let _ = writeln!(
+    if page.offset > 0 || page.next_cursor.is_some() {
+        let _ = write!(
             out,
-            "Note: digest is truncated; use --limit to raise the cap."
+            "Note: showing decisions {}-{} of {} in this window, newest first by when they were decided.",
+            page.offset + 1,
+            page.offset + n,
+            page.total
         );
+        match page.next_cursor {
+            Some(cursor) => {
+                let _ = writeln!(out, " Read the rest with --cursor {cursor}.");
+            }
+            None => out.push('\n'),
+        }
     }
 
     // No "Cited:" footer here: every decision_id already appears in its own "• [id] title"
@@ -970,6 +1059,7 @@ mod tests {
     use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 
     mod chain;
+    mod digest_window;
 
     fn make_graph<L: crate::ledger::EventLedger>(ledger: &L) -> MemoryGraph {
         let graph = MemoryGraph::default();

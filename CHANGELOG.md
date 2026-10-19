@@ -718,6 +718,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind digest` keeps the newest decisions of a window and lets you read the rest.** A
+  window that held more than 50 decisions showed an arbitrary 50, in decision-id order (a random
+  uuid, with classifier drafts, `capture:<n>:<i>`, ahead of every other), and the rest could not
+  be reached: the note said to raise `--limit`, which was already at its cap of 50. Now the
+  digest orders its window newest decided first (ties by decision id), shows the first
+  `--limit` of them (default and cap 50), and a window with more says which decisions it shows
+  and gives a `next_cursor` (`--cursor` reads the next page; the JSON carries `next_cursor` and
+  each entry its `decided_at`). A cursor past the end of the window is refused, not answered
+  as an empty window. (hivemind-4focm)
 - **`import documents` keeps a whole rationale, and refuses a field it does not know.** A line
   inside a `Decision:` block was read as a `key: value` field first, so a rationale line holding
   a colon (`See https://example.com/adr`, `Benchmark: p95 40ms vs 120ms`) was dropped as an

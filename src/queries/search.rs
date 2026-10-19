@@ -118,6 +118,11 @@ pub struct DecisionSearchResult {
     /// decision recorded more than once as one item (hivemind-83cj). `search` lists records.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub also_recorded_as: Vec<RecordedCopy>,
+    /// When it was decided, as the graph dates it (see `ScoredDecisionSearchResult::decided_at`):
+    /// what a caller that orders a window by time sorts on. Not on the wire; `GET /v1/graph` and
+    /// `recent_decisions` already report it.
+    #[serde(skip)]
+    pub decided_at: Option<DateTime<Utc>>,
 }
 
 impl DecisionSearchResult {
@@ -1365,6 +1370,7 @@ fn collect_graph_search_results(
                 },
                 scope: None,
                 also_recorded_as: Vec::new(),
+                decided_at,
             },
         });
     }

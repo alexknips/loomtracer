@@ -1040,12 +1040,17 @@ fn run_digest(cli: &Cli, args: &DigestArgs) -> Result<String> {
         until,
         actor_ids: args.actor_ids.clone(), // ubs:ignore: clone necessary — building owned DigestRequest from borrowed DigestArgs
         limit: args.limit,
+        cursor: args.cursor.clone(), // ubs:ignore: clone necessary — building owned DigestRequest from borrowed DigestArgs
     };
     let response = weekly_digest(&context, &ledger, &graph, &request)?;
 
     if args.summary {
         let mut out = response.data.text.clone(); // ubs:ignore: clone necessary — formatting owned output from borrowed DigestResponse
-        append_truncation_notice(&mut out, response.truncated, None);
+        append_truncation_notice(
+            &mut out,
+            response.truncated,
+            response.data.next_cursor.as_deref(),
+        );
         Ok(out.trim_end().to_owned())
     } else {
         format_json_value(true, &response)

@@ -874,9 +874,14 @@ pub struct DigestArgs {
     #[arg(long = "actor", value_delimiter = ',')]
     pub actor_ids: Vec<String>,
 
-    /// Maximum number of decisions to include (1–50, default 50).
+    /// Maximum number of decisions in one page (1–50, default 50). A window that holds more
+    /// shows the newest decided first and a `next_cursor` for the rest.
     #[arg(long, default_value_t = DIGEST_MAX_DECISIONS)]
     pub limit: usize,
+
+    /// Continue a truncated digest: the `next_cursor` of the previous page.
+    #[arg(long)]
+    pub cursor: Option<String>,
 
     /// Output readable prose instead of JSON.
     #[arg(long)]
