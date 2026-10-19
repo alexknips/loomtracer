@@ -41,12 +41,12 @@ for UIs and embedded clients) is independent of what HiveMind does. The choice
 does not change the rules. The principles (`PRINCIPLES.md`) constrain what
 HiveMind does; this section names how surfaces relate to that.
 
-The `suggest` CLI namespace is the local layer-3 surface. For example,
-`suggest document-candidates` can call an external document extractor or consume
-an LLM response file to produce pending-review decision candidates, and
-`suggest materialize-document-candidates` can turn selected candidates into
-ordinary `Decision:` blocks. Neither command appends ledger events; writes still
-go through explicit `emit` or `import documents` commands.
+Prose extraction is the local layer-3 surface of the CLI. `import documents`
+runs it only when asked (`--extractor-command` or `--llm-response`): the CLI
+calls an external document extractor, or reads a saved response, and the
+importer records each candidate as an unreviewed (`proposed`) decision. The
+importer itself calls no model; see
+[`TEXT_IMPORT_AND_DIFF_SEMANTICS.md`](TEXT_IMPORT_AND_DIFF_SEMANTICS.md).
 
 ## Event To Query Flow
 

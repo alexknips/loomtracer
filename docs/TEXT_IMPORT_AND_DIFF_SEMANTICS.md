@@ -5,7 +5,8 @@ decisions from text files and asking which decision nodes were added to the
 graph since a time boundary such as "last week".
 
 The scope is local-first. It does not define a hosted ingestion service, a
-general document knowledge graph, or an LLM extraction pipeline.
+general document knowledge graph, or an LLM extraction pipeline (the importer
+only hands prose to an extractor the caller names; see Prose Extraction).
 
 ## Initial Import Scope
 
@@ -16,10 +17,11 @@ The initial importer accepts UTF-8 local files in these forms:
 - Markdown or plain text files containing explicit HiveMind decision blocks.
 - Prepared PDF/OCR text emitted by `hivemind import prepare-documents`.
 
-Only explicit decision blocks create decision events in the initial
-implementation. An unmarked document is reported as `skipped_unmarked`; it is
-not heuristically converted into decisions. This keeps extraction deterministic
-and prevents a local importer from inventing organizational memory.
+Only explicit decision blocks create decision events by default. An unmarked
+document is reported as `skipped_unmarked`; it is not heuristically converted
+into decisions. This keeps extraction deterministic and prevents a local
+importer from inventing organizational memory. Prose becomes decisions only when
+the caller opts in with an extractor (see Prose Extraction).
 
 A decision block is a structured section inside a text file. The exact parser
 can evolve, but the first implementation should support a compact YAML-like
@@ -151,41 +153,62 @@ Initial extraction is deterministic structured-marker extraction:
    hypotheses, supersession, and relations represented in the block.
 4. Report validation errors without writing partial events for that block.
 
-LLM-assisted extraction is layer-3 suggestion work. It may propose candidate
-blocks, but those candidates must be reviewed or materialized as explicit
-structured input before the write layer appends ledger events. The importer must
-not call an LLM from the write path.
+Prose is the one exception, and it is opt-in: a file with no `Decision:` block
+goes to an extractor only when the caller passes `--extractor-command` or
+`--llm-response`. The importer does not call an LLM itself. The CLI runs the
+extractor, or reads its saved response, and the write layer receives structured
+candidates (see Prose Extraction).
 
-## LLM Candidate Workflow
+## Prose Extraction
 
-`hivemind suggest document-candidates` is outside the write and query paths. It
-reads local UTF-8 markdown or text documents, sends source text plus provenance
-to an external extractor command or consumes an already-produced LLM response
-file, and returns pending-review candidates. The command does not open the
-ledger and does not append events.
+`hivemind import documents` can turn free prose into decision candidates. This
+is layer-3 work wrapped around the importer, off unless the caller asks for it:
 
-Each candidate includes:
+- `--extractor-command hivemind-document-extractor` sends the source text plus
+  provenance to that executable as JSON on stdin and reads the response from
+  stdout. The executable name is fixed so this path can be installed
+  deliberately without allowing arbitrary command execution from
+  document-processing input. `--extractor-arg <ARG>` (repeatable) forwards extra
+  arguments to it.
+- `--llm-response <path>` supplies the same response JSON from a file, for
+  offline runs and tests.
 
-- A structured decision draft: `id`, `title`, `status`, `topic_keys`,
-  `rationale`, `options`, optional `chose`, `evidence`, and `hypotheses`.
-- Source document provenance: canonical path, SHA-256, byte and line span, and
-  source snippet.
-- An extraction explanation and optional non-numeric confidence explanation.
-- A materialization hint that points to the explicit review step.
-
-The external extractor protocol is JSON over stdin/stdout when
-`--extractor-command hivemind-document-extractor` is used. The executable name
-is fixed so this path can be installed deliberately without allowing arbitrary
-command execution from document-processing input. For offline review or tests,
-`--llm-response <path>` can supply the same response JSON directly:
+The two are alternatives, and `--extractor-arg` needs `--extractor-command`. A
+command line that breaks either rule exits 2 before the ledger is opened.
 
 ```bash
-hivemind --json suggest document-candidates \
-  --file ./decision-memo.txt \
-  --llm-response ./llm-response.json > candidates.json
+hivemind --actor alice --json import documents ./decision-memo.txt \
+  --llm-response ./llm-response.json
 ```
 
-The accepted LLM response shape is:
+Only files with no `Decision:` block go to the extractor; a file that has blocks
+is parsed as described above. Each candidate is written through the same block
+import as an explicit block, with `candidate:document:<hash>` as its block id and
+the extractor's explanation kept in the event's source ref. It lands as
+`proposed`, whatever status the candidate names: extraction accepts nothing, and
+the decisions flow into `hivemind review --unreviewed-only`, where a reviewer
+accepts, rejects or supersedes them with ordinary events. A file for which the
+extractor returns no candidates stays `skipped_unmarked`.
+
+Two limits follow from the code. `--on-conflict` applies to `Decision:` blocks
+only; extracted candidates are always imported with the `report` action. And a
+real extractor may answer differently on a second run: the block id is derived
+from the source hash, the span, the title and the candidate's position, so a
+candidate with a new title is a new decision, not a no-op. Save the response and
+pass it with `--llm-response` when a run must be repeatable.
+
+Each candidate in the response carries:
+
+- A structured decision draft: `title`, `status`, `topic_keys`, `rationale`,
+  `option_labels`, optional `chosen_option_label`, `evidence`, and `hypotheses`.
+  `title`, `rationale`, `explanation` and at least one option are required;
+  `status` defaults to `proposed`; `topic_keys` defaults to `document`; the
+  chosen option must be one of the options.
+- Source document provenance: the file (`file_index` or `source_path`), and a
+  byte and line span that defaults to the whole file.
+- An extraction explanation and an optional non-numeric confidence explanation.
+
+The accepted response shape is:
 
 ```json
 {
@@ -212,19 +235,8 @@ The accepted LLM response shape is:
 }
 ```
 
-After a human or agent reviewer accepts a candidate, materialize it to a normal
-document-import block:
-
-```bash
-hivemind --actor reviewer:alice --json suggest materialize-document-candidates \
-  --input candidates.json \
-  --candidate-id candidate:document:abc123 \
-  --output reviewed.md
-```
-
-Only a later explicit `hivemind import documents --file reviewed.md` command
-writes events. This keeps deterministic import usable without any LLM workflow
-installed or enabled.
+Deterministic import needs no extractor: without these flags nothing calls an
+LLM, and an extractor does not have to be installed or enabled.
 
 ## PDF And OCR Preparation
 
@@ -349,8 +361,9 @@ concrete timestamps or offsets.
 
 `since last week` means:
 
-- Choose a timezone. The default is UTC unless the caller supplies an IANA
-  timezone such as `America/New_York`.
+- Choose a timezone. Only UTC is supported today: `--timezone` accepts `UTC`,
+  `utc` or `Etc/UTC` (the default) and refuses any other zone, such as
+  `America/New_York`, as invalid input.
 - Resolve `now` once at command start.
 - Find the start of the previous ISO week, Monday 00:00:00, in that timezone.
 - Use that instant as `resolved_since`.

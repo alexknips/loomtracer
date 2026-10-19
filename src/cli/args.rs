@@ -315,7 +315,7 @@ pub enum Command {
     Review(ReviewArgs),
     /// Bring decisions in from documents: local Markdown or text notes with `Decision:` blocks
     /// (or prose, through an extractor), prepared PDF/OCR text, or the version history of a
-    /// Google Doc, Confluence page or git-tracked file.
+    /// Google Doc or git-tracked file.
     ///
     /// Imported decisions land as proposed, not accepted, and flow into `hivemind review
     /// --unreviewed-only`. Re-importing identical input is a no-op; conflicts with existing
@@ -2074,8 +2074,8 @@ pub enum ImportCommand {
     /// (`--output-dir`), writing no ledger events; import the result with `import documents`.
     #[command(name = "prepare-documents", alias = "prepare-document")]
     PrepareDocuments(PrepareDocumentsArgs),
-    /// Import a document's version history from a connected source (Google Docs, Confluence, or
-    /// a git-tracked file) as decision and supersession chains, and manage same-as links between
+    /// Import a document's version history from a connected source (a Google Doc or a
+    /// git-tracked file) as decision and supersession chains, and manage same-as links between
     /// imported decisions.
     #[command(name = "connector")]
     Connector(ImportConnectorArgs),

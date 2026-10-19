@@ -727,6 +727,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `--actor`, which goes before `review`, and `--unreviewed-only` skips only the decisions that
   reviewer already accepted, rejected or superseded. `review --actor` is the glob filter on the
   actors who made the decisions, and its help now says so. (hivemind-piwlc)
+- **`hivemind import --help` no longer offers a Confluence connector, and the import docs no
+  longer teach commands that do not exist.** `import` and `import connector` said they read the
+  history of a "Google Doc, Confluence page or git-tracked file", but `import connector run`
+  registers only the git-file and Google Docs connectors and `connector auth` accepts only
+  `gdocs`. `TEXT_IMPORT_AND_DIFF_SEMANTICS.md` taught the retired `hivemind suggest
+  document-candidates` and `materialize-document-candidates`, said extraction writes no events, and
+  said any IANA timezone is accepted. It now describes `import documents --extractor-command` and
+  `--llm-response`, which write each candidate as a `proposed` decision, and says only UTC is
+  accepted. `INGESTION_CONNECTORS.md` no longer shows `connector auth confluence` or presents the
+  `POST /v1/import/connector` route as built, and `ARCHITECTURE.md` no longer names the `suggest`
+  namespace. (hivemind-htomw)
 - **The background scorer no longer offers its model text the write path refuses, and no longer
   pays again for a decision it keeps failing.** For a classifier capture it listed the expressed
   confidence, the topic keys and the options joined on one line as quotable fields, but a quote

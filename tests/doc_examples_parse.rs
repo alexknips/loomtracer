@@ -78,27 +78,6 @@ const ALLOWED: &[Allowed] = &[
         command: "hivemind query search --q \"cache eviction\" --field",
         why: "hivemind-t97qx: the planned search flags are not built",
     },
-    // Import docs that describe a retired verb and a Confluence connector (hivemind-htomw).
-    Allowed {
-        file: "docs/INGESTION_CONNECTORS.md",
-        command: "hivemind connector auth confluence",
-        why: "hivemind-htomw: there is no Confluence connector auth",
-    },
-    Allowed {
-        file: "docs/TEXT_IMPORT_AND_DIFF_SEMANTICS.md",
-        command: "hivemind suggest",
-        why: "hivemind-htomw: `suggest` is retired",
-    },
-    Allowed {
-        file: "docs/TEXT_IMPORT_AND_DIFF_SEMANTICS.md",
-        command: "hivemind --json suggest",
-        why: "hivemind-htomw: `suggest` is retired",
-    },
-    Allowed {
-        file: "docs/TEXT_IMPORT_AND_DIFF_SEMANTICS.md",
-        command: "hivemind --actor reviewer:alice --json suggest",
-        why: "hivemind-htomw: `suggest` is retired",
-    },
 ];
 
 /// Info strings of fenced blocks that hold shell commands. Other blocks (json, yaml, rust, ...)

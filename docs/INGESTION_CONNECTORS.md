@@ -1,6 +1,8 @@
 # Ingestion Connectors — Design Document (Ingestion v1)
 
-Status: **DRAFT — awaiting alex review before implementation begins**
+Status: **Approved by alex 2026-07-16 as proposed, and built for the git-file
+and Google Docs connectors.** Not built: the Confluence connector and the hosted
+API route `POST /v1/import/connector`, both deferred to v1.1 (§5.2, §7).
 Bead: hivemind-ld68  
 Parent epic: hivemind-2tcl  
 Author: gastown.furiosa (polecat), 2026-07-11
@@ -10,27 +12,28 @@ Author: gastown.furiosa (polecat), 2026-07-11
 ## 0. Purpose and Scope
 
 This document designs the connector abstraction and version-walk import pipeline
-for HiveMind Ingestion v1. It is a **plan-first deliverable**: no product code
-beyond exploratory spikes is written until alex has reviewed and approved this
-design.
+for HiveMind Ingestion v1. It was a **plan-first deliverable**: alex reviewed and
+approved the design before product code was written, and it stays as the record
+of what was designed and why. §5.2 says which parts shipped.
 
 Scope (v1):
-- Abstract `Connector` trait with three concrete implementations: Google Docs,
-  Confluence, and git-file.
+- Abstract `Connector` trait with two concrete implementations: Google Docs and
+  git-file. (Confluence is designed but deferred to v1.1.)
 - Version-walk semantics: enumerate source versions → diff adjacent versions →
   emit `decision.proposed` + `decision.superseded` chains with bitemporal
   stamps.
 - Same-as/dedup layer: cross-source, re-import-aware, reversible same-as links
   with human-review gate (builds on `reviewer_action` / `DocumentReviewerAction`
   semantics already in `src/ingest.rs`).
-- Invocation surfaces: CLI (`hivemind import connector ...`) and the hosted API
-  (server-side import for non-technical users pasting a link).
+- Invocation surface: the CLI (`hivemind import connector ...`). A hosted API
+  (server-side import for non-technical users pasting a link) is designed in
+  §4.2 but deferred to v1.1.
 - Relationship to the two existing lanes (decision-block import vs
   prepare+ingest/Haiku classification).
 
 Out of scope (explicitly deferred):
 - Standing watcher / continuous-poll daemon.
-- Connector implementations beyond the three listed.
+- Connector implementations beyond the two listed.
 - Org-level connector credentials (v1 is per-user OAuth grants).
 
 ---
@@ -107,7 +110,7 @@ pub trait Connector: Send + Sync {
 #[serde(rename_all = "snake_case")]
 pub enum ConnectorKind {
     GoogleDocs,
-    Confluence,
+    Confluence, // v1.1: not built, the shipped enum has no such variant
     GitFile,
 }
 ```
@@ -125,7 +128,8 @@ pub enum ConnectorKind {
 - `fetch_version`: calls `drive.revisions.get` with `?alt=media`, exports to
   plain text via `mimeType=text/plain`.
 
-**Confluence** — `ConfluenceConnector`
+**Confluence** — `ConfluenceConnector` (v1.1: not built; `import connector run`
+registers only the git-file and Google Docs connectors)
 - `resolve`: accepts Confluence page URLs (`/wiki/spaces/.../pages/<id>`) and
   bare page IDs.
 - `list_versions`: calls Confluence REST API `GET /wiki/api/v2/pages/<id>/versions`.
@@ -153,20 +157,19 @@ pub enum ConnectorKind {
 
 | Connector | Credential | Where stored | Notes |
 |-----------|-----------|--------------|-------|
-| Google Docs | OAuth 2.0 access + refresh token, `drive.readonly` scope | HiveMind auth sidecar, per-user grant | Initial consent via browser OAuth flow; sidecar mints a connector-scoped token. CLI first-run triggers `hivemind connector auth gdocs` which opens browser. |
-| Confluence | Per-user API token (Atlassian) OR OAuth 2.0 (Confluence Cloud) | Auth sidecar, per-user grant | Atlassian Cloud supports OAuth 2.0 (3LO); Server/Data Center uses API tokens. For v1: accept a Confluence base URL + API token via env var (`HIVEMIND_CONFLUENCE_TOKEN`) for CLI. SPA flow uses OAuth. |
+| Google Docs | OAuth 2.0 access + refresh token, `drive.readonly` scope | CLI: `connector-tokens.json` under `--hivemind-dir`. Hosted API (v1.1): the auth sidecar, per-user grant | Initial consent via browser OAuth flow: `hivemind connector auth gdocs` opens the browser and needs `HIVEMIND_GOOGLE_CLIENT_ID` and `HIVEMIND_GOOGLE_CLIENT_SECRET`. |
+| Confluence (v1.1, not built) | Per-user API token (Atlassian) OR OAuth 2.0 (Confluence Cloud) | Auth sidecar, per-user grant | Atlassian Cloud supports OAuth 2.0 (3LO); Server/Data Center uses API tokens. Approved plan: a Confluence base URL + API token via env var (`HIVEMIND_CONFLUENCE_TOKEN`) for the CLI, OAuth for the SPA. `connector auth` accepts only `gdocs` today. |
 | Git-file | None — reads local filesystem and runs git | N/A | No credential needed; filesystem access is assumed. Remote URLs are out of scope for v1. |
 
-**Relationship to auth sidecar** (from `docs/design/auth-requirements.md`):  
+**Relationship to auth sidecar** (from `docs/design/auth-requirements.md`), for
+the hosted API path (v1.1, not built):  
 The Rust server is an OAuth *resource server*; the auth sidecar owns session
 management and connector grants. For connectors, the sidecar stores per-user
 OAuth tokens (access + refresh) for Google and Confluence. The connector
 implementation receives a fresh access token from the sidecar before each call.
 The Rust pipeline code does not handle OAuth token refresh directly.
 
-**Calls for alex**: the connector order (which ships first), and whether v1
-CLI should accept API tokens for Confluence or require OAuth. See §7 (Open
-Questions).
+The connector order and the Confluence auth approach were settled in §7.
 
 ---
 
@@ -259,8 +262,9 @@ version with the same content is a no-op through existing ledger UUID
 deduplication.
 
 **Depth control**: the `--max-versions N` flag limits how many historical
-versions to walk. Default is unlimited (walk all). The hosted API may impose
-a configurable per-tenant cap.
+versions to walk, keeping the most recent N. The default is 50; `--max-versions 0`
+walks all of them. The hosted API (v1.1) may impose a configurable per-tenant
+cap.
 
 ---
 
@@ -382,11 +386,8 @@ edges are not re-proposed (retraction is durable).
 ### 4.1 CLI
 
 ```bash
-# Auth (one-time per connector)
+# Auth (one-time; Google Docs is the only connector that needs it)
 hivemind connector auth gdocs           # opens browser for Google OAuth
-hivemind connector auth confluence \
-  --base-url https://myorg.atlassian.net \
-  --token-env HIVEMIND_CONFLUENCE_TOKEN
 
 # Import a document (walks all versions by default)
 hivemind --actor human:alice \
@@ -408,13 +409,16 @@ hivemind import connector same-as-candidates \
   --json
 ```
 
-Output (JSON, `--json`): same shape as `hivemind import documents` —
-`import_run_id`, `blocks_imported`, `blocks_conflicted`, per-statement results
-with `reviewer_action`, `similarity_matches`, and `event_ids`.
+Output (JSON, `--json`) is one report: `import_run_id`, `connector_kind`,
+`doc_id`, and the counts `versions_walked`, `versions_skipped_identical`,
+`statements_proposed`, `statements_as_evidence`, `statements_superseded`,
+`statements_skipped_idempotent` and `statements_unchanged`.
 
-### 4.2 Hosted API (Server-Side Import)
+### 4.2 Hosted API (Server-Side Import) — v1.1, not built
 
-Non-technical users paste a URL into the SPA. The SPA calls:
+There is no `/v1/import/connector` route today; `hivemind import connector` is
+the only surface. Approved design for v1.1: non-technical users paste a URL
+into the SPA. The SPA calls:
 
 ```http
 POST /v1/import/connector
@@ -445,8 +449,8 @@ without blocking. CLI wraps the async runtime with `tokio::main`.
 
 The pipeline holds a `Vec<Box<dyn Connector>>` (a registry). On import, each
 connector's `resolve()` is called in order; the first `Some(source_id)` wins.
-Unknown URLs return a clear error: "no connector matched this URL; supported:
-gdocs, confluence, git-file".
+Unknown URLs return a clear error: "no connector matched '<url>'; supported:
+git_file, google_docs".
 
 ---
 
@@ -489,12 +493,13 @@ Rationale:
 - Statement segmentation (deterministic, no LLM).
 - Same-as resolution pass (post-import, advisory, human-review gate).
 - CLI: `hivemind import connector` + `hivemind connector auth`.
-- API: `POST /v1/import/connector` (server-side, uses caller's OAuth grant).
 - Same-as review commands: `same-as-candidates`, `confirm-same-as`, `retract-same-as`.
 
-**Deferred:**
-- `ConfluenceConnector` — auth adds complexity; defer to v1.1 once Google is
-  working. (Open question for alex: is Confluence v1 or v1.1?)
+**Deferred (v1.1, not built):**
+- `ConfluenceConnector` — auth adds complexity; deferred until Google was
+  working (§7, Q2).
+- API: `POST /v1/import/connector` (server-side, uses caller's OAuth grant;
+  §7, Q6).
 - Standing watcher / continuous-poll daemon.
 - SPA same-as review panel (data contract defined here; UX built later).
 - LLM-assisted statement segmentation (layer 3; write path stays deterministic).
@@ -526,9 +531,11 @@ This keeps the graph a decision graph, not a document-content dump.
 
 ---
 
-## 7. Open Questions for Alex
+## 7. Questions and Their Resolutions
 
-These are unresolved and require alex's call before implementation locks.
+These were open when the design was written. Alex approved the design as
+proposed on 2026-07-16, and every question resolved to the recommendation given
+under it (Q7: the 70% default stays).
 
 1. **Connector order**: should Google Docs or git-file ship first? Git-file
    requires no auth and dogfoods immediately; Google Docs is higher-value for
@@ -555,8 +562,8 @@ These are unresolved and require alex's call before implementation locks.
    supersession chains); grouping as a layer-3 suggestion later.
 
 6. **v1 API surface cut**: should the `POST /v1/import/connector` endpoint
-   land in v1 or is CLI-only sufficient to validate the pipeline? Recommendation:
-   CLI first, API endpoint in v1.1 once the pipeline is validated.
+   land in v1 or is CLI-only sufficient to validate the pipeline? Recommendation
+   (approved): CLI first, API endpoint in v1.1 once the pipeline is validated.
 
 7. **Same-as threshold**: is 70% token overlap the right default for the
    precision-biased same-as gate, or should it be higher (e.g., 80%)?
@@ -610,19 +617,12 @@ An imported event with no original author is marked `provisional: true` in
 
 ---
 
-## 10. Summary and Next Steps
+## 10. Summary
 
 This design delivers a clean connector abstraction (v1: Google Docs + git-file)
 with version-walk, statement-level SUPERSEDES chains, bitemporal stamps, and a
 precision-biased same-as layer with human-review gates.
 
-**Immediate next steps (after alex sign-off):**
-1. Alex reviews §7 open questions and unblocks the connector order and v1 cut.
-2. Implementation bead for `Connector` trait + `GitFileConnector` + version-walk
-   pipeline (no auth required — fastest validation path).
-3. Implementation bead for `GoogleDocsConnector` + auth sidecar connector token
-   storage.
-4. Implementation bead for same-as layer + review commands.
-5. Implementation bead for `POST /v1/import/connector` API endpoint (if v1).
-
-Nothing in steps 2–5 begins before alex reviews §7.
+Built: the `Connector` trait, `GitFileConnector`, `GoogleDocsConnector`, the
+version-walk pipeline, and the same-as layer with its review commands. Not
+built: `ConfluenceConnector` and `POST /v1/import/connector` (v1.1, §5.2).
