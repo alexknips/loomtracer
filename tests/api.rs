@@ -5733,6 +5733,125 @@ async fn mint_agent_token_can_be_revoked() {
     ); // ubs:ignore
 }
 
+/// The admin calls that take a `tenant_id` and would write a credential row or list one for it,
+/// each aimed at `tenant`.
+fn admin_calls_for_tenant(tenant: &str, admin_key: &str) -> Vec<(&'static str, Request<Body>)> {
+    vec![
+        (
+            "POST /v1/agent-tokens",
+            admin_post(
+                "/v1/agent-tokens",
+                serde_json::json!({
+                    "agent_tool": "claude", "agent_name": "typo-agent", "tenant_id": tenant
+                }),
+                admin_key,
+            ),
+        ),
+        (
+            "POST /v1/users",
+            admin_post(
+                "/v1/users",
+                serde_json::json!({
+                    "email": "typo@example.com", "display_name": "Typo", "role": "member",
+                    "tenant_id": tenant
+                }),
+                admin_key,
+            ),
+        ),
+        (
+            "GET /v1/users",
+            admin_get(&format!("/v1/users?tenant_id={tenant}"), admin_key),
+        ),
+        (
+            "POST /v1/users/{id}/tokens",
+            admin_post(
+                &format!(
+                    "/v1/users/{}/tokens?tenant_id={tenant}",
+                    uuid::Uuid::new_v4()
+                ),
+                serde_json::json!({}),
+                admin_key,
+            ),
+        ),
+    ]
+}
+
+/// Asserts `request` was answered 404 `unknown_tenant`, naming `tenant`.
+async fn assert_unknown_tenant(
+    app: &axum::Router,
+    route: &str,
+    request: Request<Body>,
+    tenant: &str,
+) {
+    let (status, body) = call(app.clone(), request).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{route}: {body}"); // ubs:ignore
+    assert_eq!(body["error"]["code"], "unknown_tenant", "{route}: {body}"); // ubs:ignore
+    assert!(
+        // ubs:ignore
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(tenant),
+        "{route} must name the tenant: {body}"
+    );
+}
+
+/// Rows in the SQLite `hm_users` and `hm_tokens` tables, to show a refused admin call wrote none.
+fn credential_rows(dir: &Path) -> (i64, i64) {
+    let connection = rusqlite::Connection::open(dir.join("ledger.sqlite")).expect("open ledger");
+    let count = |table: &str| -> i64 {
+        connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count rows")
+    };
+    (count("hm_users"), count("hm_tokens"))
+}
+
+#[tokio::test]
+async fn admin_token_routes_refuse_an_unregistered_tenant_and_mint_nothing() {
+    // `hm_tokens` has no foreign key to `tenants` on SQLite, so a typo'd `tenant_id` used to get
+    // 201 and a token that /v1/whoami accepted and every other call refused (hivemind-on7rr).
+    let dir = test_ledger_dir();
+    let admin_key = "unknown-tenant-admin";
+    let app = app_with_admin_key(dir.clone(), admin_key);
+    register_acme(&dir);
+
+    // Control: a registered tenant other than the default still mints.
+    let (status, body) = call(
+        app.clone(),
+        admin_post(
+            "/v1/agent-tokens",
+            serde_json::json!({
+                "agent_tool": "claude", "agent_name": "acme-agent", "tenant_id": "acme"
+            }),
+            admin_key,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}"); // ubs:ignore
+    let rows_before = credential_rows(&dir);
+
+    for (route, request) in admin_calls_for_tenant("acem", admin_key) {
+        assert_unknown_tenant(&app, route, request, "acem").await;
+    }
+    assert_eq!(credential_rows(&dir), rows_before); // ubs:ignore
+
+    // An empty tenant is no tenant at all: a validation error, not a lookup.
+    let (status, body) = call(
+        app.clone(),
+        admin_post(
+            "/v1/agent-tokens",
+            serde_json::json!({"agent_tool": "claude", "agent_name": "nobody", "tenant_id": ""}),
+            admin_key,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
+    assert_eq!(credential_rows(&dir), rows_before); // ubs:ignore
+}
+
 // ---------------------------------------------------------------------------
 // Grounded capture (hivemind-gwhr.2): POST /v1/decisions and /supersessions ask
 // "what does this decision rest on?" exactly like the MCP tools.
@@ -6419,6 +6538,70 @@ mod whoami_postgres {
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{what}: {body}"); // ubs:ignore
         }
 
+        tokio::task::spawn_blocking(move || drop(app))
+            .await
+            .expect("dropping app must not panic");
+    }
+}
+
+#[cfg(feature = "shared-backend-postgres")]
+mod admin_tokens_postgres {
+    use super::classify_queue_postgres::{
+        skip_if_no_postgres, unique_tenant, TEST_DATABASE_URL_ENV,
+    };
+    use super::*;
+
+    const ADMIN_KEY: &str = "admin-tokens-test-admin-key";
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn admin_token_routes_refuse_an_unregistered_tenant_over_postgres() {
+        // The foreign key on `hm_tokens` refuses a token for a missing tenant, but the handler
+        // used to hand the raw database message back as a 500 `internal_error`
+        // (hivemind-on7rr). Now it is the same 404 `unknown_tenant` SQLite gives.
+        let Some(pg_url) = skip_if_no_postgres() else {
+            eprintln!("skipping admin token Postgres test; set {TEST_DATABASE_URL_ENV}");
+            return;
+        };
+        // `create_router` opens the r2d2/postgres pool, so it runs off the Tokio worker — see
+        // classify_queue_postgres.
+        let app = tokio::task::spawn_blocking(move || {
+            app_with_auth(test_ledger_dir(), Some(&pg_url), Some(ADMIN_KEY), None)
+        })
+        .await
+        .expect("spawn_blocking join must not panic");
+
+        // Control: a provisioned tenant still mints.
+        let provisioned = unique_tenant("admin-tokens");
+        let (status, body) = call(
+            app.clone(),
+            admin_post(
+                "/v1/tenants",
+                serde_json::json!({ "tenant_id": provisioned, "display_name": "admin tokens" }),
+                ADMIN_KEY,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}"); // ubs:ignore
+        let (status, body) = call(
+            app.clone(),
+            admin_post(
+                "/v1/agent-tokens",
+                serde_json::json!({
+                    "agent_tool": "claude", "agent_name": "admin-tokens", "tenant_id": provisioned
+                }),
+                ADMIN_KEY,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}"); // ubs:ignore
+
+        let never_provisioned = unique_tenant("never-provisioned");
+        for (route, request) in admin_calls_for_tenant(&never_provisioned, ADMIN_KEY) {
+            assert_unknown_tenant(&app, route, request, &never_provisioned).await;
+        }
+
+        // Dropping the last Router clone tears the pool down synchronously — see
+        // classify_queue_postgres.
         tokio::task::spawn_blocking(move || drop(app))
             .await
             .expect("dropping app must not panic");

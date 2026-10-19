@@ -147,7 +147,9 @@ Decisions captured by Alice are attributed to `human:alice@example.com`; Bob's
 to `human:bob@example.com`. Actor identity is locked to the token — the server
 ignores any `X-HiveMind-Actor` header.
 
-**Managing tokens:**
+**Managing tokens:** the routes that take a `tenant_id` (`POST /v1/users`,
+`POST /v1/agent-tokens`, `GET /v1/users`, `POST /v1/users/<USER_ID>/tokens`) answer
+`404 unknown_tenant` for one that is not registered, and mint nothing.
 
 ```bash
 # List all users

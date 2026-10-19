@@ -725,6 +725,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   decisions". A source folder that holds no ledger is now refused before it is opened (exit 2,
   naming the folder), whether or not the folder exists, and nothing is created. A ledger that
   exists but holds no events for the tenant still gets "nothing to migrate". (hivemind-eapb1)
+- **The admin token routes refuse a tenant that is not registered.** `POST /v1/agent-tokens`,
+  `POST /v1/users` and `POST /v1/users/{id}/tokens` took `tenant_id` from the body or query
+  (default `local`) and never checked it. On SQLite a typo'd tenant got `201` and a token that
+  `/v1/whoami` reported as that tenant, so the UI's token sign-in looked fine, and then every
+  other call failed `404 unknown_tenant`; on Postgres the foreign key refused it but the answer
+  was a `500 internal_error` carrying the raw database message. `GET /v1/users?tenant_id=` answered
+  a missing tenant with an empty user list. All four now answer `404 unknown_tenant`, naming the
+  tenant, on both backends, and write nothing; an empty `tenant_id` is a `400`. A Postgres server
+  where `local` was never provisioned answers the same when `tenant_id` is left out.
+  (hivemind-on7rr)
 - **`hivemind --json quality-scan` prints its report when there is nothing to file.** It printed
   the JSON report when a finding was waiting and a plain sentence when none was, so a scan on a
   schedule (`hivemind --json --actor agent:x quality-scan --dry-run | jq .filed`) worked until

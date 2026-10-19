@@ -493,6 +493,21 @@ pub(super) fn check_admin_key(state: &AppState, headers: &HeaderMap) -> Result<(
     }
 }
 
+/// Answers 404 `unknown_tenant` for an admin route whose `tenant_id` (body or query, default
+/// `local`) is not registered on this backend, so the route mints, lists and revokes nothing for
+/// a tenant that does not exist — the same refusal the per-request seam gives a typo'd
+/// `X-HiveMind-Tenant`.
+#[allow(clippy::result_large_err)]
+async fn require_known_tenant(state: &AppState, tenant_id: &str) -> Result<(), Response> {
+    let backend = Arc::clone(&state.backend);
+    let tenant_id = tenant_id.to_owned();
+    match tokio::task::spawn_blocking(move || backend.ensure_known_tenant(&tenant_id)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e.into_response()),
+        Err(e) => Err(ApiError::internal(e.to_string()).into_response()),
+    }
+}
+
 pub(super) async fn create_user_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -506,10 +521,17 @@ pub(super) async fn create_user_handler(
         Err(e) => return ApiError::validation(e.to_string()).into_response(),
     };
 
+    let tenant_id = req
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| TenantId::LOCAL_VALUE.to_owned());
+    if let Err(r) = require_known_tenant(&state, &tenant_id).await {
+        return r;
+    }
+
     // Postgres path
     #[cfg(feature = "shared-backend-postgres")]
     if let Some(ref store) = state.tenant_store {
-        let tenant_id = req.tenant_id.clone().unwrap_or_else(|| "local".to_owned());
         let store = Arc::clone(store);
         let result = tokio::task::spawn_blocking(move || {
             let u = store
@@ -530,10 +552,6 @@ pub(super) async fn create_user_handler(
 
     // SQLite path
     if let Some(ref user_store) = state.sqlite_user_store {
-        let tenant_id = req
-            .tenant_id
-            .clone()
-            .unwrap_or_else(|| crate::events::TenantId::LOCAL_VALUE.to_owned());
         let user_store = Arc::clone(user_store);
         let result = tokio::task::spawn_blocking(move || {
             let u = user_store
@@ -584,11 +602,17 @@ pub(super) async fn create_agent_token_handler(
         return ApiError::validation("agent_tool and agent_name must not be empty").into_response();
     }
     let actor_id = format!("agent:{agent_tool}:{agent_name}");
+    let tenant_id = req
+        .tenant_id
+        .clone()
+        .unwrap_or_else(|| TenantId::LOCAL_VALUE.to_owned());
+    if let Err(r) = require_known_tenant(&state, &tenant_id).await {
+        return r;
+    }
 
     // Postgres path
     #[cfg(feature = "shared-backend-postgres")]
     if let Some(ref store) = state.tenant_store {
-        let tenant_id = req.tenant_id.clone().unwrap_or_else(|| "local".to_owned());
         let store = Arc::clone(store);
         let label = req.label.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -607,10 +631,6 @@ pub(super) async fn create_agent_token_handler(
 
     // SQLite path
     if let Some(ref user_store) = state.sqlite_user_store {
-        let tenant_id = req
-            .tenant_id
-            .clone()
-            .unwrap_or_else(|| crate::events::TenantId::LOCAL_VALUE.to_owned());
         let user_store = Arc::clone(user_store);
         let label = req.label.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -641,8 +661,11 @@ pub(super) async fn list_users_handler(
     let tenant_id = params
         .get("tenant_id")
         .map(|s| s.as_str())
-        .unwrap_or("local")
+        .unwrap_or(TenantId::LOCAL_VALUE)
         .to_owned();
+    if let Err(r) = require_known_tenant(&state, &tenant_id).await {
+        return r;
+    }
 
     #[cfg(feature = "shared-backend-postgres")]
     if let Some(ref store) = state.tenant_store {
@@ -720,8 +743,11 @@ pub(super) async fn mint_user_token_handler(
     let tenant_id = params
         .get("tenant_id")
         .map(|s| s.as_str())
-        .unwrap_or("local")
+        .unwrap_or(TenantId::LOCAL_VALUE)
         .to_owned();
+    if let Err(r) = require_known_tenant(&state, &tenant_id).await {
+        return r;
+    }
     let label = params.get("label").cloned();
 
     #[cfg(feature = "shared-backend-postgres")]
