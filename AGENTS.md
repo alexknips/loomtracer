@@ -19,7 +19,7 @@ cargo test --locked
 - **One test:** `cargo test --locked --test <file> <test_name>`. Every file in `tests/` is its own binary; unit tests sit beside the code (`cargo test --locked --lib <name>`).
 - **Golden snapshots** (`tests/snapshots/golden`, fixtures in `tests/fixtures`): `cargo test --test golden`; after an intended change, `cargo test --test golden -- --bless`.
 - **Feature-gated code** is skipped by the commands above. `tests/migrate.rs` and the Postgres tests need `--features shared-backend-postgres` and `HIVEMIND_TEST_POSTGRES_URL` pointing at a Postgres, with `HIVEMIND_POSTGRES_POOL_SIZE=4` (the `rust-postgres` CI job). Without the URL most of them self-skip, so a green run proves nothing about Postgres. `--features tui` is a CI leg too. Kuzu (`graph-kuzu`) compiles C++ and runs only in the nightly workflow.
-- **Python capture shipper:** `python3 -m unittest discover -s capture/tests`.
+- **Python capture shipper:** `python3 -m unittest discover -s capture/tests`. `cargo test` runs it too (`tests/capture_shipper_python.rs`), and skips it with a printed reason when `python3` is not on `PATH`.
 - **Install the CLI:** `make install` puts `hivemind` in `~/.local/bin`, not `~/.cargo/bin`; check with `hivemind --version`.
 
 [`docs/QUALITY_GATES.md`](docs/QUALITY_GATES.md) is the full gate contract: which gates a diff owes, and the proof lines.
