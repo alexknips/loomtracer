@@ -325,11 +325,68 @@ fn the_check_date_is_measured_against_the_clock_it_is_asked_at() -> Result<()> {
     };
 
     assert_eq!(bets_at(ts("2026-08-31T23:59:59Z"))?, 0);
-    // Not yet past: the date itself is the last moment it may still be checked.
+    // These bets carry an exact instant (2026-09-01T00:00:00Z): not yet past at it, past after it.
     assert_eq!(bets_at(ts("2026-09-01T00:00:00Z"))?, 0);
     assert_eq!(bets_at(ts("2026-09-01T00:00:01Z"))?, 2);
     // One more bet falls due in December; the undated one never does.
     assert_eq!(bets_at(ts("2026-12-02T00:00:00Z"))?, 3);
+    Ok(())
+}
+
+/// One decision resting on a bet whose check date is `check_by` as a person types it, run
+/// through the parser the write path uses rather than handed over as a ready-made instant.
+fn bet_due_scenario(check_by: &str) -> Result<Scenario> {
+    let due = crate::util::parse_check_by(check_by).expect("the check date parses");
+    let scenario = Scenario::new();
+    scenario.hypothesis(
+        "h:due",
+        "A bet",
+        "bet",
+        Some(&due.to_rfc3339()),
+        "2026-01-01T00:00:00Z",
+    )?;
+    scenario.decision_with(
+        "d:due",
+        "Rests on the bet",
+        "agent:claude:crew",
+        "2026-02-01T00:00:00Z",
+        true,
+        &[],
+        &["h:due"],
+        None,
+    )?;
+    Ok(scenario)
+}
+
+/// How many bets read as past their check date at `at`.
+fn bets_past_at(graph: &impl GraphView, at: &str) -> Result<usize> {
+    Ok(attention_findings_at(
+        graph,
+        &request(&[FindingKind::BetPastCheckDate], 0),
+        &AttentionConfig::default(),
+        ts(at),
+    )?
+    .findings
+    .len())
+}
+
+#[test]
+fn a_bare_check_date_is_past_only_once_the_named_day_is_over() -> Result<()> {
+    let graph = bet_due_scenario("2026-09-01")?.graph()?;
+
+    assert_eq!(bets_past_at(&graph, "2026-09-01T00:00:01Z")?, 0);
+    assert_eq!(bets_past_at(&graph, "2026-09-01T23:59:59.500Z")?, 0);
+    assert_eq!(bets_past_at(&graph, "2026-09-02T00:00:00Z")?, 1);
+    Ok(())
+}
+
+#[test]
+fn an_rfc3339_check_date_with_an_offset_is_past_at_that_instant() -> Result<()> {
+    // 20:00 on 1 September in California is 03:00 on 2 September UTC.
+    let graph = bet_due_scenario("2026-09-01T20:00:00-07:00")?.graph()?;
+
+    assert_eq!(bets_past_at(&graph, "2026-09-02T02:59:59Z")?, 0);
+    assert_eq!(bets_past_at(&graph, "2026-09-02T03:00:01Z")?, 1);
     Ok(())
 }
 

@@ -3,16 +3,20 @@ use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
 use crate::error::CommandError;
 use crate::Result;
 
-/// Parses a bet's check date: an RFC3339 timestamp or a bare `YYYY-MM-DD` date (midnight UTC).
-/// No relative phrases — a check date is a fact about the future, not "7d" from now.
+/// Parses a bet's check date into the instant it falls due: an RFC3339 timestamp (that exact
+/// instant, whatever offset it names) or a bare `YYYY-MM-DD` date. A bare date names a whole day,
+/// so it falls due at the last instant of that day in UTC, not at the start of it: the bet reads
+/// as past (`check_by < now`) only once the named day is over, and the date still prints as the
+/// day the person named. No relative phrases — a check date is a fact about the future, not "7d"
+/// from now.
 pub(crate) fn parse_check_by(value: &str) -> Option<DateTime<Utc>> {
     let trimmed = value.trim();
     if let Ok(parsed) = DateTime::parse_from_rfc3339(trimmed) {
         return Some(parsed.with_timezone(&Utc));
     }
-    NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
-        .ok()
-        .map(|date| Utc.from_utc_datetime(&date.and_time(NaiveTime::MIN)))
+    let date = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").ok()?;
+    let end_of_day = NaiveTime::from_hms_nano_opt(23, 59, 59, 999_999_999)?;
+    Some(Utc.from_utc_datetime(&date.and_time(end_of_day)))
 }
 
 pub(crate) fn require_non_empty(field: &'static str, value: &str) -> Result<()> {
@@ -58,3 +62,6 @@ pub(crate) fn require_agent_actor_id(actor_id: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

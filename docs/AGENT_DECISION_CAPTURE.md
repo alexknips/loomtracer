@@ -65,7 +65,9 @@ on?" with at least one of:
   none).
 - `--rests-on-assumption <statement>` — something assumed. Repeatable.
 - `--bet [statement]`, optionally `--would-change-if <text>` and
-  `--check-by <date>` — nothing yet: a declared bet.
+  `--check-by <date>` — nothing yet: a declared bet. The date is an RFC3339 timestamp or a
+  `YYYY-MM-DD` day, due through the end of that day in UTC (the bet reads as past its check date
+  from the next midnight UTC).
 
 An existing evidence or hypothesis id (`--evidence`, `--hypotheses`) also counts.
 `--confidence low|medium|high` records the decider's own stated confidence; omit

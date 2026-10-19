@@ -72,9 +72,10 @@ fn from_wire_parses_every_item_kind() {
     let bet = spec.bet.expect("bet parsed");
     assert_eq!(bet.statement.as_deref(), Some("the vendor survives"));
     assert_eq!(bet.would_change_if.as_deref(), Some("they raise prices"));
+    // A bare date is due through the end of the named day, not from the start of it.
     assert_eq!(
         bet.check_by.map(|at| at.to_rfc3339()),
-        Some("2026-12-01T00:00:00+00:00".to_owned())
+        Some("2026-12-01T23:59:59.999999999+00:00".to_owned())
     );
 }
 

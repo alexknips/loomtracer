@@ -337,6 +337,15 @@ list of decisions whose premise changed, `evidence_not_rechecked` is the list of
 evidence not re-checked and `propagation_unfinished` is the list of premises whose
 change nobody has followed up. A request can ask for any subset of the seven.
 
+A bet's check date is the instant it falls due, and `bet_past_check_date` flags it once that
+instant is earlier than the clock the list is read at. A check date written as an RFC3339
+timestamp is that exact instant, whatever offset it names (`2026-09-01T20:00:00-07:00` falls due
+at 03:00 UTC on 2 September). A bare `YYYY-MM-DD` date names a whole day and falls due at the
+end of that day in UTC: a bet to be checked by `2026-09-01` is flagged from 00:00 UTC on 2
+September, never on the day itself. Dates are shown in UTC. A bare date recorded before this
+rule was written was stored as the start of its day and keeps that reading: the ledger is not
+rewritten, and a stored midnight cannot be told from a timestamp someone gave at midnight.
+
 **Evidence not re-checked.** The window is 90 days by default (one quarter) and is
 configurable (`AttentionConfig::evidence_window_days`). "Re-checked" means newer
 evidence is linked to the decision, whether it was attached at capture or

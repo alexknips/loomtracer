@@ -3630,14 +3630,9 @@ fn parse_utc_date(value: &str) -> Option<DateTime<Utc>> {
         .map(|date| Utc.from_utc_datetime(&date.and_time(NaiveTime::MIN)))
 }
 
-/// Parses `--check-by`: an RFC3339 timestamp or a bare `YYYY-MM-DD` date (midnight UTC).
-/// No relative phrases here — a check date is a fact about the future, not "7d" from now.
+/// Parses `--check-by` with the one check-date parser (`crate::util::parse_check_by`).
 fn parse_check_by_date(flag: &'static str, value: &str) -> Result<DateTime<Utc>> {
-    let trimmed = value.trim();
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(trimmed) {
-        return Ok(parsed.with_timezone(&Utc));
-    }
-    parse_utc_date(trimmed).ok_or_else(|| {
+    crate::util::parse_check_by(value).ok_or_else(|| {
         CliError::InvalidInput(format!(
             "{flag} must be an RFC3339 timestamp or a YYYY-MM-DD date (got: {value})"
         ))
