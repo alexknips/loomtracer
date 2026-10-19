@@ -3987,7 +3987,12 @@ fn run_query_with_graph(
                 project: args.project.clone(),
             };
             let response = recall_decisions(context, ledger, graph, &request)?;
-            format_query_response(query.summary, &response, render_recall_summary, None)?
+            format_query_response(
+                query.summary,
+                &response,
+                render_recall_summary,
+                response.data.ranked.next_cursor.as_deref(),
+            )?
         }
         QueryCommand::GetActiveDecisionBlockers(args) => {
             let request = ActiveDecisionBlockersRequest {

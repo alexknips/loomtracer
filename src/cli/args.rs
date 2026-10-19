@@ -2529,6 +2529,7 @@ pub struct QueryRecallArgs {
     #[arg(long = "limit", default_value_t = 5)]
     pub limit: usize,
 
+    /// Continue a truncated recall: the `next_cursor` of the previous page.
     #[arg(long = "cursor")]
     pub cursor: Option<String>,
 

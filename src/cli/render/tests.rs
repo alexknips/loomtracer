@@ -457,6 +457,7 @@ fn recall_summary_of_a_project_scoped_answer_says_where_each_decision_came_from(
             ranked: RecallRanked {
                 total_matches: search.total_matches,
                 truncated: false,
+                next_cursor: None,
                 items: search.items,
             },
             digest: DecisionSummary {
@@ -1593,6 +1594,7 @@ fn a_match_says_when_what_it_rests_on_changed() -> Result<()> {
         ranked: RecallRanked {
             total_matches: results.total_matches,
             truncated: false,
+            next_cursor: None,
             items: results.items,
         },
         digest: DecisionSummary {

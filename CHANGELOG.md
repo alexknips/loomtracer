@@ -735,6 +735,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   ledger and a SQLite server agree. A server that knows the caller by token still takes tenant and
   actor from the token and ignores both headers, and `classify-queue --help` now says so.
   (hivemind-vx9ma)
+- **A truncated `recall` gives the cursor to read the rest.** `query recall` and the
+  `recall_decisions` tool took a `--cursor` / `cursor` and answered `truncated: true` when more
+  decisions matched than `--limit` (at most 10), but never said what to pass as the cursor; only
+  a caller who guessed that it is a count of records could page, and a count of the items shown
+  is wrong once records linked as one decision fold into one item. Now the answer carries
+  `ranked.next_cursor` (CLI `--json`, MCP, `GET /v1/decisions/recall`), which counts matched
+  records, and the `--summary` footer reads `truncated=true next_cursor=<n>`. Pass it back as
+  `--cursor` for the next page; the last page has `next_cursor: null`. A decision recorded twice
+  whose records fall on two pages is shown on both, naming its other record in
+  `also_recorded_as`. (hivemind-v3lrl)
 - **`hivemind digest` keeps the newest decisions of a window and lets you read the rest.** A
   window that held more than 50 decisions showed an arbitrary 50, in decision-id order (a random
   uuid, with classifier drafts, `capture:<n>:<i>`, ahead of every other), and the rest could not

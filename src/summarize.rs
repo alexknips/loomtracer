@@ -412,6 +412,7 @@ pub struct RecallRequest {
     pub until: Option<DateTime<Utc>>,
     /// How many top search results to return and summarize (1–RECALL_MAX_LIMIT).
     pub limit: usize,
+    /// Where to continue: the `next_cursor` of the previous page. `None` reads the best matches.
     pub cursor: Option<String>,
     /// Ask from this project (a registered handle or a personal address): decisions come from
     /// the project first, then the project it is part of (inherited constraints), then the
@@ -429,6 +430,11 @@ pub struct RecallRanked {
     /// times counts three times, so this can exceed the items of a page that is not `truncated`.
     pub total_matches: usize,
     pub truncated: bool,
+    /// Where to continue when `truncated`: pass it back as the request's `cursor` for the next
+    /// page. It counts matched records, not the items of this page, so it stays right when linked
+    /// records are folded into one item. A decision whose records fall on two pages is shown on
+    /// both, each time naming its other records in `also_recorded_as`. `None` on the last page.
+    pub next_cursor: Option<String>,
 }
 
 /// Full recall response: ranked decisions + text digest.
@@ -612,6 +618,7 @@ pub fn recall_decisions(
             ranked: RecallRanked {
                 total_matches: search_data.total_matches,
                 truncated,
+                next_cursor: search_data.next_cursor,
                 items: search_data.items,
             },
             digest,
