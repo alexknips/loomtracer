@@ -621,8 +621,11 @@ fn to_api_error(error: HivemindError) -> ApiError {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_ACTOR: &str = "service:api";
-const HEADER_TENANT: &str = "x-hivemind-tenant";
-const HEADER_ACTOR: &str = "x-hivemind-actor";
+/// The headers a caller names its tenant and actor in when the credential does not (the SQLite
+/// static key, or none). `classify-queue` over `HIVEMIND_API_URL` sends them from `--tenant` and
+/// `--actor`.
+pub(crate) const HEADER_TENANT: &str = "x-hivemind-tenant";
+pub(crate) const HEADER_ACTOR: &str = "x-hivemind-actor";
 const HEADER_AUTHORIZATION: &str = "authorization";
 const HEADER_FORWARDED_PROTO: &str = "x-forwarded-proto";
 

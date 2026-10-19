@@ -15,6 +15,11 @@
 //! hivemind-vf0iz: the server answers a token that maps to a tenant it does not hold with its own
 //! 404 `unknown_tenant`, and the CLI reads it as the local ledger's storage refusal, exit 4. It
 //! must not read as the refused batch id above: every call fails for that one reason.
+//!
+//! hivemind-vx9ma: over `HIVEMIND_API_URL` the CLI sent no tenant and no actor, so a SQLite
+//! server answered for tenant `local` as `service:api` whatever `--tenant`, `HIVEMIND_TENANT` and
+//! `--actor` said, while a local ledger honours all three. `list` showed another tenant's queue
+//! and `submit` recorded under the wrong name. A token still decides both on the server.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -24,7 +29,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use hivemind::commands::{CommandContext, Commands};
-use hivemind::events::{EventProvenance, TenantId};
+use hivemind::events::{Event, EventProvenance, EventType, TenantId};
 use hivemind::ledger::{EventLedger, SqliteEventLedger, SqliteUserStore};
 
 fn unique_dir(label: &str) -> PathBuf {
@@ -71,10 +76,15 @@ fn stderr(output: &Output) -> String {
 
 /// A ledger under `dir` that has received `batch_ids`, the way `POST /v1/ingest` leaves one.
 fn ledger_with_batches(dir: &Path, batch_ids: &[&str]) {
-    let ledger = SqliteEventLedger::open(dir).expect("open the ledger"); // ubs:ignore: test-only; panicking is correct in tests
+    ledger_with_batches_in(dir, &TenantId::local(), batch_ids);
+}
+
+/// [`ledger_with_batches`] in `tenant`, which the ledger must already hold.
+fn ledger_with_batches_in(dir: &Path, tenant: &TenantId, batch_ids: &[&str]) {
+    let ledger = SqliteEventLedger::open_for_tenant(dir, tenant).expect("open the ledger"); // ubs:ignore: test-only; panicking is correct in tests
     let commands = Commands::new_with_context(
         &ledger,
-        CommandContext::new(TenantId::local(), EventProvenance::agent("agent:test")),
+        CommandContext::new(tenant.clone(), EventProvenance::agent("agent:test")),
     );
     for batch_id in batch_ids {
         commands
@@ -83,13 +93,17 @@ fn ledger_with_batches(dir: &Path, batch_ids: &[&str]) {
     }
 }
 
-/// How many events the ledger under `dir` holds.
-fn event_count(dir: &Path) -> usize {
+/// The events of `tenant` in the ledger under `dir`.
+fn events_in(dir: &Path, tenant: &TenantId) -> Vec<Event> {
     let ledger = SqliteEventLedger::open(dir).expect("open the ledger"); // ubs:ignore: test-only; panicking is correct in tests
     ledger
-        .read_for_tenant(&TenantId::local(), 0, 10_000)
+        .read_for_tenant(tenant, 0, 10_000)
         .expect("read the ledger") // ubs:ignore: test-only; panicking is correct in tests
-        .len()
+}
+
+/// How many events tenant `local` of the ledger under `dir` holds.
+fn event_count(dir: &Path) -> usize {
+    events_in(dir, &TenantId::local()).len()
 }
 
 fn pending_total(dir: &Path) -> u64 {
@@ -581,4 +595,235 @@ fn a_404_that_is_not_the_servers_not_found_stays_a_failed_request() {
         "{}",
         stderr(&output)
     );
+}
+
+// ---------------------------------------------------------------------------
+// --tenant and --actor over HIVEMIND_API_URL (hivemind-vx9ma)
+// ---------------------------------------------------------------------------
+
+const ACME: &str = "acme";
+const WORKER: &str = "agent:claude:worker";
+const LOCAL_BATCH: &str = "local-session:0-1";
+const ACME_BATCH: &str = "acme-session:0-1";
+
+fn acme() -> TenantId {
+    TenantId::new(ACME).expect("a tenant id") // ubs:ignore: test-only; panicking is correct in tests
+}
+
+/// A ledger under `dir` that holds one waiting batch in tenant `local` and one in `acme`.
+fn ledger_with_a_batch_in_local_and_in_acme(dir: &Path) {
+    ledger_with_batches(dir, &[LOCAL_BATCH]);
+    SqliteEventLedger::open(dir)
+        .expect("open the ledger") // ubs:ignore: test-only; panicking is correct in tests
+        .create_tenant(&acme())
+        .expect("register the tenant"); // ubs:ignore: test-only; panicking is correct in tests
+    ledger_with_batches_in(dir, &acme(), &[ACME_BATCH]);
+}
+
+/// `hivemind <args>` the way an agent on a cell runs it: from a folder of its own that holds no
+/// ledger, with `HIVEMIND_API_URL` (and whatever else `envs` adds) pointing at the server.
+fn over_cell(url: &str, own_dir: &Path, envs: &[(&str, &str)], args: &[&str]) -> Output {
+    let mut all_envs = vec![("HIVEMIND_API_URL", url)];
+    all_envs.extend_from_slice(envs);
+    hivemind_with(own_dir, &all_envs, args)
+}
+
+/// The batch ids a `classify-queue list --json` answer holds.
+fn queued_ids(output: &Output) -> Vec<String> {
+    assert!(output.status.success(), "{}", stderr(output));
+    let queue: serde_json::Value =
+        serde_json::from_str(&stdout(output)).expect("the queue is JSON"); // ubs:ignore: test-only; panicking is correct in tests
+    queue["batches"]
+        .as_array()
+        .expect("a batches array") // ubs:ignore: test-only; panicking is correct in tests
+        .iter()
+        .map(|batch| {
+            batch["batch_id"]
+                .as_str()
+                .expect("a batch_id") // ubs:ignore: test-only; panicking is correct in tests
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The `ingest.batch_classified` events of `tenant`, by the actor each names.
+fn classified_by(dir: &Path, tenant: &TenantId) -> Vec<String> {
+    events_in(dir, tenant)
+        .into_iter()
+        .filter(|event| event.event_type == EventType::IngestBatchClassified)
+        .map(|event| event.actor_id)
+        .collect()
+}
+
+#[test]
+fn over_a_cell_url_list_shows_the_queue_of_the_tenant_the_flag_names() {
+    let served_dir = unique_dir("served-list-tenant");
+    ledger_with_a_batch_in_local_and_in_acme(&served_dir);
+    let own_dir = unique_dir("own-list-tenant");
+    let served = Served::start(&served_dir);
+
+    let acmes = over_cell(
+        &served.url,
+        &own_dir,
+        &[],
+        &["--tenant", ACME, "classify-queue", "list", "--json"],
+    );
+    let locals = over_cell(
+        &served.url,
+        &own_dir,
+        &[],
+        &["classify-queue", "list", "--json"],
+    );
+
+    assert_eq!(queued_ids(&acmes), [ACME_BATCH], "--tenant acme");
+    assert_eq!(queued_ids(&locals), [LOCAL_BATCH], "no --tenant is local");
+    assert!(
+        !own_dir.exists(),
+        "the CLI made a ledger of its own beside the cell"
+    );
+}
+
+#[test]
+fn over_a_cell_url_list_takes_the_tenant_from_hivemind_tenant_too() {
+    let served_dir = unique_dir("served-list-env-tenant");
+    ledger_with_a_batch_in_local_and_in_acme(&served_dir);
+    let own_dir = unique_dir("own-list-env-tenant");
+    let served = Served::start(&served_dir);
+
+    let listed = over_cell(
+        &served.url,
+        &own_dir,
+        &[("HIVEMIND_TENANT", ACME)],
+        &["classify-queue", "list", "--json"],
+    );
+
+    assert_eq!(queued_ids(&listed), [ACME_BATCH]);
+}
+
+#[test]
+fn over_a_cell_url_submit_records_in_the_flagged_tenant_by_the_flagged_actor() {
+    let served_dir = unique_dir("served-submit-tenant");
+    ledger_with_a_batch_in_local_and_in_acme(&served_dir);
+    let own_dir = unique_dir("own-submit-tenant");
+    let served = Served::start(&served_dir);
+    let submit_args = |global: &[&'static str]| -> Vec<&'static str> {
+        let mut args = global.to_vec();
+        args.extend([
+            "classify-queue",
+            "submit",
+            "--batch-id",
+            ACME_BATCH,
+            "--captures",
+            "[]",
+        ]);
+        args
+    };
+
+    // Tenant local never received acme's batch: that id is refused there, as on a local ledger.
+    let wrong_tenant = over_cell(
+        &served.url,
+        &own_dir,
+        &[],
+        &submit_args(&["--actor", WORKER]),
+    );
+    assert_eq!(
+        wrong_tenant.status.code(),
+        Some(3),
+        "{}",
+        stderr(&wrong_tenant)
+    );
+    assert!(
+        stderr(&wrong_tenant).contains(&format!("ingest batch does not exist: {ACME_BATCH}")),
+        "{}",
+        stderr(&wrong_tenant)
+    );
+    assert!(classified_by(&served_dir, &acme()).is_empty());
+
+    let submitted = over_cell(
+        &served.url,
+        &own_dir,
+        &[],
+        &submit_args(&["--tenant", ACME, "--actor", WORKER]),
+    );
+
+    assert!(submitted.status.success(), "{}", stderr(&submitted));
+    assert_eq!(
+        classified_by(&served_dir, &acme()),
+        [WORKER],
+        "acme records the classification under --actor"
+    );
+    assert!(
+        classified_by(&served_dir, &TenantId::local()).is_empty(),
+        "tenant local recorded one"
+    );
+    let acme_queue = over_cell(
+        &served.url,
+        &own_dir,
+        &[],
+        &["--tenant", ACME, "classify-queue", "list", "--json"],
+    );
+    assert!(
+        queued_ids(&acme_queue).is_empty(),
+        "acme's batch left its queue"
+    );
+    let local_queue = over_cell(
+        &served.url,
+        &own_dir,
+        &[],
+        &["classify-queue", "list", "--json"],
+    );
+    assert_eq!(queued_ids(&local_queue), [LOCAL_BATCH], "local's did not");
+}
+
+/// A token names its tenant and its actor itself, so the flags cannot move it: the server keeps
+/// ignoring the headers the CLI sends (an agent token must not be able to speak as someone else).
+#[test]
+fn over_a_cell_url_a_token_decides_the_tenant_and_the_actor_not_the_flags() {
+    let served_dir = unique_dir("served-token-wins");
+    ledger_with_a_batch_in_local_and_in_acme(&served_dir);
+    let token = SqliteUserStore::open(&served_dir)
+        .expect("open the user store") // ubs:ignore: test-only; panicking is correct in tests
+        .mint_agent_token(ACME, "agent:test:acme", None)
+        .expect("mint a token") // ubs:ignore: test-only; panicking is correct in tests
+        .token_secret;
+    let own_dir = unique_dir("own-token-wins");
+    let served = Served::start(&served_dir);
+    let envs = [("HIVEMIND_API_KEY", token.as_str())];
+
+    let listed = over_cell(
+        &served.url,
+        &own_dir,
+        &envs,
+        &["--tenant", "local", "classify-queue", "list", "--json"],
+    );
+    assert_eq!(
+        queued_ids(&listed),
+        [ACME_BATCH],
+        "the token's tenant, not --tenant"
+    );
+
+    let submitted = over_cell(
+        &served.url,
+        &own_dir,
+        &envs,
+        &[
+            "--tenant",
+            "local",
+            "--actor",
+            WORKER,
+            "classify-queue",
+            "submit",
+            "--batch-id",
+            ACME_BATCH,
+            "--captures",
+            "[]",
+        ],
+    );
+    assert!(submitted.status.success(), "{}", stderr(&submitted));
+    assert_eq!(
+        classified_by(&served_dir, &acme()),
+        ["agent:test:acme"],
+        "the token's actor, not --actor"
+    );
+    assert!(classified_by(&served_dir, &TenantId::local()).is_empty());
 }

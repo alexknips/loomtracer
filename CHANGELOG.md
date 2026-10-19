@@ -726,6 +726,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   notice that the local ledger was used is its `notice` key, not a trailing text line. Without
   `--json` the sentence stays, and a scan with findings prints the report indented, as other
   commands do, instead of on one line. (hivemind-r2076)
+- **`classify-queue` over `HIVEMIND_API_URL` now sends `--tenant` (and `HIVEMIND_TENANT`) and
+  `--actor`.** It sent only the bearer token, so a SQLite `hivemind serve` with a static key or
+  none answered for tenant `local` as `service:api` whatever the flags said:
+  `hivemind --tenant acme classify-queue list` showed local's queue with no warning, and `submit`
+  either refused acme's batch ids (exit 3) or recorded the classification in local under the wrong
+  name. The CLI now sends `X-HiveMind-Tenant` and `X-HiveMind-Actor` on every call, so a local
+  ledger and a SQLite server agree. A server that knows the caller by token still takes tenant and
+  actor from the token and ignores both headers, and `classify-queue --help` now says so.
+  (hivemind-vx9ma)
 - **`hivemind digest` keeps the newest decisions of a window and lets you read the rest.** A
   window that held more than 50 decisions showed an arbitrary 50, in decision-id order (a random
   uuid, with classifier drafts, `capture:<n>:<i>`, ahead of every other), and the rest could not

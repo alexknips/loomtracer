@@ -1126,7 +1126,7 @@ fn run_classify_queue(cli: &Cli, args: &ClassifyQueueArgs) -> Result<String> {
 }
 
 fn run_classify_queue_list(cli: &Cli, args: &ClassifyQueueListArgs) -> Result<String> {
-    if let Some(server) = ClassifyQueueServer::from_env() {
+    if let Some(server) = ClassifyQueueServer::from_env(cli)? {
         return server.list(cli.json, args);
     }
 
@@ -1146,7 +1146,7 @@ fn run_classify_queue_submit(cli: &Cli, args: &ClassifyQueueSubmitArgs) -> Resul
     let captures: Vec<CaptureItem> = serde_json::from_str(&args.captures)
         .map_err(|e| CliError::InvalidInput(format!("--captures is not valid JSON: {e}")))?;
 
-    if let Some(server) = ClassifyQueueServer::from_env() {
+    if let Some(server) = ClassifyQueueServer::from_env(cli)? {
         return server.submit(cli.json, args, captures);
     }
 
@@ -1194,9 +1194,16 @@ fn run_classify_queue_submit(cli: &Cli, args: &ClassifyQueueSubmitArgs) -> Resul
 /// credential — see docs/AGENT_DECISION_CAPTURE.md's `HIVEMIND_API_URL`/
 /// `HIVEMIND_API_KEY` convention, shared with the Python capture clients).
 /// `HIVEMIND_API_URL` unset selects the local SQLite path, unchanged.
+///
+/// Every request carries `--tenant` and `--actor` as `X-HiveMind-Tenant` and `X-HiveMind-Actor`,
+/// so a server that takes both from the caller (SQLite, with a static key or none) reads and
+/// writes the tenant and actor the flags name, as a local ledger does. A server that knows the
+/// caller by token takes tenant and actor from the token and ignores the headers.
 struct ClassifyQueueServer {
     base_url: String,
     token: Option<String>,
+    tenant: TenantId,
+    actor: String,
 }
 
 /// The server a cell user pointed the CLI at: `HIVEMIND_API_URL`, trimmed, without a trailing
@@ -1211,12 +1218,19 @@ fn hivemind_api_url_from_env() -> Option<String> {
 }
 
 impl ClassifyQueueServer {
-    fn from_env() -> Option<Self> {
-        let base_url = hivemind_api_url_from_env()?;
+    fn from_env(cli: &Cli) -> Result<Option<Self>> {
+        let Some(base_url) = hivemind_api_url_from_env() else {
+            return Ok(None);
+        };
         let token = std::env::var("HIVEMIND_API_KEY")
             .ok()
             .filter(|t| !t.trim().is_empty());
-        Some(Self { base_url, token })
+        Ok(Some(Self {
+            base_url,
+            token,
+            tenant: cli_tenant(cli)?,
+            actor: cli.actor.clone(),
+        }))
     }
 
     fn client(&self) -> Result<reqwest::blocking::Client> {
@@ -1230,6 +1244,9 @@ impl ClassifyQueueServer {
         &self,
         builder: reqwest::blocking::RequestBuilder,
     ) -> reqwest::blocking::RequestBuilder {
+        let builder = builder
+            .header(crate::api::HEADER_TENANT, self.tenant.as_str())
+            .header(crate::api::HEADER_ACTOR, &self.actor);
         match &self.token {
             Some(token) => builder.bearer_auth(token),
             None => builder,

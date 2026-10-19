@@ -1039,6 +1039,12 @@ again. A tenant the ledger or the cell holds no registry row for (`--tenant`, or
 `unknown tenant '<id>': ...`, on a local ledger and through `HIVEMIND_API_URL` alike (the server
 answers `404` with `error.code` `unknown_tenant`, not the `not_found` of a batch id): exit 3 is only
 ever a batch id, so an agent that skips a refused id must not skip this.
+Through `HIVEMIND_API_URL` the CLI sends `--tenant` (or `HIVEMIND_TENANT`) as `X-HiveMind-Tenant`
+and `--actor` as `X-HiveMind-Actor` on every call, so `list` shows, and `submit` records into, the
+tenant and under the actor the flags name, as a local ledger does. A server that knows the caller
+by token (every Postgres cell, and a SQLite server given a per-user or agent token) takes tenant
+and actor from the token and ignores both headers: the flags then change nothing, and `--help`
+says so.
 `hivemind query` does not: it reads a local ledger (or the database named by
 `--database-url`) and never contacts `HIVEMIND_API_URL`. It refuses (exit 2, naming the folder)
 when `--hivemind-dir` holds no ledger, and creates none, whether or not that variable is set: a

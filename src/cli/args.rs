@@ -403,6 +403,11 @@ pub enum Command {
     /// Inspect and drain the classification work queue (Worker A).
     /// Use `classify-queue list` to see pending batches; use `classify-queue submit`
     /// to write structured captures produced by the agent on its subscription seat.
+    ///
+    /// With HIVEMIND_API_URL set, both ask the server and send --tenant (or HIVEMIND_TENANT) and
+    /// --actor with every call. A server that takes tenant and actor from the caller (SQLite,
+    /// with a static key or none) uses them; a server that knows the caller by token (every
+    /// Postgres cell, or a per-user or agent token) takes both from the token and ignores them.
     #[command(name = "classify-queue")]
     ClassifyQueue(ClassifyQueueArgs),
     /// Find and link decisions that were recorded more than once. `restatements propose` lists
@@ -943,7 +948,9 @@ pub enum ClassifyQueueCommand {
     /// nothing, when --hivemind-dir holds no ledger, so a folder nothing was recorded in is not
     /// given an empty one (a session hook can run this in every project). A tenant that is not
     /// registered (--tenant, or the one the HIVEMIND_API_KEY token maps to on a server) is refused,
-    /// exit 4, naming it: the same on every call, not a batch id to skip.
+    /// exit 4, naming it: the same on every call, not a batch id to skip. Through
+    /// HIVEMIND_API_URL, --tenant and --actor go to the server, which ignores them when a token
+    /// decides both.
     List(ClassifyQueueListArgs),
     /// Submit agent-produced captures for a batch, appending an IngestBatchClassified event.
     ///
@@ -952,7 +959,8 @@ pub enum ClassifyQueueCommand {
     /// again. Like `list`, it asks the server in HIVEMIND_API_URL when that is set, and on a
     /// local ledger it refuses, exit 2 and creating nothing, when --hivemind-dir holds no ledger.
     /// An unregistered tenant is refused first, exit 4, as for `list`: exit 3 is only ever a batch
-    /// id.
+    /// id. The event is recorded in --tenant by --actor, through HIVEMIND_API_URL too, unless a
+    /// token decides both on the server.
     Submit(ClassifyQueueSubmitArgs),
 }
 
