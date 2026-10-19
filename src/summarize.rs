@@ -184,17 +184,24 @@ fn summarize_chain(graph: &impl GraphView, ids: &[String]) -> Result<DecisionSum
 
     // The line stops at a fork; the decisions on the far side are named, and cited, but not
     // walked further.
+    let mut branches = String::new();
     for fork in &forks {
-        lines.push(format!("Branch: {}", fork.note()));
+        if !branches.is_empty() {
+            branches.push('\n');
+        }
+        let _ = writeln!(branches, "Branch: {}", fork.note());
         for candidate_id in &fork.candidates {
             let candidate = require_decision(graph, candidate_id)?;
-            lines.push(format!(
+            let _ = writeln!(
+                branches,
                 "  - {} ({:?}): {}",
                 candidate.id, candidate.status, candidate.title
-            ));
+            );
             cited.push(candidate.id);
         }
-        lines.push(String::new());
+    }
+    if !branches.is_empty() {
+        lines.push(branches);
     }
     match forks
         .iter()
@@ -962,6 +969,8 @@ mod tests {
     use crate::ledger::InMemoryEventLedger;
     use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 
+    mod chain;
+
     fn make_graph<L: crate::ledger::EventLedger>(ledger: &L) -> MemoryGraph {
         let graph = MemoryGraph::default();
         rebuild_graph_for_tenant(ledger, &TenantId::local(), &graph).unwrap(); // ubs:ignore: test-only; panicking is correct behavior in tests
@@ -1234,117 +1243,6 @@ mod tests {
         assert!(summary.contains(&new_id), "new decision in chain"); // ubs:ignore: test-only assertion
         assert!(summary.contains("Supersession chain")); // ubs:ignore: test-only assertion
         assert_eq!(response.data.unit, SummarizeMode::Chain); // ubs:ignore: test-only assertion
-    }
-
-    fn chain_summary<L: crate::ledger::EventLedger>(ledger: &L, anchor: &str) -> DecisionSummary {
-        let request = SummarizeRequest {
-            decision_ids: vec![anchor.to_owned()],
-            mode: SummarizeMode::Chain,
-        };
-        summarize_decisions(&make_graph(ledger), &request)
-            .unwrap() // ubs:ignore: test-only; panicking is correct in tests
-            .data
-    }
-
-    fn seed_plain<L: crate::ledger::EventLedger>(
-        commands: &Commands<'_, L>,
-        title: &str,
-    ) -> String {
-        seed_decision(
-            commands,
-            "test-actor",
-            title,
-            "Because the chain-mode summary fixtures need a readable why",
-            &["api"],
-            &["approach"],
-            None,
-        )
-    }
-
-    #[test]
-    fn chain_mode_names_both_superseders_of_a_twice_superseded_decision() {
-        let ledger = InMemoryEventLedger::new();
-        let commands = Commands::new(&ledger);
-        let old_id = seed_plain(&commands, "Original");
-        let a_id = seed_plain(&commands, "Successor A");
-        let b_id = seed_plain(&commands, "Successor B");
-        commands
-            .supersede_decision(&old_id, &a_id, "test-actor")
-            .unwrap(); // ubs:ignore: test-only; panicking is correct in tests
-        commands
-            .supersede_decision(&old_id, &b_id, "test-actor")
-            .unwrap(); // ubs:ignore: test-only; panicking is correct in tests
-
-        let data = chain_summary(&ledger, &old_id);
-        let summary = &data.summary;
-        assert!(summary.contains("(1 steps)"), "{summary}"); // ubs:ignore: test-only assertion
-        assert!(summary.contains("Branch: "), "{summary}"); // ubs:ignore: test-only assertion
-        assert!(
-            summary.contains("so no single decision is current"),
-            "{summary}"
-        ); // ubs:ignore: test-only assertion
-        assert!(
-            summary.contains("Successor A") && summary.contains("Successor B"),
-            "{summary}"
-        ); // ubs:ignore: test-only assertion
-        assert!(summary.contains("Current status: none"), "{summary}"); // ubs:ignore: test-only assertion
-        let mut expected = vec![old_id, a_id, b_id];
-        expected.sort();
-        let mut cited = data.cited_decision_ids.clone();
-        cited.sort();
-        assert_eq!(cited, expected, "every decision the summary names is cited"); // ubs:ignore: test-only assertion
-        assert_eq!(data.cited_decision_ids.len(), 3); // ubs:ignore: test-only assertion
-    }
-
-    #[test]
-    fn chain_mode_names_both_decisions_a_decision_superseded() {
-        let ledger = InMemoryEventLedger::new();
-        let commands = Commands::new(&ledger);
-        let y_id = seed_plain(&commands, "Predecessor Y");
-        let z_id = seed_plain(&commands, "Predecessor Z");
-        let x_id = seed_plain(&commands, "Merged X");
-        commands
-            .supersede_decision(&y_id, &x_id, "test-actor")
-            .unwrap(); // ubs:ignore: test-only; panicking is correct in tests
-        commands
-            .supersede_decision(&z_id, &x_id, "test-actor")
-            .unwrap(); // ubs:ignore: test-only; panicking is correct in tests
-
-        let data = chain_summary(&ledger, &x_id);
-        let summary = &data.summary;
-        assert!(summary.contains("supersedes 2 decisions"), "{summary}"); // ubs:ignore: test-only assertion
-        assert!(
-            summary.contains("Predecessor Y") && summary.contains("Predecessor Z"),
-            "{summary}"
-        ); // ubs:ignore: test-only assertion
-        assert!(
-            summary.contains("Current status: Proposed"),
-            "the line ends at X, which stands: {summary}"
-        ); // ubs:ignore: test-only assertion
-        assert_eq!(data.cited_decision_ids.first(), Some(&x_id)); // ubs:ignore: test-only assertion
-        assert_eq!(data.cited_decision_ids.len(), 3); // ubs:ignore: test-only assertion
-        assert!(data.cited_decision_ids.contains(&y_id) && data.cited_decision_ids.contains(&z_id));
-        // ubs:ignore: test-only assertion
-    }
-
-    #[test]
-    fn chain_mode_reads_a_pair_superseded_twice_as_one_step() {
-        let ledger = InMemoryEventLedger::new();
-        let commands = Commands::new(&ledger);
-        let old_id = seed_plain(&commands, "Original");
-        let new_id = seed_plain(&commands, "Replacement");
-        commands
-            .supersede_decision(&old_id, &new_id, "test-actor")
-            .unwrap(); // ubs:ignore: test-only; panicking is correct in tests
-                       // The same pair again, as a client retries after a timeout.
-        commands
-            .supersede_decision(&old_id, &new_id, "test-actor")
-            .unwrap(); // ubs:ignore: test-only; panicking is correct in tests
-
-        let data = chain_summary(&ledger, &old_id);
-        assert!(data.summary.contains("(2 steps)"), "{}", data.summary); // ubs:ignore: test-only assertion
-        assert!(!data.summary.contains("Branch:"), "{}", data.summary); // ubs:ignore: test-only assertion
-        assert_eq!(data.cited_decision_ids, vec![old_id, new_id]); // ubs:ignore: test-only assertion
     }
 
     #[test]

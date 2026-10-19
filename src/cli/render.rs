@@ -76,7 +76,7 @@ pub(crate) fn render_compact_view_summary(view: &Option<CompactView>) -> String 
             ));
         }
         for fork in &chain.forks {
-            out.push_str(&format!("  BRANCHED: {}\n", fork.note()));
+            let _ = writeln!(out, "  BRANCHED: {}", fork.note());
         }
     }
     if let Some(contest) = &v.contest {

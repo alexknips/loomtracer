@@ -1238,12 +1238,12 @@ fn render_compact_graph(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchA
             ),
             Span::raw(format!(", oldest: {}", chain.oldest_id)),
         ]));
-        for fork in &chain.forks {
-            lines.push(Line::from(Span::styled(
+        lines.extend(chain.forks.iter().map(|fork| {
+            Line::from(Span::styled(
                 format!("  [BRANCHED] {}", fork.note()),
                 Style::default().fg(Color::Yellow),
-            )));
-        }
+            ))
+        }));
     }
 
     if let Some(contest) = cv.contest.as_ref() {

@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 
 use crate::projector::{GraphParams, GraphValue, GraphView};
-use crate::Result;
+use crate::{HivemindError, Result};
 
 use super::shared::{query_error, query_timer_start, required_string};
 use super::QueryResponse;
@@ -152,15 +152,21 @@ fn walk_side(
             return Ok((walked, None));
         };
         if !visited.insert(next.clone()) {
-            let edge = match side {
-                SupersessionSide::Older => format!("{cursor} -> {next}"),
-                SupersessionSide::Newer => format!("{next} -> {cursor}"),
-            };
-            return Err(query_error(format!("cycle detected on edge {edge}")).into());
+            return Err(cycle_error(side, &cursor, &next));
         }
         walked.push(next.clone());
         cursor = next;
     }
+}
+
+/// The error for a walk that reached a decision it had already visited: `from` is the decision
+/// the walk stood on, `to` the one it stepped to.
+fn cycle_error(side: SupersessionSide, from: &str, to: &str) -> HivemindError {
+    let edge = match side {
+        SupersessionSide::Older => format!("{from} -> {to}"),
+        SupersessionSide::Newer => format!("{to} -> {from}"),
+    };
+    query_error(format!("cycle detected on edge {edge}")).into()
 }
 
 /// The distinct decisions on `side` of `decision_id`, in id order. A pair superseded twice (a

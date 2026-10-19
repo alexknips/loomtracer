@@ -87,3 +87,4 @@ src/queries/importance_facts/tests.rs
 src/queries/reexamine/tests.rs
 src/queries/reexamine/surfaces.rs
 src/queries/upstream/tests.rs
+src/summarize/tests/chain.rs
