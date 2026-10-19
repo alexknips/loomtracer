@@ -281,7 +281,7 @@ fn graph_value_to_json(v: &GraphValue) -> serde_json::Value {
 /// Return a projected graph for `tenant_id`, served from the in-memory cache
 /// when the ledger offset is unchanged, or rebuilt incrementally otherwise.
 pub(super) fn get_cached_graph(
-    ledger: &ApiLedger,
+    ledger: &impl EventLedger,
     tenant_id: &TenantId,
     cache: &GraphCache,
 ) -> ApiResult<Arc<MemoryGraph>> {
@@ -320,7 +320,11 @@ pub(super) fn get_cached_graph(
             .map_err(graph_err)?;
     base_graph.note_unreadable_annotations(report.unreadable_annotations);
     let new_graph = Arc::new(base_graph);
-    guard.insert(tenant_id.clone(), (latest, Arc::clone(&new_graph)));
+    // The last event the replay applied, not the `latest` read before it: the replay runs to the
+    // end of the ledger, so an event appended since that read is in this graph and the next
+    // refresh must not apply it again.
+    let applied_through = report.last_event_id.unwrap_or(base_offset);
+    guard.insert(tenant_id.clone(), (applied_through, Arc::clone(&new_graph)));
     Ok(new_graph)
 }
 
@@ -378,3 +382,6 @@ pub(super) fn open_graph_from_ledger(
 ) -> ApiResult<Arc<MemoryGraph>> {
     get_cached_graph(ledger, tenant_id, cache)
 }
+
+#[cfg(test)]
+mod tests;

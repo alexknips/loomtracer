@@ -97,7 +97,8 @@ a reader needs without reconstructing them from edges:
     `decision.proposed`, or the `ingest.batch_classified` that recorded it as a draft from the
     classify queue (ledger order, so replay always assigns the same slugs); nothing projected
     after that touches it, so a retitle (or any other annotation) does not move a decision's
-    link. `null` only for a decision from an event predating this field.
+    link, and neither does projecting the same `decision.proposed` or classified draft a second
+    time. `null` only for a decision from an event predating this field.
 - **`nodes[]` with `kind: "Decision"`** carry `decided_at` and `slug` the same way, so a
   whole-graph view can show when each decision was made, and link to it, without a second
   lookup into `decisions[]`.

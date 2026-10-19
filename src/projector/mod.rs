@@ -294,11 +294,17 @@ pub fn project_event(graph: &impl GraphView, event: &Event) -> Result<()> {
     project_event_reporting(graph, event, &ReceivedBatches::default()).map(drop)
 }
 
-/// What one replay skipped: annotation rows ([`UnreadableAnnotation`]) that could not be read.
-/// Empty for a ledger with none, which is every ledger a well-behaved producer wrote.
+/// What one replay did: the annotation rows ([`UnreadableAnnotation`]) it skipped because they
+/// could not be read (empty for a ledger with none, which is every ledger a well-behaved producer
+/// wrote), and the last event it applied.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProjectionReport {
     pub unreadable_annotations: Vec<UnreadableAnnotation>,
+    /// The highest event id the replay applied, `None` when it applied none. A caller that keeps
+    /// the graph resumes from this, not from the ledger's latest offset read before the replay:
+    /// an event appended while the replay ran is in the graph but above that earlier read, and
+    /// resuming from the read would apply it twice.
+    pub last_event_id: Option<EventId>,
 }
 
 /// [`project_event`] with the turn times of the batches received so far, returning the
@@ -508,7 +514,8 @@ pub fn project_from_ledger_for_tenant_reporting(
 }
 
 /// Project every event of `tenant_id` after `offset`, skipping unreadable annotation rows and
-/// logging them once (not once per row) so a log reader sees the count and the offsets.
+/// logging them once (not once per row) so a log reader sees the count and the offsets. The report
+/// names the last event applied, which is where a graph that is kept resumes.
 ///
 /// The turn times and sessions of the received batches are read on the way (and, for a replay
 /// that starts after the first event, from before `offset`), so a classified batch's decisions
@@ -527,6 +534,7 @@ fn project_replay(
         report
             .unreadable_annotations
             .extend(project_event_reporting(graph, event, &received_batches)?);
+        report.last_event_id = event.event_id;
         Ok(())
     })?;
     if !report.unreadable_annotations.is_empty() {
@@ -1075,20 +1083,22 @@ fn decision_id_tail(decision_id: &str) -> String {
         .collect()
 }
 
-/// Every slug already claimed by a currently-projected Decision node. Reuses the existing "all
+/// The slug of every currently-projected Decision node, by decision id. Reuses the existing "all
 /// nodes of a kind" query shape (see `current_project_anchors`) rather than adding a new query
 /// pattern to every `GraphView` backend: memory/Postgres already return every stored property
 /// for that shape regardless of the requested columns, and Kuzu (real Cypher) returns exactly
 /// the two columns named here.
-fn existing_decision_slugs(graph: &impl GraphView) -> Result<BTreeSet<String>> {
+fn existing_decision_slugs(graph: &impl GraphView) -> Result<BTreeMap<String, String>> {
     let rows = graph.query(
         "MATCH (node:`Decision`) RETURN node.id AS id, node.slug AS slug ORDER BY node.id;",
         &GraphParams::new(),
     )?;
     Ok(rows
         .iter()
-        .filter_map(|row| match row.get("slug") {
-            Some(GraphValue::String(slug)) => Some(slug.clone()),
+        .filter_map(|row| match (row.get("id"), row.get("slug")) {
+            (Some(GraphValue::String(id)), Some(GraphValue::String(slug))) => {
+                Some((id.clone(), slug.clone()))
+            }
             _ => None,
         })
         .collect())
@@ -1097,20 +1107,27 @@ fn existing_decision_slugs(graph: &impl GraphView) -> Result<BTreeSet<String>> {
 /// Assigns this decision's stable link segment: the bare title-slug for whichever decision
 /// claims it first, a growing id-tail suffix for every later collision on the same base. Called
 /// only from `project_decision_proposed` and `project_capture_decision` (a draft from the classify
-/// queue), the two functions that create a Decision node, so it runs exactly once per decision, in
-/// ledger order (ledger offset is this system's notion of time — docs/GRAPH_CONTRACT.md), which
-/// makes "first" deterministic on replay too: the same ledger always assigns the same slugs in
-/// the same order. No other projector function writes this property, so a later retitle or
-/// annotation — whatever event does that next — leaves a decision's slug, and therefore its
-/// link, unchanged (hivemind-nidp, hivemind-qq1is).
+/// queue), the two functions that create a Decision node, in ledger order (ledger offset is this
+/// system's notion of time — docs/GRAPH_CONTRACT.md), which makes "first" deterministic on replay
+/// too: the same ledger always assigns the same slugs in the same order. A decision whose node
+/// already holds a slug keeps it, whichever of the two creates it: projecting the same proposal
+/// or draft a second time (a graph cache that re-applies an event) must find its own slug taken
+/// by itself, not by a rival, or the link would move. No other projector function writes this
+/// property, so a later retitle or annotation — whatever event does that next — leaves a
+/// decision's slug, and therefore its link, unchanged (hivemind-nidp, hivemind-qq1is,
+/// hivemind-7v4dg).
 fn assign_decision_slug(
     graph: &impl GraphView,
     decision_id: &str,
     title: &str,
 ) -> Result<GraphValue> {
+    let claimed = existing_decision_slugs(graph)?;
+    if let Some(own) = claimed.get(decision_id) {
+        return Ok(GraphValue::String(own.clone()));
+    }
     let base = capped_decision_slug(title);
-    let taken = existing_decision_slugs(graph)?;
-    if !taken.contains(&base) {
+    let taken: BTreeSet<&str> = claimed.values().map(String::as_str).collect();
+    if !taken.contains(base.as_str()) {
         return Ok(GraphValue::String(base));
     }
     let tail = decision_id_tail(decision_id);
@@ -1121,7 +1138,7 @@ fn assign_decision_slug(
             continue;
         };
         let candidate = tail_suffixed_slug(&base, tail_slice);
-        if !taken.contains(&candidate) {
+        if !taken.contains(candidate.as_str()) {
             return Ok(GraphValue::String(candidate));
         }
     }
@@ -1131,7 +1148,7 @@ fn assign_decision_slug(
     let mut suffix = 2u32;
     loop {
         let candidate = counter_suffixed_slug(&base, &tail, suffix);
-        if !taken.contains(&candidate) {
+        if !taken.contains(candidate.as_str()) {
             return Ok(GraphValue::String(candidate));
         }
         suffix += 1;

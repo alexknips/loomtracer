@@ -1322,6 +1322,128 @@ fn a_model_assessment_does_not_change_the_decisions_slug() -> Result<()> {
     Ok(())
 }
 
+fn slug_proposal(decision_id: &str, title: &str) -> Event {
+    event(
+        EventType::DecisionProposed,
+        "actor:alice",
+        json!({
+            "decision_id": decision_id,
+            "title": title,
+            "rationale": "Two decisions that happen to share a title",
+            "topic_keys": ["pricing"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+    )
+}
+
+/// A proposal projected a second time -- the server's graph cache did that when an event landed
+/// above the offset it recorded -- finds its own slug already on the node. Read as a rival's, it
+/// would move the decision's link to a suffixed one (hivemind-7v4dg).
+#[test]
+fn projecting_the_same_proposal_twice_leaves_the_slug_as_first_assigned() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(slug_proposal("decision:twice-first", "Duplicate Title"))?;
+    ledger.append(slug_proposal("decision:twice-second", "Duplicate Title"))?;
+    let events = ledger.read(0, 10)?;
+
+    let graph = MemoryGraph::default();
+    for event in &events {
+        project_event(&graph, event)?;
+    }
+    let bare = Some(GraphValue::String("duplicate-title".to_owned()));
+    let suffixed = Some(GraphValue::String("duplicate-title-deci".to_owned()));
+    assert_eq!(decision_slug(&graph, "decision:twice-first")?, bare);
+    assert_eq!(decision_slug(&graph, "decision:twice-second")?, suffixed);
+
+    // Each one again, in ledger order and then in reverse, checked after every single projection:
+    // neither moves, the one holding the bare slug nor the one that was suffixed. (Only the end
+    // state would prove little: a rival-reading projector shuffles the two and can land back on
+    // where it started.)
+    for event in events.iter().chain(events.iter().rev()) {
+        project_event(&graph, event)?;
+        assert_eq!(decision_slug(&graph, "decision:twice-first")?, bare);
+        assert_eq!(decision_slug(&graph, "decision:twice-second")?, suffixed);
+    }
+    Ok(())
+}
+
+/// A classified draft takes its slug in `project_capture_decision`, not `project_decision_proposed`,
+/// so a batch projected a second time has to find each draft's own slug the same way a proposal
+/// does (hivemind-7v4dg, hivemind-qq1is). Two same-titled drafts, so a re-projection that read a
+/// draft's own slug as a rival's would visibly move one of them.
+#[test]
+fn projecting_the_same_classified_batch_twice_leaves_each_drafts_slug_as_first_assigned(
+) -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let title = "Run every seat on one model";
+    let ledger = InMemoryEventLedger::new();
+    let offset = ledger.append(classified_drafts_batch("batch:slug-twice", &[title, title]))?;
+    let events = ledger.read(0, 10)?;
+    let first = format!("capture:{offset}:0");
+    let second = format!("capture:{offset}:1");
+
+    let graph = MemoryGraph::default();
+    for event in &events {
+        project_event(&graph, event)?;
+    }
+    let bare = Some(GraphValue::String("run-every-seat-on-one-model".to_owned()));
+    // decision_id_tail("capture:1:1") = "11", shorter than the minimum suffix, so the counter
+    // fallback applies (see drafts_of_one_batch_with_the_same_title_get_different_slugs).
+    let suffixed = Some(GraphValue::String(
+        "run-every-seat-on-one-model-11-2".to_owned(),
+    ));
+    assert_eq!(decision_slug(&graph, &first)?, bare);
+    assert_eq!(decision_slug(&graph, &second)?, suffixed);
+
+    for event in &events {
+        project_event(&graph, event)?;
+        assert_eq!(
+            decision_slug(&graph, &first)?,
+            bare,
+            "the draft holding the bare slug keeps it when its batch is projected again"
+        );
+        assert_eq!(
+            decision_slug(&graph, &second)?,
+            suffixed,
+            "the suffixed draft keeps its suffix when its batch is projected again"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_replay_reports_the_last_event_it_applied() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(slug_proposal("decision:reported-first", "First title"))?;
+    // The bad row is applied too, in the sense that matters: it was read and its notice kept.
+    ledger.append(malformed_assessment_event())?;
+    let tenant = TenantId::local();
+
+    let report =
+        project_from_ledger_for_tenant_reporting(&ledger, &tenant, &MemoryGraph::default(), 0)?;
+    assert_eq!(report.last_event_id, Some(2));
+
+    let report =
+        project_from_ledger_for_tenant_reporting(&ledger, &tenant, &MemoryGraph::default(), 1)?;
+    assert_eq!(report.last_event_id, Some(2));
+
+    let report =
+        project_from_ledger_for_tenant_reporting(&ledger, &tenant, &MemoryGraph::default(), 2)?;
+    assert_eq!(
+        report.last_event_id, None,
+        "nothing after offset 2 to apply"
+    );
+    Ok(())
+}
+
 /// Two decisions proposed by an agent, then the first moved billing -> pricing by a *different*
 /// actor over a *different* source, then moved back. The mover's source/source_ref differ from
 /// the proposal's on purpose: a projector that spread the move event's origin properties onto
