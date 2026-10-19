@@ -731,6 +731,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   nothing. Text that is not indented under the marker, such as a heading, prose after the block
   or the `# hivemind-source-ref:` line of the next prepared page, is still ignored.
   (hivemind-d4fbt)
+- **Linking an existing decision as the superseder (or existing evidence as the refutation) no
+  longer reads as a change that happened long ago.** `SUPERSEDES` and `REFUTES` edges carried no
+  time of their own, so the attention findings and the re-examine items ordered a change by the
+  edge's ledger offset but aged it by a node's creation time: the superseding decision's
+  `occurred_at`, or the refuting evidence's `recorded_at`. `emit decision.superseded --old A
+  --new B` on a `B` captured months earlier, `emit relation.added --kind refutes` from old
+  evidence, and a classifier draft whose `supersedes_id` was said days before it was classified
+  all dated the change at the newer node's birth, so `propagation_unfinished` fired the same day
+  on `A`, `verify` showed `[UNFINISHED]`, and a dependent's `premise_superseded` carried that
+  old `basis_at`, although nobody could yet have reaffirmed anything. Both edges now carry
+  `added_at`, the time of the event that recorded them (memory, Postgres and Kuzu), and the
+  14-day window, the unfinished check and `basis_at` run from the earliest such edge; a node's
+  time is used only for an edge with none. The ledger is unchanged; an edge projected by an
+  earlier build gets its time when the graph is rebuilt from the ledger. (hivemind-xhoie)
 - **Moving a ledger into a cell no longer attaches a classifier draft's acceptance, retitle,
   score or link to a different draft.** A draft's id is `capture:<offset of its batch
   event>:<index>`, and `hivemind migrate` / `POST /v1/ledger/replay` renumber every event in the

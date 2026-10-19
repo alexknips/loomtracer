@@ -21,12 +21,12 @@
 //! | Kind | List | The decision is flagged when | Basis time (`basis_at`) |
 //! | --- | --- | --- | --- |
 //! | `bet_past_check_date` | bets past their check date | it rests on a declared bet whose check date has passed and nothing supports or refutes it | the check date |
-//! | `premise_superseded` | premise changed | a decision it follows from was superseded | when the earliest superseding decision was made |
+//! | `premise_superseded` | premise changed | a decision it follows from was superseded | when the earliest supersession was recorded |
 //! | `premise_rejected` | premise changed | a decision it follows from was rejected (and nobody accepted it: a contested premise is a disagreement, shown as such) | none: the graph does not record when |
-//! | `assumption_refuted` | premise changed | an assumption it rests on was refuted | when the earliest refuting evidence was recorded |
-//! | `bet_failed` | premise changed | a bet it rests on was refuted | when the earliest refuting evidence was recorded |
+//! | `assumption_refuted` | premise changed | an assumption it rests on was refuted | when the earliest refutation was recorded |
+//! | `bet_failed` | premise changed | a bet it rests on was refuted | when the earliest refutation was recorded |
 //! | `evidence_not_rechecked` | evidence not re-checked | the newest evidence linked to it was recorded more than [`AttentionConfig::evidence_window_days`] ago | when that evidence was recorded |
-//! | `propagation_unfinished` | premises not re-examined | it was superseded and a decision resting on it is still open for re-examination more than [`AttentionConfig::propagation_window_days`] after the supersession | when the earliest superseding decision was made |
+//! | `propagation_unfinished` | premises not re-examined | it was superseded and a decision resting on it is still open for re-examination more than [`AttentionConfig::propagation_window_days`] after the supersession | when the first supersession was recorded |
 //!
 //! "Re-checked" means newer evidence is linked to the decision, whether it was attached at
 //! capture or afterwards: the graph has no notion of one observation re-checking another, so the
@@ -114,7 +114,7 @@ use crate::events::HypothesisKind;
 use crate::projector::GraphView;
 use crate::queries::{
     get_decision_anchors, get_evidence_content, get_grounding_facts, get_hypothesis_statement,
-    is_past_window, DecisionAnchor, DecisionStatus, GroundingFacts, HypothesisRecord,
+    is_past_window, DecisionAnchor, DecisionStatus, EdgeStamp, GroundingFacts, HypothesisRecord,
     HypothesisStatus, OpenSupersession, ReexamineView, MAX_QUERY_RESULTS,
 };
 use crate::Result;
@@ -403,9 +403,9 @@ struct Candidate<'a> {
     /// The node whose time is the basis, when it is not the subject: the refuting evidence.
     basis_node: Option<&'a str>,
     basis_at: Option<DateTime<Utc>>,
-    /// The decisions that superseded the subject; the basis is the earliest of them, which takes
-    /// an anchored read to date. Empty for every other kind.
-    superseders: &'a [String],
+    /// The supersessions of the subject, by the decision that superseded it; the basis is the
+    /// earliest of them. Empty for every other kind.
+    supersessions: &'a [(String, EdgeStamp)],
     /// How many decisions rest on the superseded subject and how many of those are still open,
     /// for `propagation_unfinished` only. Never part of the finding's identity: it moves every
     /// time someone looks again.
@@ -420,15 +420,16 @@ impl<'a> Candidate<'a> {
             subject_id,
             basis_node: None,
             basis_at: None,
-            superseders: &[],
+            supersessions: &[],
             open_dependents: None,
         }
     }
 
     /// The candidate for a superseded decision some of whose dependents are still open. The
     /// decision is its own subject: it is the one whose change is unfinished. Its basis is the
-    /// supersession that dates the change; the date itself takes an anchored read, so the
-    /// candidate is not yet known to be a finding (see [`Self::needs_dating`]).
+    /// supersession that dates the change, dated by the time its edge was recorded; an edge with
+    /// no time takes an anchored read of the superseding decision, so the candidate is not yet
+    /// known to be a finding (see [`Self::needs_dating`]).
     fn unfinished(open: OpenSupersession<'a>) -> Self {
         let mut candidate = Self::new(
             open.premise_id,
@@ -436,6 +437,7 @@ impl<'a> Candidate<'a> {
             open.premise_id,
         );
         candidate.basis_node = Some(open.dated_by);
+        candidate.basis_at = open.dated_at;
         candidate.open_dependents = Some((open.dependents_total, open.open));
         candidate
     }
@@ -446,11 +448,15 @@ impl<'a> Candidate<'a> {
         self.kind == FindingKind::PropagationUnfinished
     }
 
-    /// The time of the supersession that dates an unfinished propagation, once read.
+    /// The time of the supersession that dates an unfinished propagation: when its edge was
+    /// recorded, else (for an edge that states no time) the superseding decision's own time, once
+    /// read.
     fn supersession_at(&self, anchors: &BTreeMap<String, DecisionAnchor>) -> Option<DateTime<Utc>> {
-        self.basis_node
-            .and_then(|by_id| anchors.get(by_id))
-            .and_then(|anchor| anchor.occurred_at)
+        self.basis_at.or_else(|| {
+            self.basis_node
+                .and_then(|by_id| anchors.get(by_id))
+                .and_then(|anchor| anchor.occurred_at)
+        })
     }
 
     /// Whether this candidate is a finding. Every kind but `propagation_unfinished` is one from
@@ -470,12 +476,12 @@ impl<'a> Candidate<'a> {
                 .is_some_and(|at| is_past_window(at, now, config.propagation_window_days))
     }
 
-    /// The decisions that superseded the subject, other than this decision itself.
-    fn other_superseders(&self) -> impl Iterator<Item = &'a str> + '_ {
-        self.superseders
+    /// The supersessions of the subject by a decision other than this decision itself.
+    fn other_supersessions(&self) -> impl Iterator<Item = (&'a str, EdgeStamp)> + '_ {
+        self.supersessions
             .iter()
-            .map(String::as_str)
-            .filter(|by_id| *by_id != self.decision_id)
+            .map(|(by_id, stamp)| (by_id.as_str(), *stamp))
+            .filter(|(by_id, _)| *by_id != self.decision_id)
     }
 
     /// The order findings come in, and what a cursor is a position in. Unique per finding.
@@ -485,8 +491,9 @@ impl<'a> Candidate<'a> {
 
     /// The decisions this finding needs a [`DecisionAnchor`] for: the decision that needs a look
     /// itself (always, for [`AttentionFinding::decision_title`]), its subject when the subject is
-    /// a decision, and its superseders (to find the earliest and date it). An unfinished
-    /// propagation already knows which superseder dates it, so it reads that one alone.
+    /// a decision, and its superseders (to find the earliest, date it when its edge states no
+    /// time, and name it). An unfinished propagation already knows which superseder dates it, so
+    /// it reads that one alone.
     fn decisions_to_anchor(&self) -> impl Iterator<Item = &'a str> + '_ {
         let subject_is_decision = matches!(
             self.kind,
@@ -494,7 +501,7 @@ impl<'a> Candidate<'a> {
         );
         std::iter::once(self.decision_id)
             .chain(subject_is_decision.then_some(self.subject_id))
-            .chain(self.other_superseders())
+            .chain(self.other_supersessions().map(|(by_id, _)| by_id))
             .chain(self.basis_node.filter(|_| self.needs_dating()))
     }
 
@@ -539,15 +546,15 @@ fn candidates<'a>(
     for (decision_id, premise_id) in &facts.premise_links {
         let candidate = match facts.standings.status_of(premise_id) {
             DecisionStatus::Superseded => {
-                let superseders = facts.standings.superseders_of(premise_id);
+                let supersessions = facts.standings.supersessions_of(premise_id);
                 // A decision that itself superseded its premise is the change, not something
                 // that needs a look because of it.
-                if superseders.iter().all(|by_id| by_id == decision_id) {
+                if supersessions.iter().all(|(by_id, _)| by_id == decision_id) {
                     continue;
                 }
                 let mut candidate =
                     Candidate::new(decision_id, FindingKind::PremiseSuperseded, premise_id);
-                candidate.superseders = superseders;
+                candidate.supersessions = supersessions;
                 candidate
             }
             DecisionStatus::Rejected => {
@@ -621,13 +628,19 @@ fn hypothesis_candidate<'a>(
                 HypothesisKind::Assumption => FindingKind::AssumptionRefuted,
             };
             let mut candidate = Candidate::new(decision_id, kind, hypothesis_id);
-            // The first refutation is when it stopped holding; evidence with no recorded time
-            // sorts after any that has one.
+            // The first refutation is when it stopped holding, which is when the refuting edge
+            // was recorded: the evidence can be older than the link. Evidence whose edge states
+            // no time is dated by its own recorded time, and evidence with neither sorts after
+            // any that has one.
             let earliest = hypothesis
                 .refuted_by
                 .iter()
                 .map(|evidence_id| {
-                    let at = facts.evidence_recorded_at.get(evidence_id).copied();
+                    let at = hypothesis
+                        .refutation_times
+                        .get(evidence_id)
+                        .or_else(|| facts.evidence_recorded_at.get(evidence_id))
+                        .copied();
                     (
                         at.unwrap_or(DateTime::<Utc>::MAX_UTC),
                         evidence_id.as_str(),
@@ -698,12 +711,16 @@ impl Candidate<'_> {
         let mut basis_node = self.basis_node;
         let mut basis_at = self.basis_at;
         if self.kind == FindingKind::PremiseSuperseded {
-            // The premise stopped standing when the earliest superseding decision was made;
-            // one with no recorded time sorts after any that has one.
+            // The premise stopped standing when the earliest supersession was recorded: the
+            // superseding decision can be older than the link. A supersession whose edge states
+            // no time is dated by the superseding decision's own time, and one with neither
+            // sorts after any that has one.
             let earliest = self
-                .other_superseders()
-                .map(|by_id| {
-                    let at = anchors.get(by_id).and_then(|anchor| anchor.occurred_at);
+                .other_supersessions()
+                .map(|(by_id, stamp)| {
+                    let at = stamp
+                        .at
+                        .or_else(|| anchors.get(by_id).and_then(|anchor| anchor.occurred_at));
                     (at.unwrap_or(DateTime::<Utc>::MAX_UTC), by_id, at)
                 })
                 .min();

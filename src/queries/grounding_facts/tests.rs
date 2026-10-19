@@ -13,6 +13,7 @@ use crate::queries::{
 use crate::Result;
 
 use super::*;
+use crate::queries::shared::relation_edges_with_origin;
 
 fn pairs(links: &[(String, String)]) -> BTreeSet<(&str, &str)> {
     links
@@ -272,6 +273,13 @@ fn a_refuted_hypothesis_carries_the_offset_of_its_earliest_refutation() -> Resul
     assert!(first < second);
     assert_eq!(facts.hypotheses["h:assumption"].refuted_at, Some(first));
     assert_eq!(facts.hypotheses["h:fine"].refuted_at, None);
+    // Each refuting edge states when it was recorded, which is not when the evidence was.
+    let times = &facts.hypotheses["h:assumption"].refutation_times;
+    assert_eq!(
+        times.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["e:r1", "e:r2"]
+    );
+    assert!(facts.hypotheses["h:fine"].refutation_times.is_empty());
     Ok(())
 }
 

@@ -7,7 +7,9 @@ use serde::Serialize;
 use crate::projector::{actor_kind, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
-use super::shared::{relation_count, relation_edges_with_origin, Direction};
+use super::shared::{
+    relation_count, relation_edges_with_origin, relation_edges_with_time, Direction, EdgeStamp,
+};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -73,14 +75,13 @@ pub struct Decider {
 /// the whole graph. A decision no edge names is `proposed` with no decider.
 #[derive(Debug, Default)]
 pub struct DecisionStandings {
-    /// Each superseded decision with the decisions that superseded it, sorted by id.
-    superseded_by: BTreeMap<String, Vec<String>>,
     accepted_by: BTreeMap<String, Vec<String>>,
     /// Each rejected decision with the actors who rejected it, sorted by actor id.
     rejected_by: BTreeMap<String, Vec<String>>,
-    /// The superseding decision whose supersession was recorded first, with that event's ledger
-    /// offset (`None` when the edge states none). Ties on the offset go to the lower id.
-    earliest_superseder: BTreeMap<String, (String, Option<i64>)>,
+    /// Each superseded decision with its supersessions: the superseding decision and what the
+    /// edge states of the event that recorded it, its ledger offset and its time. Sorted by
+    /// superseder id; a supersession asserted twice appears twice, once per edge.
+    supersessions: BTreeMap<String, Vec<(String, EdgeStamp)>>,
     /// The ledger offset of the earliest acceptance and of the earliest rejection (`None` when
     /// the edges state none).
     first_accepted_at: BTreeMap<String, Option<i64>>,
@@ -92,20 +93,13 @@ impl DecisionStandings {
         let mut standings = Self::default();
         // `SUPERSEDES` runs newer decision -> older decision, so the target is the superseded one.
         // Edges arrive sorted by (newer, older), so each decision's superseders are sorted by id.
-        // The same supersession asserted twice is one.
-        for (newer, superseded, origin) in
-            relation_edges_with_origin(graph, RelationKind::Supersedes)?
+        for (newer, superseded, stamp) in relation_edges_with_time(graph, RelationKind::Supersedes)?
         {
-            note_earliest_superseder(
-                &mut standings.earliest_superseder,
-                &superseded,
-                &newer,
-                origin,
-            );
-            let superseders = standings.superseded_by.entry(superseded).or_default();
-            if superseders.last() != Some(&newer) {
-                superseders.push(newer);
-            }
+            standings
+                .supersessions
+                .entry(superseded)
+                .or_default()
+                .push((newer, stamp));
         }
         // Edges arrive sorted by (decision, actor), so each decision's actors are sorted by id.
         for (decision_id, actor_id, origin) in
@@ -134,7 +128,7 @@ impl DecisionStandings {
     /// The status [`derive_decision_status`] gives this decision.
     pub fn status_of(&self, decision_id: &str) -> DecisionStatus {
         status_from_positions(
-            self.superseded_by.contains_key(decision_id),
+            self.supersessions.contains_key(decision_id),
             self.accepted_by.contains_key(decision_id),
             self.rejected_by.contains_key(decision_id),
         )
@@ -142,8 +136,21 @@ impl DecisionStandings {
 
     /// The decisions that superseded this one, sorted by id; empty when nobody has. More than one
     /// means concurrent supersessions, which both stand.
-    pub fn superseders_of(&self, decision_id: &str) -> &[String] {
-        self.superseded_by
+    pub fn superseders_of(&self, decision_id: &str) -> Vec<&str> {
+        let mut superseders: Vec<&str> = self
+            .supersessions_of(decision_id)
+            .iter()
+            .map(|(superseder, _)| superseder.as_str())
+            .collect();
+        // The same supersession asserted twice is one.
+        superseders.dedup();
+        superseders
+    }
+
+    /// The supersessions of this decision, sorted by superseder id: who did it and what the edge
+    /// states of the event that recorded it. Empty when nobody has superseded it.
+    pub(crate) fn supersessions_of(&self, decision_id: &str) -> &[(String, EdgeStamp)] {
+        self.supersessions
             .get(decision_id)
             .map(Vec::as_slice)
             .unwrap_or(&[])
@@ -161,8 +168,12 @@ impl DecisionStandings {
     /// [`StandingSummary::from_edges`].
     pub(crate) fn summary_of(&self, decision_id: &str) -> StandingSummary {
         StandingSummary {
-            superseders: self.superseders_of(decision_id).to_vec(),
-            earliest_superseder: self.earliest_superseder.get(decision_id).cloned(),
+            superseders: self
+                .superseders_of(decision_id)
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            earliest_superseder: earliest_supersession(self.supersessions_of(decision_id)),
             accepted: self.accepted_by.contains_key(decision_id),
             first_accepted_at: self.first_accepted_at.get(decision_id).copied().flatten(),
             rejecters: self.rejecters_of(decision_id).to_vec(),
@@ -184,24 +195,14 @@ impl DecisionStandings {
     }
 }
 
-/// Keep the superseder with the lowest offset for `superseded`; an unknown offset loses to a known
-/// one, and ties go to the lower id (the edges arrive sorted by id, so the first of a tie stays).
-fn note_earliest_superseder(
-    map: &mut BTreeMap<String, (String, Option<i64>)>,
-    superseded: &str,
-    superseder: &str,
-    origin: Option<i64>,
-) {
-    match map.get_mut(superseded) {
-        None => {
-            map.insert(superseded.to_owned(), (superseder.to_owned(), origin));
-        }
-        Some(existing) => {
-            if origin.unwrap_or(i64::MAX) < existing.1.unwrap_or(i64::MAX) {
-                *existing = (superseder.to_owned(), origin);
-            }
-        }
-    }
+/// The supersession recorded first, among those of one decision sorted by superseder id: the
+/// lowest offset, an unknown offset after every known one, and a tie to the lower id. The one
+/// rule behind [`DecisionStandings::summary_of`] and [`StandingSummary::from_edges`].
+fn earliest_supersession(supersessions: &[(String, EdgeStamp)]) -> Option<(String, EdgeStamp)> {
+    supersessions
+        .iter()
+        .min_by_key(|(_, stamp)| stamp.origin.unwrap_or(i64::MAX))
+        .cloned()
 }
 
 /// Keep the lowest offset seen for `key`; an edge with no offset leaves an unknown in place only
@@ -223,8 +224,9 @@ fn note_first_origin(map: &mut BTreeMap<String, Option<i64>>, key: &str, origin:
 pub(crate) struct StandingSummary {
     /// The decisions that superseded it, sorted by id.
     pub superseders: Vec<String>,
-    /// The superseder whose supersession was recorded first, with that event's offset.
-    pub earliest_superseder: Option<(String, Option<i64>)>,
+    /// The superseder whose supersession was recorded first, with what the edge states of that
+    /// event: its offset and its time.
+    pub earliest_superseder: Option<(String, EdgeStamp)>,
     pub accepted: bool,
     /// The offset of the earliest acceptance, when an edge states one.
     pub first_accepted_at: Option<i64>,
@@ -235,11 +237,11 @@ pub(crate) struct StandingSummary {
 }
 
 impl StandingSummary {
-    /// The summary of edges read anchored on one decision: `(superseding decision, offset)`,
+    /// The summary of edges read anchored on one decision: `(superseding decision, stamp)`,
     /// `offset` of each acceptance, `(rejecting actor, offset)`. A pair asserted more than once
     /// counts once.
     pub(crate) fn from_edges(
-        superseders: &[(String, Option<i64>)],
+        superseders: &[(String, EdgeStamp)],
         accepted: &[Option<i64>],
         rejected: &[(String, Option<i64>)],
     ) -> Self {
@@ -249,10 +251,7 @@ impl StandingSummary {
         superseder_ids.dedup();
         summary.superseders = superseder_ids.into_iter().cloned().collect();
         // The first of the earliest offsets wins; an unknown offset sorts after every known one.
-        summary.earliest_superseder = superseders
-            .iter()
-            .min_by_key(|(_, origin)| origin.unwrap_or(i64::MAX))
-            .map(|(superseder, origin)| (superseder.clone(), *origin));
+        summary.earliest_superseder = earliest_supersession(superseders);
         summary.accepted = !accepted.is_empty();
         summary.first_accepted_at = accepted.iter().flatten().min().copied();
         let mut rejecter_ids: Vec<&String> = rejected.iter().map(|(id, _)| id).collect();

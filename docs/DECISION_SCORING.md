@@ -315,12 +315,12 @@ applies its own.
 | Kind | The decision is flagged when | Basis time (`basis_at`) |
 | --- | --- | --- |
 | `bet_past_check_date` | it rests on a declared bet whose check date has passed and nothing supports or refutes it | the check date |
-| `premise_superseded` | a decision it follows from was superseded | when the earliest superseding decision was made |
+| `premise_superseded` | a decision it follows from was superseded | when the earliest supersession was recorded |
 | `premise_rejected` | a decision it follows from was rejected and nobody accepted it | none: the graph does not record when a decision was rejected |
-| `assumption_refuted` | an assumption it rests on was refuted | when the earliest refuting evidence was recorded |
-| `bet_failed` | a bet it rests on was refuted | when the earliest refuting evidence was recorded |
+| `assumption_refuted` | an assumption it rests on was refuted | when the earliest refutation was recorded |
+| `bet_failed` | a bet it rests on was refuted | when the earliest refutation was recorded |
 | `evidence_not_rechecked` | the newest evidence linked to it was recorded more than the window ago | when that evidence was recorded |
-| `propagation_unfinished` | it was superseded and a decision resting on it is still open for re-examination more than the propagation window after the supersession | when the superseding decision was made (the one recorded first) |
+| `propagation_unfinished` | it was superseded and a decision resting on it is still open for re-examination more than the propagation window after the supersession | when the supersession recorded first was recorded |
 
 The first kind is the list of bets past their check date, the four after it are the
 list of decisions whose premise changed, `evidence_not_rechecked` is the list of
@@ -377,10 +377,11 @@ rejected is flagged: a decision that was replaced needs no look. A decision is
 flagged for its own premises only. Carrying a change on to the decisions that rest
 on the flagged one is the re-examine item (see "Re-examine items" below). A contested premise
 is a disagreement and is shown as such, not flagged as a change. A decision
-superseded by more than one decision names the earliest as the basis, and the
-first refutation is the basis of a refuted assumption or bet. A finding names the
+superseded by more than one decision names the earliest supersession as the basis, and the
+first refutation is the basis of a refuted assumption or bet; each is dated by when it was
+recorded, not by when the decision or the evidence it names was made. A finding names the
 decision that needs the look, the premise, hypothesis or evidence it is about and,
-where a time is taken from another node (the superseding decision, the refuting
+where the change is named by another node (the superseding decision, the refuting
 evidence), that node too: `node_ids` is sorted, distinct and always includes the
 decision.
 
@@ -490,9 +491,15 @@ reaffirmed or since superseded or rejected, `open` the rest. A change
 is `unfinished` when an item is still open more than `propagation_window_days` after the
 change: 14 by default, a field of `AttentionConfig`, per request when a surface offers it.
 Exactly the window is not yet past; one second more is. The age is the change's own time,
-which the graph states for a supersession (when the superseding decision was made, the
-earliest by offset when several) and for a refutation (the earliest refuting evidence). It
-does not state one for a rejection or a contest, so those can be open but are never counted
+which the graph states for a supersession (when the supersession was recorded, the one
+recorded first by offset when several) and for a refutation (when the earliest refutation
+was recorded). That is the time of the event that linked the two nodes, carried on the
+`SUPERSEDES` or `REFUTES` edge as `added_at`, never the time of either node: a decision
+captured in May and linked in September as the superseder of another changed that premise in
+September, and nobody could have looked again before the link existed. The superseding
+decision's own time and the refuting evidence's own time date a change only for an edge that
+states none (an edge projected before the edge carried a time, until the ledger is replayed).
+It does not state one for a rejection or a contest, so those can be open but are never counted
 unfinished by age; the answer says so rather than inventing a date. Wording never names an
 actor.
 

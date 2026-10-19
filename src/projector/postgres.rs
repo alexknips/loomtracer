@@ -501,7 +501,7 @@ fn query_neighbor_pairs(
     let rows = if incoming {
         client
             .query(
-                "SELECT from_id, event_origin FROM hm_edges
+                "SELECT from_id, event_origin, added_at FROM hm_edges
                  WHERE tenant_id=$1 AND relation_kind=$2 AND to_id=$3
                  ORDER BY from_id",
                 &[&tenant_id, &relation.table_name(), &id],
@@ -510,19 +510,22 @@ fn query_neighbor_pairs(
     } else {
         client
             .query(
-                "SELECT to_id, event_origin FROM hm_edges
+                "SELECT to_id, event_origin, added_at FROM hm_edges
                  WHERE tenant_id=$1 AND relation_kind=$2 AND from_id=$3
                  ORDER BY to_id",
                 &[&tenant_id, &relation.table_name(), &id],
             )
             .map_err(pg_error)?
     };
+    // The edges that carry a recording time add it on request
+    // (`queries::shared::neighbor_edges_with_time`).
+    let with_added_at = cypher.contains("r.added_at AS added_at");
     Ok(rows
         .into_iter()
         .map(|row| {
             let neighbor_id: String = row.get(0);
             let event_origin: Option<i64> = row.get(1);
-            GraphRow::from([
+            let mut graph_row = GraphRow::from([
                 ("id".to_owned(), GraphValue::String(neighbor_id)),
                 (
                     "event_origin".to_owned(),
@@ -530,7 +533,15 @@ fn query_neighbor_pairs(
                         .map(GraphValue::Int)
                         .unwrap_or(GraphValue::Null),
                 ),
-            ])
+            ]);
+            if with_added_at {
+                let added_at: Option<String> = row.get(2);
+                graph_row.insert(
+                    "added_at".to_owned(),
+                    added_at.map_or(GraphValue::Null, GraphValue::String),
+                );
+            }
+            graph_row
         })
         .collect())
 }
@@ -631,9 +642,12 @@ fn query_edge_list(
     // Only a read that asks for the offset (`queries::shared::relation_edges_with_origin`) gets
     // the column; every other edge list keeps its two-column rows.
     let with_origin = cypher.contains("r.event_origin AS event_origin");
+    // The edges that carry a recording time add it on request
+    // (`queries::shared::relation_edges_with_time`).
+    let with_added_at = cypher.contains("r.added_at AS added_at");
     let rows = client
         .query(
-            "SELECT from_id, to_id, event_origin FROM hm_edges
+            "SELECT from_id, to_id, event_origin, added_at FROM hm_edges
              WHERE tenant_id=$1 AND relation_kind=$2
              ORDER BY from_id, to_id",
             &[&tenant_id, &relation.table_name()],
@@ -653,6 +667,13 @@ fn query_edge_list(
                 graph_row.insert(
                     "event_origin".to_owned(),
                     event_origin.map_or(GraphValue::Null, GraphValue::Int),
+                );
+            }
+            if with_added_at {
+                let added_at: Option<String> = row.get(3);
+                graph_row.insert(
+                    "added_at".to_owned(),
+                    added_at.map_or(GraphValue::Null, GraphValue::String),
                 );
             }
             graph_row

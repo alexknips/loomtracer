@@ -2456,6 +2456,72 @@ fn grounding_reads_match_memory() -> Result<()> {
     })
 }
 
+// A supersession or a refutation is dated by the event that recorded the edge (hivemind-xhoie),
+// in both read shapes: the bulk read the standings use and the anchored read a neighborhood uses.
+// The scenario links both kinds, so the rows are checked to carry a time and not just to agree.
+#[test]
+fn change_edges_carry_their_recording_time_like_memory() -> Result<()> {
+    with_postgres_graph("change-edge-time-parity", |pg| {
+        let scenario = grounding_scenario()?;
+        let memory = scenario.graph()?;
+        project_from_ledger(scenario.ledger(), pg, 0)?;
+
+        for (relation, from_table, to_table, from_id, to_id) in [
+            (
+                "SUPERSEDES",
+                "Decision",
+                "Decision",
+                "d:premise-new",
+                "d:premise-old",
+            ),
+            ("REFUTES", "Evidence", "Hypothesis", "e:checked", "h:failed"),
+        ] {
+            let bulk = format!(
+                "MATCH (from:`{from_table}`)-[r:`{relation}`]->(to:`{to_table}`) RETURN from.id AS from_id, to.id AS to_id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY from.id, to.id;"
+            );
+            let anchored = format!(
+                "MATCH (a:`{from_table}` {{id: $id}})-[r:`{relation}`]->(b:`{to_table}`) RETURN b.id AS id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY b.id, r.event_origin;"
+            );
+            let anchor =
+                GraphParams::from([("id".to_string(), GraphValue::String(from_id.to_string()))]);
+
+            let memory_bulk = memory.query(&bulk, &GraphParams::new())?;
+            let pg_bulk = pg.query(&bulk, &GraphParams::new())?;
+            if memory_bulk != pg_bulk {
+                return Err(test_error(format!(
+                    "{relation} bulk edge rows mismatch: memory={memory_bulk:?} pg={pg_bulk:?}"
+                )));
+            }
+            let memory_anchored = memory.query(&anchored, &anchor)?;
+            let pg_anchored = pg.query(&anchored, &anchor)?;
+            if memory_anchored != pg_anchored {
+                return Err(test_error(format!(
+                    "{relation} anchored edge rows mismatch: memory={memory_anchored:?} pg={pg_anchored:?}"
+                )));
+            }
+
+            let linked = pg_bulk
+                .iter()
+                .find(|row| {
+                    row.get("from_id") == Some(&GraphValue::String(from_id.to_string()))
+                        && row.get("to_id") == Some(&GraphValue::String(to_id.to_string()))
+                })
+                .ok_or_else(|| {
+                    test_error(format!("{relation} {from_id} -> {to_id} not projected"))
+                })?;
+            match linked.get("added_at") {
+                Some(GraphValue::String(at)) if !at.is_empty() => {}
+                other => {
+                    return Err(test_error(format!(
+                        "{relation} {from_id} -> {to_id} carries no recording time: {other:?}"
+                    )))
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
 #[test]
 fn grounding_states_and_stale_premises_read_right_on_postgres() -> Result<()> {
     with_postgres_graph("grounding-states", |pg| {

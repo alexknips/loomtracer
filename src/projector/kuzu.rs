@@ -106,7 +106,7 @@ const RELATION_DDL: &[(RelationKind, &str)] = &[
     ),
     (
         RelationKind::Supersedes,
-        "CREATE REL TABLE IF NOT EXISTS `SUPERSEDES` (FROM `Decision` TO `Decision`, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING);",
+        "CREATE REL TABLE IF NOT EXISTS `SUPERSEDES` (FROM `Decision` TO `Decision`, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, added_at STRING);",
     ),
     (
         RelationKind::BlockedActor,
@@ -154,7 +154,7 @@ const RELATION_DDL: &[(RelationKind, &str)] = &[
     ),
     (
         RelationKind::Refutes,
-        "CREATE REL TABLE IF NOT EXISTS `REFUTES` (FROM `Evidence` TO `Hypothesis`, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING);",
+        "CREATE REL TABLE IF NOT EXISTS `REFUTES` (FROM `Evidence` TO `Hypothesis`, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, added_at STRING);",
     ),
     (
         RelationKind::SameAs,

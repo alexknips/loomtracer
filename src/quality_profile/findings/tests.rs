@@ -4,12 +4,13 @@ use std::collections::BTreeSet;
 
 use chrono::{DateTime, Duration, Utc};
 
+use crate::projector::memory::MemoryGraph;
 use crate::projector::GraphView;
 use crate::queries::test_fixtures::{
     attention_scenario, reexamine_scenario, revisions_scenario, ts, CountingGraph, Scenario,
     ATTENTION_NOW, REEXAMINE_NOW,
 };
-use crate::queries::{get_decision_brief_at, GROUNDING_FACT_READS};
+use crate::queries::{get_decision_brief_at, get_propagation_at, GROUNDING_FACT_READS};
 use crate::Result;
 
 use super::*;
@@ -52,13 +53,13 @@ fn expected_scenario_findings() -> Vec<Summary> {
                 "e:refute-a2",
                 "h:assumption-refuted",
             ],
-            Some("2026-06-01T00:00:00Z"),
+            Some("2026-06-01T00:00:01Z"),
         ),
         (
             "d:bet-failed",
             BetFailed,
             &["d:bet-failed", "e:refute-bet", "h:bet-failed"],
-            Some("2026-08-15T00:00:00Z"),
+            Some("2026-08-15T00:00:01Z"),
         ),
         (
             "d:bet-overdue",
@@ -76,7 +77,7 @@ fn expected_scenario_findings() -> Vec<Summary> {
             "d:cycle-a",
             PremiseSuperseded,
             &["d:cycle-a", "d:p-new", "d:p-old"],
-            Some("2026-08-01T00:00:00Z"),
+            Some("2026-08-01T00:00:01Z"),
         ),
         (
             "d:ev-just-over",
@@ -100,7 +101,7 @@ fn expected_scenario_findings() -> Vec<Summary> {
             "d:f-both",
             PremiseSuperseded,
             &["d:f-both", "d:p-new", "d:p-old"],
-            Some("2026-08-01T00:00:00Z"),
+            Some("2026-08-01T00:00:01Z"),
         ),
         (
             "d:f-both",
@@ -112,7 +113,7 @@ fn expected_scenario_findings() -> Vec<Summary> {
             "d:f-concurrent",
             PremiseSuperseded,
             &["d:f-concurrent", "d:p-double", "d:p-double-b"],
-            Some("2026-08-05T00:00:00Z"),
+            Some("2026-08-10T00:00:01Z"),
         ),
         (
             "d:f-rejected",
@@ -124,21 +125,21 @@ fn expected_scenario_findings() -> Vec<Summary> {
             "d:f-superseded",
             PremiseSuperseded,
             &["d:f-superseded", "d:p-new", "d:p-old"],
-            Some("2026-08-01T00:00:00Z"),
+            Some("2026-08-01T00:00:01Z"),
         ),
         // Dated by the supersession recorded first (`d:p-double-a`), the rule `Propagation` ages
-        // by, where `d:f-concurrent` above is dated by the earlier one (`d:p-double-b`).
+        // by, where `d:f-concurrent` above is dated by the one stamped earlier (`d:p-double-b`).
         (
             "d:p-double",
             PropagationUnfinished,
             &["d:p-double", "d:p-double-a"],
-            Some("2026-08-10T00:00:00Z"),
+            Some("2026-08-10T00:00:02Z"),
         ),
         (
             "d:p-old",
             PropagationUnfinished,
             &["d:p-new", "d:p-old"],
-            Some("2026-08-01T00:00:00Z"),
+            Some("2026-08-01T00:00:01Z"),
         ),
     ];
     table
@@ -376,16 +377,18 @@ fn the_first_superseder_and_the_first_refutation_are_the_basis_not_the_lowest_id
             .expect("the finding exists")
     };
 
-    // `d:p-double-a` sorts first but `d:p-double-b` was decided five days earlier.
+    // `d:p-double-a` sorts first and was recorded first, but its supersession is stamped a second
+    // after `d:p-double-b`'s.
     let superseded = of("d:f-concurrent", FindingKind::PremiseSuperseded);
     assert!(superseded.node_ids.contains(&"d:p-double-b".to_owned()));
     assert!(!superseded.node_ids.contains(&"d:p-double-a".to_owned()));
-    assert_eq!(superseded.basis_at, Some(ts("2026-08-05T00:00:00Z")));
-    // `e:refute-a1` sorts first but `e:refute-a2` was recorded a month earlier.
+    assert_eq!(superseded.basis_at, Some(ts("2026-08-10T00:00:01Z")));
+    // `e:refute-a1` sorts first but its link to the assumption was recorded a month after
+    // `e:refute-a2`'s.
     let refuted = of("d:assumption-refuted", FindingKind::AssumptionRefuted);
     assert!(refuted.node_ids.contains(&"e:refute-a2".to_owned()));
     assert!(!refuted.node_ids.contains(&"e:refute-a1".to_owned()));
-    assert_eq!(refuted.basis_at, Some(ts("2026-06-01T00:00:00Z")));
+    assert_eq!(refuted.basis_at, Some(ts("2026-06-01T00:00:01Z")));
     Ok(())
 }
 
@@ -409,7 +412,7 @@ fn a_premise_that_was_rejected_has_no_recorded_time_and_says_so() -> Result<()> 
 }
 
 #[test]
-fn a_superseder_that_states_no_time_gives_a_finding_with_no_basis_time() -> Result<()> {
+fn a_superseder_that_states_no_time_is_dated_by_the_edge_that_links_it() -> Result<()> {
     let scenario = Scenario::new();
     let crew = "agent:claude:crew";
     scenario.decision(
@@ -432,18 +435,24 @@ fn a_superseder_that_states_no_time_gives_a_finding_with_no_basis_time() -> Resu
     scenario.supersede("d:premise", "d:stub-new", crew, "2026-04-01T00:00:01Z")?;
     let graph = scenario.graph()?;
 
-    let findings = all_findings(&graph)?;
+    let findings = findings_at(
+        &graph,
+        &[FindingKind::PremiseSuperseded],
+        &AttentionConfig::default(),
+        now(),
+    )?;
 
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].kind, FindingKind::PremiseSuperseded);
-    assert_eq!(findings[0].basis_at, None);
+    // The stub states no time, the supersession does: the change is dated by the edge.
+    assert_eq!(findings[0].basis_at, Some(ts("2026-04-01T00:00:01Z")));
     assert_eq!(
         findings[0].node_ids,
         ["d:follower", "d:premise", "d:stub-new"]
     );
     assert_eq!(
         findings[0].reason,
-        "the decision it follows from, 'Use the old queue', was superseded by 'd:stub-new'"
+        "the decision it follows from, 'Use the old queue', was superseded by 'd:stub-new' on 2026-04-01"
     );
     Ok(())
 }
@@ -495,7 +504,7 @@ fn a_decision_that_superseded_its_own_premise_is_not_flagged_for_it() -> Result<
                 "d:both".to_owned(),
                 FindingKind::PremiseSuperseded,
                 vec!["d:both".to_owned(), "d:old2".to_owned(), "d:x".to_owned()],
-                Some(ts("2026-05-01T00:00:00Z")),
+                Some(ts("2026-05-01T00:00:01Z")),
             ),
             (
                 "d:bystander".to_owned(),
@@ -505,19 +514,19 @@ fn a_decision_that_superseded_its_own_premise_is_not_flagged_for_it() -> Result<
                     "d:old".to_owned(),
                     "d:refiner".to_owned()
                 ],
-                Some(ts("2026-03-01T00:00:00Z")),
+                Some(ts("2026-03-01T00:00:02Z")),
             ),
             (
                 "d:old".to_owned(),
                 FindingKind::PropagationUnfinished,
                 vec!["d:old".to_owned(), "d:refiner".to_owned()],
-                Some(ts("2026-03-01T00:00:00Z")),
+                Some(ts("2026-03-01T00:00:02Z")),
             ),
             (
                 "d:old2".to_owned(),
                 FindingKind::PropagationUnfinished,
                 vec!["d:both".to_owned(), "d:old2".to_owned()],
-                Some(ts("2026-03-10T00:00:00Z")),
+                Some(ts("2026-03-10T00:00:02Z")),
             ),
         ]
     );
@@ -778,9 +787,49 @@ fn newer_evidence_gives_the_finding_a_new_id_and_a_newer_basis() -> Result<()> {
 }
 
 #[test]
-fn an_earlier_superseder_moves_the_basis_and_the_id_of_a_premise_finding() -> Result<()> {
+fn a_supersession_stamped_earlier_moves_the_basis_and_the_id_of_a_premise_finding() -> Result<()> {
     let scenario = attention_scenario()?;
     let before = all_findings(&scenario.graph()?)?;
+    scenario.decision(
+        "d:p-older-new",
+        "A queue nobody remembers",
+        "agent:claude:crew",
+        "2026-07-01T00:00:00Z",
+    )?;
+    // Recorded after the first supersession, by offset, but stamped a month before it.
+    scenario.supersede(
+        "d:p-old",
+        "d:p-older-new",
+        "agent:claude:crew",
+        "2026-07-01T00:00:01Z",
+    )?;
+
+    let after = all_findings(&scenario.graph()?)?;
+    let of = |findings: &[AttentionFinding]| -> AttentionFinding {
+        findings
+            .iter()
+            .find(|finding| {
+                finding.decision_id == "d:f-superseded"
+                    && finding.kind == FindingKind::PremiseSuperseded
+            })
+            .expect("flagged")
+            .clone()
+    };
+
+    let (old, new) = (of(&before), of(&after));
+    assert_eq!(old.basis_at, Some(ts("2026-08-01T00:00:01Z")));
+    assert_eq!(new.basis_at, Some(ts("2026-07-01T00:00:01Z")));
+    assert!(new.node_ids.contains(&"d:p-older-new".to_owned()));
+    assert_ne!(old.finding_id, new.finding_id);
+    Ok(())
+}
+
+#[test]
+fn a_superseder_linked_later_does_not_move_the_basis_however_old_the_decision_is() -> Result<()> {
+    let scenario = attention_scenario()?;
+    let before = all_findings(&scenario.graph()?)?;
+    // Captured in July, linked as a superseder of the same premise in September: the premise
+    // stopped standing at the first link, and the later link changes neither the date nor the id.
     scenario.decision(
         "d:p-older-new",
         "A queue nobody remembers",
@@ -807,10 +856,9 @@ fn an_earlier_superseder_moves_the_basis_and_the_id_of_a_premise_finding() -> Re
     };
 
     let (old, new) = (of(&before), of(&after));
-    assert_eq!(old.basis_at, Some(ts("2026-08-01T00:00:00Z")));
-    assert_eq!(new.basis_at, Some(ts("2026-07-01T00:00:00Z")));
-    assert!(new.node_ids.contains(&"d:p-older-new".to_owned()));
-    assert_ne!(old.finding_id, new.finding_id);
+    assert_eq!(new.basis_at, Some(ts("2026-08-01T00:00:01Z")));
+    assert!(!new.node_ids.contains(&"d:p-older-new".to_owned()));
+    assert_eq!(old.finding_id, new.finding_id);
     Ok(())
 }
 
@@ -1706,8 +1754,9 @@ fn verify_counts_the_dependents_the_unfinished_finding_counts() -> Result<()> {
     Ok(())
 }
 
-/// `d:old` was superseded by `d:new` on 2026-08-01; `d:dep-a` and `d:dep-b` rest on it and nobody
-/// has looked at either since.
+/// `d:old` was superseded by `d:new` on 2026-08-01, the instant `d:new` was proposed (the change
+/// is dated by the supersession, not by the proposal); `d:dep-a` and `d:dep-b` rest on it and
+/// nobody has looked at either since.
 fn two_dependents() -> Result<Scenario> {
     let scenario = Scenario::new();
     let crew = "agent:claude:crew";
@@ -1724,7 +1773,7 @@ fn two_dependents() -> Result<Scenario> {
             "2026-04-01T00:00:01Z",
         )?;
     }
-    scenario.supersede("d:old", "d:new", crew, "2026-08-01T00:00:01Z")?;
+    scenario.supersede("d:old", "d:new", crew, "2026-08-01T00:00:00Z")?;
     Ok(scenario)
 }
 
@@ -1888,29 +1937,12 @@ fn only_a_supersession_can_be_unfinished_whatever_the_clock() -> Result<()> {
 
 #[test]
 fn a_supersession_that_states_no_time_is_never_old() -> Result<()> {
-    let scenario = Scenario::new();
-    let crew = "agent:claude:crew";
-    scenario.decision(
-        "d:premise",
-        "Use the old queue",
-        crew,
-        "2026-02-01T00:00:00Z",
-    )?;
-    scenario.decision("d:follower", "Batch jobs", crew, "2026-03-01T00:00:00Z")?;
-    scenario.relation(
-        "FOLLOWS_FROM",
-        "d:follower",
-        "d:premise",
-        crew,
-        None,
-        "2026-03-01T00:00:01Z",
-    )?;
-    // Named by a request and never proposed, so its node states no time: no age is invented.
-    scenario.request_naming("d:stub-new", "2026-04-01T00:00:00Z")?;
-    scenario.supersede("d:premise", "d:stub-new", crew, "2026-04-01T00:00:01Z")?;
+    // The edge states an offset and nothing else, and the stub that superseded it was named by a
+    // request and never proposed, so its node states no time either: no age is invented.
+    let graph = offset_only_supersession(None)?;
 
-    let found = only_unfinished(
-        &scenario,
+    let found = only_unfinished_on(
+        &graph,
         &AttentionConfig::default(),
         ts("2036-01-01T00:00:00Z"),
     )?;
@@ -2035,4 +2067,284 @@ fn an_unfinished_propagation_carries_no_score_or_rank() -> Result<()> {
         assert!(wire.get(word).is_none(), "{word}");
     }
     Ok(())
+}
+
+// ── a change is dated by the link, not by the nodes it links (hivemind-xhoie) ──────────────────
+
+/// When the link below is recorded: long after both decisions and the evidence it joins.
+const LINKED: &str = "2026-09-20T10:00:00Z";
+
+/// `d:premise` (February) is superseded on `LINKED` by `d:successor`, a decision captured back in
+/// May: an existing decision linked as the superseder. `d:dependent` follows from the premise and
+/// nobody has looked at it since.
+fn old_decision_linked_as_superseder() -> Result<Scenario> {
+    let scenario = Scenario::new();
+    let crew = "agent:claude:crew";
+    scenario.decision(
+        "d:premise",
+        "Use the old queue",
+        crew,
+        "2026-02-01T00:00:00Z",
+    )?;
+    scenario.decision(
+        "d:successor",
+        "Use the new queue",
+        crew,
+        "2026-05-01T00:00:00Z",
+    )?;
+    scenario.decision("d:dependent", "Batch jobs", crew, "2026-03-01T00:00:00Z")?;
+    scenario.relation(
+        "FOLLOWS_FROM",
+        "d:dependent",
+        "d:premise",
+        crew,
+        None,
+        "2026-03-01T00:00:01Z",
+    )?;
+    scenario.supersede("d:premise", "d:successor", crew, LINKED)?;
+    Ok(scenario)
+}
+
+/// `h:assumption` (February) is refuted on `LINKED` by `e:old`, evidence recorded back in May:
+/// existing evidence linked as refuting. `d:rests-on` rests on the assumption and nobody has
+/// looked at it since.
+fn old_evidence_linked_as_refuting() -> Result<Scenario> {
+    let scenario = Scenario::new();
+    let crew = "agent:claude:crew";
+    scenario.hypothesis(
+        "h:assumption",
+        "The queue keeps up",
+        "assumption",
+        None,
+        "2026-02-01T00:00:00Z",
+    )?;
+    scenario.evidence(
+        "e:old",
+        "A benchmark from May",
+        None,
+        "2026-05-01T00:00:00Z",
+    )?;
+    scenario.decision_with(
+        "d:rests-on",
+        "Keep the queue",
+        crew,
+        "2026-03-01T00:00:00Z",
+        false,
+        &[],
+        &["h:assumption"],
+        None,
+    )?;
+    scenario.relation("REFUTES", "e:old", "h:assumption", crew, None, LINKED)?;
+    Ok(scenario)
+}
+
+#[test]
+fn linking_an_old_decision_as_superseder_dates_the_change_at_the_link() -> Result<()> {
+    let graph = old_decision_linked_as_superseder()?.graph()?;
+    let linked = ts(LINKED);
+    let config = AttentionConfig::default();
+    let window = Duration::days(i64::from(config.propagation_window_days));
+
+    // The change is as old as the link, not as old as the decision it names as the superseder:
+    // the same day, and for the whole window, nothing is unfinished and `verify` says so.
+    let the_day_after = linked + Duration::days(1);
+    assert!(only_unfinished_on(&graph, &config, the_day_after)?.is_empty());
+    let propagation = get_propagation_at(&graph, "d:premise", None, the_day_after)?
+        .expect("the premise has an open dependent");
+    assert!(!propagation.unfinished);
+    assert!(!propagation.describe().contains("[UNFINISHED]"));
+    assert_eq!(propagation.oldest_open_since, Some(linked));
+    assert_eq!(propagation.change.at_time, Some(linked));
+
+    // Exactly the window after the link is not yet past; one second more is.
+    assert!(only_unfinished_on(&graph, &config, linked + window)?.is_empty());
+    let after = linked + window + Duration::seconds(1);
+    let found = only_unfinished_on(&graph, &config, after)?;
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].decision_id, "d:premise");
+    assert_eq!(found[0].basis_at, Some(linked));
+    assert!(found[0]
+        .reason
+        .contains("superseded by 'Use the new queue' on 2026-09-20"));
+    let propagation = get_propagation_at(&graph, "d:premise", None, after)?
+        .expect("the premise has an open dependent");
+    assert!(propagation.unfinished);
+    assert!(propagation
+        .describe()
+        .ends_with("since 2026-09-20 [UNFINISHED]"));
+
+    // The decision that follows the premise reads the change at the link too.
+    let flagged = findings_at(
+        &graph,
+        &[FindingKind::PremiseSuperseded],
+        &config,
+        the_day_after,
+    )?;
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].decision_id, "d:dependent");
+    assert_eq!(flagged[0].basis_at, Some(linked));
+    assert!(
+        flagged[0].reason.contains("on 2026-09-20"),
+        "{}",
+        flagged[0].reason
+    );
+    Ok(())
+}
+
+#[test]
+fn linking_old_evidence_as_refuting_dates_the_change_at_the_link() -> Result<()> {
+    let graph = old_evidence_linked_as_refuting()?.graph()?;
+    let linked = ts(LINKED);
+    let config = AttentionConfig::default();
+    let window = Duration::days(i64::from(config.propagation_window_days));
+
+    let refuted = findings_at(
+        &graph,
+        &[FindingKind::AssumptionRefuted],
+        &config,
+        linked + Duration::days(1),
+    )?;
+    assert_eq!(refuted.len(), 1);
+    assert_eq!(refuted[0].decision_id, "d:rests-on");
+    assert_eq!(
+        refuted[0].basis_at,
+        Some(linked),
+        "the evidence was recorded in May; the refutation was recorded when it was linked"
+    );
+    assert!(
+        refuted[0].reason.contains("on 2026-09-20"),
+        "{}",
+        refuted[0].reason
+    );
+
+    let day_after = get_propagation_at(&graph, "h:assumption", None, linked + Duration::days(1))?
+        .expect("the hypothesis has an open dependent");
+    assert!(!day_after.unfinished);
+    assert!(!day_after.describe().contains("[UNFINISHED]"));
+    assert_eq!(day_after.change.at_time, Some(linked));
+    assert_eq!(day_after.oldest_open_since, Some(linked));
+
+    let at_window = get_propagation_at(&graph, "h:assumption", None, linked + window)?
+        .expect("the hypothesis has an open dependent");
+    assert!(!at_window.unfinished, "exactly the window is not yet past");
+    let past = get_propagation_at(
+        &graph,
+        "h:assumption",
+        None,
+        linked + window + Duration::seconds(1),
+    )?
+    .expect("the hypothesis has an open dependent");
+    assert!(past.unfinished);
+    assert!(past.describe().ends_with("since 2026-09-20 [UNFINISHED]"));
+    Ok(())
+}
+
+#[test]
+fn the_earliest_link_dates_the_change_when_several_are_recorded() -> Result<()> {
+    let scenario = old_decision_linked_as_superseder()?;
+    let crew = "agent:claude:crew";
+    // A second decision, captured before the first successor, is linked as a superseder a week
+    // later: the first link still dates the change, whichever decision is older.
+    scenario.decision(
+        "d:second",
+        "Use a third queue",
+        crew,
+        "2026-04-01T00:00:00Z",
+    )?;
+    scenario.supersede("d:premise", "d:second", crew, "2026-09-27T10:00:00Z")?;
+    let graph = scenario.graph()?;
+
+    let flagged = findings_at(
+        &graph,
+        &[FindingKind::PremiseSuperseded],
+        &AttentionConfig::default(),
+        ts("2026-09-28T00:00:00Z"),
+    )?;
+
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].basis_at, Some(ts(LINKED)));
+    assert_eq!(
+        get_propagation_at(&graph, "d:premise", None, ts("2026-09-28T00:00:00Z"))?
+            .expect("an open dependent")
+            .change
+            .at_time,
+        Some(ts(LINKED))
+    );
+    Ok(())
+}
+
+/// A graph projected before a change edge carried a time: `d:successor` superseded `d:premise`
+/// and the edge states an offset and nothing else, and `d:dependent` follows from the premise.
+/// The successor states `occurred_at` when it is given one, and no time otherwise.
+fn offset_only_supersession(successor_occurred_at: Option<&str>) -> Result<MemoryGraph> {
+    use crate::projector::{GraphProperties, GraphValue, NodeKind, RelationKind};
+    let graph = MemoryGraph::default();
+    let decision = |id: &str, occurred_at: Option<&str>| {
+        let mut properties =
+            GraphProperties::from([("title".to_owned(), GraphValue::String(id.to_owned()))]);
+        if let Some(occurred_at) = occurred_at {
+            properties.insert(
+                "occurred_at".to_owned(),
+                GraphValue::String(occurred_at.to_owned()),
+            );
+        }
+        graph.upsert_node(NodeKind::Decision, id, &properties)
+    };
+    decision("d:premise", Some("2026-02-01T00:00:00Z"))?;
+    decision("d:successor", successor_occurred_at)?;
+    decision("d:dependent", Some("2026-03-01T00:00:00Z"))?;
+    let offset =
+        |origin: i64| GraphProperties::from([("event_origin".to_owned(), GraphValue::Int(origin))]);
+    graph.upsert_edge(
+        RelationKind::FollowsFrom,
+        "d:dependent",
+        "d:premise",
+        &offset(1),
+    )?;
+    graph.upsert_edge(
+        RelationKind::Supersedes,
+        "d:successor",
+        "d:premise",
+        &offset(2),
+    )?;
+    Ok(graph)
+}
+
+/// A graph projected before a change edge carried a time: the edges state an offset and nothing
+/// else. The nodes' own times date the change, as they did, for exactly these edges.
+#[test]
+fn an_edge_that_states_no_time_is_dated_by_the_node_it_links() -> Result<()> {
+    let graph = offset_only_supersession(Some("2026-05-01T00:00:00Z"))?;
+
+    let flagged = findings_at(
+        &graph,
+        &[FindingKind::PremiseSuperseded],
+        &AttentionConfig::default(),
+        ts("2026-10-01T00:00:00Z"),
+    )?;
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].basis_at, Some(ts("2026-05-01T00:00:00Z")));
+    let unfinished = only_unfinished_on(
+        &graph,
+        &AttentionConfig::default(),
+        ts("2026-10-01T00:00:00Z"),
+    )?;
+    assert_eq!(unfinished.len(), 1);
+    assert_eq!(unfinished[0].basis_at, Some(ts("2026-05-01T00:00:00Z")));
+    assert_eq!(
+        get_propagation_at(&graph, "d:premise", None, ts("2026-10-01T00:00:00Z"))?
+            .expect("an open dependent")
+            .change
+            .at_time,
+        Some(ts("2026-05-01T00:00:00Z"))
+    );
+    Ok(())
+}
+
+fn only_unfinished_on(
+    graph: &impl GraphView,
+    config: &AttentionConfig,
+    at: DateTime<Utc>,
+) -> Result<Vec<AttentionFinding>> {
+    findings_at(graph, &[FindingKind::PropagationUnfinished], config, at)
 }

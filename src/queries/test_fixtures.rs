@@ -1315,8 +1315,9 @@ pub(crate) const ATTENTION_NOW: &str = "2026-09-26T00:00:00Z";
 /// longer stand. `d:assumption-refuted` rests on an assumption refuted twice (the earlier
 /// refutation has the later id); `d:assumption-open` on one nothing refutes.
 ///
-/// Premises: `d:p-old` was superseded by `d:p-new`; `d:p-double` by `d:p-double-a` (2026-08-10)
-/// and `d:p-double-b` (2026-08-05, the earlier); `d:p-rejected` was rejected; `d:p-contested` was
+/// Premises: `d:p-old` was superseded by `d:p-new`; `d:p-double` by `d:p-double-a` (recorded
+/// first, stamped 2026-08-10T00:00:02Z) and `d:p-double-b` (recorded second, stamped
+/// 2026-08-10T00:00:01Z, the earlier); `d:p-rejected` was rejected; `d:p-contested` was
 /// accepted and rejected; `d:p-standing` stands. `d:f-superseded`, `d:f-concurrent`,
 /// `d:f-rejected` and `d:f-both` (superseded and rejected premise) follow from them and are
 /// flagged; `d:f-contested` and `d:f-standing` are not; `d:f-dead` (superseded) and
@@ -1612,8 +1613,10 @@ pub(crate) fn attention_scenario() -> Result<Scenario> {
         crew,
         "2026-08-05T00:00:00Z",
     )?;
-    s.supersede("d:p-double", "d:p-double-a", crew, "2026-08-10T00:00:01Z")?;
-    s.supersede("d:p-double", "d:p-double-b", crew, "2026-08-10T00:00:02Z")?;
+    // `a` is recorded first, by offset, but stamped later than `b`: the earliest supersession by
+    // time is not the first by offset, nor the lowest id.
+    s.supersede("d:p-double", "d:p-double-a", crew, "2026-08-10T00:00:02Z")?;
+    s.supersede("d:p-double", "d:p-double-b", crew, "2026-08-10T00:00:01Z")?;
     s.decision(
         "d:p-rejected",
         "Adopt the vendor SDK",
@@ -2267,7 +2270,7 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
         alex,
         "2026-09-01T13:00:00Z",
     )?;
-    s.supersede("d:p-sup", "d:p-sup-new", alex, "2026-09-02T00:00:01Z")?;
+    s.supersede("d:p-sup", "d:p-sup-new", alex, "2026-09-02T00:00:00Z")?;
     s.reaffirmed(
         "d:twice",
         "d:p-sup",
@@ -2314,8 +2317,8 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
     }
     stand(&["d:p-conc", "d:conc-a", "d:conc-b", "d:on-conc"])?;
     follows("d:on-conc", "d:p-conc")?;
-    s.supersede("d:p-conc", "d:conc-b", alex, "2026-09-12T00:00:01Z")?;
-    s.supersede("d:p-conc", "d:conc-a", alice, "2026-09-12T00:00:02Z")?;
+    s.supersede("d:p-conc", "d:conc-b", alex, "2026-09-12T00:00:00Z")?;
+    s.supersede("d:p-conc", "d:conc-a", alice, "2026-09-10T00:00:00Z")?;
 
     // A rejected premise: one dependent open, one reaffirmed.
     for (id, title, at) in [
@@ -2384,7 +2387,7 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
         alice,
         "2026-09-07T00:00:00Z",
     )?;
-    s.supersede("d:p-cont2", "d:cont2-new", alex, "2026-09-20T00:00:01Z")?;
+    s.supersede("d:p-cont2", "d:cont2-new", alex, "2026-09-20T00:00:00Z")?;
     s.accept("d:p-cont3", alice, "2026-09-06T00:02:00Z")?;
     s.reject("d:p-cont3", bob, "2026-09-06T00:02:01Z")?;
     s.reaffirmed(
@@ -2472,7 +2475,7 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
         "h:assumption",
         alex,
         None,
-        "2026-09-05T00:00:01Z",
+        "2026-09-05T00:00:00Z",
     )?;
     s.relation(
         "REFUTES",
@@ -2480,7 +2483,7 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
         "h:assumption",
         alex,
         None,
-        "2026-09-05T00:00:02Z",
+        "2026-09-03T00:00:00Z",
     )?;
     s.relation(
         "REFUTES",
@@ -2488,7 +2491,7 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
         "h:bet",
         alex,
         None,
-        "2026-09-12T00:00:01Z",
+        "2026-09-12T00:00:00Z",
     )?;
     s.reaffirmed(
         "d:on-bet",
@@ -2535,7 +2538,7 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
     ])?;
     follows("d:on-edge-eq", "d:p-edge-eq")?;
     follows("d:on-edge-over", "d:p-edge-over")?;
-    s.supersede("d:p-edge-eq", "d:edge-eq-new", alex, "2026-09-17T00:00:01Z")?;
+    s.supersede("d:p-edge-eq", "d:edge-eq-new", alex, "2026-09-17T00:00:00Z")?;
     s.supersede(
         "d:p-edge-over",
         "d:edge-over-new",
@@ -2579,9 +2582,9 @@ pub(crate) fn reexamine_scenario() -> Result<Scenario> {
     follows("d:cyc-a", "d:cyc-b")?;
     follows("d:cyc-b", "d:cyc-a")?;
     follows("d:self", "d:self")?;
-    s.supersede("d:cyc-a", "d:cyc-a-new", alex, "2026-09-05T00:00:01Z")?;
-    s.supersede("d:self", "d:self-new", alex, "2026-09-05T00:00:02Z")?;
-    s.supersede("d:lonely", "d:lonely-new", alex, "2026-09-05T00:00:03Z")?;
+    s.supersede("d:cyc-a", "d:cyc-a-new", alex, "2026-09-05T00:00:00Z")?;
+    s.supersede("d:self", "d:self-new", alex, "2026-09-05T00:00:00Z")?;
+    s.supersede("d:lonely", "d:lonely-new", alex, "2026-09-05T00:00:00Z")?;
     Ok(s)
 }
 

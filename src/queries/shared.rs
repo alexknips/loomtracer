@@ -242,6 +242,75 @@ pub(crate) fn relation_edges_with_origin(
     Ok(edges)
 }
 
+/// What an edge states about the event that recorded it: that event's ledger offset and its
+/// time. Either reads as `None` when the edge does not carry it (an edge written before it was
+/// carried, or by an event that states no time); nothing is guessed in its place here, and a
+/// reader that dates a change falls back to the nodes it links only for an edge with no time.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct EdgeStamp {
+    pub origin: Option<i64>,
+    pub at: Option<DateTime<Utc>>,
+}
+
+impl EdgeStamp {
+    /// The stamp of an edge that states only its offset.
+    #[cfg(test)]
+    pub(crate) const fn at_offset(origin: Option<i64>) -> Self {
+        Self { origin, at: None }
+    }
+
+    /// The order stamps are kept in when one pair was asserted more than once: the lowest offset
+    /// first, an unknown one last, so keeping the first of a pair keeps its first assertion.
+    fn assertion_order(&self) -> i64 {
+        self.origin.unwrap_or(i64::MAX)
+    }
+}
+
+/// [`relation_edges_with_origin`] with the time of the event that recorded each edge, for the
+/// relations that carry one (`RelationKind::carries_recorded_at`): `SUPERSEDES` and `REFUTES`,
+/// the two that state a change. Same query, one more column, so a bulk read costs the same.
+pub(crate) fn relation_edges_with_time(
+    graph: &impl GraphView,
+    relation: RelationKind,
+) -> Result<Vec<(String, String, EdgeStamp)>> {
+    debug_assert!(
+        relation.carries_recorded_at(),
+        "{} edges carry no recording time",
+        relation.table_name()
+    );
+    let (from_kind, to_kind) = relation.endpoints();
+    let from_table = from_kind.table_name();
+    let to_table = to_kind.table_name();
+    let relation_table = relation.table_name();
+    let rows = graph.query(
+        &format!(
+            "MATCH (from:`{from_table}`)-[r:`{relation_table}`]->(to:`{to_table}`) RETURN from.id AS from_id, to.id AS to_id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY from.id, to.id;"
+        ),
+        &GraphParams::new(),
+    )?;
+
+    let mut edges = Vec::with_capacity(rows.len());
+    for row in rows {
+        edges.push((
+            required_string(&row, "from_id")?,
+            required_string(&row, "to_id")?,
+            EdgeStamp {
+                origin: optional_int(&row, "event_origin"),
+                at: optional_datetime(&row, "added_at")?,
+            },
+        ));
+    }
+    edges.sort_by(|left, right| {
+        (&left.0, &left.1, left.2.assertion_order()).cmp(&(
+            &right.0,
+            &right.1,
+            right.2.assertion_order(),
+        ))
+    });
+    edges.dedup_by(|later, earlier| later.0 == earlier.0 && later.1 == earlier.1);
+    Ok(edges)
+}
+
 pub(crate) fn relation_targets(
     edges: &BTreeMap<RelationKind, Vec<(String, String)>>,
     relations: &[RelationKind],
@@ -348,6 +417,55 @@ pub(crate) fn neighbor_edges_with_origin(
     // The lowest offset of a neighbour first (an unknown one last), so the dedup keeps it.
     neighbors.sort_by(|left, right| {
         (&left.0, left.1.unwrap_or(i64::MAX)).cmp(&(&right.0, right.1.unwrap_or(i64::MAX)))
+    });
+    neighbors.dedup_by(|later, earlier| later.0 == earlier.0);
+    Ok(neighbors)
+}
+
+/// [`neighbor_edges_with_origin`] with the time of the event that recorded each edge, for the
+/// relations that carry one (see [`relation_edges_with_time`]). A pair asserted more than once
+/// appears once, as its first assertion.
+pub(crate) fn neighbor_edges_with_time(
+    graph: &impl GraphView,
+    root_kind: NodeKind,
+    root_id: &str,
+    relation: RelationKind,
+    other_kind: NodeKind,
+    direction: Direction,
+) -> Result<Vec<(String, EdgeStamp)>> {
+    debug_assert!(
+        relation.carries_recorded_at(),
+        "{} edges carry no recording time",
+        relation.table_name()
+    );
+    let root_table = root_kind.table_name();
+    let relation_table = relation.table_name();
+    let other_table = other_kind.table_name();
+    let cypher = match direction {
+        Direction::Outgoing => format!(
+            "MATCH (a:`{root_table}` {{id: $id}})-[r:`{relation_table}`]->(b:`{other_table}`) RETURN b.id AS id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY b.id, r.event_origin;"
+        ),
+        Direction::Incoming => format!(
+            "MATCH (a:`{root_table}` {{id: $id}})<-[r:`{relation_table}`]-(b:`{other_table}`) RETURN b.id AS id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY b.id, r.event_origin;"
+        ),
+    };
+    let rows = graph.query(
+        &cypher,
+        &GraphParams::from([("id".to_owned(), GraphValue::String(root_id.to_owned()))]),
+    )?;
+
+    let mut neighbors = Vec::with_capacity(rows.len());
+    for row in rows {
+        neighbors.push((
+            required_string(&row, "id")?,
+            EdgeStamp {
+                origin: optional_int(&row, "event_origin"),
+                at: optional_datetime(&row, "added_at")?,
+            },
+        ));
+    }
+    neighbors.sort_by(|left, right| {
+        (&left.0, left.1.assertion_order()).cmp(&(&right.0, right.1.assertion_order()))
     });
     neighbors.dedup_by(|later, earlier| later.0 == earlier.0);
     Ok(neighbors)

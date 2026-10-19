@@ -269,6 +269,15 @@ impl RelationKind {
             Self::AskedBy => (NodeKind::Ask, NodeKind::Actor),
         }
     }
+
+    /// Whether the edge carries `added_at`, the time of the event that recorded it: the two
+    /// relations that state a change to what a decision rests on, a decision superseding another
+    /// and evidence refuting a hypothesis. Both link nodes that can be older than the link (a
+    /// decision captured in May can supersede one in September), so the change is dated by the
+    /// edge and never by either node. Every backend stores the column for exactly these.
+    pub const fn carries_recorded_at(self) -> bool {
+        matches!(self, Self::Supersedes | Self::Refutes)
+    }
 }
 
 pub trait GraphView {
@@ -369,7 +378,7 @@ fn project_event_reporting(
             RelationKind::Supersedes,
             &payload.new_decision_id,
             &payload.old_decision_id,
-            &origin_properties,
+            &recorded_edge_properties(&origin_properties, event_timestamp(event)),
         )?,
         EventPayload::EvidenceRecorded(payload) => {
             project_evidence_recorded(graph, &payload, &origin_properties, event_timestamp(event))?
@@ -406,6 +415,10 @@ fn project_event_reporting(
                         .and_then(|causation| i64::try_from(causation).ok()),
                 );
                 graph.upsert_edge(kind, &payload.from_id, &payload.to_id, &properties)?;
+            } else if kind.carries_recorded_at() {
+                let properties =
+                    recorded_edge_properties(&origin_properties, event_timestamp(event));
+                graph.upsert_edge(kind, &payload.from_id, &payload.to_id, &properties)?;
             } else {
                 graph.upsert_edge(kind, &payload.from_id, &payload.to_id, &origin_properties)?;
             }
@@ -434,7 +447,10 @@ fn project_event_reporting(
             &event.actor_id,
             &payload,
             &origin_properties,
-            classified_batch_time(event, received_batches),
+            &CaptureTimes {
+                batch_time: classified_batch_time(event, received_batches),
+                recorded_at: event_timestamp(event),
+            },
             &classified_session(event, received_batches),
         )?,
         EventPayload::DecisionScored(payload) => {
@@ -576,7 +592,7 @@ pub fn project_captures_in_memory(id_captures: &[(&str, &CaptureItem)]) -> Resul
             node_id,
             None,
             &GraphProperties::default(),
-            GraphValue::Null,
+            &CaptureTimes::default(),
             &ClassifiedSession::default(),
         )?;
     }
@@ -919,6 +935,28 @@ fn event_timestamp(event: &Event) -> GraphValue {
         .unwrap_or(GraphValue::Null)
 }
 
+/// The two times a classification states about what it captured. They are not the same: a
+/// classification runs when a session is classified, which can be days after it was said.
+#[derive(Clone, Debug)]
+struct CaptureTimes {
+    /// When a decision it captured was said, unless the capture carries its turn's own time (see
+    /// `classified_batch_time` and `project_capture_decision`); `Null` when there is none.
+    batch_time: GraphValue,
+    /// When the classification event recorded the captures, so when a supersession or a
+    /// refutation it names was recorded: what those edges carry as `added_at`.
+    recorded_at: GraphValue,
+}
+
+/// No time stated, as in the in-memory evaluation projection.
+impl Default for CaptureTimes {
+    fn default() -> Self {
+        Self {
+            batch_time: GraphValue::Null,
+            recorded_at: GraphValue::Null,
+        }
+    }
+}
+
 /// The time the decisions a classified batch captured are recorded at when a capture names no
 /// turn of its own: the newest turn time of the batches the classification covers (the same
 /// reading the write path's same-moment rule uses), and the classification event's own time
@@ -970,6 +1008,19 @@ fn props_extend(
         props.insert(k.to_owned(), v); // ubs:ignore: &'static str key must become owned String for HashMap; not perf-sensitive (small fixed set of pairs per call)
     }
     props
+}
+
+/// Properties of an edge that dates a change (see [`RelationKind::carries_recorded_at`]): the
+/// event's origin plus `added_at`, the time of the event that recorded the link. `Null` when the
+/// event states no time (the in-memory evaluation projection has none), which readers take as an
+/// edge that does not date the change.
+fn recorded_edge_properties(
+    origin_properties: &GraphProperties,
+    recorded_at: GraphValue,
+) -> GraphProperties {
+    let mut properties = origin_properties.clone(); // ubs:ignore: one copy per change edge; the origin map is shared by every edge of the event
+    properties.insert("added_at".to_owned(), recorded_at);
+    properties
 }
 
 /// The edges a decision rests on (hivemind-zdsh.15 §1): a prior decision, evidence, and an
@@ -1976,18 +2027,15 @@ fn project_notification_acknowledged(
     )
 }
 
-/// `batch_time` is the time a decision it captured is recorded at unless the capture carries its
-/// turn's own time: the newest turn time of the batches classified, or the classified-batch
-/// event's own timestamp when none carries one (see `classified_batch_time` and
-/// `project_capture_decision`). `session` is the conversation those batches were shipped from
-/// (see `classified_session`).
+/// `times` are the times a classification states (see [`CaptureTimes`]). `session` is the
+/// conversation those batches were shipped from (see `classified_session`).
 fn project_ingest_batch_classified(
     graph: &impl GraphView,
     event_origin: i64,
     recorder: &str,
     payload: &IngestBatchClassifiedPayload,
     origin_properties: &GraphProperties,
-    batch_time: GraphValue,
+    times: &CaptureTimes,
     session: &ClassifiedSession,
 ) -> Result<()> {
     let node_ids: Vec<String> = (0..payload.captures.len())
@@ -2006,7 +2054,7 @@ fn project_ingest_batch_classified(
             node_id,
             Some(recorder),
             origin_properties,
-            batch_time.clone(), // ubs:ignore: one timestamp per capture; the value is a short string
+            times,
             session,
         )?;
     }
@@ -2203,17 +2251,17 @@ fn project_decision_reaffirmed(
 
 /// `recorder` is the actor that recorded the batch, when there is one (the in-memory evaluation
 /// projection has none): a captured decision belongs to their personal project, the same rule
-/// `project_decision_proposed` applies to a proposal that names no project. `batch_time` is the
-/// time of the batch the capture was classified from (see `classified_batch_time`; `Null` when
-/// there is none, as in the in-memory projection). `session` is the conversation the classified
-/// batches were shipped from (see `classified_session`); only a decision carries it.
+/// `project_decision_proposed` applies to a proposal that names no project. `times` are the
+/// times the capture was classified at (see [`CaptureTimes`]; `Null` when there are none, as in
+/// the in-memory projection). `session` is the conversation the classified batches were shipped
+/// from (see `classified_session`); only a decision carries it.
 fn project_capture(
     graph: &impl GraphView,
     capture: &CaptureItem,
     node_id: &str,
     recorder: Option<&str>,
     origin_properties: &GraphProperties,
-    batch_time: GraphValue,
+    times: &CaptureTimes,
     session: &ClassifiedSession,
 ) -> Result<()> {
     match capture.kind.as_str() {
@@ -2223,10 +2271,10 @@ fn project_capture(
             node_id,
             recorder,
             origin_properties,
-            batch_time,
+            times,
             session,
         ),
-        "evidence" => project_capture_evidence(graph, capture, node_id, origin_properties),
+        "evidence" => project_capture_evidence(graph, capture, node_id, origin_properties, times),
         "hypothesis" => project_capture_hypothesis(graph, capture, node_id, origin_properties),
         "blocker" => project_capture_blocker(graph, capture, node_id, origin_properties),
         "decision-request" => {
@@ -2275,13 +2323,14 @@ fn project_capture_decision(
     node_id: &str,
     recorder: Option<&str>,
     origin_properties: &GraphProperties,
-    batch_time: GraphValue,
+    times: &CaptureTimes,
     session: &ClassifiedSession,
 ) -> Result<()> {
     let mut props = origin_properties.clone();
-    let occurred_at = capture
-        .source_ts
-        .map_or(batch_time, |ts| GraphValue::String(ts.to_rfc3339()));
+    let occurred_at = capture.source_ts.map_or_else(
+        || times.batch_time.clone(),
+        |ts| GraphValue::String(ts.to_rfc3339()),
+    );
     props.insert("occurred_at".to_owned(), occurred_at);
     if let Some(recorder) = recorder {
         props.insert(
@@ -2354,11 +2403,13 @@ fn project_capture_decision(
     }
     if let Some(supersedes_id) = &capture.supersedes_id {
         ensure_node_reference(graph, NodeKind::Decision, supersedes_id, origin_properties)?;
+        // The supersession is recorded when the classification is, which can be days after the
+        // turn the decision was said in (`occurred_at` above): the edge carries the former.
         graph.upsert_edge(
             RelationKind::Supersedes,
             node_id,
             supersedes_id,
-            origin_properties,
+            &recorded_edge_properties(origin_properties, times.recorded_at.clone()),
         )?;
     }
     // A decision stated again points at the record it restates, so reads show one decision
@@ -2450,6 +2501,7 @@ fn project_capture_evidence(
     capture: &CaptureItem,
     node_id: &str,
     origin_properties: &GraphProperties,
+    times: &CaptureTimes,
 ) -> Result<()> {
     let mut props = origin_properties.clone();
     props.insert(
@@ -2476,19 +2528,24 @@ fn project_capture_evidence(
             origin_properties,
         )?;
     }
-    for hypothesis_id in &capture.refutes_ids {
-        ensure_node_reference(
-            graph,
-            NodeKind::Hypothesis,
-            hypothesis_id,
-            origin_properties,
-        )?;
-        graph.upsert_edge(
-            RelationKind::Refutes,
-            node_id,
-            hypothesis_id,
-            origin_properties,
-        )?;
+    if !capture.refutes_ids.is_empty() {
+        // Every refutation of this capture is recorded by the one classification event.
+        let refutation_properties =
+            recorded_edge_properties(origin_properties, times.recorded_at.clone());
+        for hypothesis_id in &capture.refutes_ids {
+            ensure_node_reference(
+                graph,
+                NodeKind::Hypothesis,
+                hypothesis_id,
+                origin_properties,
+            )?;
+            graph.upsert_edge(
+                RelationKind::Refutes,
+                node_id,
+                hypothesis_id,
+                &refutation_properties,
+            )?;
+        }
     }
     Ok(())
 }

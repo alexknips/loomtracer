@@ -45,10 +45,11 @@
 //! dependents that stood when the premise changed, N those since reaffirmed or no longer
 //! standing. It is `unfinished` when an item is still open more than `propagation_window_days`
 //! (default [`DEFAULT_PROPAGATION_WINDOW_DAYS`]) after the change. The age is the change's own
-//! time, which the graph states for a supersession (when the superseding decision was made) and
-//! a refutation (when the earliest refuting evidence was recorded) and does not state for a
-//! rejection or a contest: those can be open but are never counted unfinished by age. Wording
-//! never names an actor.
+//! time, which the graph states for a supersession and a refutation as the time the link was
+//! recorded (the `added_at` of the `SUPERSEDES` or `REFUTES` edge, the earliest when several; the
+//! decision or the evidence it links can be far older than the link, and dates the change only
+//! when the edge states no time) and does not state for a rejection or a contest: those can be
+//! open but are never counted unfinished by age. Wording never names an actor.
 //!
 //! # Scope, paging and cost
 //! A request may ask from a project: only items on decisions in the project, the project it is
@@ -86,8 +87,8 @@ use super::grounding_facts::{
 use super::project_label::ProjectLabels;
 use super::project_scope::{project_scope, ProjectScope, ScopeNote};
 use super::shared::{
-    neighbor_edges_with_origin, node_row, node_rows, optional_datetime, optional_string,
-    query_timer_start, Direction, MAX_QUERY_RESULTS,
+    neighbor_edges_with_origin, neighbor_edges_with_time, node_row, node_rows, optional_datetime,
+    optional_string, query_timer_start, Direction, EdgeStamp, MAX_QUERY_RESULTS,
 };
 use super::status::{DecisionStandings, DecisionStatus, StandingSummary};
 use super::{QueryContext, QueryResponse};
@@ -136,13 +137,20 @@ pub struct PremiseChange {
     /// edge states none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at_offset: Option<i64>,
-    /// When the change was made, where the graph states it (a superseding decision's time, the
-    /// earliest refuting evidence's time); absent for a rejection or a contest.
+    /// When the change was made, where the graph states it (the time the supersession or
+    /// refutation was recorded, the earliest of the refutations); absent for a rejection or a
+    /// contest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at_time: Option<DateTime<Utc>>,
-    /// The decision whose own time dates a supersession: the one superseded first.
+    /// The decision whose supersession dates a supersession: the one recorded first.
     #[serde(skip)]
     dated_by: Option<String>,
+    /// When the edge of each of `by_ids` that dates the change was recorded (see
+    /// `RelationKind::carries_recorded_at`), for those whose edge states a time: the superseding
+    /// decision that dates a supersession, every refuting evidence item of a refutation. An id
+    /// absent here has an edge with no time, and its own node's time dates the change instead.
+    #[serde(skip)]
+    recorded_at: BTreeMap<String, DateTime<Utc>>,
 }
 
 /// One `decision.reaffirmed` event, as an item shows it.
@@ -532,7 +540,7 @@ fn decision_change(standing: &StandingSummary) -> Option<PremiseChange> {
         DecisionStatus::Superseded => (
             ChangeKind::Superseded,
             standing.superseders.clone(),
-            earliest.and_then(|(_, origin)| *origin),
+            earliest.and_then(|(_, stamp)| stamp.origin),
             earliest.map(|(superseder, _)| superseder.clone()),
         ),
         DecisionStatus::Rejected => (
@@ -549,17 +557,30 @@ fn decision_change(standing: &StandingSummary) -> Option<PremiseChange> {
         ),
         DecisionStatus::Proposed | DecisionStatus::Accepted => return None,
     };
+    // Only the supersession that dates the change is needed, so only its time is carried.
+    let recorded_at = (kind == ChangeKind::Superseded)
+        .then_some(earliest)
+        .flatten()
+        .and_then(|(superseder, stamp)| Some((superseder.clone(), stamp.at?)))
+        .into_iter()
+        .collect();
     Some(PremiseChange {
         kind,
         by_ids,
         at_offset,
         at_time: None,
         dated_by,
+        recorded_at,
     })
 }
 
-/// How a hypothesis changed: refuted, or not at all.
-fn hypothesis_change(refuted_by: &[String], refuted_at: Option<i64>) -> Option<PremiseChange> {
+/// How a hypothesis changed: refuted, or not at all. `recorded_at` is when each refuting edge was
+/// recorded, for those that state it.
+fn hypothesis_change(
+    refuted_by: &[String],
+    refuted_at: Option<i64>,
+    recorded_at: &BTreeMap<String, DateTime<Utc>>,
+) -> Option<PremiseChange> {
     if refuted_by.is_empty() {
         return None;
     }
@@ -569,15 +590,21 @@ fn hypothesis_change(refuted_by: &[String], refuted_at: Option<i64>) -> Option<P
         at_offset: refuted_at,
         at_time: None,
         dated_by: None,
+        recorded_at: recorded_at.clone(),
     })
 }
 
 /// [`hypothesis_change`] for the refuting edges read anchored on one hypothesis:
-/// `(evidence, offset)`; the change is dated by the earliest offset an edge states.
-fn hypothesis_change_from_edges(refuters: &[(String, Option<i64>)]) -> Option<PremiseChange> {
+/// `(evidence, stamp)`; the change is dated by the earliest offset an edge states, and each edge
+/// that states a time dates its own refutation.
+fn hypothesis_change_from_edges(refuters: &[(String, EdgeStamp)]) -> Option<PremiseChange> {
     let refuted_by: Vec<String> = refuters.iter().map(|(id, _)| id.clone()).collect();
-    let refuted_at = refuters.iter().filter_map(|(_, origin)| *origin).min();
-    hypothesis_change(&refuted_by, refuted_at)
+    let refuted_at = refuters.iter().filter_map(|(_, stamp)| stamp.origin).min();
+    let recorded_at: BTreeMap<String, DateTime<Utc>> = refuters
+        .iter()
+        .filter_map(|(id, stamp)| Some((id.clone(), stamp.at?)))
+        .collect();
+    hypothesis_change(&refuted_by, refuted_at, &recorded_at)
 }
 
 /// Where the dependent stands against a change at `change_offset`.
@@ -596,7 +623,10 @@ fn dependent_position(
 ) -> DependentPosition {
     let (out_at, state) = match dependent.status() {
         DecisionStatus::Superseded => (
-            dependent.earliest_superseder.as_ref().and_then(|(_, o)| *o),
+            dependent
+                .earliest_superseder
+                .as_ref()
+                .and_then(|(_, stamp)| stamp.origin),
             ItemState::DependentSuperseded {
                 by_id: dependent
                     .earliest_superseder
@@ -754,7 +784,11 @@ impl ReexamineIndex {
                 .iter()
                 .filter_map(|(dependent, hypothesis)| {
                     let record = facts.hypotheses.get(hypothesis)?;
-                    let change = hypothesis_change(&record.refuted_by, record.refuted_at)?;
+                    let change = hypothesis_change(
+                        &record.refuted_by,
+                        record.refuted_at,
+                        &record.refutation_times,
+                    )?;
                     let standing = dependents
                         .entry(dependent.as_str())
                         .or_insert_with(|| facts.standings.summary_of(dependent));
@@ -852,14 +886,21 @@ impl<'g, G: GraphView> DecisionLookup<'g, G> {
     }
 }
 
-/// When a change was made, where the graph states it: the superseding decision's time, the
-/// earliest refuting evidence's time. A rejection or a contest has none.
+/// When a change was made, where the graph states it: the time the supersession or the
+/// refutation was recorded, which is the time of its edge (the earliest, for a refutation).
+/// Neither node is the change: a decision captured in May can be linked as the superseder in
+/// September, and evidence recorded long ago can be linked as refuting today. The superseding
+/// decision's own time and the refuting evidence's own time date a change only for an edge that
+/// states none. A rejection or a contest has no time.
 fn change_time(graph: &impl GraphView, change: &PremiseChange) -> Result<Option<DateTime<Utc>>> {
     match change.kind {
         ChangeKind::Superseded => {
             let Some(by) = change.dated_by.as_deref() else {
                 return Ok(None);
             };
+            if let Some(recorded_at) = change.recorded_at.get(by) {
+                return Ok(Some(*recorded_at));
+            }
             let row = node_row(graph, NodeKind::Decision, by)?;
             row.map(|row| optional_datetime(&row, "occurred_at"))
                 .transpose()
@@ -868,10 +909,14 @@ fn change_time(graph: &impl GraphView, change: &PremiseChange) -> Result<Option<
         ChangeKind::Refuted => {
             let mut earliest: Option<DateTime<Utc>> = None;
             for evidence_id in &change.by_ids {
-                let Some(row) = node_row(graph, NodeKind::Evidence, evidence_id)? else {
-                    continue;
+                let recorded_at = match change.recorded_at.get(evidence_id) {
+                    Some(recorded_at) => Some(*recorded_at),
+                    None => match node_row(graph, NodeKind::Evidence, evidence_id)? {
+                        Some(row) => optional_datetime(&row, "recorded_at")?,
+                        None => None,
+                    },
                 };
-                if let Some(recorded_at) = optional_datetime(&row, "recorded_at")? {
+                if let Some(recorded_at) = recorded_at {
                     earliest = Some(earliest.map_or(recorded_at, |known| known.min(recorded_at)));
                 }
             }
@@ -943,7 +988,7 @@ fn entry_of(
 
 /// What one decision's position edges state, read anchored on it.
 fn anchored_standing(graph: &impl GraphView, decision_id: &str) -> Result<StandingSummary> {
-    let superseders = neighbor_edges_with_origin(
+    let superseders = neighbor_edges_with_time(
         graph,
         NodeKind::Decision,
         decision_id,
@@ -1049,7 +1094,7 @@ pub(crate) fn reexamine_entries_for(
     hypotheses.sort();
     hypotheses.dedup();
     for hypothesis_id in hypotheses {
-        let refuters = neighbor_edges_with_origin(
+        let refuters = neighbor_edges_with_time(
             graph,
             NodeKind::Hypothesis,
             hypothesis_id,
@@ -1348,13 +1393,16 @@ impl ReexamineMarkers {
 
 /// A superseded decision with at least one open item: the part of the `propagation_unfinished`
 /// attention finding the grounding facts can say. Whether it fires waits on the supersession's
-/// date, which only an anchored read of `dated_by` gives.
+/// date: its edge states it, and only an edge with no time leaves it to an anchored read of
+/// `dated_by`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct OpenSupersession<'a> {
     pub(crate) premise_id: &'a str,
-    /// The superseding decision whose time dates the change: the one superseded first, by ledger
+    /// The superseding decision that dates the change: the one superseded first, by ledger
     /// offset (the rule [`Propagation`] dates its change by).
     pub(crate) dated_by: &'a str,
+    /// When that supersession was recorded, when its edge states it.
+    pub(crate) dated_at: Option<DateTime<Utc>>,
     /// M: the dependents that stood when the premise was superseded, plus those linked since --
     /// less a decision that is the whole of the change (it has no item).
     pub(crate) dependents_total: usize,
@@ -1404,8 +1452,9 @@ impl ReexamineView {
     /// (see [`PremiseChange::is_made_by_alone`]), so it is not counted here either; one of
     /// several superseders is, as it is told about the others.
     pub(crate) fn open_supersessions(&self) -> Vec<OpenSupersession<'_>> {
-        // Per premise: the decision that dates the change, how many dependents, how many open.
-        let mut by_premise: BTreeMap<&str, (&str, usize, usize)> = BTreeMap::new();
+        // Per premise: the decision that dates the change and when its edge was recorded, how
+        // many dependents, how many open.
+        let mut by_premise: BTreeMap<&str, OpenSupersession<'_>> = BTreeMap::new();
         for item in &self.index.items {
             let change = &item.judged.change;
             let (ChangeKind::Superseded, Some(dated_by)) =
@@ -1413,23 +1462,22 @@ impl ReexamineView {
             else {
                 continue;
             };
-            let counts = by_premise
-                .entry(item.premise.as_str())
-                .or_insert((dated_by, 0, 0));
-            counts.1 += 1;
-            counts.2 += usize::from(item.judged.state.is_open());
+            let counts =
+                by_premise
+                    .entry(item.premise.as_str())
+                    .or_insert_with(|| OpenSupersession {
+                        premise_id: item.premise.as_str(),
+                        dated_by,
+                        dated_at: change.recorded_at.get(dated_by).copied(),
+                        dependents_total: 0,
+                        open: 0,
+                    });
+            counts.dependents_total += 1;
+            counts.open += usize::from(item.judged.state.is_open());
         }
         by_premise
-            .into_iter()
-            .filter(|(_, (_, _, open))| *open > 0)
-            .map(
-                |(premise_id, (dated_by, dependents_total, open))| OpenSupersession {
-                    premise_id,
-                    dated_by,
-                    dependents_total,
-                    open,
-                },
-            )
+            .into_values()
+            .filter(|premise| premise.open > 0)
             .collect()
     }
 }

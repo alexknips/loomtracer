@@ -381,6 +381,7 @@ fn change_at(offset: Option<i64>) -> PremiseChange {
         at_offset: offset,
         at_time: None,
         dated_by: Some("d:newer".to_owned()),
+        recorded_at: BTreeMap::new(),
     }
 }
 
@@ -461,8 +462,13 @@ fn every_reaffirmation_of_a_pair_is_kept_in_ledger_order() {
 
 #[test]
 fn a_dependent_that_went_out_before_the_change_is_not_asked() {
-    let superseded_at =
-        |offset| StandingSummary::from_edges(&[("d:v2".to_owned(), offset)], &[Some(1)], &[]);
+    let superseded_at = |offset| {
+        StandingSummary::from_edges(
+            &[("d:v2".to_owned(), EdgeStamp::at_offset(offset))],
+            &[Some(1)],
+            &[],
+        )
+    };
     let rejected_at =
         |offset| StandingSummary::from_edges(&[], &[], &[("human:bob".to_owned(), offset)]);
 
@@ -489,6 +495,7 @@ fn the_only_superseder_of_a_premise_is_the_change_and_is_not_asked() {
         at_offset: Some(10),
         at_time: None,
         dated_by: by_ids.first().map(|id| (*id).to_owned()),
+        recorded_at: BTreeMap::new(),
     };
     let asked = |by_ids: &[&str]| {
         judge(
@@ -510,7 +517,11 @@ fn the_only_superseder_of_a_premise_is_the_change_and_is_not_asked() {
 
 #[test]
 fn a_reaffirmation_wins_the_label_over_the_dependent_going_out_later() {
-    let superseded = StandingSummary::from_edges(&[("d:v2".to_owned(), Some(30))], &[Some(1)], &[]);
+    let superseded = StandingSummary::from_edges(
+        &[("d:v2".to_owned(), EdgeStamp::at_offset(Some(30)))],
+        &[Some(1)],
+        &[],
+    );
 
     let item = judged(&superseded, Some(10), &[Some(20)]).expect("an item");
 

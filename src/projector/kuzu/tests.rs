@@ -316,6 +316,71 @@ fn grounding_edges_store_who_added_them_and_the_causing_proposal() -> Result<()>
 }
 
 #[test]
+fn supersedes_and_refutes_edges_store_when_they_were_recorded() -> Result<()> {
+    let temp_dir = test_graph_dir("change-edge-time");
+    let graph = KuzuGraph::open(&temp_dir)?;
+    let titled = GraphProperties::from([(
+        "title".to_string(),
+        GraphValue::String("A decision".to_string()),
+    )]);
+    graph.upsert_node(NodeKind::Decision, "decision-old", &titled)?;
+    graph.upsert_node(NodeKind::Decision, "decision-new", &titled)?;
+    graph.upsert_node(NodeKind::Evidence, "evidence-1", &GraphProperties::new())?;
+    graph.upsert_node(
+        NodeKind::Hypothesis,
+        "hypothesis-1",
+        &GraphProperties::new(),
+    )?;
+
+    let stamped = |event_origin: i64, added_at: &str| {
+        GraphProperties::from([
+            ("event_origin".to_string(), GraphValue::Int(event_origin)),
+            (
+                "added_at".to_string(),
+                GraphValue::String(added_at.to_string()),
+            ),
+        ])
+    };
+    graph.upsert_edge(
+        RelationKind::Supersedes,
+        "decision-new",
+        "decision-old",
+        &stamped(8, "2026-09-20T09:00:00+00:00"),
+    )?;
+    graph.upsert_edge(
+        RelationKind::Refutes,
+        "evidence-1",
+        "hypothesis-1",
+        &stamped(9, "2026-09-21T09:00:00+00:00"),
+    )?;
+
+    // The bulk shape the standings read uses, and the anchored shape a neighborhood read uses.
+    let supersedes = graph.query(
+        "MATCH (from:`Decision`)-[r:`SUPERSEDES`]->(to:`Decision`) RETURN from.id AS from_id, to.id AS to_id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY from.id, to.id;",
+        &GraphParams::new(),
+    )?;
+    assert_eq!(supersedes.len(), 1);
+    assert_eq!(
+        supersedes[0].get("added_at"),
+        Some(&GraphValue::String("2026-09-20T09:00:00+00:00".to_string()))
+    );
+    let refutes = graph.query(
+        "MATCH (a:`Evidence` {id: $id})-[r:`REFUTES`]->(b:`Hypothesis`) RETURN b.id AS id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY b.id, r.event_origin;",
+        &GraphParams::from([(
+            "id".to_string(),
+            GraphValue::String("evidence-1".to_string()),
+        )]),
+    )?;
+    assert_eq!(refutes.len(), 1);
+    assert_eq!(
+        refutes[0].get("added_at"),
+        Some(&GraphValue::String("2026-09-21T09:00:00+00:00".to_string()))
+    );
+    let _ = fs::remove_dir_all(temp_dir);
+    Ok(())
+}
+
+#[test]
 fn quality_profile_reads_the_same_rungs_as_the_other_backends() -> Result<()> {
     use crate::queries::test_fixtures::floor_scenario;
 

@@ -46,7 +46,7 @@ use crate::events::TenantId;
 
 #[cfg(test)]
 pub(crate) use shared::query_error;
-pub(crate) use shared::MAX_QUERY_RESULTS;
+pub(crate) use shared::{EdgeStamp, MAX_QUERY_RESULTS};
 
 pub use active_blockers::{
     get_active_decision_blockers, get_blocker_notification_candidates,

@@ -6618,3 +6618,169 @@ fn the_floor_is_derived_from_the_projected_levels_and_an_unasked_decision_reads_
     assert_eq!(verdict("decision:unasked")?, FloorVerdict::NotAsked);
     Ok(())
 }
+
+// ── Change edges carry the time they were recorded (hivemind-xhoie) ────────────────────────────
+
+fn event_at(
+    event_type: EventType,
+    actor_id: &str,
+    payload: serde_json::Value,
+    at: chrono::DateTime<Utc>,
+) -> Event {
+    let mut event = event(event_type, actor_id, payload);
+    event.ts = Some(at);
+    event
+}
+
+fn utc(text: &str) -> chrono::DateTime<Utc> {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .expect("a test timestamp")
+        .with_timezone(&Utc)
+}
+
+fn classified_capture(kind: &str, title: &str, extra: serde_json::Value) -> serde_json::Value {
+    let mut capture = json!({
+        "kind": kind,
+        "title": title,
+        "rationale": "Said in a turn",
+        "topic_keys": ["change"],
+        "evidence_ids": [],
+        "options": null,
+        "chosen_option": null,
+        "extraction_confidence": 0.9,
+        "expressed_confidence": null,
+        "supersedes_id": null,
+        "premised_on_ids": [],
+        "supports_ids": [],
+        "refutes_ids": [],
+        "actor_id": null,
+        "accepted_by": null,
+        "rejected_by": null,
+        "blocked_actor_id": null,
+        "decision_id": null
+    });
+    if let (Some(capture), Some(extra)) = (capture.as_object_mut(), extra.as_object()) {
+        capture.extend(extra.clone());
+    }
+    capture
+}
+
+#[test]
+fn a_supersession_and_a_refutation_carry_the_time_the_link_was_recorded_not_the_nodes_time(
+) -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let may = utc("2026-05-01T09:00:00Z");
+    let september = utc("2026-09-20T10:30:00Z");
+    let october = utc("2026-10-02T08:15:00Z");
+    for id in ["decision:a", "decision:b"] {
+        ledger.append(event_at(
+            EventType::DecisionProposed,
+            "actor:alice",
+            json!({
+                "decision_id": id,
+                "title": id,
+                "rationale": "Captured long before it is linked",
+                "topic_keys": ["change"],
+                "option_ids": [],
+                "chosen_option_id": null,
+                "hypothesis_ids": [],
+                "evidence_ids": []
+            }),
+            may,
+        ))?;
+    }
+    ledger.append(event_at(
+        EventType::HypothesisRecorded,
+        "actor:alice",
+        json!({"hypothesis_id": "hypothesis:h", "statement": "It scales"}),
+        may,
+    ))?;
+    ledger.append(event_at(
+        EventType::EvidenceRecorded,
+        "actor:alice",
+        json!({"evidence_id": "evidence:e", "content": "An old benchmark"}),
+        may,
+    ))?;
+    ledger.append(event_at(
+        EventType::DecisionSuperseded,
+        "actor:alice",
+        json!({"old_decision_id": "decision:a", "new_decision_id": "decision:b"}),
+        september,
+    ))?;
+    ledger.append(event_at(
+        EventType::RelationAdded,
+        "actor:alice",
+        json!({"relation": "REFUTES", "from_id": "evidence:e", "to_id": "hypothesis:h"}),
+        september,
+    ))?;
+    // A classified draft that supersedes a decision and refutes a hypothesis: recorded when the
+    // classification ran, which is days after the turn it was said in.
+    ledger.append(event_at(
+        EventType::IngestBatchClassified,
+        "agent:hivemind:classifier",
+        json!({
+            "batch_id": "batch:late",
+            "classifier_model": "claude-haiku-4-5-20251001",
+            "schema_version": "2",
+            "captures": [
+                classified_capture(
+                    "decision",
+                    "Replace the old plan",
+                    json!({
+                        "supersedes_id": "decision:b",
+                        "source_ts": "2026-09-25T12:00:00Z"
+                    }),
+                ),
+                classified_capture(
+                    "evidence",
+                    "A fresh measurement",
+                    json!({"refutes_ids": ["hypothesis:h"]}),
+                )
+            ]
+        }),
+        october,
+    ))?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+    let edges = graph.edges();
+    let added_at = |kind: RelationKind, from: &str, to: &str| {
+        edges
+            .get(&(kind, from.to_owned(), to.to_owned()))
+            .and_then(|properties| edge_text(properties, "added_at"))
+            .map(str::to_owned)
+    };
+    let september_text = Some(september.to_rfc3339());
+    let october_text = Some(october.to_rfc3339());
+
+    assert_eq!(
+        added_at(RelationKind::Supersedes, "decision:b", "decision:a"),
+        september_text,
+        "decision.superseded dates the supersession at the event, not at either decision"
+    );
+    assert_eq!(
+        added_at(RelationKind::Refutes, "evidence:e", "hypothesis:h"),
+        september_text,
+        "relation.added dates the refutation at the event, not at the evidence"
+    );
+    let capture_edge = |kind: RelationKind, to: &str| {
+        edges
+            .iter()
+            .find(|((edge_kind, from, edge_to), _)| {
+                *edge_kind == kind && edge_to == to && from.starts_with("capture:")
+            })
+            .and_then(|(_, properties)| edge_text(properties, "added_at"))
+            .map(str::to_owned)
+    };
+    assert_eq!(
+        capture_edge(RelationKind::Supersedes, "decision:b"),
+        october_text,
+        "a classified draft's supersession is recorded when the classification is"
+    );
+    assert_eq!(
+        capture_edge(RelationKind::Refutes, "hypothesis:h"),
+        october_text,
+        "a classified draft's refutation is recorded when the classification is"
+    );
+    Ok(())
+}

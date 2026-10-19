@@ -298,6 +298,9 @@ impl GraphView for MemoryGraph {
             // gets the column; every other edge list keeps its two-column rows. One row per
             // assertion, as the edge set holds them: the reader keeps the first of each pair.
             let with_origin = cypher.contains("r.event_origin AS event_origin");
+            // The edges that carry a recording time add it on request
+            // (`queries::shared::relation_edges_with_time`).
+            let with_added_at = cypher.contains("r.added_at AS added_at");
             let mut rows = self
                 .edges_lock()?
                 .iter()
@@ -314,6 +317,14 @@ impl GraphView for MemoryGraph {
                         row.insert(
                             "event_origin".to_owned(),
                             edge._event_origin.map_or(GraphValue::Null, GraphValue::Int),
+                        );
+                    }
+                    if with_added_at {
+                        row.insert(
+                            "added_at".to_owned(),
+                            edge.added_at
+                                .clone()
+                                .map_or(GraphValue::Null, GraphValue::String),
                         );
                     }
                     row
@@ -542,11 +553,18 @@ impl GraphView for MemoryGraph {
         }
 
         // The same walk with the real offset of each edge, one row per assertion
-        // (`queries::shared::neighbor_edges_with_origin`). The shape below returns a null offset
-        // here, and its public answers are pinned by goldens, so this one has its own text.
-        if cypher.contains(
-            "RETURN b.id AS id, r.event_origin AS event_origin ORDER BY b.id, r.event_origin;",
-        ) {
+        // (`queries::shared::neighbor_edges_with_origin`), and with the time the edge was
+        // recorded at when the read asks for it (`neighbor_edges_with_time`). The shape below
+        // returns a null offset here, and its public answers are pinned by goldens, so this one
+        // has its own text.
+        let with_added_at = cypher.contains(
+            "RETURN b.id AS id, r.event_origin AS event_origin, r.added_at AS added_at ORDER BY b.id, r.event_origin;",
+        );
+        if with_added_at
+            || cypher.contains(
+                "RETURN b.id AS id, r.event_origin AS event_origin ORDER BY b.id, r.event_origin;",
+            )
+        {
             let relation = query_relation(cypher)?;
             let id = required_param_string(params, "id")?;
             let incoming = cypher.contains("<-[r:`");
@@ -567,20 +585,27 @@ impl GraphView for MemoryGraph {
                     } else {
                         edge.to_id.clone()
                     };
-                    (neighbor, edge._event_origin)
+                    (neighbor, edge._event_origin, edge.added_at.clone())
                 })
                 .collect::<Vec<_>>();
             neighbors.sort();
             return Ok(neighbors
                 .into_iter()
-                .map(|(neighbor, event_origin)| {
-                    GraphRow::from([
+                .map(|(neighbor, event_origin, added_at)| {
+                    let mut row = GraphRow::from([
                         ("id".to_owned(), GraphValue::String(neighbor)),
                         (
                             "event_origin".to_owned(),
                             event_origin.map_or(GraphValue::Null, GraphValue::Int),
                         ),
-                    ])
+                    ]);
+                    if with_added_at {
+                        row.insert(
+                            "added_at".to_owned(),
+                            added_at.map_or(GraphValue::Null, GraphValue::String),
+                        );
+                    }
+                    row
                 })
                 .collect());
         }

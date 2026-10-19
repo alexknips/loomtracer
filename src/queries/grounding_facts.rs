@@ -23,7 +23,7 @@ use crate::Result;
 use super::grounding::hypothesis_facts_from_row;
 use super::shared::{
     node_row, node_rows, optional_datetime, optional_int, optional_string, relation_edges,
-    relation_edges_with_origin, required_string,
+    relation_edges_with_time, required_string,
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, HypothesisStatus};
 
@@ -50,6 +50,11 @@ pub struct HypothesisRecord {
     pub refuted_by: Vec<String>,
     /// The ledger offset of the earliest refutation, when the refuting edge states one.
     pub refuted_at: Option<i64>,
+    /// When each refuting edge was recorded (the time of the event that linked the evidence as
+    /// refuting), by evidence id, for those whose edge states it. The evidence itself can be
+    /// older than the link: a refutation is dated by the edge, and by the evidence's own time
+    /// only where the edge has none.
+    pub refutation_times: BTreeMap<String, DateTime<Utc>>,
 }
 
 /// One `decision.reaffirmed` event: a decision said it still holds after a premise changed.
@@ -117,20 +122,24 @@ fn load_facts(graph: &impl GraphView, with_evidence: bool) -> Result<GroundingFa
     // Edges run evidence -> hypothesis and arrive sorted by (evidence, hypothesis), so each
     // hypothesis's refuting evidence is sorted by id.
     // The same refutation asserted twice is one.
-    // Per hypothesis: its refuting evidence, and the earliest offset any refutation states.
-    let mut refutations: BTreeMap<String, (Vec<String>, Option<i64>)> = BTreeMap::new();
-    for (evidence_id, hypothesis_id, origin) in
-        relation_edges_with_origin(graph, RelationKind::Refutes)?
+    // Per hypothesis: its refuting evidence, the earliest offset any refutation states, and when
+    // each refuting edge was recorded.
+    let mut refutations: BTreeMap<String, Refutations> = BTreeMap::new();
+    for (evidence_id, hypothesis_id, stamp) in
+        relation_edges_with_time(graph, RelationKind::Refutes)?
     {
-        let (refuters, first) = refutations
-            .entry(hypothesis_id)
-            .or_insert_with(|| (Vec::new(), origin));
-        *first = match (*first, origin) {
+        let refutation = refutations.entry(hypothesis_id).or_default();
+        refutation.first_offset = match (refutation.first_offset, stamp.origin) {
             (Some(known), Some(other)) => Some(known.min(other)),
             (known, other) => known.or(other),
         };
-        if refuters.last() != Some(&evidence_id) {
-            refuters.push(evidence_id);
+        if refutation.by.last() != Some(&evidence_id) {
+            if let Some(recorded_at) = stamp.at {
+                refutation
+                    .recorded_at
+                    .insert(evidence_id.clone(), recorded_at); // ubs:ignore: the id keys the times map and sits in `by`, both owned by the answer; one clone per refuting edge
+            }
+            refutation.by.push(evidence_id);
         }
     }
     let supported: BTreeSet<String> = relation_edges(graph, RelationKind::Supports)?
@@ -141,7 +150,11 @@ fn load_facts(graph: &impl GraphView, with_evidence: bool) -> Result<GroundingFa
     let mut hypotheses = BTreeMap::new();
     for (hypothesis_id, row) in node_rows(graph, NodeKind::Hypothesis)? {
         let facts = hypothesis_facts_from_row(&row)?;
-        let (refuted_by, refuted_at) = refutations.remove(&hypothesis_id).unwrap_or_default();
+        let Refutations {
+            by: refuted_by,
+            first_offset: refuted_at,
+            recorded_at: refutation_times,
+        } = refutations.remove(&hypothesis_id).unwrap_or_default();
         let status = hypothesis_status_from_evidence(
             !refuted_by.is_empty(),
             supported.contains(&hypothesis_id),
@@ -154,6 +167,7 @@ fn load_facts(graph: &impl GraphView, with_evidence: bool) -> Result<GroundingFa
                 status,
                 refuted_by,
                 refuted_at,
+                refutation_times,
             },
         );
     }
@@ -178,6 +192,17 @@ fn load_facts(graph: &impl GraphView, with_evidence: bool) -> Result<GroundingFa
         standings,
         reaffirmations,
     })
+}
+
+/// What the `REFUTES` edges into one hypothesis state, as [`load_facts`] gathers them.
+#[derive(Default)]
+struct Refutations {
+    /// The refuting evidence, sorted by id.
+    by: Vec<String>,
+    /// The earliest offset any refutation states.
+    first_offset: Option<i64>,
+    /// When each refuting edge was recorded, for those that state it.
+    recorded_at: BTreeMap<String, DateTime<Utc>>,
 }
 
 /// Every `Reaffirmation` node, in ledger order (offset, then id). One bulk node read: the nodes
