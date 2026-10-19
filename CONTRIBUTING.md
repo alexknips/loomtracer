@@ -17,18 +17,18 @@ Before you start, please read:
 
 ## How work is tracked
 
-HiveMind uses [beads](https://github.com/) for all work tracking. Planning
-lives in beads; the level-1 docs above are the compass beads are judged
-against.
+HiveMind uses beads for all work tracking. They live in the city's Dolt
+server, not in files in this repo (`.beads/issues.jsonl` is a stale export).
+Planning lives in beads; the level-1 docs above are the compass beads are
+judged against.
 
-- `br ready` — list beads that have no blockers and are ready to be picked up
-- `br show <id>` — read a bead's description, acceptance criteria, and deps
-- `br ready --priority 1` — focus on the most-important work
+- `bd ready` — list beads that have no blockers and are ready to be picked up
+- `bd show <id>` — read a bead's description, acceptance criteria, and deps
 
 ## Picking up work
 
-1. Pick a bead from `br ready` whose description you understand and whose
-   acceptance criteria you can meet.
+1. Pick a bead that has no blockers, whose description you understand and
+   whose acceptance criteria you can meet.
 2. Read the bead's description fully, including its "Principles cross-check"
    and "Quality cross-check" sections.
 3. Open a branch named `polecat/<bead-id>` from `master`.
@@ -99,8 +99,9 @@ cargo test --features graph-kuzu kuzu -- --nocapture
 ## Submitting a change
 
 1. Push your branch.
-2. Open a pull request against `master`. The pull request template lists the
-   gate checklist — fill it in honestly.
+2. Open a pull request against `master`. Put the gate proof lines from
+   [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md) in its description, filled
+   in honestly.
 3. Reference the bead id in the PR description and in the commit message
    trailer (e.g., `(hivemind-bead-id-XXXX)`).
 4. The PR is reviewed; once gates pass on the rebased state and review is
@@ -125,11 +126,5 @@ asked to amend before merge.
 
 ## Reporting issues
 
-Use the issue templates in [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/).
-For security issues, please follow [`SECURITY.md`](SECURITY.md) — do not
-open a public issue.
-
-## Code of Conduct
-
-This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By
-participating, you agree to abide by it.
+Open an issue on GitHub. For a security problem, do not put the details in a
+public issue.

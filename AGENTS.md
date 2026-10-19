@@ -2,7 +2,43 @@
 
 This document defines the **standard of excellence** that any agent (human or AI) contributing to HiveMind is expected to meet. Direction and active investments live in [`VISION.md`](VISION.md), [`PRINCIPLES.md`](PRINCIPLES.md), and [`STRATEGY.md`](STRATEGY.md); planning lives in beads. This document is the bar.
 
-HiveMind is a system for **corporate, multi-human, multi-agent decision-making memory**. It must be designed and built to a standard that justifies organizations and autonomous agents trusting it as the source of truth for *what was decided, why, by whom, and what it depends on*.
+HiveMind is **memory for decisions**: what was decided, which options lost and why, and who decided, for one person and their agents ([`README.md`](README.md)). It must be designed and built to a standard that justifies people and autonomous agents trusting it as the source of truth for *what was decided, why, by whom, and what it depends on*.
+
+---
+
+## Build and test
+
+A Rust crate; a stable toolchain is all you need. Before submitting a code diff, run what CI runs (`.github/workflows/ci.yml`):
+
+```bash
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+```
+
+- **One test:** `cargo test --locked --test <file> <test_name>`. Every file in `tests/` is its own binary; unit tests sit beside the code (`cargo test --locked --lib <name>`).
+- **Golden snapshots** (`tests/snapshots/golden`, fixtures in `tests/fixtures`): `cargo test --test golden`; after an intended change, `cargo test --test golden -- --bless`.
+- **Feature-gated code** is skipped by the commands above. `tests/migrate.rs` and the Postgres tests need `--features shared-backend-postgres` and `HIVEMIND_TEST_POSTGRES_URL` pointing at a Postgres, with `HIVEMIND_POSTGRES_POOL_SIZE=4` (the `rust-postgres` CI job). Without the URL most of them self-skip, so a green run proves nothing about Postgres. `--features tui` is a CI leg too. Kuzu (`graph-kuzu`) compiles C++ and runs only in the nightly workflow.
+- **Python capture shipper:** `python3 -m unittest discover -s capture/tests`.
+- **Install the CLI:** `make install` puts `hivemind` in `~/.local/bin`, not `~/.cargo/bin`; check with `hivemind --version`.
+
+[`docs/QUALITY_GATES.md`](docs/QUALITY_GATES.md) is the full gate contract: which gates a diff owes, and the proof lines.
+
+---
+
+## Module map
+
+- **Write layer:** `src/commands` (validates invariants, appends events), `src/events.rs`, `src/ingest.rs`, `src/ledger` (`sqlite`, `postgres`, `memory`).
+- **Read layer:** `src/queries` (pure reads), `src/projector` (replays the ledger into the graph).
+- **Layer 3:** `src/summarize.rs`, `src/scorer.rs`, `src/classifier.rs`, `src/quality_profile`, `src/importance.rs`, `src/possibly_related.rs`.
+- **Surfaces:** `src/cli` (`args.rs` defines every flag, `run/` holds the handlers), `src/mcp.rs` (`tool_definitions()` is the one tool list for stdio and `POST /mcp`), `src/api` (REST).
+- **Outside `src/`:** `plugins/hivemind-capture` and `plugins/hivemind-context` are shell scripts and skills, exercised by `tests/*.rs`; `capture/` is the Python shipper. The CLI and MCP reference pages are regenerated in the site repo (`docs/QUALITY_GATES.md`, Reference Docs).
+
+## Day-one gotchas
+
+- `--actor` is a top-level flag and goes before the subcommand (`hivemind --actor human:alice emit ...`); after it, clap rejects it. `--json`, `--hivemind-dir`, `--tenant` and `--database-url` are global and work anywhere.
+- A read, or a verb that acts on something already recorded, aimed at a folder with no ledger exits 2 and creates nothing. Check `--hivemind-dir` first (README: "The default CLI stores events in SQLite").
+- `HIVEMIND_API_URL` (with `HIVEMIND_API_KEY`, see `docs/KEYLESS_CAPTURE.md`) does not turn the CLI into a cell client: only `classify-queue` talks to the server. The verbs that open a local ledger (`query`, `emit`, ...) still use it, say so in their output, and exit 2 when the folder has none.
 
 ---
 
@@ -92,7 +128,7 @@ These apply to the system itself and to its contributors:
 
 ## 7. Onboarding standard
 
-A coding agent should be able to start using HiveMind in **under five minutes**: install the CLI, point it at a directory, call `hivemind emit decision.proposed …`, and immediately query it back. If it takes longer than that, the API is wrong.
+A coding agent should be able to start using HiveMind in **under five minutes**: install the CLI, run `hivemind quickstart` (an isolated temporary ledger, one capture, queried back), then capture for real with `hivemind emit decision.capture` and query it back. A capture names what the decision rests on and answers both floor questions (`--binds` or `--binds-nothing`, `--undo-cost` or `--cheap-to-undo`); the README Quickstart has a working call. If it takes longer than five minutes, the API is wrong.
 
 Codex users can install the HiveMind capture bundle from
 `.agents/plugins/marketplace.json` or copy
@@ -129,100 +165,4 @@ beads exclusively; the level-1 docs (`VISION.md`, `PRINCIPLES.md`,
 - Use Beads for task breakdowns, dependencies, follow-ups, routing, status, and implementation queues.
 - Keep ordinary docs and source comments focused on stable product behavior, architecture, commands, contributor rules, and validation guidance.
 - Do not add planning sections to docs as a substitute for beads. When a planning detail must be preserved, update or create the relevant bead or bead note instead.
-
-<!-- bv-agent-instructions-v2 -->
-
----
-
-## Beads Workflow Integration
-
-This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking and [beads_viewer](https://github.com/Dicklesworthstone/beads_viewer) (`bv`) for graph-aware triage. Issues are stored in `.beads/` and tracked in git.
-
-### Using bv as an AI sidecar
-
-bv is a graph-aware triage engine for Beads projects (.beads/beads.jsonl). Instead of parsing JSONL or hallucinating graph traversal, use robot flags for deterministic, dependency-aware outputs with precomputed metrics (PageRank, betweenness, critical path, cycles, HITS, eigenvector, k-core).
-
-**Scope boundary:** bv handles *what to work on* (triage, priority, planning). `br` handles creating, modifying, and closing beads.
-
-**CRITICAL: Use ONLY --robot-* flags. Bare bv launches an interactive TUI that blocks your session.**
-
-#### The Workflow: Start With Triage
-
-**`bv --robot-triage` is your single entry point.** It returns everything you need in one call:
-- `quick_ref`: at-a-glance counts + top 3 picks
-- `recommendations`: ranked actionable items with scores, reasons, unblock info
-- `quick_wins`: low-effort high-impact items
-- `blockers_to_clear`: items that unblock the most downstream work
-- `project_health`: status/type/priority distributions, graph metrics
-- `commands`: copy-paste shell commands for next steps
-
-```bash
-bv --robot-triage        # THE MEGA-COMMAND: start here
-bv --robot-next          # Minimal: just the single top pick + claim command
-
-# Token-optimized output (TOON) for lower LLM context usage:
-bv --robot-triage --format toon
-```
-
-Before claiming, verify current state with `br show <id> --json` or `br ready --json`. `recommendations` can include graph-important blocked or assigned work; only `quick_ref.top_picks` and non-empty `claim_command` fields represent claimable work.
-
-#### Other bv Commands
-
-| Command | Returns |
-|---------|---------|
-| `--robot-plan` | Parallel execution tracks with unblocks lists |
-| `--robot-priority` | Priority misalignment detection with confidence |
-| `--robot-insights` | Full metrics: PageRank, betweenness, HITS, eigenvector, critical path, cycles, k-core |
-| `--robot-alerts` | Stale issues, blocking cascades, priority mismatches |
-| `--robot-suggest` | Hygiene: duplicates, missing deps, label suggestions, cycle breaks |
-| `--robot-diff --diff-since <ref>` | Changes since ref: new/closed/modified issues |
-| `--robot-graph [--graph-format=json\|dot\|mermaid]` | Dependency graph export |
-
-#### Scoping & Filtering
-
-```bash
-bv --robot-plan --label backend              # Scope to label's subgraph
-bv --robot-insights --as-of HEAD~30          # Historical point-in-time
-bv --recipe actionable --robot-plan          # Pre-filter: ready to work (no blockers)
-bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank scores
-```
-
-### br Commands for Issue Management
-
-```bash
-br ready              # Show issues ready to work (no blockers)
-br list --status=open # All open issues
-br show <id>          # Full issue details with dependencies
-br create --title="..." --type=task --priority=2
-br update <id> --status=in_progress
-br close <id> --reason="Completed"
-br close <id1> <id2>  # Close multiple issues at once
-br sync --flush-only  # Export DB to JSONL
-```
-
-### Workflow Pattern
-
-1. **Triage**: Run `bv --robot-triage` to find the highest-impact actionable work
-2. **Claim**: Use `br update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` at session end
-
-### Key Concepts
-
-- **Dependencies**: Issues can block other issues. `br ready` shows only unblocked work.
-- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
-- **Types**: task, bug, feature, epic, chore, docs, question
-- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
-
-### Session Protocol
-
-```bash
-git status              # Check what changed
-git add <files>         # Stage code changes
-br sync --flush-only    # Export beads changes to JSONL
-git commit -m "..."     # Commit everything
-git push                # Push to remote
-```
-
-<!-- end-bv-agent-instructions -->
+- Beads live in the city's Dolt server, not in the repo: `.beads/issues.jsonl` is a stale export, never the live tracker. One branch per bead (`polecat/<bead-id>`, cut from `master`), a pull request against `master`, and the bead id in the commit message trailer, e.g. `(hivemind-abc12)`. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the steps.
