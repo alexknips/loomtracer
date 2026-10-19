@@ -780,6 +780,18 @@ fn check_snapshot(graph: &Value, briefs: &Value, status_events: &Value) -> TestR
         }
     }
 
+    // A question has no title; it reads as the words that were asked, so the UI can show it.
+    let unlabeled_questions = graph["nodes"]
+        .as_array()
+        .ok_or("graph.nodes should be an array")?
+        .iter()
+        .filter(|n| n["kind"] == "Question")
+        .filter(|n| n["label"].as_str().is_none_or(str::is_empty))
+        .count();
+    if unlabeled_questions != 0 {
+        return Err(format!("{unlabeled_questions} Question nodes have no label").into());
+    }
+
     let statuses: Vec<&str> = decisions
         .iter()
         .filter_map(|d| d["status"].as_str())

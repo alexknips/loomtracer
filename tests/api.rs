@@ -3878,6 +3878,119 @@ async fn graph_draws_a_reaffirmation_with_the_decision_it_is_about() {
     ); // ubs:ignore
 }
 
+/// A question and an ask read as the words that were asked, a blocker and a decision request as
+/// their reason: none of the four has a title, so without a label a client can only call them
+/// untitled.
+#[tokio::test]
+async fn graph_labels_a_question_an_ask_a_blocker_and_a_decision_request() {
+    use hivemind::events::{Event, EventSource, EventType, TenantId};
+    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+
+    let dir = test_ledger_dir();
+    let ledger = SqliteEventLedger::open(&dir).unwrap();
+    let ts = chrono::DateTime::parse_from_rfc3339("2026-01-15T10:30:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let append = |event_type: EventType, payload: serde_json::Value, uuid: u128| {
+        ledger
+            .append(Event {
+                tenant_id: TenantId::local(),
+                event_id: None,
+                event_uuid: uuid::Uuid::from_u128(uuid),
+                // A blocker report and a decision request carry provenance: both are required.
+                correlation_id: Some("graph-labels".to_owned()),
+                causation_event_id: None,
+                event_type,
+                actor_id: "human:alex.knips@gmail.com".to_owned(),
+                source: EventSource::Cli,
+                source_ref: Some("graph-labels".to_owned()),
+                payload,
+                ts: Some(ts),
+            })
+            .unwrap();
+    };
+    append(
+        EventType::QuestionRecorded,
+        serde_json::json!({
+            "question_id": "question:storage",
+            "text": "Which storage engine should the prototype use?"
+        }),
+        1,
+    );
+    append(
+        EventType::QuestionAsked,
+        serde_json::json!({
+            "question_id": "question:storage",
+            "text": "Which storage engine should the prototype use?"
+        }),
+        2,
+    );
+    append(
+        EventType::BlockerReported,
+        serde_json::json!({
+            "blocker_id": "blocker:release-owner",
+            "blocked_actor_id": "agent:codex:builder",
+            "decision_id": null,
+            "topic_keys": ["graph-labels"],
+            "blocked_ref": "release",
+            "blocked_ref_type": "task",
+            "reason": "Waiting on the release owner to pick a date",
+            "priority": "p2",
+            "last_progress_at": null,
+            "required_owner_id": null
+        }),
+        3,
+    );
+    append(
+        EventType::DecisionRequested,
+        serde_json::json!({
+            "topic_keys": ["graph-labels"],
+            "decision_id": null,
+            "reason": "Someone needs to decide the retry budget",
+            "priority": "p2",
+            "required_owner_id": null,
+            "authority_class": "team",
+            "requested_by": "agent:codex:builder",
+            "client_request_id": "graph-labels-request"
+        }),
+        4,
+    );
+
+    let (status, graph) = call(app(dir), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "GET /v1/graph: {graph}"); // ubs:ignore
+
+    let label_of = |id: &str| -> Option<String> {
+        graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id)
+            .unwrap_or_else(|| panic!("node {id} missing from /v1/graph: {graph}"))["label"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    for (id, label) in [
+        (
+            "Question:question:storage",
+            "Which storage engine should the prototype use?",
+        ),
+        (
+            "Ask:00000000-0000-0000-0000-000000000002",
+            "Which storage engine should the prototype use?",
+        ),
+        (
+            "Blocker:blocker:release-owner",
+            "Waiting on the release owner to pick a date",
+        ),
+        (
+            "DecisionRequest:00000000-0000-0000-0000-000000000004",
+            "Someone needs to decide the retry budget",
+        ),
+    ] {
+        assert_eq!(label_of(id).as_deref(), Some(label), "{id}"); // ubs:ignore
+    }
+}
+
 #[tokio::test]
 async fn graph_decisions_with_the_same_title_get_different_slugs() {
     let dir = test_ledger_dir();

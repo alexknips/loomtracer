@@ -1,200 +1,9 @@
 {
   "decisions": [
     {
-      "decided_at": "2026-10-08T01:58:30.519552240+00:00",
-      "deciders": [
-        {
-          "id": "human:priya",
-          "kind": "human"
-        }
-      ],
-      "event_origin": 16,
-      "expressed_confidence": null,
-      "id": "decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
-      "project": "trailkeeper",
-      "project_source": "stated",
-      "question": "Where do we store a hiker's trip logs?",
-      "quote": "Let's not stand up a backend before we know anyone wants this.",
-      "rationale": "TrailKeeper v1 is single-device: one hiker records one trip on one phone. SQLite needs no server, keeps the app fully usable with no signal on trail, and keeps hosting cost at zero while we find out if anyone wants this at all.",
-      "slug": "store-hike-logs-in-local-sqlite-on-the-phone",
-      "source": "human",
-      "source_ref": "human:priya",
-      "status": "superseded",
-      "tenant_id": "local",
-      "title": "Store hike logs in local SQLite on the phone",
-      "topic_keys": [
-        "infrastructure",
-        "trailkeeper"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:31.930520680+00:00",
-      "deciders": [
-        {
-          "id": "agent:codex:ridewell-sync",
-          "kind": "agent"
-        }
-      ],
-      "event_origin": 44,
-      "expressed_confidence": null,
-      "id": "decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
-      "project": "ridewell-mobile",
-      "project_source": "stated",
-      "question": "How do we avoid blocking cold start on a profile fetch?",
-      "quote": null,
-      "rationale": "Cold start currently blocks on a profile fetch before the map can render. The API already treats driver_id as stable once assigned, so storing it in local device storage at login and reusing it on every cold start removes that fetch with no correctness cost.",
-      "slug": "cache-the-drivers-id-on-the-phone-at-login-and-skip-the",
-      "source": "agent",
-      "source_ref": "agent:codex:ridewell-sync",
-      "status": "accepted",
-      "tenant_id": "local",
-      "title": "Cache the driver's id on the phone at login and skip the profile lookup on cold start",
-      "topic_keys": [
-        "ridewell",
-        "mobile"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:31.707333298+00:00",
-      "deciders": [
-        {
-          "id": "human:maya",
-          "kind": "human"
-        }
-      ],
-      "event_origin": 35,
-      "expressed_confidence": null,
-      "id": "decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
-      "project": "ridewell-api",
-      "project_source": "stated",
-      "question": "How do we avoid a database round trip on every dispatch lookup?",
-      "quote": null,
-      "rationale": "Driver-profile reads dominate dispatch-service load, about 70% of calls. An in-memory LRU keyed by driver_id avoids a database round trip on every dispatch and is simple to reason about, since driver_id is the primary key login already returns.",
-      "slug": "cache-driver-profiles-in-memory-keyed-by-the-drivers-numeric",
-      "source": "human",
-      "source_ref": "human:maya",
-      "status": "superseded",
-      "tenant_id": "local",
-      "title": "Cache driver profiles in memory, keyed by the driver's numeric id",
-      "topic_keys": [
-        "infrastructure",
-        "ridewell"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:33.827579775+00:00",
-      "deciders": [
-        {
-          "id": "human:juror-3",
-          "kind": "human"
-        },
-        {
-          "id": "human:juror-foreman",
-          "kind": "human"
-        }
-      ],
-      "event_origin": 84,
-      "expressed_confidence": null,
-      "id": "decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
-      "project": "12-angry-men",
-      "project_source": "inherited",
-      "question": null,
-      "quote": null,
-      "rationale": "A second knife identical to the one in evidence turned up two blocks from the apartment, undercutting the claim it was one of a kind. The re-enactment showed the upstairs witness could not have reached his door in time to see what he described. And the only eyewitness needed glasses she was not wearing in bed. None of this proves innocence, but it is enough reasonable doubt that all twelve of us can no longer say guilty beyond it.",
-      "slug": "the-jury-finds-the-defendant-not-guilty",
-      "source": "human",
-      "source_ref": "human:juror-foreman",
-      "status": "accepted",
-      "tenant_id": "local",
-      "title": "The jury finds the defendant not guilty",
-      "topic_keys": [
-        "verdict",
-        "12-angry-men"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:33.325468065+00:00",
-      "deciders": [
-        {
-          "id": "human:juror-foreman",
-          "kind": "human"
-        }
-      ],
-      "event_origin": 72,
-      "expressed_confidence": null,
-      "id": "decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
-      "project": "12-angry-men",
-      "project_source": "stated",
-      "question": "How does the jury find the defendant?",
-      "quote": "That's eleven guilty. Somebody's got a reasonable doubt?",
-      "rationale": "Eleven of twelve jurors voted guilty on the first ballot. The knife matches the defendant's own description of a rare weapon, the downstairs neighbor testified he heard the defendant threaten to kill his father and then heard the body fall, and the woman across the street said she saw the stabbing through the windows of a passing elevated train.",
-      "slug": "the-jury-finds-the-defendant-guilty",
-      "source": "human",
-      "source_ref": "human:juror-foreman",
-      "status": "superseded",
-      "tenant_id": "local",
-      "title": "The jury finds the defendant guilty",
-      "topic_keys": [
-        "verdict",
-        "12-angry-men"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:32.832854727+00:00",
-      "deciders": [
-        {
-          "id": "human:maya",
-          "kind": "human"
-        }
-      ],
-      "event_origin": 63,
-      "expressed_confidence": null,
-      "id": "decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
-      "project": "ridewell-api",
-      "project_source": "inherited",
-      "question": null,
-      "quote": null,
-      "rationale": "The 2026-09-20 platform migration reassigned numeric driver ids for over a thousand accounts and briefly served two drivers each other's cached profile. The dispatch service already receives a separate UUID from the identity provider that survives a backend migration; keying the cache on that UUID removes the failure mode the numeric-id assumption depended on.",
-      "slug": "cache-driver-profiles-keyed-by-a-stable-external-uuid",
-      "source": "human",
-      "source_ref": "human:maya",
-      "status": "accepted",
-      "tenant_id": "local",
-      "title": "Cache driver profiles keyed by a stable external UUID instead of the mutable numeric id",
-      "topic_keys": [
-        "infrastructure",
-        "ridewell"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:31.421942960+00:00",
-      "deciders": [
-        {
-          "id": "human:priya",
-          "kind": "human"
-        }
-      ],
-      "event_origin": 26,
-      "expressed_confidence": null,
-      "id": "decision-7aba6606-fd61-485d-84b1-c2b529e77230",
-      "project": "trailkeeper",
-      "project_source": "inherited",
-      "question": null,
-      "quote": null,
-      "rationale": "The single-device assumption behind local SQLite doesn't hold: the beta survey shows most hikers already use TrailKeeper on their phone and the web dashboard, and a fifth of them lost photos or edits made on the other device. Postgres with a per-user sync log lets both surfaces read and write the same trip; we accept running one small managed instance in exchange for not losing anyone's trip again.",
-      "slug": "move-hike-log-storage-to-a-hosted-postgres-synced-across",
-      "source": "human",
-      "source_ref": "human:priya",
-      "status": "accepted",
-      "tenant_id": "local",
-      "title": "Move hike log storage to a hosted Postgres, synced across devices",
-      "topic_keys": [
-        "infrastructure",
-        "trailkeeper"
-      ]
-    },
-    {
-      "decided_at": "2026-10-08T01:58:32.505652482+00:00",
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:41.179851898+00:00",
       "deciders": [
         {
           "id": "agent:claude:ridewell-mobile-ci",
@@ -203,7 +12,7 @@
       ],
       "event_origin": 54,
       "expressed_confidence": null,
-      "id": "decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "id": "decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "project": "ridewell-mobile",
       "project_source": "stated",
       "question": null,
@@ -219,709 +28,932 @@
         "ridewell",
         "mobile",
         "reliability"
-      ]
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:40.966744304+00:00",
+      "deciders": [
+        {
+          "id": "human:priya",
+          "kind": "human"
+        }
+      ],
+      "event_origin": 26,
+      "expressed_confidence": null,
+      "id": "decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
+      "project": "trailkeeper",
+      "project_source": "inherited",
+      "question": null,
+      "quote": null,
+      "rationale": "The single-device assumption behind local SQLite doesn't hold: the beta survey shows most hikers already use TrailKeeper on their phone and the web dashboard, and a fifth of them lost photos or edits made on the other device. Postgres with a per-user sync log lets both surfaces read and write the same trip; we accept running one small managed instance in exchange for not losing anyone's trip again.",
+      "slug": "move-hike-log-storage-to-a-hosted-postgres-synced-across",
+      "source": "human",
+      "source_ref": "human:priya",
+      "status": "accepted",
+      "tenant_id": "local",
+      "title": "Move hike log storage to a hosted Postgres, synced across devices",
+      "topic_keys": [
+        "infrastructure",
+        "trailkeeper"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:40.875900719+00:00",
+      "deciders": [
+        {
+          "id": "human:priya",
+          "kind": "human"
+        }
+      ],
+      "event_origin": 16,
+      "expressed_confidence": null,
+      "id": "decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
+      "project": "trailkeeper",
+      "project_source": "stated",
+      "question": "Where do we store a hiker's trip logs?",
+      "quote": "Let's not stand up a backend before we know anyone wants this.",
+      "rationale": "TrailKeeper v1 is single-device: one hiker records one trip on one phone. SQLite needs no server, keeps the app fully usable with no signal on trail, and keeps hosting cost at zero while we find out if anyone wants this at all.",
+      "slug": "store-hike-logs-in-local-sqlite-on-the-phone",
+      "source": "human",
+      "source_ref": "human:priya",
+      "status": "superseded",
+      "tenant_id": "local",
+      "title": "Store hike logs in local SQLite on the phone",
+      "topic_keys": [
+        "infrastructure",
+        "trailkeeper"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:41.882563845+00:00",
+      "deciders": [
+        {
+          "id": "human:juror-3",
+          "kind": "human"
+        },
+        {
+          "id": "human:juror-foreman",
+          "kind": "human"
+        }
+      ],
+      "event_origin": 84,
+      "expressed_confidence": null,
+      "id": "decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
+      "project": "12-angry-men",
+      "project_source": "inherited",
+      "question": null,
+      "quote": null,
+      "rationale": "A second knife identical to the one in evidence turned up two blocks from the apartment, undercutting the claim it was one of a kind. The re-enactment showed the upstairs witness could not have reached his door in time to see what he described. And the only eyewitness needed glasses she was not wearing in bed. None of this proves innocence, but it is enough reasonable doubt that all twelve of us can no longer say guilty beyond it.",
+      "slug": "the-jury-finds-the-defendant-not-guilty",
+      "source": "human",
+      "source_ref": "human:juror-foreman",
+      "status": "accepted",
+      "tenant_id": "local",
+      "title": "The jury finds the defendant not guilty",
+      "topic_keys": [
+        "verdict",
+        "12-angry-men"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:41.060497319+00:00",
+      "deciders": [
+        {
+          "id": "human:maya",
+          "kind": "human"
+        }
+      ],
+      "event_origin": 35,
+      "expressed_confidence": null,
+      "id": "decision-909c644b-46b7-491e-b714-362f2ae3722a",
+      "project": "ridewell-api",
+      "project_source": "stated",
+      "question": "How do we avoid a database round trip on every dispatch lookup?",
+      "quote": null,
+      "rationale": "Driver-profile reads dominate dispatch-service load, about 70% of calls. An in-memory LRU keyed by driver_id avoids a database round trip on every dispatch and is simple to reason about, since driver_id is the primary key login already returns.",
+      "slug": "cache-driver-profiles-in-memory-keyed-by-the-drivers-numeric",
+      "source": "human",
+      "source_ref": "human:maya",
+      "status": "superseded",
+      "tenant_id": "local",
+      "title": "Cache driver profiles in memory, keyed by the driver's numeric id",
+      "topic_keys": [
+        "infrastructure",
+        "ridewell"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:41.564305673+00:00",
+      "deciders": [
+        {
+          "id": "human:juror-foreman",
+          "kind": "human"
+        }
+      ],
+      "event_origin": 72,
+      "expressed_confidence": null,
+      "id": "decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
+      "project": "12-angry-men",
+      "project_source": "stated",
+      "question": "How does the jury find the defendant?",
+      "quote": "That's eleven guilty. Somebody's got a reasonable doubt?",
+      "rationale": "Eleven of twelve jurors voted guilty on the first ballot. The knife matches the defendant's own description of a rare weapon, the downstairs neighbor testified he heard the defendant threaten to kill his father and then heard the body fall, and the woman across the street said she saw the stabbing through the windows of a passing elevated train.",
+      "slug": "the-jury-finds-the-defendant-guilty",
+      "source": "human",
+      "source_ref": "human:juror-foreman",
+      "status": "superseded",
+      "tenant_id": "local",
+      "title": "The jury finds the defendant guilty",
+      "topic_keys": [
+        "verdict",
+        "12-angry-men"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:41.092520257+00:00",
+      "deciders": [
+        {
+          "id": "agent:codex:ridewell-sync",
+          "kind": "agent"
+        }
+      ],
+      "event_origin": 44,
+      "expressed_confidence": null,
+      "id": "decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
+      "project": "ridewell-mobile",
+      "project_source": "stated",
+      "question": "How do we avoid blocking cold start on a profile fetch?",
+      "quote": null,
+      "rationale": "Cold start currently blocks on a profile fetch before the map can render. The API already treats driver_id as stable once assigned, so storing it in local device storage at login and reusing it on every cold start removes that fetch with no correctness cost.",
+      "slug": "cache-the-drivers-id-on-the-phone-at-login-and-skip-the",
+      "source": "agent",
+      "source_ref": "agent:codex:ridewell-sync",
+      "status": "accepted",
+      "tenant_id": "local",
+      "title": "Cache the driver's id on the phone at login and skip the profile lookup on cold start",
+      "topic_keys": [
+        "ridewell",
+        "mobile"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
+    },
+    {
+      "binds": null,
+      "binds_level": "nothing",
+      "decided_at": "2026-10-19T13:19:41.374414820+00:00",
+      "deciders": [
+        {
+          "id": "human:maya",
+          "kind": "human"
+        }
+      ],
+      "event_origin": 63,
+      "expressed_confidence": null,
+      "id": "decision-edf6215d-8a57-4b07-9735-570bfbe92324",
+      "project": "ridewell-api",
+      "project_source": "inherited",
+      "question": null,
+      "quote": null,
+      "rationale": "The 2026-09-20 platform migration reassigned numeric driver ids for over a thousand accounts and briefly served two drivers each other's cached profile. The dispatch service already receives a separate UUID from the identity provider that survives a backend migration; keying the cache on that UUID removes the failure mode the numeric-id assumption depended on.",
+      "slug": "cache-driver-profiles-keyed-by-a-stable-external-uuid",
+      "source": "human",
+      "source_ref": "human:maya",
+      "status": "accepted",
+      "tenant_id": "local",
+      "title": "Cache driver profiles keyed by a stable external UUID instead of the mutable numeric id",
+      "topic_keys": [
+        "infrastructure",
+        "ridewell"
+      ],
+      "undo_cost": null,
+      "undo_cost_level": "cheap"
     }
   ],
   "edges": [
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:human:priya"
-    },
-    {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:agent:codex:ridewell-sync"
-    },
-    {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:human:maya"
-    },
-    {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:human:juror-foreman"
-    },
-    {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:human:juror-foreman"
-    },
-    {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:human:maya"
-    },
-    {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
-      "label": "proposed by",
-      "relation": "PROPOSED_BY",
-      "reversed": false,
-      "to": "Actor:human:priya"
-    },
-    {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "proposed by",
       "relation": "PROPOSED_BY",
       "reversed": false,
       "to": "Actor:agent:claude:ridewell-mobile-ci"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:human:priya"
+    },
+    {
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:human:priya"
+    },
+    {
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:human:juror-foreman"
+    },
+    {
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:human:maya"
+    },
+    {
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:human:juror-foreman"
+    },
+    {
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:agent:codex:ridewell-sync"
+    },
+    {
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
+      "label": "proposed by",
+      "relation": "PROPOSED_BY",
+      "reversed": false,
+      "to": "Actor:human:maya"
+    },
+    {
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
+      "label": "accepted by",
+      "relation": "ACCEPTED_BY",
+      "reversed": false,
+      "to": "Actor:agent:claude:ridewell-mobile-ci"
+    },
+    {
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
       "to": "Actor:human:priya"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
-      "to": "Actor:agent:codex:ridewell-sync"
+      "to": "Actor:human:priya"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
-      "label": "accepted by",
-      "relation": "ACCEPTED_BY",
-      "reversed": false,
-      "to": "Actor:human:maya"
-    },
-    {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
       "to": "Actor:human:juror-3"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
       "to": "Actor:human:juror-foreman"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
-      "label": "accepted by",
-      "relation": "ACCEPTED_BY",
-      "reversed": false,
-      "to": "Actor:human:juror-foreman"
-    },
-    {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
       "to": "Actor:human:maya"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
-      "to": "Actor:human:priya"
+      "to": "Actor:human:juror-foreman"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "accepted by",
       "relation": "ACCEPTED_BY",
       "reversed": false,
-      "to": "Actor:agent:claude:ridewell-mobile-ci"
+      "to": "Actor:agent:codex:ridewell-sync"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
+      "label": "accepted by",
+      "relation": "ACCEPTED_BY",
+      "reversed": false,
+      "to": "Actor:human:maya"
+    },
+    {
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "rejected by",
       "relation": "REJECTED_BY",
       "reversed": false,
       "to": "Actor:human:juror-8"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "supersedes",
       "relation": "SUPERSEDES",
       "reversed": false,
-      "to": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f"
+      "to": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "supersedes",
       "relation": "SUPERSEDES",
       "reversed": false,
-      "to": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5"
+      "to": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "supersedes",
       "relation": "SUPERSEDES",
       "reversed": false,
-      "to": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9"
+      "to": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-2f0b077a-eb01-458d-9e39-0b75bab409e7"
+      "to": "Evidence:evidence-07f423ff-2981-522d-a092-237c1d4b336d"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-2f0b077a-eb01-458d-9e39-0b75bab409e7"
+      "to": "Evidence:evidence-07f423ff-2981-522d-a092-237c1d4b336d"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-741d56fd-4662-4946-83c1-aa61f4ca57ff"
+      "to": "Evidence:evidence-af194208-e807-4da4-a9a6-8ba5922941a9"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-741d56fd-4662-4946-83c1-aa61f4ca57ff"
+      "to": "Evidence:evidence-af194208-e807-4da4-a9a6-8ba5922941a9"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-9b9b1b7f-70bf-4761-ac3e-c941e8fe1c72"
+      "to": "Evidence:evidence-ce23b5e4-e305-4597-a639-81d9d37fd79f"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-9b9b1b7f-70bf-4761-ac3e-c941e8fe1c72"
+      "to": "Evidence:evidence-ce23b5e4-e305-4597-a639-81d9d37fd79f"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-f3ab2902-658b-4dea-bc7c-49619f5ab27a"
+      "to": "Evidence:evidence-f710471e-9ed5-4f97-aef0-7610de12b373"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-f3ab2902-658b-4dea-bc7c-49619f5ab27a"
+      "to": "Evidence:evidence-f710471e-9ed5-4f97-aef0-7610de12b373"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-c40482c8-46cf-5cd2-9389-b2483f1df98b"
+      "to": "Evidence:evidence-ab25a394-5f33-4dfb-b7fd-3b88f01b1072"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "based on",
       "relation": "BASED_ON",
       "reversed": false,
-      "to": "Evidence:evidence-c40482c8-46cf-5cd2-9389-b2483f1df98b"
+      "to": "Evidence:evidence-ab25a394-5f33-4dfb-b7fd-3b88f01b1072"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-39075843-d57d-4a70-b250-21017605fa63"
+      "to": "Option:option-95a16406-94c0-4e9b-9ac7-85e46e3d4e5b"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-39075843-d57d-4a70-b250-21017605fa63"
+      "to": "Option:option-95a16406-94c0-4e9b-9ac7-85e46e3d4e5b"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419"
+      "to": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419"
+      "to": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-baee6e9d-1730-4837-8b71-39f685df96f5"
+      "to": "Option:option-e8b9036f-f537-43dd-8d0f-e01a81acddac"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-baee6e9d-1730-4837-8b71-39f685df96f5"
+      "to": "Option:option-e8b9036f-f537-43dd-8d0f-e01a81acddac"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-1f1e353e-c339-42a1-a99e-606f833aa192"
+      "to": "Option:option-7a12c03c-14d0-5108-baac-3702abe61eda"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-1f1e353e-c339-42a1-a99e-606f833aa192"
+      "to": "Option:option-7a12c03c-14d0-5108-baac-3702abe61eda"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-8b1bfa1d-bbee-4120-b431-87bd6ff961fb"
+      "to": "Option:option-8d03fb74-c66e-540c-881d-14191b8f3178"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-8b1bfa1d-bbee-4120-b431-87bd6ff961fb"
+      "to": "Option:option-8d03fb74-c66e-540c-881d-14191b8f3178"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-bd4f642c-081a-4415-b38c-70e76750246e"
+      "to": "Option:option-d0d7c296-6bc4-575b-ae2d-fa136cff89f8"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-bd4f642c-081a-4415-b38c-70e76750246e"
+      "to": "Option:option-d0d7c296-6bc4-575b-ae2d-fa136cff89f8"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-61483a4f-ff63-41ba-a302-59777cc93f34"
+      "to": "Option:option-1938895a-43a0-41b1-8aa2-227b8220f569"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-61483a4f-ff63-41ba-a302-59777cc93f34"
+      "to": "Option:option-1938895a-43a0-41b1-8aa2-227b8220f569"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad"
+      "to": "Option:option-3b556ca2-db6f-4f1b-ad89-46f928149c70"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad"
+      "to": "Option:option-3b556ca2-db6f-4f1b-ad89-46f928149c70"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-9e831087-3420-48e0-bede-f2c7fe8c887d"
+      "to": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-9e831087-3420-48e0-bede-f2c7fe8c887d"
+      "to": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-03a9b9fa-a6fe-5389-952b-926acb0f0af3"
+      "to": "Option:option-54c9c102-edac-552e-9210-eb12a003c849"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-03a9b9fa-a6fe-5389-952b-926acb0f0af3"
+      "to": "Option:option-54c9c102-edac-552e-9210-eb12a003c849"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-ef6c61d2-f3ea-5d22-8f9a-cdaa8682b965"
+      "to": "Option:option-eaf5bfcc-e25f-516d-98bf-1eae1f5ae504"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-ef6c61d2-f3ea-5d22-8f9a-cdaa8682b965"
+      "to": "Option:option-eaf5bfcc-e25f-516d-98bf-1eae1f5ae504"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-555fee03-754e-4822-9cc5-7d2ce4b70a79"
+      "to": "Option:option-03f921fa-673c-478a-a7df-40eab8eb6753"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-555fee03-754e-4822-9cc5-7d2ce4b70a79"
+      "to": "Option:option-03f921fa-673c-478a-a7df-40eab8eb6753"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-58e95789-0a51-4164-947d-e2aa5669f124"
+      "to": "Option:option-194a90fd-94ed-41e9-941a-f09d6e3af205"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-58e95789-0a51-4164-947d-e2aa5669f124"
+      "to": "Option:option-194a90fd-94ed-41e9-941a-f09d6e3af205"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-8d96bd53-61c9-4ca7-9c28-abe32213567e"
+      "to": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-8d96bd53-61c9-4ca7-9c28-abe32213567e"
+      "to": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-197cedee-2ff6-533c-aba8-753228625ea7"
+      "to": "Option:option-bbbf289a-309b-4216-807f-4edd867a733a"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-197cedee-2ff6-533c-aba8-753228625ea7"
+      "to": "Option:option-bbbf289a-309b-4216-807f-4edd867a733a"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-1ff965fa-d147-5d16-ad75-7c28bd56cd35"
+      "to": "Option:option-e88cecc4-70b1-4fee-8658-21a82b08ee3f"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-1ff965fa-d147-5d16-ad75-7c28bd56cd35"
+      "to": "Option:option-e88cecc4-70b1-4fee-8658-21a82b08ee3f"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-aeaa80b2-9356-5feb-8d12-d24b7920710c"
+      "to": "Option:option-eb444c5c-39a0-49f6-a911-5698fc63c1ee"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-aeaa80b2-9356-5feb-8d12-d24b7920710c"
+      "to": "Option:option-eb444c5c-39a0-49f6-a911-5698fc63c1ee"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-6312e102-b092-52f3-ad5f-9da04cf46ccf"
+      "to": "Option:option-1fc69225-447f-470b-b89d-92137e44af21"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-6312e102-b092-52f3-ad5f-9da04cf46ccf"
+      "to": "Option:option-1fc69225-447f-470b-b89d-92137e44af21"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-6ce32ee8-be98-56e3-b318-e3eaf48cdb68"
+      "to": "Option:option-a58e0bd6-c732-41e8-a97d-bc25cdb7a4f6"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-6ce32ee8-be98-56e3-b318-e3eaf48cdb68"
+      "to": "Option:option-a58e0bd6-c732-41e8-a97d-bc25cdb7a4f6"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-731c7a59-639b-501a-a99a-c86d63a5dd36"
+      "to": "Option:option-fd06378e-7bbb-4ee6-b18a-f651858d421b"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-731c7a59-639b-501a-a99a-c86d63a5dd36"
+      "to": "Option:option-fd06378e-7bbb-4ee6-b18a-f651858d421b"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-6adeceeb-d3b9-46dc-bde8-b1d6192374e1"
+      "to": "Option:option-8913f01e-ab23-5cdc-8c0c-5331d73b1299"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-6adeceeb-d3b9-46dc-bde8-b1d6192374e1"
+      "to": "Option:option-8913f01e-ab23-5cdc-8c0c-5331d73b1299"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-9c9fe497-e420-4b3a-9bfc-34bc440cb44c"
+      "to": "Option:option-94e0a08d-5c29-5a18-9b81-066c716bef04"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-9c9fe497-e420-4b3a-9bfc-34bc440cb44c"
+      "to": "Option:option-94e0a08d-5c29-5a18-9b81-066c716bef04"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be"
+      "to": "Option:option-fc472102-cd81-58a7-b279-53584d063f40"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "weighs",
       "relation": "HAS_OPTION",
       "reversed": false,
-      "to": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be"
+      "to": "Option:option-fc472102-cd81-58a7-b279-53584d063f40"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419"
+      "to": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942"
     },
     {
-      "from": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "from": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419"
+      "to": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-bd4f642c-081a-4415-b38c-70e76750246e"
+      "to": "Option:option-8d03fb74-c66e-540c-881d-14191b8f3178"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-bd4f642c-081a-4415-b38c-70e76750246e"
+      "to": "Option:option-8d03fb74-c66e-540c-881d-14191b8f3178"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad"
+      "to": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de"
     },
     {
-      "from": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
+      "from": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad"
+      "to": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-ef6c61d2-f3ea-5d22-8f9a-cdaa8682b965"
+      "to": "Option:option-54c9c102-edac-552e-9210-eb12a003c849"
     },
     {
-      "from": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
+      "from": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-ef6c61d2-f3ea-5d22-8f9a-cdaa8682b965"
+      "to": "Option:option-54c9c102-edac-552e-9210-eb12a003c849"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-8d96bd53-61c9-4ca7-9c28-abe32213567e"
+      "to": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7"
     },
     {
-      "from": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
+      "from": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-8d96bd53-61c9-4ca7-9c28-abe32213567e"
+      "to": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-aeaa80b2-9356-5feb-8d12-d24b7920710c"
+      "to": "Option:option-bbbf289a-309b-4216-807f-4edd867a733a"
     },
     {
-      "from": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
+      "from": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-aeaa80b2-9356-5feb-8d12-d24b7920710c"
+      "to": "Option:option-bbbf289a-309b-4216-807f-4edd867a733a"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-731c7a59-639b-501a-a99a-c86d63a5dd36"
+      "to": "Option:option-fd06378e-7bbb-4ee6-b18a-f651858d421b"
     },
     {
-      "from": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-731c7a59-639b-501a-a99a-c86d63a5dd36"
+      "to": "Option:option-fd06378e-7bbb-4ee6-b18a-f651858d421b"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be"
+      "to": "Option:option-fc472102-cd81-58a7-b279-53584d063f40"
     },
     {
-      "from": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "from": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
       "label": "chose",
       "relation": "CHOSE",
       "reversed": false,
-      "to": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be"
+      "to": "Option:option-fc472102-cd81-58a7-b279-53584d063f40"
     },
     {
-      "from": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad",
+      "from": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de",
       "label": "rests on",
       "relation": "PREMISED_ON",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-58a7b4fb-e4a1-4a13-a412-8b36d1b999ca"
+      "to": "Hypothesis:hypothesis-01fb2d48-f1a8-44f8-b97e-bc8f55f3e435"
     },
     {
-      "from": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad",
+      "from": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de",
       "label": "rests on",
       "relation": "PREMISED_ON",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-58a7b4fb-e4a1-4a13-a412-8b36d1b999ca"
+      "to": "Hypothesis:hypothesis-01fb2d48-f1a8-44f8-b97e-bc8f55f3e435"
     },
     {
-      "from": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419",
+      "from": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942",
       "label": "rests on",
       "relation": "PREMISED_ON",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-e19287f6-24c4-44fa-b0bc-5fdc4627cc02"
+      "to": "Hypothesis:hypothesis-d9bdfc0d-c779-4c99-8ffd-57322a4e6cd0"
     },
     {
-      "from": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419",
+      "from": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942",
       "label": "rests on",
       "relation": "PREMISED_ON",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-e19287f6-24c4-44fa-b0bc-5fdc4627cc02"
+      "to": "Hypothesis:hypothesis-d9bdfc0d-c779-4c99-8ffd-57322a4e6cd0"
     },
     {
-      "from": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be",
+      "from": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7",
       "label": "rests on",
       "relation": "PREMISED_ON",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-99654dc5-4428-4750-9396-722de687f65d"
+      "to": "Hypothesis:hypothesis-8790994b-bd84-497a-9f0a-ef1958e9df30"
     },
     {
-      "from": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be",
+      "from": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7",
       "label": "rests on",
       "relation": "PREMISED_ON",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-99654dc5-4428-4750-9396-722de687f65d"
+      "to": "Hypothesis:hypothesis-8790994b-bd84-497a-9f0a-ef1958e9df30"
     },
     {
-      "from": "Evidence:evidence-f3ab2902-658b-4dea-bc7c-49619f5ab27a",
+      "from": "Evidence:evidence-ab25a394-5f33-4dfb-b7fd-3b88f01b1072",
       "label": "refutes",
       "relation": "REFUTES",
       "reversed": false,
-      "to": "Hypothesis:hypothesis-58a7b4fb-e4a1-4a13-a412-8b36d1b999ca"
+      "to": "Hypothesis:hypothesis-8790994b-bd84-497a-9f0a-ef1958e9df30"
     },
     {
       "from": "Project:ridewell-mobile",
@@ -931,97 +963,97 @@
       "to": "Project:ridewell-api"
     },
     {
-      "from": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
+      "from": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
       "label": "follows from",
       "relation": "FOLLOWS_FROM",
       "reversed": false,
-      "to": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5"
+      "to": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a"
     },
     {
       "from": "Question:question-b2a2db41-eed8-5c4f-9f63-d05461d1465a",
       "label": "is answered by",
       "relation": "ANSWERS",
       "reversed": true,
-      "to": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9"
-    },
-    {
-      "from": "Question:question-b03d75d1-05e1-5212-8bb5-ec6637180d2c",
-      "label": "is answered by",
-      "relation": "ANSWERS",
-      "reversed": true,
-      "to": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797"
+      "to": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9"
     },
     {
       "from": "Question:question-e05aecb0-39ce-5bd9-b3fb-e9eb6e4be777",
       "label": "is answered by",
       "relation": "ANSWERS",
       "reversed": true,
-      "to": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5"
+      "to": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a"
     },
     {
       "from": "Question:question-4fdba55b-3b1b-5c58-afaa-30f19fabd444",
       "label": "is answered by",
       "relation": "ANSWERS",
       "reversed": true,
-      "to": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f"
+      "to": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa"
+    },
+    {
+      "from": "Question:question-b03d75d1-05e1-5212-8bb5-ec6637180d2c",
+      "label": "is answered by",
+      "relation": "ANSWERS",
+      "reversed": true,
+      "to": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d"
     }
   ],
   "nodes": [
     {
-      "decided_at": "2026-10-08T01:58:30.519552240+00:00",
-      "id": "Decision:decision-1007a2d2-0405-4b04-a97b-bf5701ad61b9",
+      "decided_at": "2026-10-19T13:19:41.179851898+00:00",
+      "id": "Decision:decision-425689ff-0a7f-4188-8660-7d881b569c72",
       "kind": "Decision",
-      "label": "Store hike logs in local SQLite on the phone",
-      "slug": "store-hike-logs-in-local-sqlite-on-the-phone"
+      "label": "Retry a failed location-ping upload up to 5 times with exponential backoff, capped at 30 seconds",
+      "slug": "retry-a-failed-location-ping-upload-up-to-5-times-with"
     },
     {
-      "decided_at": "2026-10-08T01:58:31.930520680+00:00",
-      "id": "Decision:decision-19f3bba7-7cbd-4548-9eba-a6a04bb15797",
-      "kind": "Decision",
-      "label": "Cache the driver's id on the phone at login and skip the profile lookup on cold start",
-      "slug": "cache-the-drivers-id-on-the-phone-at-login-and-skip-the"
-    },
-    {
-      "decided_at": "2026-10-08T01:58:31.707333298+00:00",
-      "id": "Decision:decision-23b5559b-0a10-4f72-a6ca-a9bb1f92d4a5",
-      "kind": "Decision",
-      "label": "Cache driver profiles in memory, keyed by the driver's numeric id",
-      "slug": "cache-driver-profiles-in-memory-keyed-by-the-drivers-numeric"
-    },
-    {
-      "decided_at": "2026-10-08T01:58:33.827579775+00:00",
-      "id": "Decision:decision-40838d6c-1a52-46be-b75a-6e8a6d5c1b53",
-      "kind": "Decision",
-      "label": "The jury finds the defendant not guilty",
-      "slug": "the-jury-finds-the-defendant-not-guilty"
-    },
-    {
-      "decided_at": "2026-10-08T01:58:33.325468065+00:00",
-      "id": "Decision:decision-605ce468-14f7-4f54-b54e-ac4bf2f0276f",
-      "kind": "Decision",
-      "label": "The jury finds the defendant guilty",
-      "slug": "the-jury-finds-the-defendant-guilty"
-    },
-    {
-      "decided_at": "2026-10-08T01:58:32.832854727+00:00",
-      "id": "Decision:decision-73fc1546-71e1-4db2-b765-5625fc9147b6",
-      "kind": "Decision",
-      "label": "Cache driver profiles keyed by a stable external UUID instead of the mutable numeric id",
-      "slug": "cache-driver-profiles-keyed-by-a-stable-external-uuid"
-    },
-    {
-      "decided_at": "2026-10-08T01:58:31.421942960+00:00",
-      "id": "Decision:decision-7aba6606-fd61-485d-84b1-c2b529e77230",
+      "decided_at": "2026-10-19T13:19:40.966744304+00:00",
+      "id": "Decision:decision-4722ac8c-ea11-4fd6-9fab-10529039b801",
       "kind": "Decision",
       "label": "Move hike log storage to a hosted Postgres, synced across devices",
       "slug": "move-hike-log-storage-to-a-hosted-postgres-synced-across"
     },
     {
-      "decided_at": "2026-10-08T01:58:32.505652482+00:00",
-      "id": "Decision:decision-d5a0e793-f2ad-46db-9c71-0af02ed3849d",
+      "decided_at": "2026-10-19T13:19:40.875900719+00:00",
+      "id": "Decision:decision-4ca54462-6b73-432c-86aa-1a4b017e4fb9",
       "kind": "Decision",
-      "label": "Retry a failed location-ping upload up to 5 times with exponential backoff, capped at 30 seconds",
-      "slug": "retry-a-failed-location-ping-upload-up-to-5-times-with"
+      "label": "Store hike logs in local SQLite on the phone",
+      "slug": "store-hike-logs-in-local-sqlite-on-the-phone"
+    },
+    {
+      "decided_at": "2026-10-19T13:19:41.882563845+00:00",
+      "id": "Decision:decision-747fd7d9-e262-4330-a5d9-f1370c49bdc9",
+      "kind": "Decision",
+      "label": "The jury finds the defendant not guilty",
+      "slug": "the-jury-finds-the-defendant-not-guilty"
+    },
+    {
+      "decided_at": "2026-10-19T13:19:41.060497319+00:00",
+      "id": "Decision:decision-909c644b-46b7-491e-b714-362f2ae3722a",
+      "kind": "Decision",
+      "label": "Cache driver profiles in memory, keyed by the driver's numeric id",
+      "slug": "cache-driver-profiles-in-memory-keyed-by-the-drivers-numeric"
+    },
+    {
+      "decided_at": "2026-10-19T13:19:41.564305673+00:00",
+      "id": "Decision:decision-99ba4ce7-7ab3-4f0c-897a-dc3be044ddaa",
+      "kind": "Decision",
+      "label": "The jury finds the defendant guilty",
+      "slug": "the-jury-finds-the-defendant-guilty"
+    },
+    {
+      "decided_at": "2026-10-19T13:19:41.092520257+00:00",
+      "id": "Decision:decision-db433c10-12e9-4732-a4ed-4ef64735e03d",
+      "kind": "Decision",
+      "label": "Cache the driver's id on the phone at login and skip the profile lookup on cold start",
+      "slug": "cache-the-drivers-id-on-the-phone-at-login-and-skip-the"
+    },
+    {
+      "decided_at": "2026-10-19T13:19:41.374414820+00:00",
+      "id": "Decision:decision-edf6215d-8a57-4b07-9735-570bfbe92324",
+      "kind": "Decision",
+      "label": "Cache driver profiles keyed by a stable external UUID instead of the mutable numeric id",
+      "slug": "cache-driver-profiles-keyed-by-a-stable-external-uuid"
     },
     {
       "id": "Actor:agent:claude:ridewell-mobile-ci",
@@ -1056,198 +1088,202 @@
       "kind": "Actor"
     },
     {
-      "id": "Evidence:evidence-2f0b077a-eb01-458d-9e39-0b75bab409e7",
-      "kind": "Evidence",
-      "label": "The woman across the street testified she saw the stabbing through the windows of a passing elevated train, but she was also seen with fresh marks on her nose from eyeglasses — she would not have been wearing them in bed, and without them an identification across the street at night is unreliable."
-    },
-    {
-      "id": "Evidence:evidence-741d56fd-4662-4946-83c1-aa61f4ca57ff",
-      "kind": "Evidence",
-      "label": "Re-enactment in the jury room: walking from the bed to the front door in the defendant's apartment takes 41 seconds using his own cane, not the 15 seconds the old man upstairs claimed for hearing the threat, running to the door, and seeing the defendant flee."
-    },
-    {
-      "id": "Evidence:evidence-9b9b1b7f-70bf-4761-ac3e-c941e8fe1c72",
-      "kind": "Evidence",
-      "label": "Trial testimony: the downstairs neighbor says he heard 'I'm gonna kill you' followed by a body hitting the floor, one second after a train passed"
-    },
-    {
-      "id": "Evidence:evidence-c40482c8-46cf-5cd2-9389-b2483f1df98b",
+      "id": "Evidence:evidence-07f423ff-2981-522d-a092-237c1d4b336d",
       "kind": "Evidence",
       "label": "Beta survey, Sept 2026: 61% of 140 respondents use TrailKeeper on both phone and web; 22% reported a trip missing photos or edits made on the other device"
     },
     {
-      "id": "Evidence:evidence-f3ab2902-658b-4dea-bc7c-49619f5ab27a",
+      "id": "Evidence:evidence-ab25a394-5f33-4dfb-b7fd-3b88f01b1072",
       "kind": "Evidence",
       "label": "Incident review, 2026-09-20: migrating dispatch to the new fleet-partner platform reassigned driver_id for about 1,200 accounts during the backfill; two drivers were shown another driver's cached profile for several minutes before the cache expired."
     },
     {
-      "id": "Option:option-03a9b9fa-a6fe-5389-952b-926acb0f0af3",
-      "kind": "Option",
-      "label": "Guilty",
-      "title": "Guilty"
+      "id": "Evidence:evidence-af194208-e807-4da4-a9a6-8ba5922941a9",
+      "kind": "Evidence",
+      "label": "The woman across the street testified she saw the stabbing through the windows of a passing elevated train, but she was also seen with fresh marks on her nose from eyeglasses — she would not have been wearing them in bed, and without them an identification across the street at night is unreliable."
     },
     {
-      "id": "Option:option-197cedee-2ff6-533c-aba8-753228625ea7",
-      "kind": "Option",
-      "label": "Redis cache keyed by the UUID",
-      "title": "Redis cache keyed by the UUID"
+      "id": "Evidence:evidence-ce23b5e4-e305-4597-a639-81d9d37fd79f",
+      "kind": "Evidence",
+      "label": "Re-enactment in the jury room: walking from the bed to the front door in the defendant's apartment takes 41 seconds using his own cane, not the 15 seconds the old man upstairs claimed for hearing the threat, running to the door, and seeing the defendant flee."
     },
     {
-      "id": "Option:option-1f1e353e-c339-42a1-a99e-606f833aa192",
-      "kind": "Option",
-      "label": "Cache the whole profile object with a 1-hour TTL",
-      "title": "Cache the whole profile object with a 1-hour TTL"
+      "id": "Evidence:evidence-f710471e-9ed5-4f97-aef0-7610de12b373",
+      "kind": "Evidence",
+      "label": "Trial testimony: the downstairs neighbor says he heard 'I'm gonna kill you' followed by a body hitting the floor, one second after a train passed"
     },
     {
-      "id": "Option:option-1ff965fa-d147-5d16-ad75-7c28bd56cd35",
-      "kind": "Option",
-      "label": "Drop the profile cache entirely",
-      "title": "Drop the profile cache entirely"
-    },
-    {
-      "id": "Option:option-39075843-d57d-4a70-b250-21017605fa63",
-      "kind": "Option",
-      "label": "Local JSON files",
-      "title": "Local JSON files"
-    },
-    {
-      "id": "Option:option-555fee03-754e-4822-9cc5-7d2ce4b70a79",
-      "kind": "Option",
-      "label": "Not guilty",
-      "title": "Not guilty"
-    },
-    {
-      "id": "Option:option-58e95789-0a51-4164-947d-e2aa5669f124",
-      "kind": "Option",
-      "label": "Hung jury (cannot agree)",
-      "title": "Hung jury (cannot agree)"
-    },
-    {
-      "id": "Option:option-61483a4f-ff63-41ba-a302-59777cc93f34",
+      "id": "Option:option-03f921fa-673c-478a-a7df-40eab8eb6753",
       "kind": "Option",
       "label": "Redis cache keyed by driver_id",
       "title": "Redis cache keyed by driver_id"
     },
     {
-      "id": "Option:option-6312e102-b092-52f3-ad5f-9da04cf46ccf",
-      "kind": "Option",
-      "label": "Keep SQLite and add a manual export/import",
-      "title": "Keep SQLite and add a manual export/import"
-    },
-    {
-      "id": "Option:option-6adeceeb-d3b9-46dc-bde8-b1d6192374e1",
-      "kind": "Option",
-      "label": "Unlimited retries with a circuit breaker",
-      "title": "Unlimited retries with a circuit breaker"
-    },
-    {
-      "id": "Option:option-6ce32ee8-be98-56e3-b318-e3eaf48cdb68",
-      "kind": "Option",
-      "label": "Firebase Realtime Database",
-      "title": "Firebase Realtime Database"
-    },
-    {
-      "id": "Option:option-731c7a59-639b-501a-a99a-c86d63a5dd36",
-      "kind": "Option",
-      "label": "Hosted Postgres with a per-user sync log",
-      "title": "Hosted Postgres with a per-user sync log"
-    },
-    {
-      "id": "Option:option-7cf7bd79-7ae4-4c54-a6f4-690b2a323fad",
-      "kind": "Option",
-      "label": "In-memory LRU keyed by driver_id",
-      "title": "In-memory LRU keyed by driver_id"
-    },
-    {
-      "id": "Option:option-8b1bfa1d-bbee-4120-b431-87bd6ff961fb",
-      "kind": "Option",
-      "label": "Always re-fetch the profile on cold start",
-      "title": "Always re-fetch the profile on cold start"
-    },
-    {
-      "id": "Option:option-8d96bd53-61c9-4ca7-9c28-abe32213567e",
-      "kind": "Option",
-      "label": "Guilty",
-      "title": "Guilty"
-    },
-    {
-      "id": "Option:option-9c9fe497-e420-4b3a-9bfc-34bc440cb44c",
-      "kind": "Option",
-      "label": "3 retries fixed 5s gap",
-      "title": "3 retries fixed 5s gap"
-    },
-    {
-      "id": "Option:option-9e831087-3420-48e0-bede-f2c7fe8c887d",
-      "kind": "Option",
-      "label": "No cache (read through on every request)",
-      "title": "No cache (read through on every request)"
-    },
-    {
-      "id": "Option:option-aeaa80b2-9356-5feb-8d12-d24b7920710c",
-      "kind": "Option",
-      "label": "In-memory LRU keyed by the identity-provider UUID",
-      "title": "In-memory LRU keyed by the identity-provider UUID"
-    },
-    {
-      "id": "Option:option-b5685d07-2d6b-48f0-943d-34693dd13419",
-      "kind": "Option",
-      "label": "Local SQLite",
-      "title": "Local SQLite"
-    },
-    {
-      "id": "Option:option-baee6e9d-1730-4837-8b71-39f685df96f5",
+      "id": "Option:option-1938895a-43a0-41b1-8aa2-227b8220f569",
       "kind": "Option",
       "label": "A hosted database from day one",
       "title": "A hosted database from day one"
     },
     {
-      "id": "Option:option-bd4f642c-081a-4415-b38c-70e76750246e",
+      "id": "Option:option-194a90fd-94ed-41e9-941a-f09d6e3af205",
       "kind": "Option",
-      "label": "Store driver_id locally and skip the cold-start lookup",
-      "title": "Store driver_id locally and skip the cold-start lookup"
+      "label": "No cache (read through on every request)",
+      "title": "No cache (read through on every request)"
     },
     {
-      "id": "Option:option-d9c86ede-dcbf-47f8-9216-da529ae391be",
+      "id": "Option:option-1fc69225-447f-470b-b89d-92137e44af21",
       "kind": "Option",
-      "label": "5 retries exponential backoff capped at 30s",
-      "title": "5 retries exponential backoff capped at 30s"
+      "label": "Always re-fetch the profile on cold start",
+      "title": "Always re-fetch the profile on cold start"
     },
     {
-      "id": "Option:option-ef6c61d2-f3ea-5d22-8f9a-cdaa8682b965",
+      "id": "Option:option-3b556ca2-db6f-4f1b-ad89-46f928149c70",
+      "kind": "Option",
+      "label": "Local JSON files",
+      "title": "Local JSON files"
+    },
+    {
+      "id": "Option:option-534f1a63-2c96-4076-b94d-a20262d752de",
+      "kind": "Option",
+      "label": "Local SQLite",
+      "title": "Local SQLite"
+    },
+    {
+      "id": "Option:option-54c9c102-edac-552e-9210-eb12a003c849",
       "kind": "Option",
       "label": "Not guilty",
       "title": "Not guilty"
     },
     {
-      "id": "Hypothesis:hypothesis-58a7b4fb-e4a1-4a13-a412-8b36d1b999ca",
-      "kind": "Hypothesis",
-      "label": "Driver ids are assigned once at signup and never change for the lifetime of the account"
+      "id": "Option:option-7a12c03c-14d0-5108-baac-3702abe61eda",
+      "kind": "Option",
+      "label": "Firebase Realtime Database",
+      "title": "Firebase Realtime Database"
     },
     {
-      "id": "Hypothesis:hypothesis-99654dc5-4428-4750-9396-722de687f65d",
-      "kind": "Hypothesis",
-      "label": "Capping at 5 retries with backoff will clear at least 90% of handoff failures without a manual retry"
+      "id": "Option:option-8913f01e-ab23-5cdc-8c0c-5331d73b1299",
+      "kind": "Option",
+      "label": "Redis cache keyed by the UUID",
+      "title": "Redis cache keyed by the UUID"
     },
     {
-      "id": "Hypothesis:hypothesis-e19287f6-24c4-44fa-b0bc-5fdc4627cc02",
+      "id": "Option:option-8d03fb74-c66e-540c-881d-14191b8f3178",
+      "kind": "Option",
+      "label": "Hosted Postgres with a per-user sync log",
+      "title": "Hosted Postgres with a per-user sync log"
+    },
+    {
+      "id": "Option:option-94e0a08d-5c29-5a18-9b81-066c716bef04",
+      "kind": "Option",
+      "label": "Drop the profile cache entirely",
+      "title": "Drop the profile cache entirely"
+    },
+    {
+      "id": "Option:option-95a16406-94c0-4e9b-9ac7-85e46e3d4e5b",
+      "kind": "Option",
+      "label": "Unlimited retries with a circuit breaker",
+      "title": "Unlimited retries with a circuit breaker"
+    },
+    {
+      "id": "Option:option-a58e0bd6-c732-41e8-a97d-bc25cdb7a4f6",
+      "kind": "Option",
+      "label": "Cache the whole profile object with a 1-hour TTL",
+      "title": "Cache the whole profile object with a 1-hour TTL"
+    },
+    {
+      "id": "Option:option-bbbf289a-309b-4216-807f-4edd867a733a",
+      "kind": "Option",
+      "label": "Guilty",
+      "title": "Guilty"
+    },
+    {
+      "id": "Option:option-d0d7c296-6bc4-575b-ae2d-fa136cff89f8",
+      "kind": "Option",
+      "label": "Keep SQLite and add a manual export/import",
+      "title": "Keep SQLite and add a manual export/import"
+    },
+    {
+      "id": "Option:option-e4f423e6-e863-452a-840d-d04c046e6942",
+      "kind": "Option",
+      "label": "5 retries exponential backoff capped at 30s",
+      "title": "5 retries exponential backoff capped at 30s"
+    },
+    {
+      "id": "Option:option-e88cecc4-70b1-4fee-8658-21a82b08ee3f",
+      "kind": "Option",
+      "label": "Not guilty",
+      "title": "Not guilty"
+    },
+    {
+      "id": "Option:option-e8b9036f-f537-43dd-8d0f-e01a81acddac",
+      "kind": "Option",
+      "label": "3 retries fixed 5s gap",
+      "title": "3 retries fixed 5s gap"
+    },
+    {
+      "id": "Option:option-eaf5bfcc-e25f-516d-98bf-1eae1f5ae504",
+      "kind": "Option",
+      "label": "Guilty",
+      "title": "Guilty"
+    },
+    {
+      "id": "Option:option-eb444c5c-39a0-49f6-a911-5698fc63c1ee",
+      "kind": "Option",
+      "label": "Hung jury (cannot agree)",
+      "title": "Hung jury (cannot agree)"
+    },
+    {
+      "id": "Option:option-fa7785c3-7b3f-44e8-8ac6-4bf1e30296a7",
+      "kind": "Option",
+      "label": "In-memory LRU keyed by driver_id",
+      "title": "In-memory LRU keyed by driver_id"
+    },
+    {
+      "id": "Option:option-fc472102-cd81-58a7-b279-53584d063f40",
+      "kind": "Option",
+      "label": "In-memory LRU keyed by the identity-provider UUID",
+      "title": "In-memory LRU keyed by the identity-provider UUID"
+    },
+    {
+      "id": "Option:option-fd06378e-7bbb-4ee6-b18a-f651858d421b",
+      "kind": "Option",
+      "label": "Store driver_id locally and skip the cold-start lookup",
+      "title": "Store driver_id locally and skip the cold-start lookup"
+    },
+    {
+      "id": "Hypothesis:hypothesis-01fb2d48-f1a8-44f8-b97e-bc8f55f3e435",
       "kind": "Hypothesis",
       "label": "Each hiker uses TrailKeeper from a single phone; nobody needs the same trip log on two devices"
     },
     {
+      "id": "Hypothesis:hypothesis-8790994b-bd84-497a-9f0a-ef1958e9df30",
+      "kind": "Hypothesis",
+      "label": "Driver ids are assigned once at signup and never change for the lifetime of the account"
+    },
+    {
+      "id": "Hypothesis:hypothesis-d9bdfc0d-c779-4c99-8ffd-57322a4e6cd0",
+      "kind": "Hypothesis",
+      "label": "Capping at 5 retries with backoff will clear at least 90% of handoff failures without a manual retry"
+    },
+    {
       "id": "Question:question-4fdba55b-3b1b-5c58-afaa-30f19fabd444",
-      "kind": "Question"
+      "kind": "Question",
+      "label": "How does the jury find the defendant?"
     },
     {
       "id": "Question:question-b03d75d1-05e1-5212-8bb5-ec6637180d2c",
-      "kind": "Question"
+      "kind": "Question",
+      "label": "How do we avoid blocking cold start on a profile fetch?"
     },
     {
       "id": "Question:question-b2a2db41-eed8-5c4f-9f63-d05461d1465a",
-      "kind": "Question"
+      "kind": "Question",
+      "label": "Where do we store a hiker's trip logs?"
     },
     {
       "id": "Question:question-e05aecb0-39ce-5bd9-b3fb-e9eb6e4be777",
-      "kind": "Question"
+      "kind": "Question",
+      "label": "How do we avoid a database round trip on every dispatch lookup?"
     },
     {
       "id": "Project:12-angry-men",

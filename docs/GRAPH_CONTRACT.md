@@ -108,6 +108,10 @@ a reader needs without reconstructing them from edges:
   (`Upheld`) when the ledger is replayed; the node then also carries `recorded_as`, the text the
   capture recorded, so a page that shows the words can show what the record says beside them. It
   is absent when the label reads as it was recorded.
+- **`nodes[]` with `kind: "Question"`, `"Ask"`, `"Blocker"` or `"DecisionRequest"`** carry a
+  `label`: the words that were asked for a question and an ask (`text`), the one-line `reason`
+  for a blocker and a decision request. A `Reaffirmation` reads as its `reason` the same way.
+  None of these has a title, so without the label a page can only call the node untitled.
 
 Both are pure reads: three bulk edge scans (`SUPERSEDES`, `ACCEPTED_BY`, `REJECTED_BY`), no
 per-decision queries and no inference.

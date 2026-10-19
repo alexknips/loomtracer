@@ -128,11 +128,16 @@ fn graph_blocking(
                 .or_else(|| string_field("content"))
                 .or_else(|| string_field("display_name"))
                 .or_else(|| string_field("handle"))
-                // A reaffirmation reads as its one-line reason.
+                // A question and an ask read as the words that were asked.
+                .or_else(|| string_field("text"))
+                // A reaffirmation, a blocker and a decision request read as their one-line reason.
                 .or_else(|| {
-                    matches!(kind, NodeKind::Reaffirmation)
-                        .then(|| string_field("reason"))
-                        .flatten()
+                    matches!(
+                        kind,
+                        NodeKind::Reaffirmation | NodeKind::Blocker | NodeKind::DecisionRequest
+                    )
+                    .then(|| string_field("reason"))
+                    .flatten()
                 });
             // The capture event's timestamp (`occurred_at` on the projected node) read
             // under the response's `decided_at` name (docs/GRAPH_CONTRACT.md).
