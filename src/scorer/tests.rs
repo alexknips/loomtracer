@@ -48,10 +48,11 @@ fn render_decision_text_all_fields() {
     let text = render_decision_text(&capture);
     assert!(text.contains("Title: Use SQLite\n"));
     assert!(text.contains("Rationale: Simple and embeddable\n"));
-    assert!(text.contains("Options considered: SQLite, PostgreSQL\n"));
+    assert!(text.contains("Option: SQLite\n"));
+    assert!(text.contains("Option: PostgreSQL\n"));
     assert!(text.contains("Chosen option: SQLite\n"));
-    assert!(text.contains("Expressed confidence: high\n"));
-    assert!(text.contains("Topic keys: storage, database\n"));
+    assert!(text.contains("Recorded context, expressed confidence: high\n"));
+    assert!(text.contains("Recorded context, topic keys: storage, database\n"));
 }
 
 #[test]
@@ -63,10 +64,9 @@ fn render_decision_text_omits_absent_optional_fields() {
     let text = render_decision_text(&capture);
     assert!(text.contains("Title: Use caching\n"));
     assert!(text.contains("Rationale: Reduces latency\n"));
-    assert!(!text.contains("Options considered"));
+    assert!(!text.contains("Option"));
     assert!(!text.contains("Chosen option"));
-    assert!(!text.contains("Expressed confidence"));
-    assert!(!text.contains("Topic keys"));
+    assert!(!text.contains("Recorded context"));
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn render_decision_text_empty_options_array_omitted() {
         "options": []
     });
     let text = render_decision_text(&capture);
-    assert!(!text.contains("Options considered"));
+    assert!(!text.contains("Option"));
 }
 
 // --- render_proposed_decision_text ---
@@ -179,11 +179,14 @@ fn render_proposed_decision_text_adds_no_answer_line_for_a_decision_never_asked(
 }
 
 #[test]
-fn the_prompt_says_the_recorded_answers_are_input_facts_and_not_quotable() {
+fn the_prompt_says_the_recorded_answers_and_context_are_input_facts_and_not_quotable() {
     assert!(ASSESSOR_PROMPT.contains("Lines labeled \"Recorded answer\" are not part of that text"));
     assert!(ASSESSOR_PROMPT.contains("never quote from these lines"));
     assert!(ASSESSOR_PROMPT.contains("When they are absent the capturer was not asked"));
-    assert_eq!(ASSESSOR_PROMPT_VERSION, "assessment-v2");
+    assert!(
+        ASSESSOR_PROMPT.contains("Lines labeled \"Recorded context\" are not part of that text")
+    );
+    assert_eq!(ASSESSOR_PROMPT_VERSION, "assessment-v3");
 }
 
 #[test]
@@ -269,6 +272,161 @@ fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_
             "{refusal}"
         );
     }
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}
+
+// --- the lines offered as quotable are the text the quote check accepts (hivemind-m88ju) ---
+
+/// Tries every labeled line of `text` as the quote of a `partial` framing answer for
+/// `decision_id`, through the write path's own check. A line the scorer offers as quotable must
+/// be accepted; a `Recorded ...` line must be refused. Returns the labels of the quotable lines,
+/// in the order offered.
+fn offered_quotable_labels(hivemind_dir: &PathBuf, decision_id: &str, text: &str) -> Vec<String> {
+    let ledger = SqliteEventLedger::open(hivemind_dir).expect("ledger opens");
+    let commands = Commands::new(&ledger);
+    let mut quotable = Vec::new();
+    for line in text.lines() {
+        let (label, value) = line.split_once(": ").expect("every line is labeled");
+        let mut dims = all_not_assessed_dimensions_json();
+        dims["framing"] = serde_json::json!({
+            "status": "assessed",
+            "level": "partial",
+            "explanation": "quoted from a line the scorer offered",
+            "quote": value
+        });
+        let output: AssessmentOutput =
+            serde_json::from_value(serde_json::json!({ "dimensions": dims })).expect("output");
+        let payload =
+            build_assessed_payload(decision_id, "test-model", ASSESSOR_PROMPT_VERSION, output);
+        let result = commands.record_decision_assessed(ACTOR_ID, payload, None);
+        if label.starts_with("Recorded ") {
+            let refusal = result.expect_err(line);
+            assert!(
+                refusal
+                    .to_string()
+                    .contains("does not occur in the recorded text"),
+                "{line}: {refusal}"
+            );
+        } else {
+            result.unwrap_or_else(|error| {
+                panic!("the scorer offered {line:?} as quotable but the write path refused it: {error}")
+            });
+            quotable.push(label.to_owned());
+        }
+    }
+    quotable
+}
+
+#[test]
+fn every_line_offered_as_quotable_for_a_classified_capture_is_accepted_and_no_other_is() {
+    let hivemind_dir = unique_test_dir("quotable-classified");
+    let tenant_id = TenantId::local();
+    {
+        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let commands = Commands::new(&ledger);
+        let mut capture = minimal_decision_capture();
+        capture.title = "Store events in SQLite".to_owned();
+        capture.rationale = "One file, no server to run".to_owned();
+        capture.options = Some(vec!["SQLite file".to_owned(), "Postgres server".to_owned()]);
+        capture.chosen_option = Some("SQLite file".to_owned());
+        capture.expressed_confidence = Some("fairly sure".to_owned());
+        capture.topic_keys = vec!["storage-engine".to_owned(), "durability".to_owned()];
+        commands
+            .record_ingest_batch_classified(
+                "actor:test",
+                &["batch-quotable".to_owned()],
+                "haiku",
+                "2",
+                vec![capture],
+                None,
+            )
+            .expect("record batch classified");
+    }
+
+    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    assert_eq!(pending.len(), 1);
+    let text = &pending[0].decision_text;
+    assert!(
+        text.contains("Recorded context, expressed confidence: fairly sure\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Recorded context, topic keys: storage-engine, durability\n"),
+        "{text}"
+    );
+    assert!(!text.contains("Options considered"), "{text}");
+
+    let quotable = offered_quotable_labels(&hivemind_dir, &pending[0].decision_id, text);
+    assert_eq!(
+        quotable,
+        ["Title", "Rationale", "Option", "Option", "Chosen option"]
+    );
+
+    let _ = std::fs::remove_dir_all(&hivemind_dir);
+}
+
+#[test]
+fn every_line_offered_as_quotable_for_a_directly_captured_decision_is_accepted_and_no_other_is() {
+    let hivemind_dir = unique_test_dir("quotable-proposed");
+    let tenant_id = TenantId::local();
+    {
+        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let commands = Commands::new(&ledger);
+        let rest = commands
+            .record_option("actor:test", "REST", "REST is simpler to operate")
+            .expect("option a");
+        let grpc = commands
+            .record_option("actor:test", "gRPC", "gRPC needs HTTP/2 and codegen")
+            .expect("option b");
+        let answers = FloorAnswers {
+            binds: BindsAnswer::something("Every client of the public API"),
+            undo_cost: UndoCostAnswer::cheap(),
+        };
+        commands
+            .propose_decision(DecisionProposalInput {
+                grounding: Grounding::NotAsked,
+                expressed_confidence: None,
+                project: None,
+                actor_id: "actor:test",
+                title: "Pick the API style",
+                rationale: "REST is simpler to operate for this team",
+                topic_keys: &["api".to_owned()],
+                option_ids: &[rest.clone(), grpc.clone()],
+                option_labels: &["REST".to_owned(), "gRPC".to_owned()],
+                chosen_option_id: Some(rest.as_str()),
+                decided_by: None,
+                delegated_by: None,
+                still_proposed: false,
+                hypothesis_ids: &[],
+                evidence_ids: &[],
+                quote: Some("let us use the plain one"),
+                question: Some("Which API style do we expose?"),
+                floor: FloorInput::Stated(&answers),
+            })
+            .expect("propose decision");
+    }
+
+    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    assert_eq!(pending.len(), 1);
+    let quotable = offered_quotable_labels(
+        &hivemind_dir,
+        &pending[0].decision_id,
+        &pending[0].decision_text,
+    );
+    assert_eq!(
+        quotable,
+        [
+            "Title",
+            "Question",
+            "Quote",
+            "Rationale",
+            "Option",
+            "Option description",
+            "Option",
+            "Option description"
+        ]
+    );
 
     let _ = std::fs::remove_dir_all(&hivemind_dir);
 }
@@ -649,4 +807,74 @@ fn resolve_capture_node_id_rejects_unknown_batch() {
     let ledger = InMemoryEventLedger::new();
     let err = resolve_capture_node_id(&ledger, &TenantId::local(), "no-such-batch", 0).unwrap_err();
     assert!(err.to_string().contains("no-such-batch"));
+}
+
+// --- a decision that keeps failing is not paid for on every pass (hivemind-m88ju) ---
+
+#[test]
+fn a_decision_never_tried_is_ready() {
+    let attempts = AttemptLog::default();
+    assert_eq!(
+        attempts.standing("decision-a", Instant::now()),
+        Standing::Ready
+    );
+}
+
+#[test]
+fn a_failed_decision_waits_out_the_backoff_and_is_then_ready_again() {
+    let mut attempts = AttemptLog::default();
+    let start = Instant::now();
+    assert_eq!(
+        attempts.record_failure("decision-a", start),
+        AfterFailure::Retry { attempt: 1 }
+    );
+
+    assert_eq!(
+        attempts.standing("decision-a", start + POLL_INTERVAL),
+        Standing::Backoff,
+        "the next pass, 30 s later, does not send it again"
+    );
+    assert_eq!(
+        attempts.standing("decision-a", start + RETRY_BACKOFF),
+        Standing::Ready
+    );
+}
+
+#[test]
+fn a_decision_that_fails_max_attempts_times_is_given_up_for_good() {
+    let mut attempts = AttemptLog::default();
+    let start = Instant::now();
+    let mut outcomes = Vec::new();
+    for round in 0..MAX_ATTEMPTS {
+        let at = start + RETRY_BACKOFF * round;
+        assert_eq!(attempts.standing("decision-a", at), Standing::Ready);
+        outcomes.push(attempts.record_failure("decision-a", at));
+    }
+
+    assert_eq!(
+        outcomes,
+        [
+            AfterFailure::Retry { attempt: 1 },
+            AfterFailure::Retry { attempt: 2 },
+            AfterFailure::GaveUp { attempts: 3 },
+        ]
+    );
+    let much_later = start + RETRY_BACKOFF * 1000;
+    assert_eq!(
+        attempts.standing("decision-a", much_later),
+        Standing::GivenUp,
+        "waiting does not bring the decision back: the bound is on attempts, not on time"
+    );
+}
+
+#[test]
+fn one_decisions_failures_do_not_hold_back_another() {
+    let mut attempts = AttemptLog::default();
+    let now = Instant::now();
+    for _ in 0..MAX_ATTEMPTS {
+        attempts.record_failure("decision-a", now);
+    }
+
+    assert_eq!(attempts.standing("decision-a", now), Standing::GivenUp);
+    assert_eq!(attempts.standing("decision-b", now), Standing::Ready);
 }

@@ -10,15 +10,18 @@
 //! deterministic floors — stays fully correct without it. It reads the SQLite ledger in a
 //! folder, so `serve` starts it only on the SQLite backend.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
-use crate::commands::{CommandContext, Commands};
+use crate::commands::{
+    classified_capture_fields, proposed_decision_fields, CommandContext, Commands,
+};
 use crate::events::{
     DecisionAssessedPayload, EventId, EventProvenance, EventType, ImportanceFactors,
     ModelDimensions, TenantId, DECISION_ASSESSED_SCHEMA_VERSION,
@@ -30,10 +33,18 @@ const SCORER_MODEL: &str = "claude-haiku-4-5-20251001";
 const SCORER_MODEL_ENV: &str = "HIVEMIND_SCORER_MODEL";
 /// Names the wording of [`ASSESSOR_PROMPT`] on every assessment it produces, so an assessment
 /// traces back to it. `assessment-v2` added the decision floor's two recorded answers as input
-/// facts (hivemind-bbnw.11).
-const ASSESSOR_PROMPT_VERSION: &str = "assessment-v2";
+/// facts (hivemind-bbnw.11). `assessment-v3` stopped offering a classified capture's confidence
+/// and topic keys as quotable text and gave each option its own line (hivemind-m88ju).
+const ASSESSOR_PROMPT_VERSION: &str = "assessment-v3";
 const ACTOR_ID: &str = "agent:hivemind:scorer";
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
+/// How many times a decision's assessment may fail, through a failed call or an answer the
+/// write path refused, before the worker stops sending it to the model. Each attempt is a
+/// metered call, and a refused answer leaves the decision unassessed, so without a bound the
+/// same decision is paid for on every pass (hivemind-m88ju).
+const MAX_ATTEMPTS: u32 = 3;
+/// How long after a failed attempt the same decision is left alone before it is tried again.
+const RETRY_BACKOFF: Duration = Duration::from_secs(300);
 const API_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_TOKENS: u32 = 3000;
 
@@ -79,6 +90,11 @@ them and what undoing it would cost. They are input facts: where an explanation
 speaks to how far the decision reaches or how hard it is to undo, cite the
 answer as its basis rather than guessing, and never quote from these lines.
 When they are absent the capturer was not asked; do not assume either answer.
+
+Lines labeled "Recorded context" are not part of that text either: they are the
+confidence the capturer expressed and the topic keys they filed the decision
+under. Use the expressed confidence as the input fact for calibration, and never
+quote from these lines.
 
 Return only JSON matching the schema."#;
 
@@ -188,9 +204,97 @@ async fn run_scorer_loop(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, api_ke
         }
     };
 
+    let mut attempts = AttemptLog::default();
     loop {
-        assess_pending_decisions(&client, &hivemind_dir, &tenant_id, &api_key).await;
+        assess_pending_decisions(&client, &hivemind_dir, &tenant_id, &api_key, &mut attempts).await;
         tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+/// What the worker has paid for without result, per decision: the failed attempts and when the
+/// last one ended. Held in memory for the life of the process, so a restart starts every
+/// decision afresh.
+#[derive(Default)]
+struct AttemptLog {
+    failed: HashMap<String, FailedAttempts>,
+}
+
+struct FailedAttempts {
+    count: u32,
+    last_at: Instant,
+}
+
+/// Whether a pending decision may be sent to the model on this pass.
+#[derive(Debug, PartialEq, Eq)]
+enum Standing {
+    Ready,
+    /// A recent attempt failed; the next one is allowed once the backoff has passed.
+    Backoff,
+    /// [`MAX_ATTEMPTS`] attempts failed; the worker sends it no more.
+    GivenUp,
+}
+
+/// What a failed attempt leaves the decision with.
+#[derive(Debug, PartialEq, Eq)]
+enum AfterFailure {
+    /// `attempt` of [`MAX_ATTEMPTS`] failed; the next one waits out the backoff.
+    Retry {
+        attempt: u32,
+    },
+    GaveUp {
+        attempts: u32,
+    },
+}
+
+impl AttemptLog {
+    fn standing(&self, decision_id: &str, now: Instant) -> Standing {
+        match self.failed.get(decision_id) {
+            None => Standing::Ready,
+            Some(failed) if failed.count >= MAX_ATTEMPTS => Standing::GivenUp,
+            Some(failed) if now.saturating_duration_since(failed.last_at) < RETRY_BACKOFF => {
+                Standing::Backoff
+            }
+            Some(_) => Standing::Ready,
+        }
+    }
+
+    fn record_failure(&mut self, decision_id: &str, now: Instant) -> AfterFailure {
+        let failed = self
+            .failed
+            .entry(decision_id.to_owned())
+            .or_insert(FailedAttempts {
+                count: 0,
+                last_at: now,
+            });
+        failed.count += 1;
+        failed.last_at = now;
+        if failed.count >= MAX_ATTEMPTS {
+            AfterFailure::GaveUp {
+                attempts: failed.count,
+            }
+        } else {
+            AfterFailure::Retry {
+                attempt: failed.count,
+            }
+        }
+    }
+
+    /// Say what a failed attempt leaves the decision with, so a decision that is no longer sent
+    /// is never silent about it.
+    fn log_failure(&mut self, decision_id: &str, what: &str, error: &dyn std::fmt::Display) {
+        match self.record_failure(decision_id, Instant::now()) {
+            AfterFailure::Retry { attempt } => warn!(
+                target: "hivemind::scorer",
+                decision_id = %decision_id,
+                "{what}: {error}; attempt {attempt} of {MAX_ATTEMPTS}, retrying in {}s",
+                RETRY_BACKOFF.as_secs()
+            ),
+            AfterFailure::GaveUp { attempts } => warn!(
+                target: "hivemind::scorer",
+                decision_id = %decision_id,
+                "{what}: {error}; {attempts} attempts failed, giving up on this decision until the server restarts"
+            ),
+        }
     }
 }
 
@@ -199,6 +303,7 @@ async fn assess_pending_decisions(
     hivemind_dir: &PathBuf,
     tenant_id: &TenantId,
     api_key: &str,
+    attempts: &mut AttemptLog,
 ) {
     let pending = match find_unscored_decisions(hivemind_dir, tenant_id) {
         Ok(p) => p,
@@ -209,6 +314,18 @@ async fn assess_pending_decisions(
     };
 
     for decision in pending {
+        match attempts.standing(&decision.decision_id, Instant::now()) {
+            Standing::Ready => {}
+            standing => {
+                debug!(
+                    target: "hivemind::scorer",
+                    decision_id = %decision.decision_id,
+                    ?standing,
+                    "not assessing decision"
+                );
+                continue;
+            }
+        }
         debug!(target: "hivemind::scorer", decision_id = %decision.decision_id, "assessing decision");
 
         match call_assessor(client, api_key, &decision.decision_text).await {
@@ -221,11 +338,11 @@ async fn assess_pending_decisions(
                     output,
                     Some(decision.causation_event_id),
                 ) {
-                    warn!(target: "hivemind::scorer", decision_id = %decision.decision_id, "write failed: {e}");
+                    attempts.log_failure(&decision.decision_id, "write failed", &e);
                 }
             }
             Err(e) => {
-                warn!(target: "hivemind::scorer", decision_id = %decision.decision_id, "api call failed: {e}");
+                attempts.log_failure(&decision.decision_id, "api call failed", &e);
             }
         }
     }
@@ -320,31 +437,25 @@ fn find_unscored_decisions(
 }
 
 /// Build a compact text description of a decision capture for the assessment prompt.
+///
+/// The labeled fields are exactly [`classified_capture_fields`], the text a quote is checked
+/// against on the write path, so everything offered as quotable is accepted. The confidence the
+/// capture expressed and its topic keys are not part of that text; they ride in as `Recorded
+/// context` lines the prompt says never to quote.
 fn render_decision_text(capture: &serde_json::Value) -> String {
     let mut out = String::new();
 
-    if let Some(title) = capture.get("title").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Title: {title}");
+    for (label, value) in classified_capture_fields(capture) {
+        let _ = writeln!(out, "{label}: {value}");
     }
-    if let Some(rationale) = capture.get("rationale").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Rationale: {rationale}");
-    }
-    if let Some(options) = capture.get("options").and_then(|v| v.as_array()) {
-        let opts: Vec<&str> = options.iter().filter_map(|o| o.as_str()).collect();
-        if !opts.is_empty() {
-            let _ = writeln!(out, "Options considered: {}", opts.join(", "));
-        }
-    }
-    if let Some(chosen) = capture.get("chosen_option").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Chosen option: {chosen}");
-    }
+
     if let Some(expressed) = capture.get("expressed_confidence").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Expressed confidence: {expressed}");
+        let _ = writeln!(out, "Recorded context, expressed confidence: {expressed}");
     }
     if let Some(keys) = capture.get("topic_keys").and_then(|v| v.as_array()) {
         let ks: Vec<&str> = keys.iter().filter_map(|k| k.as_str()).collect();
         if !ks.is_empty() {
-            let _ = writeln!(out, "Topic keys: {}", ks.join(", "));
+            let _ = writeln!(out, "Recorded context, topic keys: {}", ks.join(", "));
         }
     }
 
@@ -353,41 +464,13 @@ fn render_decision_text(capture: &serde_json::Value) -> String {
 
 /// Build a compact text description of a directly captured (proposed) decision for the
 /// assessment prompt: title, question, quote, rationale and each option's label and
-/// description — the same fields `Commands::record_decision_assessed` checks a quote against
-/// for a proposed decision.
+/// description. The labeled fields are exactly [`proposed_decision_fields`], the text
+/// `Commands::record_decision_assessed` checks a quote against for a proposed decision.
 fn render_proposed_decision_text(payload: &serde_json::Value) -> String {
     let mut out = String::new();
 
-    if let Some(title) = payload.get("title").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Title: {title}");
-    }
-    if let Some(question) = payload.get("question").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Question: {question}");
-    }
-    if let Some(quote) = payload.get("quote").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Quote: {quote}");
-    }
-    if let Some(rationale) = payload.get("rationale").and_then(|v| v.as_str()) {
-        let _ = writeln!(out, "Rationale: {rationale}");
-    }
-
-    let labels: &[serde_json::Value] = payload
-        .get("option_labels")
-        .and_then(|v| v.as_array())
-        .map(Vec::as_slice)
-        .unwrap_or(&[]);
-    let descriptions: &[serde_json::Value] = payload
-        .get("option_descriptions")
-        .and_then(|v| v.as_array())
-        .map(Vec::as_slice)
-        .unwrap_or(&[]);
-    for (idx, label) in labels.iter().filter_map(|v| v.as_str()).enumerate() {
-        let _ = writeln!(out, "Option: {label}");
-        if let Some(description) = descriptions.get(idx).and_then(|v| v.as_str()) {
-            if !description.is_empty() {
-                let _ = writeln!(out, "Option description: {description}");
-            }
-        }
+    for (label, value) in proposed_decision_fields(payload) {
+        let _ = writeln!(out, "{label}: {value}");
     }
 
     // The decision floor's two answers (hivemind-bbnw.11), as the capturer stated them. They are

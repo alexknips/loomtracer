@@ -39,9 +39,10 @@ An empty or unset value falls back to the pinned default. This is a single
 flat override per worker, not multi-model routing — there is no per-batch or
 per-decision model selection, and the classifier and scorer are configured
 independently of one another. The model id actually used for a given
-classification or scoring call is recorded in that event's provenance
-(`classifier_model` / `scorer_model`), so a changed override is visible in the
-ledger, not just in process environment.
+classification or scoring call is recorded in that event's payload
+(`classifier_model` on `ingest.batch_classified`, `model` on `decision.scored`,
+beside its `prompt_version`), so a changed override is visible in the ledger, not
+just in process environment.
 
 As of 2026-09-07, Anthropic's model overview lists the current production
 lineup as Claude Fable 5.1, Claude Opus 5, Claude Sonnet 5, and Claude

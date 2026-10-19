@@ -4203,37 +4203,85 @@ fn classified_decision_capture(batch: &Event, index: usize) -> Option<&serde_jso
     (capture.get("kind").and_then(|kind| kind.as_str()) == Some("decision")).then_some(capture)
 }
 
-/// The words a classified capture recorded: its title, rationale, options and chosen option.
-/// `None` when the batch has no capture at `index` or that capture is not a decision.
-fn classified_capture_text(batch: &Event, index: usize) -> Option<Vec<String>> {
-    let capture = classified_decision_capture(batch, index)?;
-    let mut text: Vec<String> = ["title", "rationale", "chosen_option"]
+/// The words a classified capture recorded, one `(label, value)` per field: its title, rationale,
+/// chosen option and each option on its own. This is the whole of what a quote in a model's
+/// assessment is checked against, and the scorer offers the model exactly these fields as
+/// quotable, so a quote taken from any of them is accepted (hivemind-m88ju).
+pub(crate) fn classified_capture_fields(
+    capture: &serde_json::Value,
+) -> Vec<(&'static str, String)> {
+    let string_of = |key: &str| capture.get(key).and_then(|value| value.as_str());
+    let mut fields: Vec<(&'static str, String)> = [("Title", "title"), ("Rationale", "rationale")]
         .into_iter()
-        .filter_map(|key| capture.get(key).and_then(|value| value.as_str()))
-        .map(str::to_owned)
+        .filter_map(|(label, key)| Some((label, string_of(key)?.to_owned())))
         .collect();
     if let Some(options) = capture.get("options").and_then(|value| value.as_array()) {
-        text.extend(
+        fields.extend(
             options
                 .iter()
                 .filter_map(|option| option.as_str())
-                .map(str::to_owned),
+                .map(|option| ("Option", option.to_owned())),
         );
     }
-    Some(text)
+    if let Some(value) = string_of("chosen_option") {
+        fields.push(("Chosen option", value.to_owned()));
+    }
+    fields
 }
 
-/// The words a `decision.proposed` event recorded: its title, question, quote, rationale and
-/// each option's label and description.
+/// The words a classified capture recorded, as [`classified_capture_fields`] values. `None` when
+/// the batch has no capture at `index` or that capture is not a decision.
+fn classified_capture_text(batch: &Event, index: usize) -> Option<Vec<String>> {
+    let capture = classified_decision_capture(batch, index)?;
+    Some(
+        classified_capture_fields(capture)
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect(),
+    )
+}
+
+/// The words a `decision.proposed` payload recorded, one `(label, value)` per field: its title,
+/// question, quote, rationale and each option's label with its description after it. Like
+/// [`classified_capture_fields`], this is both what a quote is checked against and what the
+/// scorer offers as quotable. An empty description is no words and is left out.
+pub(crate) fn proposed_decision_fields(payload: &serde_json::Value) -> Vec<(&'static str, String)> {
+    let mut fields: Vec<(&'static str, String)> = [
+        ("Title", "title"),
+        ("Question", "question"),
+        ("Quote", "quote"),
+    ]
+    .into_iter()
+    .filter_map(|(label, key)| {
+        let value = payload.get(key)?.as_str()?;
+        Some((label, value.to_owned()))
+    })
+    .collect();
+    if let Some(value) = payload.get("rationale").and_then(|value| value.as_str()) {
+        fields.push(("Rationale", value.to_owned()));
+    }
+    let labels = json_string_list(payload, "option_labels");
+    let mut descriptions = json_string_list(payload, "option_descriptions").into_iter();
+    for label in labels {
+        fields.push(("Option", label));
+        if let Some(description) = descriptions.next().filter(|text| !text.is_empty()) {
+            fields.push(("Option description", description));
+        }
+    }
+    fields.extend(
+        descriptions
+            .filter(|text| !text.is_empty())
+            .map(|description| ("Option description", description)),
+    );
+    fields
+}
+
+/// The words a `decision.proposed` event recorded, as [`proposed_decision_fields`] values.
 fn proposed_decision_text(event: &Event) -> Vec<String> {
-    let mut text: Vec<String> = ["title", "question", "quote", "rationale"]
+    proposed_decision_fields(&event.payload)
         .into_iter()
-        .filter_map(|key| payload_value_as_str(event, key))
-        .map(str::to_owned)
-        .collect();
-    text.extend(payload_string_list(event, "option_labels"));
-    text.extend(payload_string_list(event, "option_descriptions"));
-    text
+        .map(|(_, value)| value)
+        .collect()
 }
 
 fn payload_string_list(event: &Event, key: &str) -> Vec<String> {

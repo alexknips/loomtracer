@@ -292,9 +292,18 @@ checked exactly as strictly as the server's own:
   a model (`claude-haiku-4-5-20251001` by default, `HIVEMIND_SCORER_MODEL` to override)
   with a prompt that asks it to assess Framing and Values / Tradeoffs — the two dimensions
   with no floor beyond "a question was recorded" — and to enrich any of the other five only
-  where it has real grounds, leaving the rest `not_assessed`. A malformed or unfound-quote
-  answer is refused by the write path and logged; the decision stays unassessed and is
-  retried on the next pass.
+  where it has real grounds, leaving the rest `not_assessed`. The lines it offers as
+  quotable are exactly the text the write path accepts a quote from: for a classifier
+  capture the title, rationale, each option on its own line and the chosen option; for a
+  directly captured decision the title, question, quote, rationale and each option's label
+  and description. A classifier capture's expressed confidence and topic keys, and a direct
+  capture's two floor answers, ride in as `Recorded context` and `Recorded answer` lines:
+  input facts the prompt says never to quote from. A failed call, or an answer the write path
+  refuses (malformed, or a quote not found in that text), is logged and counts as a failed
+  attempt for that decision. The worker tries a decision at most 3 times, at least 5 minutes
+  apart, and then sends it no more until the server restarts: it stays unassessed, and a
+  warning names it when the worker gives up. The count is held in memory, so a restart starts
+  every decision afresh, and an assessment submitted by the keyless path below still lands.
 - **The keyless `emit decision.scored` CLI path.** Lets a plugin or edge session (no
   server-held key) submit an assessment it produced itself — typically by spawning its own
   Haiku subagent with the same prompt, off the server's metered key. The scores file is

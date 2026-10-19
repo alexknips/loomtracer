@@ -718,6 +718,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The background scorer no longer offers its model text the write path refuses, and no longer
+  pays again for a decision it keeps failing.** For a classifier capture it listed the expressed
+  confidence, the topic keys and the options joined on one line as quotable fields, but a quote
+  is accepted only from the title, rationale, chosen option and each option alone, so a quote from
+  any of the others was refused and the decision stayed unassessed. Each option now has its own
+  line, and the confidence and topic keys ride in as `Recorded context` lines the prompt says never
+  to quote (prompt version `assessment-v3`). A decision with no assessment was also sent to the
+  model on every 30 s pass, one metered call each, with no limit. A decision whose call fails or
+  whose answer the write path refuses is now tried at most 3 times, 5 minutes apart, then left
+  unassessed until the server restarts, with a warning when the worker gives up. Only a server
+  with `ANTHROPIC_API_KEY` set on the SQLite backend runs the scorer. `CAPTURE_CLASSIFIER.md` now
+  says the scorer's model is the `model` field of `decision.scored` (and the classifier's the
+  `classifier_model` field of `ingest.batch_classified`), not provenance. (hivemind-m88ju)
 - **A Postgres server no longer starts a classifier and scorer that read an empty SQLite file.**
   `hivemind serve` started both Layer-3 workers whenever `ANTHROPIC_API_KEY` was set, whatever the
   backend. They open `ledger.sqlite` under `HIVEMIND_DIR` and work the `local` tenant, so with
