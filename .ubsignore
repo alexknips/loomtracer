@@ -70,6 +70,7 @@ src/error/tests.rs
 src/linear/tests.rs
 src/map/tests.rs
 src/classifier/tests.rs
+src/anthropic/tests.rs
 src/scorer/tests.rs
 src/quality_profile/tests.rs
 src/quality_profile/findings/tests.rs
