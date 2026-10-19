@@ -318,3 +318,131 @@ fn test_retracted_pair_skipped_in_candidates() {
         "retracted pair should be permanently skipped"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Git-file connector: a file that was renamed or moved
+// ---------------------------------------------------------------------------
+
+fn run_git(repo: &Path, args: &[&str]) {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["-c", "user.email=test@example.com", "-c", "user.name=Test"])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A repo whose decision doc is edited twice as `docs.md`, moved to
+/// `adr/0001.md`, then edited again under its new name.
+fn repo_with_renamed_doc() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    run_git(repo, &["init", "-q"]);
+    let commits = [
+        ("docs.md", "We will use SQLite.\n"),
+        (
+            "docs.md",
+            "We will use SQLite.\nWe will use Postgres later.\n",
+        ),
+    ];
+    for (i, (name, text)) in commits.iter().enumerate() {
+        std::fs::write(repo.join(name), text).unwrap();
+        run_git(repo, &["add", "."]);
+        run_git(repo, &["commit", "-q", "-m", &format!("edit {i}")]);
+    }
+    std::fs::create_dir(repo.join("adr")).unwrap();
+    run_git(repo, &["mv", "docs.md", "adr/0001.md"]);
+    run_git(repo, &["commit", "-q", "-m", "move into adr"]);
+    std::fs::write(
+        repo.join("adr/0001.md"),
+        "We will use SQLite.\nWe will use Postgres later.\nWe will ship in March.\n",
+    )
+    .unwrap();
+    run_git(repo, &["commit", "-q", "-am", "edit under the new name"]);
+    dir
+}
+
+#[test]
+fn test_git_file_versions_carry_the_path_the_file_had_at_each_commit() {
+    let dir = repo_with_renamed_doc();
+    let connector = GitFileConnector;
+    let target = dir.path().join("adr/0001.md");
+    let source_id = connector
+        .resolve(target.to_str().unwrap())
+        .unwrap()
+        .expect("git connector resolves a tracked file");
+
+    let versions = connector.list_versions(&source_id).unwrap();
+    let paths: Vec<_> = versions.iter().map(|v| v.source_path.as_deref()).collect();
+    assert_eq!(
+        paths,
+        [
+            Some("docs.md"),
+            Some("docs.md"),
+            Some("adr/0001.md"),
+            Some("adr/0001.md")
+        ]
+    );
+    let sequences: Vec<_> = versions.iter().map(|v| v.sequence).collect();
+    assert_eq!(sequences, [1, 2, 3, 4], "oldest first");
+
+    let first = connector.fetch_version(&source_id, &versions[0]).unwrap();
+    assert_eq!(first.text, "We will use SQLite.\n");
+    let last = connector.fetch_version(&source_id, &versions[3]).unwrap();
+    assert!(last.text.ends_with("We will ship in March.\n"));
+}
+
+#[test]
+fn test_import_via_connector_walks_both_names_of_a_renamed_file() {
+    use crate::ledger::InMemoryEventLedger;
+
+    let dir = repo_with_renamed_doc();
+    let ledger = InMemoryEventLedger::new();
+    let tenant = TenantId::local();
+    let connectors: Vec<Box<dyn Connector>> = vec![Box::new(GitFileConnector)];
+
+    let report = import_via_connector(
+        &ledger,
+        &tenant,
+        &ConnectorImportRequest {
+            url_or_id: dir.path().join("adr/0001.md").to_str().unwrap().to_owned(),
+            importer_actor_id: "agent:test".to_owned(),
+            max_versions: 50,
+            import_run_id: None,
+        },
+        &connectors,
+    )
+    .unwrap();
+
+    assert_eq!(
+        report.versions_walked, 4,
+        "the two commits under docs.md count as versions of adr/0001.md"
+    );
+    assert_eq!(
+        report.versions_skipped_identical, 1,
+        "the move itself changes no content"
+    );
+}
+
+#[test]
+fn test_parse_source_timestamp_rejects_what_it_cannot_read() {
+    let git = parse_source_timestamp("2026-10-19 22:38:12 +0200", "commit abc").unwrap();
+    assert_eq!(git.to_rfc3339(), "2026-10-19T20:38:12+00:00");
+    let drive = parse_source_timestamp("2026-10-19T20:38:12.000Z", "revision 7").unwrap();
+    assert_eq!(drive.to_rfc3339(), "2026-10-19T20:38:12+00:00");
+
+    let err = parse_source_timestamp("last tuesday", "commit abc")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("commit abc") && err.contains("last tuesday"),
+        "the error names the version and the bad value: {err}"
+    );
+}

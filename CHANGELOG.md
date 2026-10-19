@@ -731,6 +731,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   with `ANTHROPIC_API_KEY` set on the SQLite backend runs the scorer. `CAPTURE_CLASSIFIER.md` now
   says the scorer's model is the `model` field of `decision.scored` (and the classifier's the
   `classifier_model` field of `ingest.batch_classified`), not provenance. (hivemind-m88ju)
+- **`hivemind import connector` on a git file that was renamed no longer drops its history.** The
+  git connector listed versions with `git log --follow --reverse`, and git applies `--follow`
+  only while walking from the newest commit, so for a file moved into `adr/` or `docs/` the
+  list lost every commit before the move and the import went ahead on the rest with nothing
+  said. Each version now carries the path the file had at that commit, and `git show` reads it
+  under that name, so both names are walked. A commit or Drive revision whose date cannot be
+  read is now an error; before, it was stamped with the time of the import. (hivemind-jfvdh)
 - **A Postgres server no longer starts a classifier and scorer that read an empty SQLite file.**
   `hivemind serve` started both Layer-3 workers whenever `ANTHROPIC_API_KEY` was set, whatever the
   backend. They open `ledger.sqlite` under `HIVEMIND_DIR` and work the `local` tenant, so with

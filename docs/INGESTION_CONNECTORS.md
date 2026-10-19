@@ -62,6 +62,7 @@ pub struct VersionMeta {
     pub occurred_at: DateTime<Utc>,    // version timestamp from source
     pub author_actor: Option<String>,  // actor id when source provides authorship
     pub sequence: u64,                 // monotone ordinal (1 = oldest)
+    pub source_path: Option<String>,   // where the document lived at this version
 }
 
 /// Extracted content for one version.
@@ -119,7 +120,8 @@ pub enum ConnectorKind {
 - `list_versions`: calls Drive revisions API (`drive.revisions.list`). Returns
   revisions in `modifiedTime` order. `author_actor` is set from
   `lastModifyingUser.displayName` when present, formatted as
-  `human:<display_name_slugified>`.
+  `human:<display_name_slugified>`. A revision whose `modifiedTime` is missing
+  or unreadable is an error, never the time of the import.
 - `fetch_version`: calls `drive.revisions.get` with `?alt=media`, exports to
   plain text via `mimeType=text/plain`.
 
@@ -135,12 +137,17 @@ pub enum ConnectorKind {
 - `resolve`: accepts `repo_path:file_path` or a local file path within a git
   repo (detected by walking up to `.git`). Returns
   `SourceId { connector_kind: GitFile, doc_id: "<repo_root>:<file_path>" }`.
-- `list_versions`: runs `git log --follow --format=%H%x00%ai%x00%an <file_path>`
-  and reverses the output (oldest first). `author_actor` from git author name,
-  formatted as `human:<name_slugified>`.
-- `fetch_version`: runs `git show <commit>:<file_path>` and returns UTF-8 bytes.
-  Confirms via `git log --format=%H -1 <commit> -- <file_path>` that the file
-  existed at that revision.
+- `list_versions`: runs `git log --follow -z --name-only --format=%H%x1f%ai%x1f%an -- <file_path>`
+  and reverses the output (oldest first). Each version carries `source_path`,
+  the path the file had at that commit, so a file that was renamed or moved
+  is walked under both names. `--reverse` is not used: `--follow` only tracks a
+  rename while git walks from the newest commit, so `--reverse` drops every
+  commit before the rename. `author_actor` from git author name, formatted as
+  `human:<name_slugified>`. A commit date that cannot be read is an error, never
+  the time of the import.
+- `fetch_version`: runs `git show <commit>:<source_path>` and returns UTF-8
+  bytes. `source_path` comes from `list_versions`, so the file is looked up
+  under the name it had at that commit.
 
 ### 1.4 Auth Per Connector
 

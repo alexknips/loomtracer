@@ -51,6 +51,9 @@ pub struct VersionMeta {
     pub occurred_at: DateTime<Utc>,
     pub author_actor: Option<String>,
     pub sequence: u64,
+    /// Where the document lived inside the source at this version, for sources
+    /// whose documents move (a git file renamed between commits).
+    pub source_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +140,18 @@ fn parse_doc_id(doc_id: &str) -> Result<(String, String)> {
         ))
         .into()),
     }
+}
+
+/// Reads a version's own timestamp: git's `%ai` form or RFC 3339. A value that
+/// is neither is an error, never the time of the import.
+fn parse_source_timestamp(raw: &str, version: &str) -> Result<DateTime<Utc>> {
+    chrono::DateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S %z")
+        .or_else(|_| chrono::DateTime::parse_from_rfc3339(raw))
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| {
+            let msg = format!("cannot read the date {raw:?} of {version}: {e}"); // ubs:ignore: error path only
+            CliError::InvalidInput(msg).into()
+        })
 }
 
 fn slugify_author(name: &str) -> String {
@@ -244,14 +259,18 @@ impl Connector for GitFileConnector {
     fn list_versions(&self, source_id: &SourceId) -> Result<Vec<VersionMeta>> {
         let (repo_root, file_path) = parse_doc_id(&source_id.doc_id)?;
 
+        // Newest first: `--follow` only tracks a rename while git walks forward
+        // from HEAD, so `--reverse` would drop every commit before the rename.
+        // `-z` keeps odd file names unquoted.
         let output = ProcessCommand::new("git")
             .args([
                 "-C",
                 &repo_root,
                 "log",
                 "--follow",
-                "--reverse",
-                "--format=%H%x00%ai%x00%an",
+                "-z",
+                "--name-only",
+                "--format=%H%x1f%ai%x1f%an",
                 "--",
                 &file_path,
             ])
@@ -269,30 +288,34 @@ impl Connector for GitFileConnector {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut versions = Vec::new();
-        let mut sequence: u64 = 1;
 
-        for line in stdout.lines() {
-            if line.is_empty() {
-                continue;
-            }
-            let parts: Vec<&str> = line.splitn(3, '\0').collect();
-            if parts.len() < 2 {
-                continue;
-            }
-            // ubs:ignore: parts.len() >= 2 guaranteed by the continue above
-            let commit_hash = parts[0].trim().to_owned(); // ubs:ignore: parts[0] safe; len >= 2 checked above
-            let date_str = parts[1].trim(); // ubs:ignore: parts[1] safe; len >= 2 checked above
-            let author_name = if parts.len() >= 3 {
-                parts[2].trim() // ubs:ignore: parts[2] safe; len >= 3 checked
-            } else {
-                ""
+        // With `-z` a commit is its header token, then a token that starts with
+        // the newline git puts before the file names.
+        let mut tokens = stdout.split('\0').filter(|t| !t.is_empty()).peekable();
+        while let Some(header) = tokens.next() {
+            let parts: Vec<&str> = header.splitn(3, '\x1f').collect();
+            let [commit_hash, date_str, author_name] = parts[..] else {
+                let msg = format!(
+                    "unreadable git log record for {}: {header:?}",
+                    source_id.doc_id
+                ); // ubs:ignore: impl-block false positive
+                return Err(CliError::InvalidInput(msg).into());
             };
+            let source_path = tokens
+                .next_if(|t| t.starts_with('\n'))
+                .map(|t| t.trim_start_matches('\n').to_owned()) // ubs:ignore: per-commit path, allocation per version is intentional
+                .ok_or_else(|| {
+                    let msg = format!(
+                        "git log named no path for {} at {commit_hash}",
+                        source_id.doc_id
+                    ); // ubs:ignore: impl-block false positive
+                    CliError::InvalidInput(msg)
+                })?;
 
-            let occurred_at = chrono::DateTime::parse_from_str(date_str, "%Y-%m-%d %H:%M:%S %z")
-                .or_else(|_| chrono::DateTime::parse_from_rfc3339(date_str))
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now());
+            let occurred_at =
+                parse_source_timestamp(date_str.trim(), &format!("commit {commit_hash}"))?; // ubs:ignore: per-commit label, allocation per version is intentional
 
+            let author_name = author_name.trim();
             let author_actor = if author_name.is_empty() {
                 None
             } else {
@@ -305,18 +328,23 @@ impl Connector for GitFileConnector {
             };
 
             versions.push(VersionMeta {
-                version_id: commit_hash,
+                version_id: commit_hash.to_owned(), // ubs:ignore: per-commit id, allocation per version is intentional
                 occurred_at,
                 author_actor,
-                sequence,
+                sequence: 0,
+                source_path: Some(source_path),
             });
-            sequence += 1;
         }
 
         if versions.is_empty() {
             let doc = &source_id.doc_id;
             let msg = format!("no git history found for {doc} — file may not be tracked"); // ubs:ignore: impl-block false positive
             return Err(CliError::InvalidInput(msg).into());
+        }
+
+        versions.reverse();
+        for (i, version) in versions.iter_mut().enumerate() {
+            version.sequence = (i + 1) as u64; // ubs:ignore: enumerate index; usize→u64 widening, no truncation
         }
 
         Ok(versions)
@@ -327,7 +355,14 @@ impl Connector for GitFileConnector {
         source_id: &SourceId,
         version_meta: &VersionMeta,
     ) -> Result<VersionContent> {
-        let (repo_root, file_path) = parse_doc_id(&source_id.doc_id)?;
+        let (repo_root, _) = parse_doc_id(&source_id.doc_id)?;
+        let file_path = version_meta.source_path.as_deref().ok_or_else(|| {
+            let msg = format!(
+                "git version {} of {} has no path",
+                version_meta.version_id, source_id.doc_id
+            ); // ubs:ignore: impl-block false positive
+            CliError::InvalidInput(msg)
+        })?;
 
         let git_ref = format!("{}:{}", version_meta.version_id, file_path); // ubs:ignore: impl-block false positive
         let output = ProcessCommand::new("git")
@@ -655,11 +690,13 @@ impl Connector for GoogleDocsConnector {
             let modified_time = rev
                 .get("modifiedTime")
                 .and_then(|v| v.as_str())
-                .unwrap_or("1970-01-01T00:00:00Z");
+                .ok_or_else(|| {
+                    let msg = format!("revision {version_id} missing modifiedTime field"); // ubs:ignore: impl-block false positive
+                    CliError::InvalidInput(msg)
+                })?;
 
-            let occurred_at = chrono::DateTime::parse_from_rfc3339(modified_time)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now());
+            let occurred_at =
+                parse_source_timestamp(modified_time, &format!("revision {version_id}"))?; // ubs:ignore: per-revision label; impl-block false positive
 
             let raw_name = rev
                 .get("lastModifyingUser")
@@ -682,6 +719,7 @@ impl Connector for GoogleDocsConnector {
                 occurred_at,
                 author_actor,
                 sequence: (i + 1) as u64, // ubs:ignore: i < pageSize (≤200); usize→u64 is widening
+                source_path: None,
             });
         }
 
