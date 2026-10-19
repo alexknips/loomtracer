@@ -149,9 +149,22 @@ carry a verified actor/client signature or are signed by a trusted service key
 inside a human session boundary. Unsigned remote writes are a development mode,
 not the production target.
 
-## Surface Sketches
+## Surfaces
 
-Remote CLI:
+What ships today. A caller reaches a cell over HTTP with a bearer token: the REST
+routes (`POST /v1/decisions` and its siblings) and `POST /mcp`, whose agent config is
+in [`SELF_HOSTING.md`](SELF_HOSTING.md). `classify-queue` and the Python capture
+clients read the cell from `HIVEMIND_API_URL` and `HIVEMIND_API_KEY` (see
+[`KEYLESS_CAPTURE.md`](KEYLESS_CAPTURE.md)). Every other CLI verb, and `hivemind mcp`,
+opens a ledger of its own: SQLite under `--hivemind-dir`, or the cell's Postgres through
+`--database-url` and `--tenant`, which puts the database credential on the caller (see
+[`SELF_HOSTING.md`](SELF_HOSTING.md), "CLI and MCP direct-Postgres mode"). The CLI has no
+`--remote` or `--token-env` flag, and `hivemind mcp` has no `--remote`: remote MCP is
+`POST /mcp`.
+
+Planned, not built: a CLI that talks to the cell's HTTP API with a bearer token, so the
+caller holds no database credential. This sketch shows its shape; `--remote` and
+`--token-env` do not exist.
 
 ```bash
 hivemind \
@@ -159,23 +172,14 @@ hivemind \
   --token-env HIVEMIND_TOKEN \
   --tenant tenant:acme \
   --actor agent:codex:gc-47745 \
-  emit decision.proposed \
-  --title "Adopt scoped API tokens for agents" \
-  --rationale "The service must resolve tenant, actor, and capabilities before append"
+  emit decision.capture ...
 ```
 
-MCP server startup:
-
-```bash
-hivemind mcp \
-  --remote https://hivemind.example.com \
-  --token-env HIVEMIND_TOKEN \
-  --tenant tenant:acme \
-  --agent-tool codex \
-  --session-id gc-47745
-```
-
-HTTP write:
+HTTP write. The `Authorization` header ships. `X-HiveMind-Tenant` and `X-HiveMind-Actor`
+are read only where the credential does not name them (a SQLite cell with a static key,
+or none); a server that knows the caller by token takes tenant and actor from the token
+and ignores both. The `X-HiveMind-Signature-*` headers are planned: Ed25519 signing is
+not built.
 
 ```http
 POST /v1/decisions HTTP/1.1

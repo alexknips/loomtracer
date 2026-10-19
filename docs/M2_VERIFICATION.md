@@ -4,6 +4,9 @@
 **Outcome:** OPTION (b) — achieved with caveats (step 5 deferred)  
 **Date verified:** 2026-06-17
 
+A dated report: it records what was true on that day. Where the code has moved on since, a
+line in italics says so.
+
 ---
 
 ## Verification Matrix
@@ -18,7 +21,7 @@ tenant writes to and reads from an isolated ledger path. Verified by the
 `hm_tk_<64-hex>` bearer token whose SHA-256 hash is stored in `hm_tokens`. The
 `TenantStore::resolve_token` path looks up the tenant from the hash. Verified by
 `tenant_store_tests::provision_creates_tenant_and_resolves_token` (requires
-`TEST_DATABASE_URL`; skipped in CI without a real Postgres instance).
+`HIVEMIND_TEST_POSTGRES_URL`; skipped without a real Postgres instance).
 
 ### Step 2: Ingest via POST /v1/ingest ✅
 
@@ -54,9 +57,13 @@ real Postgres instance with the `shared-backend-postgres` feature).
 
 ### Step 5: Migrate a local SQLite ledger in as a 3rd tenant ⏸ DEFERRED
 
-The migration tool is tracked in **uuq9.8** (`hivemind migrate --from sqlite://… --to
-postgres://… --tenant <name>`). That bead is not yet implemented. Step 5 is explicitly
-out of scope for this verification. Acceptance of M2 is not blocked on it.
+The migration tool was tracked in **uuq9.8** and was not yet implemented on the day of this
+report. Step 5 was explicitly out of scope for this verification. Acceptance of M2 was not
+blocked on it.
+
+*Since then `hivemind migrate` has shipped: `hivemind migrate --from <dir> --to-url <cell>
+--admin-key-file <file> --to-tenant <name>` sends a local ledger to a cell, and `--to
+<postgres-url>` writes straight to the database. The step was not re-verified for this report.*
 
 ### Step 6: Auth enforcement + overall "service lives" e2e ✅
 
@@ -87,10 +94,11 @@ this endpoint. Verified via `docker build` completing without errors and the
 
 ## Caveats
 
-1. **Step 5 (migration) deferred.** No migration CLI exists yet. Tracked in uuq9.8.
+1. **Step 5 (migration) deferred.** No migration CLI existed yet. Tracked in uuq9.8.
+   *`hivemind migrate` has since shipped (see Step 5).*
 2. **Postgres RLS tests require a real database.** The `tenant_store_tests` under
-   `#[cfg(feature = "shared-backend-postgres")]` are skipped in CI unless
-   `TEST_DATABASE_URL` is set. The SQLite-level multi_tenant tests provide equivalent
+   `#[cfg(feature = "shared-backend-postgres")]` are skipped unless
+   `HIVEMIND_TEST_POSTGRES_URL` is set. The SQLite-level multi_tenant tests provide equivalent
    isolation coverage for the dev path.
 3. **Production bearer-token provisioning** is Postgres-only. SQLite dev mode uses
    header-based tenant scoping, which is intentionally simpler and not bearer-secured.

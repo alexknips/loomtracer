@@ -47,36 +47,11 @@ const ALLOWED: &[Allowed] = &[
         command: "hivemind query review",
         why: "the proposed alias of get_decision_outcome; it shipped as `verify`",
     },
-    // Design docs that show planned flags as if they were current (hivemind-t97qx).
+    // A design doc's sketch, labelled there as planned (hivemind-t97qx).
     Allowed {
         file: "docs/AUTH_MODEL.md",
         command: "hivemind --remote",
-        why: "hivemind-t97qx: --remote and --token-env are not built",
-    },
-    Allowed {
-        file: "docs/AUTH_MODEL.md",
-        command: "hivemind mcp --remote",
-        why: "hivemind-t97qx: --remote and --token-env are not built",
-    },
-    Allowed {
-        file: "docs/SEARCH_DESIGN.md",
-        command: "hivemind query search --q <text>",
-        why: "hivemind-t97qx: the planned search flags are not built",
-    },
-    Allowed {
-        file: "docs/SEARCH_DESIGN.md",
-        command: "hivemind query search --status contested",
-        why: "hivemind-t97qx: the planned search flags are not built",
-    },
-    Allowed {
-        file: "docs/SEARCH_DESIGN.md",
-        command: "hivemind query search --premised-on-hypothesis-id",
-        why: "hivemind-t97qx: the planned search flags are not built",
-    },
-    Allowed {
-        file: "docs/SEARCH_DESIGN.md",
-        command: "hivemind query search --q \"cache eviction\" --field",
-        why: "hivemind-t97qx: the planned search flags are not built",
+        why: "hivemind-t97qx: the doc labels it a planned sketch; --remote and --token-env are not built",
     },
 ];
 

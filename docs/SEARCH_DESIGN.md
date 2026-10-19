@@ -10,6 +10,11 @@ This document defines the storage-agnostic search contract. SQLite FTS5, Kuzu,
 Postgres, or a future service may implement the contract differently, but CLI,
 MCP, and internal callers should see the same request and response semantics.
 
+Status: this is the contract, and `hivemind query search` ships a subset of it. The
+filters it takes are under [CLI Surface](#cli-surface) and the response fields it returns
+are under [Result Envelope](#result-envelope). Everything else here is planned, and each
+place says so.
+
 ## What Good Search Means
 
 Search is successful when the caller can find a decision without already
@@ -44,77 +49,69 @@ the graph only insofar as graph nodes explain decisions.
 
 These are the real user questions the surface must cover.
 
-| User question | Deterministic search shape | Notes |
-| --- | --- | --- |
-| Find the decision about authentication from last Tuesday. | `q=authentication`, timestamp or offset window, optional topic filter. | Relative dates are resolved by the caller or CLI into concrete bounds before the query executes. |
-| What decisions did agent X make this quarter? | `actor_ids=[X]`, timestamp or offset window. | Actor filters match explicit proposal, acceptance, rejection, and supersession edges as the graph supports them. |
-| What did Claude decide that contradicted what Codex decided? | `status=contested`, `actor_ids=[Claude, Codex]`, `actor_match=all`, optional topic or time filters. | Layer 2 only finds explicit disagreement. Inferring textual contradiction is layer 3 and must cite the layer-2 rows it used. |
-| Find decisions on topic X that are contested. | `topic_keys=[X]`, `statuses=[contested]`. | `contested` is a top-level status. |
-| Find decisions that depend on hypothesis Y. | `premised_on_hypothesis_ids=[Y]`. | Refuted hypothesis status is returned with the result. |
-| Find decisions where the rationale mentions a fragment. | `query=<fragment>`, `field_scopes=[decision.rationale]`. | Field scoping is deterministic string matching, not semantic intent. |
-| Find decisions supported by evidence containing a fragment. | `query=<fragment>`, `field_scopes=[evidence.content]`. | Results are decisions that reference matching evidence. |
-| Find decisions superseded by decision D. | `superseded_by_decision_ids=[D]`. | Concurrent supersessions are returned as multiple explicit edges. |
-| Find decisions stale because an assumption was refuted. | `staleness=stale`, optional `stale_reason=refuted_assumption`. | The reason is explicit graph state, not a model judgment. |
+| User question | Deterministic search shape | Built? | Notes |
+| --- | --- | --- | --- |
+| Find the decision about authentication from last Tuesday. | `q=authentication`, timestamp window, optional topic filter. | Yes (offset windows are planned) | Relative dates are resolved by the caller or CLI into concrete bounds before the query executes. |
+| What decisions did agent X make this quarter? | `actor_ids=[X]`, timestamp window. | Yes (offset windows are planned) | Actor filters match explicit proposal, acceptance, rejection, and supersession edges as the graph supports them. |
+| What did Claude decide that contradicted what Codex decided? | `status=contested`, `actor_ids=[Claude, Codex]`, `actor_match=all`, optional topic or time filters. | Planned: `actor_match` | Layer 2 only finds explicit disagreement. Inferring textual contradiction is layer 3 and must cite the layer-2 rows it used. Today `actor_ids` matches either actor. |
+| Find decisions on topic X that are contested. | `topic_keys=[X]`, `statuses=[contested]`. | Yes | `contested` is a top-level status. |
+| Find decisions that depend on hypothesis Y. | `premised_on_hypothesis_ids=[Y]`. | Planned | Refuted hypothesis status is returned with the result. |
+| Find decisions where the rationale mentions a fragment. | `query=<fragment>`, `field_scopes=[decision.rationale]`. | Planned: `field_scopes` | Field scoping is deterministic string matching, not semantic intent. |
+| Find decisions supported by evidence containing a fragment. | `query=<fragment>`, `field_scopes=[evidence.content]`. | Planned: `field_scopes` | Results are decisions that reference matching evidence. |
+| Find decisions superseded by decision D. | `superseded_by_decision_ids=[D]`. | Planned | Concurrent supersessions are returned as multiple explicit edges. |
+| Find decisions stale because an assumption was refuted. | `staleness=stale`, optional `stale_reason=refuted_assumption`. | Planned | The reason is explicit graph state, not a model judgment. |
 
 ## Operation Name
 
-The storage-agnostic operation is `search_decisions`.
-
-The current CLI spelling is:
-
-```bash
-hivemind query search_decisions [flags]
-```
-
-The preferred human-facing alias is:
-
-```bash
-hivemind query search [flags]
-```
-
-Both spellings should call the same internal operation and return the same JSON.
-Keeping `search_decisions` preserves compatibility with existing scripts while
-`search` gives humans the shorter command the product wants.
+The storage-agnostic operation is `search_decisions`. The CLI spells it
+`hivemind query search`; `hivemind query search_decisions` is the same command under the
+name the MCP tool and the HTTP API use. Both call the same internal operation and return
+the same JSON.
 
 ## CLI Surface
 
 The CLI is a thin wrapper around `search_decisions(SearchDecisionRequest)`.
 Flags normalize into the same request DTO used by MCP and library callers.
 
+Flags the CLI takes today:
+
 ```bash
 hivemind query search \
   --q <text> \
   --topic <topic-key>[,<topic-key>...] \
-  --topic-match all|any \
-  --status proposed|accepted|rejected|contested|superseded[,..] \
+  --status proposed|accepted|rejected|contested|superseded \
   --actor-id <actor-id>[,<actor-id>...] \
-  --actor-match any|all \
-  --source cli|agent|human|slack|document|api[,..] \
-  --source-ref <source-ref>[,<source-ref>...] \
-  --field all|decision.title|decision.rationale|decision.question|decision.topic|decision.status|actor.id|actor.source_ref|option.label|option.description|evidence.content|hypothesis.statement|supersession.id[,..] \
-  --premised-on-hypothesis-id <hypothesis-id>[,<hypothesis-id>...] \
-  --based-on-evidence-id <evidence-id>[,<evidence-id>...] \
-  --supersedes-decision-id <decision-id>[,<decision-id>...] \
-  --superseded-by-decision-id <decision-id>[,<decision-id>...] \
-  --staleness any|fresh|stale \
-  --stale-reason refuted_assumption|superseded_dependency|concurrent_supersession[,..] \
-  --since-offset <event-offset> \
-  --until-offset <event-offset> \
+  --source <source>[,<source>...] \
   --since <rfc3339-timestamp> \
   --until <rfc3339-timestamp> \
-  --order match|newest|oldest|decision_id \
   --limit <n> \
   --cursor <opaque-cursor>
 ```
 
-Minimum current flags are `--q`, `--topic`, `--status`, `--actor-id`,
-`--source`, `--limit`, and `--cursor`; they already cover the initial stable
-search contract. The remaining flags are part of the storage-agnostic contract
-and should be added without changing the operation name or result envelope.
+`--topic`, `--status`, `--actor-id` and `--source` take a comma-separated list. `--limit`
+defaults to 25.
 
-Note: `--supersedes-decision-id` here is a planned *search filter* (find
-decisions that supersede a given decision id) — not implemented yet, and
-unrelated to the create-time reversal flow. To capture a decision that
+Planned flags. The CLI does not take these yet (clap refuses them, exit 2). They are part
+of the storage-agnostic contract and should be added without changing the operation name
+or result envelope.
+
+| Flag | Request field |
+| --- | --- |
+| `--topic-match all\|any` | `topic_match` |
+| `--actor-match any\|all` | `actor_match` |
+| `--source-ref <source-ref>[,..]` | `source_refs` |
+| `--field all\|decision.title\|decision.rationale\|decision.question\|decision.topic\|decision.status\|actor.id\|actor.source_ref\|option.label\|option.description\|evidence.content\|hypothesis.statement\|supersession.id[,..]` | `field_scopes` |
+| `--premised-on-hypothesis-id <hypothesis-id>[,..]` | `premised_on_hypothesis_ids` |
+| `--based-on-evidence-id <evidence-id>[,..]` | `based_on_evidence_ids` |
+| `--supersedes-decision-id <decision-id>[,..]` | `supersedes_decision_ids` |
+| `--superseded-by-decision-id <decision-id>[,..]` | `superseded_by_decision_ids` |
+| `--staleness any\|fresh\|stale` | `staleness` |
+| `--stale-reason refuted_assumption\|superseded_dependency\|concurrent_supersession[,..]` | `stale_reasons` |
+| `--since-offset <event-offset>`, `--until-offset <event-offset>` | `since_offset`, `until_offset` |
+| `--order match\|newest\|oldest\|decision_id` | `order` |
+
+`--supersedes-decision-id` is a planned *search filter* (find decisions that supersede a
+given decision id), unrelated to the create-time reversal flow. To capture a decision that
 reverses a prior one today, use `hivemind supersede`
 (see [CLI reference](https://alexknips.github.io/hivemind-site/reference/cli/#supersede)).
 
@@ -123,14 +120,13 @@ CLI examples:
 ```bash
 hivemind query search --q authentication --since 2026-05-19T00:00:00Z --until 2026-05-20T00:00:00Z
 hivemind query search --actor-id agent:claude:s1 --since 2026-04-01T00:00:00Z --until 2026-07-01T00:00:00Z
-hivemind query search --status contested --actor-id agent:claude:s1,agent:codex:s2 --actor-match all
-hivemind query search --premised-on-hypothesis-id hypothesis-123
-hivemind query search --q "cache eviction" --field decision.rationale
+hivemind query search --topic infrastructure --status contested
 ```
 
 ## Request Semantics
 
-`SearchDecisionRequest` has these storage-independent fields:
+`SearchDecisionRequest` has these storage-independent fields. The CLI flags table above
+shows which filters are built; the rest are planned.
 
 ```rust
 pub struct SearchDecisionRequest {
@@ -192,16 +188,26 @@ Normalization rules:
   Status, source, source ref, stale reason, evidence id, hypothesis id, and
   supersession id filters default to `Any`. Topic defaults to `All`. Actor
   defaults to `Any`.
-- Time filters are resolved against ledger events, not wall-clock query time.
-  Offset bounds are canonical. Timestamp bounds are resolved to concrete event
-  offset bounds and the resolved bounds are returned.
+- Time filters window on when each decision was decided, never on wall-clock query
+  time. `since` and `until` are both inclusive, `since` later than `until` is an error,
+  and once either is given a decision the graph holds no time for is left out. A
+  timestamp bound is not turned into a ledger offset: it is tested against each
+  decision's own time, so a back-dated record is windowed by the time it was dated.
+  Offset bounds (`since_offset`, `until_offset`) are planned; when they land they are
+  canonical, and the response reports the bounds it resolved.
 - `limit=0` means default limit. Implementations may cap large limits, but must
   return the effective limit in the response.
 - `cursor` is opaque. Clients must not parse it or assume it is an offset.
 
 ## Result Envelope
 
-Search returns the standard query response envelope:
+Search returns the standard query response envelope. Today `data` holds `query`,
+`filters`, `limit`, `cursor`, `next_cursor`, `total_matches` (always present) and
+`items` (plus `scope`, when the request names a project), and each item holds `decision`,
+`rank`, `matched_fields`, `missing_terms` (for close matches), `snippets` and
+`graph_context`. `order`, `ledger_range`,
+`status_context`, `rank_basis` and `provenance` below are planned, and so is an omitted
+`total_matches`.
 
 ```rust
 pub struct QueryResponse<T> {
@@ -316,7 +322,8 @@ Input schema sketch:
 }
 ```
 
-Return schema sketch:
+Return schema sketch (the planned shape; the fields the response holds today are listed
+under Result Envelope):
 
 ```json
 {
@@ -400,7 +407,8 @@ The tie-breaker should be `decision_id` for local deterministic projections.
 Remote services may use `(ledger_watermark, decision_id)` or another stable key
 as long as identical inputs at the same ledger state return identical order.
 
-`order=newest` and `order=oldest` sort by explicit decision event time or event
+`order=newest` and `order=oldest` are planned along with the `order` field and the
+`--order` flag. They sort by explicit decision event time or event
 offset after filters are applied. They do not turn search into ranking by
 popularity or confidence.
 

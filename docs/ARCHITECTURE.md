@@ -88,17 +88,22 @@ When the state model is reconsidered, the change belongs in this section, in
 the architecture decision log, and in the principles cross-check of any bead
 that depends on the current behavior.
 
-## Storage Backend (current direction, may change)
+## Storage Backend
 
-SQLite is the storage backend for the current local prototype. It remains the
-zero-service default for onboarding, tests, and local agent workflows.
+SQLite is the zero-service default: the ledger a plain `hivemind` run opens under
+`--hivemind-dir`, for onboarding, tests, and local agent workflows.
 
-The long-term shared backend is a HiveMind service backed by Postgres, per
+The shared backend ships: a HiveMind service (`hivemind serve`) backed by
+Postgres, run as the cell in [`docker-compose.yml`](../docker-compose.yml) and
+described in [`SELF_HOSTING.md`](SELF_HOSTING.md), per
 [`REMOTE_DB.md`](REMOTE_DB.md). Postgres is the canonical remote event ledger
 and also holds the first shared graph projection in tenant-scoped typed node
-and edge tables. The service, not direct database clients, owns command
-validation, auth, tenancy, ledger append, projection, and deterministic query
-APIs.
+and edge tables. For callers that reach it over HTTP (`/v1/*`, `POST /mcp`) the
+service owns command validation, auth, tenancy, ledger append, projection, and
+deterministic query APIs. The CLI and `hivemind mcp` can also open the same
+Postgres directly with `--database-url` or `HIVEMIND_DATABASE_URL`; that puts the
+database credential, which reaches every tenant's data, on the caller (see
+[`SELF_HOSTING.md`](SELF_HOSTING.md), "CLI and MCP direct-Postgres mode").
 
 Any storage backend must preserve
 [auditability](../PRINCIPLES.md#2-every-state-change-is-auditable) in full:
@@ -167,16 +172,19 @@ separate product backend.
 
 Current default behavior:
 
-- `emit` writes only to SQLite.
-- `query` and `dump` use the in-memory graph unless explicitly told otherwise.
+- `emit` writes to the ledger it opens: SQLite under `--hivemind-dir`, or the shared
+  Postgres when `--database-url` or `HIVEMIND_DATABASE_URL` is set. It never calls a
+  cell's HTTP API; `HIVEMIND_API_URL` is followed only by `classify-queue`.
+- `query` and `dump` read that same ledger and use the in-memory graph unless
+  explicitly told otherwise.
 - `--graph-backend kuzu` is explicit and returns a clear error unless the binary
   was compiled with `graph-kuzu`.
 - Kuzu mode is a local developer projection path, not shared production
   infrastructure.
 
 This matches the remote-store decision in `docs/REMOTE_DB.md`: SQLite and Kuzu
-are local prototype storage. Shared multi-user and multi-agent deployments need
-a HiveMind service with a remote canonical ledger and projection.
+are local prototype storage. Shared multi-user and multi-agent deployments run the
+HiveMind service on a Postgres canonical ledger and projection.
 
 ## Kuzu Build Cost And Native Dependencies
 
