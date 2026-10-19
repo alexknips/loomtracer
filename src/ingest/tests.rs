@@ -539,6 +539,236 @@ fn a_refused_document_block_leaves_no_evidence_or_hypothesis_behind() {
     }
 }
 
+// ── document import: rationale continuation and unknown fields ──────────────
+
+/// A `Decision:` block around the given `rationale:` lines, with the other required fields
+/// before and after them, so a test names only the lines it is about.
+fn block_with_rationale(rationale_lines: &str) -> String {
+    format!(
+        "Decision:\n  id: continued-rationale\n  title: Keep the ledger local\n  \
+         status: accepted\n{rationale_lines}  options:\n    - local\n    - hosted\n  \
+         chose: local\n"
+    )
+}
+
+fn parse_only_block(text: &str) -> Result<DocumentDecisionDraft> {
+    let blocks = find_document_decision_blocks(text);
+    assert_eq!(
+        blocks.len(),
+        1,
+        "the text holds exactly one Decision: block"
+    );
+    parse_document_decision_block(&blocks[0])
+}
+
+/// A rationale cites a URL on a continuation line; the line holds a colon, and neither it nor
+/// the lines after it may be cut from the rationale.
+#[test]
+fn a_rationale_continuation_line_holding_a_url_is_kept_whole() {
+    let draft = parse_only_block(&block_with_rationale(
+        "  rationale:\n    One host is enough for the pilot.\n    \
+         See https://example.com/adr/12 for the sizing.\n    \
+         Revisit when the second tenant arrives.\n",
+    ))
+    .expect("block parses");
+
+    assert_eq!(
+        draft.rationale,
+        "One host is enough for the pilot. See https://example.com/adr/12 for the sizing. \
+         Revisit when the second tenant arrives."
+    );
+    assert_eq!(draft.option_labels, ["local", "hosted"]);
+    assert_eq!(draft.chosen_option_label.as_deref(), Some("local"));
+}
+
+/// A `Word: text` continuation line is rationale, not a field named after its first word.
+#[test]
+fn a_rationale_continuation_line_starting_with_a_word_and_colon_is_kept_whole() {
+    let draft = parse_only_block(&block_with_rationale(
+        "  rationale:\n    Latency decided it.\n    Benchmark: p95 40ms vs 120ms\n    \
+         Note: the hosted run used a cold cache.\n",
+    ))
+    .expect("block parses");
+
+    assert_eq!(
+        draft.rationale,
+        "Latency decided it. Benchmark: p95 40ms vs 120ms Note: the hosted run used a cold cache."
+    );
+}
+
+/// `rationale: first words` on the key line continues on the indented lines below it.
+#[test]
+fn a_rationale_given_inline_continues_on_the_indented_lines_below() {
+    let draft = parse_only_block(&block_with_rationale(
+        "  rationale: One host is enough for the pilot.\n    \
+         Source: https://example.com/adr/12\n    Revisit with the second tenant.\n",
+    ))
+    .expect("block parses");
+
+    assert_eq!(
+        draft.rationale,
+        "One host is enough for the pilot. Source: https://example.com/adr/12 \
+         Revisit with the second tenant."
+    );
+}
+
+/// A block written flush left continues its rationale on any indented line.
+#[test]
+fn a_flush_left_block_continues_its_rationale_on_indented_lines() {
+    let draft = parse_only_block(
+        "Decision:\nid: flush-left\ntitle: Keep the ledger local\nstatus: accepted\n\
+         rationale: One host is enough.\n  Note: see https://example.com/adr/12\n\
+         options:\n- local\n- hosted\nchose: local\n",
+    )
+    .expect("block parses");
+
+    assert_eq!(
+        draft.rationale,
+        "One host is enough. Note: see https://example.com/adr/12"
+    );
+    assert_eq!(draft.option_labels, ["local", "hosted"]);
+}
+
+/// A field written at the key's own indent ends the rationale and is read as a field.
+#[test]
+fn a_field_at_the_rationale_keys_indent_ends_the_rationale() {
+    let draft = parse_only_block(&block_with_rationale(
+        "  rationale:\n    Latency decided it.\n  topic_keys: storage, local\n",
+    ))
+    .expect("block parses");
+
+    assert_eq!(draft.rationale, "Latency decided it.");
+    assert_eq!(draft.topic_keys, ["storage", "local"]);
+}
+
+/// A misspelled key is refused naming the key and its line; its list is not dropped with it.
+#[test]
+fn a_misspelled_key_is_refused_naming_its_line() {
+    let error = parse_only_block(
+        "Decision:\n  id: misspelled\n  title: Keep the ledger local\n  status: accepted\n  \
+         rationale: One host is enough for the pilot.\n  options:\n    - local\n    - hosted\n  \
+         chose: local\n  evidnce:\n    - The pilot runs on one host.\n",
+    )
+    .expect_err("an unknown key refuses");
+
+    let message = error.to_string();
+    assert!(message.contains("unknown field 'evidnce'"), "{message}");
+    assert!(message.contains("line 10"), "{message}");
+}
+
+/// A `chose_option:` style key is refused too, rather than leaving the decision with no choice.
+#[test]
+fn an_unknown_chose_key_is_refused_instead_of_leaving_no_choice() {
+    let error = parse_only_block(
+        "Decision:\n  id: no-choice\n  title: Keep the ledger local\n  status: accepted\n  \
+         rationale: One host is enough for the pilot.\n  options: local, hosted\n  \
+         chose_option: local\n",
+    )
+    .expect_err("an unknown key refuses");
+
+    assert!(
+        error.to_string().contains("unknown field 'chose_option'"),
+        "{error}"
+    );
+}
+
+/// A line that is no field, list item or rationale continuation is refused, not skipped.
+#[test]
+fn a_stray_line_in_a_block_is_refused_naming_its_line() {
+    let error = parse_only_block(&block_with_rationale(
+        "  rationale: One host is enough.\n  and then some more words\n",
+    ))
+    .expect_err("a stray line refuses");
+
+    let message = error.to_string();
+    assert!(message.contains("line 6"), "{message}");
+}
+
+/// An import with a refused line reports the block as a validation error and writes nothing.
+#[test]
+fn an_import_with_an_unknown_key_writes_nothing_and_names_the_key() {
+    let dir = tempfile::tempdir().expect("tempdir creates");
+    let path = dir.path().join("misspelled_key.md");
+    fs::write(
+        &path,
+        "Decision:\n  id: misspelled\n  title: Keep the ledger local\n  status: accepted\n  \
+         rationale: One host is enough for the pilot.\n  options:\n    - local\n    - hosted\n  \
+         chose: local\n  evidnce:\n    - The pilot runs on one host.\n",
+    )
+    .expect("fixture writes");
+    let ledger = crate::ledger::InMemoryEventLedger::new();
+    let request = DocumentImportRequest {
+        paths: vec![path],
+        importer_actor_id: "actor:importer".to_owned(),
+        format: DocumentImportFormat::Auto,
+        conflict_resolution: DocumentConflictResolutionAction::Report,
+    };
+
+    let report = import_documents(&ledger, &request).expect("import reports the refused block");
+
+    assert_eq!(report.summary.validation_errors, 1);
+    assert_eq!(report.summary.blocks_imported, 0);
+    let block = &report.files[0].blocks[0];
+    assert_eq!(block.status, DocumentBlockImportStatus::ValidationError);
+    let message = block
+        .message
+        .as_deref()
+        .expect("the block carries a message");
+    assert!(
+        message.contains("unknown field 'evidnce' at line 10"),
+        "{message}"
+    );
+    assert_import_wrote_nothing(&ledger);
+}
+
+/// A block runs on to the next marker, so a prepared document's next page — its
+/// `# hivemind-source-ref:` line and the page text — lands inside the block before it. Text that
+/// is not indented under the marker is the document going on, not a field to refuse.
+#[test]
+fn text_after_a_block_that_is_not_indented_under_the_marker_is_ignored() {
+    let draft = parse_only_block(&format!(
+        "{}\n# hivemind-source-ref: {{\"path\":\"report.pdf\",\"page\":2}}\n# source_page: 2\n\
+         ## Caching\nOwner: someone, in the prose after the block\nand a line without a colon\n",
+        block_with_rationale("  rationale: One host is enough for the pilot.\n")
+    ))
+    .expect("text left of the field indent does not fail the block");
+
+    assert_eq!(draft.rationale, "One host is enough for the pilot.");
+    assert_eq!(draft.option_labels, vec!["local", "hosted"]);
+    assert_eq!(draft.chosen_option_label.as_deref(), Some("local"));
+}
+
+/// The same shape end to end: two blocks with a prepared page break and a heading between them
+/// both import.
+#[test]
+fn document_import_reads_both_blocks_around_a_page_break_and_a_heading() {
+    let dir = tempfile::tempdir().expect("tempdir creates");
+    let path = dir.path().join("two_blocks.md");
+    fs::write(
+        &path,
+        "Decision:\n  id: keep-ledger-local\n  title: Keep the ledger local\n  \
+         status: accepted\n  rationale: One host is enough for the pilot.\n  options: local, \
+         hosted\n  chose: local\n\n# hivemind-source-ref: {\"path\":\"report.pdf\",\"page\":2}\n\
+         # source_page: 2\n## Caching\nOwner: someone, in the prose between the blocks\n\n\
+         Decision:\n  id: evict-nightly\n  title: Evict cached projections nightly\n  \
+         status: proposed\n  rationale: Eviction on every import masked duplicate imports.\n  \
+         options: nightly, on-import\n  chose: nightly\n",
+    )
+    .expect("fixture writes");
+    let ledger = crate::ledger::InMemoryEventLedger::new();
+    let request = DocumentImportRequest {
+        paths: vec![path],
+        importer_actor_id: "actor:importer".to_owned(),
+        format: DocumentImportFormat::Auto,
+        conflict_resolution: DocumentConflictResolutionAction::Report,
+    };
+
+    let report = import_documents(&ledger, &request).expect("import succeeds");
+
+    assert_eq!(report.summary.validation_errors, 0, "{report:?}");
+    assert_eq!(report.summary.blocks_imported, 2, "{report:?}");
+}
+
 // ── conflict_decision_status ────────────────────────────────────────────────
 
 fn minimal_draft(block_id: &str) -> DocumentDecisionDraft {

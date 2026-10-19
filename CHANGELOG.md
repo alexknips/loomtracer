@@ -718,6 +718,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`import documents` keeps a whole rationale, and refuses a field it does not know.** A line
+  inside a `Decision:` block was read as a `key: value` field first, so a rationale line holding
+  a colon (`See https://example.com/adr`, `Benchmark: p95 40ms vs 120ms`) was dropped as an
+  unknown key together with every rationale line after it, and the import succeeded with a cut
+  rationale and no warning. `rationale: first words` followed by indented lines kept only the
+  first line. Now every line indented deeper than the `rationale:` key belongs to the rationale,
+  colons or not, whether the text starts on the key line or the line after. A misspelled key
+  (`evidnce:`, `chose_option:`) used to be dropped the same way; an unknown field indented under
+  the `Decision:` marker, or an indented line that is no field, list item or rationale
+  continuation, is now reported as a validation error naming the line, and that block writes
+  nothing. Text that is not indented under the marker, such as a heading, prose after the block
+  or the `# hivemind-source-ref:` line of the next prepared page, is still ignored.
+  (hivemind-d4fbt)
 - **Moving a ledger into a cell no longer attaches a classifier draft's acceptance, retitle,
   score or link to a different draft.** A draft's id is `capture:<offset of its batch
   event>:<index>`, and `hivemind migrate` / `POST /v1/ledger/replay` renumber every event in the

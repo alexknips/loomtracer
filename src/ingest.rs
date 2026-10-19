@@ -3171,7 +3171,15 @@ fn source_lines(input: &str) -> Vec<SourceLine> {
 fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedDecisionFields> {
     let mut fields = ParsedDecisionFields::default();
     let mut active_list: Option<ListField> = None;
-    let mut active_scalar: Option<ScalarField> = None;
+    // Indent of the `rationale:` key line while its continuation lines are being read. A line
+    // indented deeper than the key belongs to the rationale whatever it holds — a URL, a
+    // `Note: ...` — so it is never read as a field of its own.
+    let mut rationale_key_indent: Option<usize> = None;
+    // Lines indented under the `Decision:` marker are the block's fields. The block runs on to
+    // the next marker, so text at or left of the marker's indent is the document going on — the
+    // `# hivemind-source-ref:` line of the next prepared page, a heading, prose — and is ignored
+    // rather than refused.
+    let marker_indent = raw.lines.first().map_or(0, |line| indent_width(&line.text));
 
     for (index, source_line) in raw.lines.iter().enumerate() {
         let trimmed = source_line.text.trim();
@@ -3187,6 +3195,13 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
                 continue;
             }
         }
+
+        let indent = indent_width(&source_line.text);
+        if rationale_key_indent.is_some_and(|key_indent| indent > key_indent) {
+            fields.rationale_lines.push(trimmed.to_owned());
+            continue;
+        }
+        rationale_key_indent = None;
 
         if let Some(item) = trimmed.strip_prefix("- ") {
             let item = item.trim();
@@ -3217,7 +3232,6 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
             let key = normalized_marker_key(raw_key);
             let value = value.trim();
             active_list = None;
-            active_scalar = None;
             match key.as_str() {
                 "decision" if !value.is_empty() => fields.title = Some(value.to_owned()),
                 "decision" => {}
@@ -3232,12 +3246,12 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
                     fields.topic_keys = split_document_marker_list(value);
                 }
                 "rationale" => {
-                    if value.is_empty() {
-                        fields.rationale_lines.clear();
-                        active_scalar = Some(ScalarField::Rationale);
+                    fields.rationale_lines = if value.is_empty() {
+                        Vec::new()
                     } else {
-                        fields.rationale_lines = vec![value.to_owned()];
-                    }
+                        vec![value.to_owned()]
+                    };
+                    rationale_key_indent = Some(indent);
                 }
                 "options" => {
                     if value.is_empty() {
@@ -3270,19 +3284,27 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
                         fields.supersedes = split_document_marker_list(value);
                     }
                 }
+                _ if indent > marker_indent => {
+                    return Err(CommandError::Validation(format!(
+                        "unknown field '{}' at line {}; indent a line under 'rationale:' to \
+                         continue the rationale",
+                        raw_key.trim(),
+                        source_line.number
+                    ))
+                    .into());
+                }
                 _ => {}
             }
             continue;
         }
 
-        if active_scalar == Some(ScalarField::Rationale)
-            && source_line
-                .text
-                .chars()
-                .next()
-                .is_some_and(char::is_whitespace)
-        {
-            fields.rationale_lines.push(trimmed.to_owned());
+        if indent > marker_indent {
+            return Err(CommandError::Validation(format!(
+                "line {} is not a 'key: value' field, a '- ' list item, or a line indented under \
+                 'rationale:'",
+                source_line.number
+            ))
+            .into());
         }
     }
 
@@ -3372,9 +3394,8 @@ enum ListField {
     Supersedes,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScalarField {
-    Rationale,
+fn indent_width(line: &str) -> usize {
+    line.chars().take_while(|c| c.is_whitespace()).count()
 }
 
 fn is_decision_start(line: &str) -> bool {

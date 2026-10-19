@@ -52,6 +52,41 @@ actor. If the source does not identify an original actor, the importer records
 the importer as the event actor and marks the imported decision as provisional
 in import metadata.
 
+### Rationale lines and unknown fields
+
+A block runs from its `Decision:` line to the next `Decision:` line or the end of
+the file. Every non-blank line indented under the `Decision:` marker is one of
+three things, and the importer refuses the block, naming the line, when a line
+is none of them:
+
+- a `key: value` field with a key listed above (aliases such as `chosen:`,
+  `topics:` and `decided-at:` included). A key the importer does not know, such as
+  a misspelled `evidnce:`, is refused with `unknown field '<key>' at line N`; it is
+  never skipped.
+- a `- ` list item under `options:`, `evidence:`, `hypotheses:` or `supersedes:`.
+- a continuation of the rationale: any line indented deeper than the `rationale:`
+  key, whether `rationale:` is empty or already holds words. Continuation lines
+  are joined with single spaces and may hold colons, so a URL (`See
+  https://example.com/adr`) or a `Benchmark: p95 40ms vs 120ms` line stays part of
+  the rationale. A line at the key's own indent ends the rationale and is read as
+  a field.
+
+```text
+Decision:
+  id: pilot-hosting
+  rationale: One host is enough for the pilot.
+    Benchmark: p95 40ms vs 120ms
+    See https://example.com/adr/12
+  options: local, hosted
+```
+
+Text that is not indented under the `Decision:` marker is ordinary document
+text and is ignored: a heading or prose after the block, or the
+`# hivemind-source-ref:` line that starts the next prepared page. A block
+written flush left has no indented fields, so nothing in it is refused for being
+unknown; indent the fields under the marker, as above, to have a misspelled key
+caught.
+
 ### Source time (`ts:`)
 
 `ts:` (aliases `decided:`, `decided-at:`) is an optional RFC3339 timestamp
