@@ -165,7 +165,9 @@ LLMs, mutate state, or rank beyond explicit ledger ordering.
   scanned ledger range.
 - `items`: event rows with `event_origin`, `event_uuid`, event `type`,
   `change_kind`, actor, source/source ref, timestamp, affected decision ids,
-  affected graph nodes, and `citation_id`.
+  affected graph nodes, and `citation_id`. A transcript received for
+  classification (`ingest.batch_received`) is not a row: it names no decision,
+  and the classification that follows it is.
 
 `get_decisions_changed_since(request)` returns oldest-first changes in a
 resolved ledger window:

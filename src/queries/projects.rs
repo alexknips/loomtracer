@@ -213,23 +213,35 @@ impl ProjectRegistry {
     }
 }
 
-/// Replays every `project.*` fact for the current tenant and nets adds against
+/// The event types the project registry is netted from: every `project.*` fact.
+const PROJECT_EVENT_TYPES: &[EventType] = &[
+    EventType::ProjectRegistered,
+    EventType::ProjectLinked,
+    EventType::ProjectUnlinked,
+    EventType::ProjectAnchored,
+    EventType::ProjectUnanchored,
+    EventType::ProjectTopicDeclared,
+];
+
+/// Reads every `project.*` fact for the current tenant and nets adds against
 /// removes, exactly like `commands::HiveMindCommands::active_project_links` does
 /// for the write layer's own existence checks -- see the module doc comment for why
-/// this can't be a graph read.
+/// this can't be a graph read. Only the project events leave the ledger, so a read that names
+/// a project costs the handful of facts it nets, not the transcripts around them
+/// (hivemind-gxypz).
 pub(super) fn collect_project_registry(ledger: &impl EventLedger) -> Result<ProjectRegistry> {
     let mut registry = ProjectRegistry::default();
 
-    ledger.replay_from(0, &mut |event| {
+    for event in ledger.read_all_types_for_tenant(&ledger.bound_tenant(), PROJECT_EVENT_TYPES)? {
         let Some(event_id) = event.event_id else {
-            return Ok(());
+            continue;
         };
         let event_origin = i64::try_from(event_id).unwrap_or(i64::MAX);
 
         match event.event_type {
             EventType::ProjectRegistered => {
                 if let Ok(payload) =
-                    serde_json::from_value::<ProjectRegisteredPayload>(event.payload.clone())
+                    serde_json::from_value::<ProjectRegisteredPayload>(event.payload)
                 {
                     let record = registry.projects.entry(payload.handle).or_default();
                     record.display_name = payload.display_name;
@@ -238,23 +250,17 @@ pub(super) fn collect_project_registry(ledger: &impl EventLedger) -> Result<Proj
                 }
             }
             EventType::ProjectLinked => {
-                if let Ok(payload) =
-                    serde_json::from_value::<ProjectLinkPayload>(event.payload.clone())
-                {
+                if let Ok(payload) = serde_json::from_value::<ProjectLinkPayload>(event.payload) {
                     apply_project_linked(&mut registry, payload, event_origin);
                 }
             }
             EventType::ProjectUnlinked => {
-                if let Ok(payload) =
-                    serde_json::from_value::<ProjectLinkPayload>(event.payload.clone())
-                {
+                if let Ok(payload) = serde_json::from_value::<ProjectLinkPayload>(event.payload) {
                     apply_project_unlinked(&mut registry, payload);
                 }
             }
             EventType::ProjectAnchored => {
-                if let Ok(payload) =
-                    serde_json::from_value::<ProjectAnchorPayload>(event.payload.clone())
-                {
+                if let Ok(payload) = serde_json::from_value::<ProjectAnchorPayload>(event.payload) {
                     let entry = anchor_view(&payload);
                     let record = registry.projects.entry(payload.handle).or_default();
                     if !record.anchors.contains(&entry) {
@@ -263,9 +269,7 @@ pub(super) fn collect_project_registry(ledger: &impl EventLedger) -> Result<Proj
                 }
             }
             EventType::ProjectUnanchored => {
-                if let Ok(payload) =
-                    serde_json::from_value::<ProjectAnchorPayload>(event.payload.clone())
-                {
+                if let Ok(payload) = serde_json::from_value::<ProjectAnchorPayload>(event.payload) {
                     let entry = anchor_view(&payload);
                     if let Some(record) = registry.projects.get_mut(&payload.handle) {
                         record.anchors.retain(|anchor| *anchor != entry);
@@ -274,7 +278,7 @@ pub(super) fn collect_project_registry(ledger: &impl EventLedger) -> Result<Proj
             }
             EventType::ProjectTopicDeclared => {
                 if let Ok(payload) =
-                    serde_json::from_value::<ProjectTopicDeclaredPayload>(event.payload.clone())
+                    serde_json::from_value::<ProjectTopicDeclaredPayload>(event.payload)
                 {
                     registry
                         .projects
@@ -287,8 +291,7 @@ pub(super) fn collect_project_registry(ledger: &impl EventLedger) -> Result<Proj
             }
             _ => {}
         }
-        Ok(())
-    })?;
+    }
 
     for record in registry.projects.values_mut() {
         record.anchors.sort();

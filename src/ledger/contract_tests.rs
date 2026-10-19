@@ -270,6 +270,49 @@ pub fn assert_typed_and_id_reads<L: EventLedger>(ledger: &L, tenant_id: &TenantI
     let no_ids = ledger.read_ids_for_tenant(tenant_id, &[])?;
     require_equal("no ids asked", &no_ids.len(), &0)?;
 
+    // The whole read of a type is the paged one end to end: a type held in more events than a
+    // page, and one held in exactly a page, come back whole and in event order.
+    let mut evidence_ids = vec![evidence];
+    evidence_ids.extend(
+        (0..1_001)
+            .map(|index| {
+                append(
+                    EventType::EvidenceRecorded,
+                    json!({ "evidence_id": format!("bulk-{index}") }),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?,
+    );
+    let mut received_ids = vec![received_a, received_b, received_c];
+    received_ids.extend(
+        (0..997)
+            .map(|index| {
+                append(
+                    EventType::IngestBatchReceived,
+                    received_payload(&format!("bulk-{index}")),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?,
+    );
+    let some = |ids: Vec<EventId>| ids.into_iter().map(Some).collect::<Vec<_>>();
+    require_equal(
+        "more than a page of one type",
+        &ids_of(&ledger.read_all_types_for_tenant(tenant_id, &[EventType::EvidenceRecorded])?),
+        &some(evidence_ids),
+    )?;
+    require_equal(
+        "exactly a page of one type",
+        &ids_of(&ledger.read_all_types_for_tenant(tenant_id, &[EventType::IngestBatchReceived])?),
+        &some(received_ids),
+    )?;
+    require_equal(
+        "a type nothing holds",
+        &ledger
+            .read_all_types_for_tenant(tenant_id, &[EventType::DecisionProposed])?
+            .len(),
+        &0,
+    )?;
+
     Ok(())
 }
 

@@ -2357,7 +2357,8 @@ pub enum QueryCommand {
     RecentDecisions(QueryRecentDecisionsArgs),
     /// The ledger's latest events as a timeline, newest first: each capture, acceptance,
     /// rejection, supersession, evidence, hypothesis or move with its actor, source, timestamp
-    /// and the decisions it touched. Paginated.
+    /// and the decisions it touched. A transcript received for classification is not listed (it
+    /// names no decision); the classification that follows it is. Paginated.
     #[command(name = "get_recent_activity")]
     GetRecentActivity(QueryRecentActivityArgs),
     /// What changed in a ledger window, oldest first: new decisions, status changes, new

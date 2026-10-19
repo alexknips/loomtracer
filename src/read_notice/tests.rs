@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::events::{Event, EventId};
 use crate::ledger::InMemoryEventLedger;
+use crate::queries::test_fixtures::TypedReadsOnly;
 
 fn fixture(json_text: &str) -> Event {
     let mut event: Event = serde_json::from_str(json_text).expect("fixture parses");
@@ -59,6 +60,26 @@ fn the_scan_finds_only_the_annotation_rows_nobody_can_read() -> Result<()> {
     assert!(rows
         .iter()
         .all(|row| row.event_type == EventType::DecisionScored));
+    Ok(())
+}
+
+#[test]
+fn the_scan_reads_only_the_annotation_rows_not_the_ledger() -> Result<()> {
+    // It runs after every read, so it must not read the transcripts of a cell to find the few
+    // annotation rows (hivemind-gxypz).
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(proposal())?;
+    ledger.append(malformed_assessment())?;
+    ledger.append(assessment())?;
+    ledger.append(malformed_assessment())?;
+
+    let guarded = TypedReadsOnly(&ledger);
+    let rows = unreadable_annotations(&guarded, &TenantId::local())?;
+    assert_eq!(
+        rows.iter().map(|row| row.event_id).collect::<Vec<_>>(),
+        vec![Some(2), Some(4)]
+    );
+    assert_eq!(rows, unreadable_annotations(&ledger, &TenantId::local())?);
     Ok(())
 }
 

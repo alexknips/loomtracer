@@ -13,6 +13,7 @@ use chrono::{DateTime, Utc};
 
 use crate::commands::personal_project_handle;
 use crate::events::{Event, EventId};
+use crate::ledger::EventLedger;
 use crate::projector::{GraphRow, GraphView, RelationKind};
 use crate::queries::brief::is_classified_capture;
 use crate::queries::shared::{
@@ -79,13 +80,14 @@ pub(super) struct ClassifiedDrafts {
 impl ClassifiedDrafts {
     /// Reads the drafts out of `graph`. `decisions` is every decision node of the graph by id
     /// (`node_rows`), read once by the caller, who also needs the floor answers on it. `standings`
-    /// is where every decision stands, read once by the caller too. `events` is
-    /// the ledger in offset order: each draft's creation is the classification event its node
-    /// names. A draft that names an event the ledger does not hold is refused, not dropped: a
-    /// window that quietly lost it would look complete.
+    /// is where every decision stands, read once by the caller too. Each draft's creation is the
+    /// classification event its node names, which `ledger` is asked for by id: the caller has not
+    /// read the classifications of the ledger, only the decisions. A draft that names an event the
+    /// ledger does not hold is refused, not dropped: a window that quietly lost it would look
+    /// complete.
     pub(super) fn load(
         graph: &impl GraphView,
-        events: &[Event],
+        ledger: &impl EventLedger,
         decisions: &BTreeMap<String, GraphRow>,
         standings: &DecisionStandings,
     ) -> Result<Self> {
@@ -96,6 +98,19 @@ impl ClassifiedDrafts {
         if rows.is_empty() {
             return Ok(Self::default());
         }
+        let origins = rows
+            .iter()
+            .map(|(id, row)| {
+                optional_int(row, "event_origin")
+                    .and_then(|origin| EventId::try_from(origin).ok())
+                    .ok_or_else(|| query_error(format!("draft {id} names no classification event")))
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let classifications: HashMap<EventId, Event> = ledger
+            .read_ids_for_tenant(&ledger.bound_tenant(), &origins)?
+            .into_iter()
+            .filter_map(|event| Some((event.event_id?, event)))
+            .collect();
 
         let targets = |relation: RelationKind| -> Result<HashMap<String, Vec<String>>> {
             let mut by_source: HashMap<String, Vec<String>> = HashMap::new();
@@ -117,19 +132,12 @@ impl ClassifiedDrafts {
         };
 
         let mut drafts = BTreeMap::new();
-        for (id, row) in rows {
-            let origin = optional_int(row, "event_origin")
-                .and_then(|origin| EventId::try_from(origin).ok())
-                .ok_or_else(|| query_error(format!("draft {id} names no classification event")))?;
-            let batch = events
-                .binary_search_by_key(&origin, |event| event.event_id.unwrap_or_default())
-                .ok()
-                .and_then(|position| events.get(position))
-                .ok_or_else(|| {
-                    query_error(format!(
-                        "draft {id} was recorded by event {origin}, which the ledger does not hold"
-                    ))
-                })?;
+        for ((id, row), origin) in rows.into_iter().zip(origins) {
+            let batch = classifications.get(&origin).ok_or_else(|| {
+                query_error(format!(
+                    "draft {id} was recorded by event {origin}, which the ledger does not hold"
+                ))
+            })?;
             let creation = decision_event_provenance(batch)?;
 
             // ubs:ignore: the draft owns its recorder twice, in its creation and in its actors

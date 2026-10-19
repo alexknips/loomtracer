@@ -725,7 +725,7 @@ impl Scenario {
 }
 
 /// A ledger that refuses to be read whole, as a cell's is too big to be: only a read of named
-/// event types gets through.
+/// event types, or of named event ids, gets through. A replay is a whole read too.
 pub(crate) struct TypedReadsOnly<'a>(pub(crate) &'a InMemoryEventLedger);
 
 impl EventLedger for TypedReadsOnly<'_> {
@@ -748,11 +748,11 @@ impl EventLedger for TypedReadsOnly<'_> {
 
     fn replay_from_for_tenant(
         &self,
-        tenant_id: &TenantId,
-        offset: EventId,
-        callback: &mut dyn FnMut(&Event) -> Result<()>,
+        _tenant_id: &TenantId,
+        _offset: EventId,
+        _callback: &mut dyn FnMut(&Event) -> Result<()>,
     ) -> Result<()> {
-        self.0.replay_from_for_tenant(tenant_id, offset, callback)
+        Err(super::shared::query_error("replay the whole ledger").into())
     }
 
     fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
@@ -769,6 +769,92 @@ impl EventLedger for TypedReadsOnly<'_> {
     ) -> Result<Vec<Event>> {
         self.0
             .read_types_for_tenant(tenant_id, types, omit_payload_keys, offset, limit)
+    }
+
+    fn read_ids_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        event_ids: &[EventId],
+    ) -> Result<Vec<Event>> {
+        self.0.read_ids_for_tenant(tenant_id, event_ids)
+    }
+}
+
+/// A ledger whose typed read ignores the types it is asked for and returns every event, as the
+/// whole-ledger walk a query made before it named its types did. The oracle of a test that a list
+/// of types leaves out nothing the query answers from: `without_received` drops the raw
+/// `ingest.batch_received` transcripts too, for a query that deliberately lists none of them.
+pub(crate) struct EveryEventRead<'a> {
+    pub(crate) ledger: &'a InMemoryEventLedger,
+    pub(crate) without_received: bool,
+}
+
+impl EventLedger for EveryEventRead<'_> {
+    fn bound_tenant(&self) -> TenantId {
+        self.ledger.bound_tenant()
+    }
+
+    fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> Result<EventId> {
+        self.ledger.append_for_tenant(tenant_id, event)
+    }
+
+    fn read_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
+        self.ledger.read_for_tenant(tenant_id, offset, limit)
+    }
+
+    fn replay_from_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.ledger
+            .replay_from_for_tenant(tenant_id, offset, callback)
+    }
+
+    fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
+        self.ledger.latest_offset_for_tenant(tenant_id)
+    }
+
+    fn read_types_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        _types: &[EventType],
+        _omit_payload_keys: &[&str],
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
+        let mut found = Vec::new();
+        let mut offset = offset;
+        loop {
+            let page = self.ledger.read_for_tenant(tenant_id, offset, limit)?;
+            let Some(last) = page.last().and_then(|event| event.event_id) else {
+                break;
+            };
+            offset = last;
+            let page_len = page.len();
+            found.extend(page.into_iter().filter(|event| {
+                !(self.without_received && event.event_type == EventType::IngestBatchReceived)
+            }));
+            if found.len() >= limit || page_len < limit {
+                break;
+            }
+        }
+        found.truncate(limit);
+        Ok(found)
+    }
+
+    fn read_ids_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        event_ids: &[EventId],
+    ) -> Result<Vec<Event>> {
+        self.ledger.read_ids_for_tenant(tenant_id, event_ids)
     }
 }
 

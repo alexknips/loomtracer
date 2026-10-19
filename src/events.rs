@@ -1725,8 +1725,11 @@ pub enum ReadEvent {
 impl EventType {
     /// Layer-3 enrichment events: an assessment or score of a decision, or metadata derived
     /// from it. A reader may skip an unreadable one ([`validate_for_read`]).
+    pub const ANNOTATIONS: [Self; 2] = [Self::DecisionScored, Self::DecisionMetadataDerived];
+
+    /// Whether this is one of [`Self::ANNOTATIONS`].
     pub fn is_annotation(self) -> bool {
-        matches!(self, Self::DecisionScored | Self::DecisionMetadataDerived)
+        Self::ANNOTATIONS.contains(&self)
     }
 }
 

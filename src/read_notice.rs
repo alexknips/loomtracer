@@ -15,22 +15,21 @@ use crate::Result;
 /// How many ledger event ids the sentence lists before it says "and N more".
 const LISTED_EVENT_IDS: usize = 5;
 
-/// Every annotation row of `tenant_id`'s ledger that cannot be read, in ledger order. One pass
-/// over the ledger; only annotation rows are parsed.
+/// Every annotation row of `tenant_id`'s ledger that cannot be read, in ledger order. Only the
+/// annotation rows leave the ledger: the raw transcripts a cell holds by the hundred thousand are
+/// not read to be skipped, and this runs after every read (hivemind-gxypz).
 pub fn unreadable_annotations(
     ledger: &impl EventLedger,
     tenant_id: &TenantId,
 ) -> Result<Vec<UnreadableAnnotation>> {
-    let mut rows = Vec::new();
-    ledger.replay_from_for_tenant(tenant_id, 0, &mut |event| {
-        if event.event_type.is_annotation() {
-            if let Ok(ReadEvent::Unreadable(row)) = validate_for_read(event) {
-                rows.push(row);
-            }
-        }
-        Ok(())
-    })?;
-    Ok(rows)
+    Ok(ledger
+        .read_all_types_for_tenant(tenant_id, &EventType::ANNOTATIONS)?
+        .iter()
+        .filter_map(|event| match validate_for_read(event) {
+            Ok(ReadEvent::Unreadable(row)) => Some(row),
+            _ => None,
+        })
+        .collect())
 }
 
 /// The sentence for a non-empty list of unreadable rows: how many, which ledger events, and why

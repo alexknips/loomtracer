@@ -369,7 +369,7 @@ fn step_of(event: &Event) -> Result<Step> {
 /// Every event `ledger_facts` reads, in ledger order, a page at a time. The SQL ledgers filter by
 /// type in the query, so the ingest transcripts a cell holds by the hundred thousand are never
 /// fetched to be skipped (hivemind-7jon8). An annotation row nobody can parse is skipped, as
-/// `read_all_events` skips it.
+/// the history reads skip it.
 fn read_fact_events(ledger: &impl EventLedger) -> Result<Vec<Event>> {
     let tenant = ledger.bound_tenant();
     let mut events = Vec::new();

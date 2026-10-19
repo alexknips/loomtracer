@@ -5,7 +5,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::ledger::InMemoryEventLedger;
-use crate::queries::test_fixtures::{decision_capture, ts as test_ts};
+use crate::queries::test_fixtures::{
+    attention_scenario, decision_capture, floor_scenario, reaffirmation_scenario,
+    reexamine_scenario, revisions_scenario, ts as test_ts, EveryEventRead, TypedReadsOnly,
+};
 
 use super::*;
 
@@ -2039,5 +2042,225 @@ fn added_since_gives_a_proposal_a_capture_replaced_its_standing() -> Result<()> 
         .find(|entry| entry.decision_id == "decision-old")
         .ok_or_else(|| query_error("the proposal is added"))?;
     assert_eq!(old.status, DecisionStatus::Superseded);
+    Ok(())
+}
+
+// ── a history read costs the events it answers from, not the transcripts around them (hivemind-gxypz) ──
+
+/// What the two feeds and the two decision lists answer over the whole ledger, without the ledger
+/// range, which counts every event, the padding of the test below included.
+fn history_answers(
+    ledger: &impl EventLedger,
+    graph: &crate::projector::memory::MemoryGraph,
+) -> Result<Vec<Value>> {
+    fn answer<T: Serialize>(data: &T) -> Result<Value> {
+        let mut answer = serde_json::to_value(data).map_err(json_query_error)?;
+        if let Some(object) = answer.as_object_mut() {
+            object.remove("ledger_range");
+            object.remove("resolved_until");
+        }
+        Ok(answer)
+    }
+
+    Ok(vec![
+        answer(
+            &get_recent_activity(
+                ledger,
+                &RecentActivityRequest {
+                    limit: 500,
+                    ..RecentActivityRequest::default()
+                },
+            )?
+            .data,
+        )?,
+        answer(
+            &get_decisions_changed_since(
+                ledger,
+                &ChangedSinceRequest {
+                    since_offset: Some(0),
+                    limit: 500,
+                    ..ChangedSinceRequest::default()
+                },
+            )?
+            .data,
+        )?,
+        answer(
+            &get_recent_decisions(ledger, graph, &recent_request("2000-01-01T00:00:00Z", None))?
+                .data,
+        )?,
+        answer(
+            &get_decisions_added_since(
+                ledger,
+                graph,
+                &DecisionsAddedSinceRequest {
+                    since_offset: Some(0),
+                    limit: 500,
+                    ..DecisionsAddedSinceRequest::default()
+                },
+            )?
+            .data,
+        )?,
+    ])
+}
+
+#[test]
+fn the_history_reads_answer_the_same_among_transcripts_and_never_read_the_whole_ledger(
+) -> Result<()> {
+    // Each of these read every event of the ledger and validated it, ingest transcripts and all:
+    // on a cell of 130k events, 127k of them transcripts, a list of a dozen decisions took
+    // seconds. The ledger below refuses a whole read, so a read that does not name its types
+    // fails; the drafts are found by the classification event ids the graph names.
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+    scenario.decision(
+        "decision-next",
+        "Replaces the hand recorded one",
+        "human:alex",
+        "2026-10-11T10:00:00Z",
+    )?;
+    scenario.supersede(
+        "decision-hand",
+        "decision-next",
+        "human:alex",
+        "2026-10-11T10:01:00Z",
+    )?;
+    scenario.evidence("evidence-a", "Measured", None, "2026-10-11T10:02:00Z")?;
+    let graph = scenario.graph()?;
+
+    let plain = history_answers(scenario.ledger(), &graph)?;
+    let listed = |answer: &Value, key: &str| -> Vec<String> {
+        answer[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry["decision_id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    assert!(plain[0]["items"]
+        .as_array()
+        .is_some_and(|rows| rows.len() > 5));
+    for draft in [&said_today, &said_earlier] {
+        assert!(listed(&plain[2], "items").contains(draft));
+        assert!(listed(&plain[3], "added_decisions").contains(draft));
+    }
+    // From offset 0 every decision is added; the supersession is a change inside its window.
+    let hand = plain[3]["added_decisions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["decision_id"] == "decision-hand")
+        .expect("the hand-recorded decision is added");
+    assert_eq!(hand["status"], "superseded");
+    assert_eq!(hand["changes_in_window"][0]["change_kind"], "supersession");
+
+    assert_eq!(
+        history_answers(&TypedReadsOnly(scenario.ledger()), &graph)?,
+        plain,
+        "naming its types changes no answer"
+    );
+
+    // Transcripts after everything else, so no other event moves: nothing may be added or dropped.
+    for index in 0..40 {
+        scenario.received_batch(
+            &format!("batch-{index}"),
+            &format!("session-{index}"),
+            "2026-10-12T00:00:00Z",
+        )?;
+    }
+    assert_eq!(
+        history_answers(&TypedReadsOnly(scenario.ledger()), &graph)?,
+        plain,
+        "a ledger padded with transcripts answers the same"
+    );
+
+    // The feeds do not list a transcript: the classification that records what it decided is the
+    // event with a row.
+    let activity = get_recent_activity(
+        &TypedReadsOnly(scenario.ledger()),
+        &RecentActivityRequest {
+            limit: 500,
+            ..RecentActivityRequest::default()
+        },
+    )?
+    .data;
+    assert!(activity
+        .items
+        .iter()
+        .all(|row| row.event_type != EventType::IngestBatchReceived));
+    assert!(activity
+        .items
+        .iter()
+        .any(|row| row.event_type == EventType::IngestBatchClassified));
+    Ok(())
+}
+
+#[test]
+fn the_types_a_history_read_names_leave_out_nothing_it_answers_from() -> Result<()> {
+    // The reads once walked every event. Each scenario holds the event types a ledger carries
+    // beside decisions (evidence, hypotheses, questions, blockers, notifications, assessments,
+    // moves, reaffirmations); the answers over the named types must be the answers over all of
+    // them. The feeds list no raw transcript, so their whole-ledger answer leaves those out too.
+    let (drafts, _, _) = drafts_scenario()?;
+    let scenarios = [
+        ("drafts", drafts),
+        ("attention", attention_scenario()?),
+        ("floor", floor_scenario()?),
+        ("reexamine", reexamine_scenario()?),
+        ("revisions", revisions_scenario()?),
+        ("reaffirmation", reaffirmation_scenario()?),
+    ];
+    for (name, scenario) in &scenarios {
+        let graph = scenario.graph()?;
+        let named = history_answers(&TypedReadsOnly(scenario.ledger()), &graph)?;
+        let whole = history_answers(
+            &EveryEventRead {
+                ledger: scenario.ledger(),
+                without_received: false,
+            },
+            &graph,
+        )?;
+        let feeds = history_answers(
+            &EveryEventRead {
+                ledger: scenario.ledger(),
+                without_received: true,
+            },
+            &graph,
+        )?;
+        assert_eq!(named[0], feeds[0], "{name}: get_recent_activity");
+        assert_eq!(named[1], feeds[1], "{name}: get_decisions_changed_since");
+        assert_eq!(named[2], whole[2], "{name}: get_recent_decisions");
+        assert_eq!(named[3], whole[3], "{name}: get_decisions_added_since");
+        assert!(
+            named[0]["items"]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty()),
+            "{name}: the feed lists something"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_feeds_list_every_event_type_but_the_raw_transcripts() -> Result<()> {
+    // A type the list forgets would drop out of the feeds without a word. Every type has a v0
+    // fixture, so a new type that the list lacks fails here.
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v0");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&fixtures).map_err(query_error)? {
+        let path = entry.map_err(query_error)?.path();
+        if path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        let event: Event =
+            serde_json::from_str(&std::fs::read_to_string(&path).map_err(query_error)?)
+                .map_err(query_error)?;
+        assert_eq!(
+            FEED_EVENT_TYPES.contains(&event.event_type),
+            event.event_type != EventType::IngestBatchReceived,
+            "{}",
+            path.display()
+        );
+        checked += 1;
+    }
+    assert!(checked > 0, "the fixtures were found");
     Ok(())
 }

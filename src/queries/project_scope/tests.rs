@@ -6,7 +6,7 @@ use crate::commands::Commands;
 use crate::events::ProjectLinkKind;
 use crate::ledger::{AnyLedger, InMemoryEventLedger, SqliteEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph};
-use crate::queries::test_fixtures::{project_first_fixture, ProjectFirstFixture};
+use crate::queries::test_fixtures::{project_first_fixture, ProjectFirstFixture, TypedReadsOnly};
 use crate::queries::{
     get_situational_decisions, search_decisions, search_decisions_with_ledger,
     DecisionSearchResults, DecisionStatus, DecisionView, QueryContext, QueryResponse,
@@ -869,5 +869,30 @@ fn a_graph_only_search_refuses_a_project_rather_than_searching_the_whole_tenant(
             .contains("project scoping requires ledger-backed"),
         "{error}"
     );
+    Ok(())
+}
+
+#[test]
+fn a_project_scoped_read_never_reads_the_whole_ledger() -> Result<()> {
+    // The registry was found by replaying the tenant from the first event, so a search that named
+    // a project paid for every transcript of a cell (hivemind-gxypz). Only the project events are
+    // read now, and a search answers as it does on the plain ledger (recall is built on that
+    // search).
+    let f = project_first_fixture()?;
+    let guarded = TypedReadsOnly(&f.ledger);
+    let graph = MemoryGraph::default();
+    rebuild_graph(&f.ledger, &graph)?;
+    let context = QueryContext::local();
+
+    let whole = project_scope(&f.ledger, "billing")?;
+    let typed = project_scope(&guarded, "billing")?;
+    assert_eq!(typed, whole);
+    assert_eq!(typed.parent.as_deref(), Some("platform"));
+
+    let request = search_request(Some("billing"), 10, None);
+    let whole = search_decisions_with_ledger(&context, &f.ledger, &graph, &request)?;
+    let typed = search_decisions_with_ledger(&context, &guarded, &graph, &request)?;
+    assert_billing_recall(&f, &typed.data.items);
+    assert_eq!(json_of(&typed.data)?, json_of(&whole.data)?);
     Ok(())
 }

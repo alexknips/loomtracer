@@ -752,6 +752,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `--cursor` for the next page; the last page has `next_cursor: null`. A decision recorded twice
   whose records fall on two pages is shown on both, naming its other record in
   `also_recorded_as`. (hivemind-v3lrl)
+- **`recent_decisions`, `get_decisions_added_since`, `get_recent_activity`,
+  `get_decisions_changed_since`, `hivemind review`, project-scoped reads and the read notice no
+  longer read every transcript the ledger holds.** Each of them walked the whole ledger and
+  parsed every event, and on a ledger that is mostly received transcripts
+  (`ingest.batch_received`) that cost seconds per call, growing with the transcripts rather
+  than with the decisions. The history reads now fetch only the event types they report, plus
+  the classification event a drafted decision names; a project-scoped read (`--project` on
+  `search` and `recall`, `situational`, `reexamine`, `misfiled`, `get_project`, the decision-log
+  export) fetches only the six `project.*` event types; and the line the CLI and the stdio MCP
+  tools print when annotation rows could not be read fetches only the annotation rows. What the
+  reads answer is unchanged, with one exception: `get_recent_activity` and
+  `get_decisions_changed_since` no longer list a row for `ingest.batch_received`, the raw
+  transcript, which names no decision. The classification row that follows it stays, and every
+  other event type still has its row. (hivemind-gxypz)
 - **`hivemind digest` keeps the newest decisions of a window and lets you read the rest.** A
   window that held more than 50 decisions showed an arbitrary 50, in decision-id order (a random
   uuid, with classifier drafts, `capture:<n>:<i>`, ahead of every other), and the rest could not

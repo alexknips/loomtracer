@@ -474,7 +474,7 @@ pub fn get_recent_activity(
     request: &RecentActivityRequest,
 ) -> Result<QueryResponse<RecentActivityResults>> {
     let started = Instant::now();
-    let events = read_all_events(ledger)?;
+    let events = read_history_events(ledger, FEED_EVENT_TYPES)?;
     let latest_offset = ledger.latest_offset()?;
     let index = DecisionIndex::from_events(&events)?;
     let filters = normalized_history_filters(&request.filters);
@@ -534,7 +534,7 @@ pub fn get_recent_decisions(
     request: &RecentDecisionsRequest,
 ) -> Result<QueryResponse<RecentDecisionsResults>> {
     let started = Instant::now();
-    let events = read_all_events(ledger)?;
+    let events = read_history_events(ledger, DECISION_EVENT_TYPES)?;
     let latest_offset = ledger.latest_offset()?;
     let window = HistoryWindow::new(
         latest_offset,
@@ -629,8 +629,7 @@ pub fn get_recent_decisions(
             hypothesis_ids,
         });
     }
-    for (decision_id, draft) in ClassifiedDrafts::load(graph, &events, &decision_rows, &standings)?
-    {
+    for (decision_id, draft) in ClassifiedDrafts::load(graph, ledger, &decision_rows, &standings)? {
         if !draft.decided_between(Some(request.since_timestamp), request.until_timestamp)
             || !decision_matches_recent_filters(
                 &draft.topic_keys,
@@ -735,7 +734,7 @@ fn changed_window_rows(
     ledger: &impl EventLedger,
     request: &ChangedSinceRequest,
 ) -> Result<(HistoryWindow, HistoryFilters, Vec<DecisionChangeRow>)> {
-    let events = read_all_events(ledger)?;
+    let events = read_history_events(ledger, FEED_EVENT_TYPES)?;
     let latest_offset = ledger.latest_offset()?;
     let window = HistoryWindow::new(
         latest_offset,
@@ -833,7 +832,7 @@ pub fn get_decisions_added_since(
     request: &DecisionsAddedSinceRequest,
 ) -> Result<QueryResponse<DecisionsAddedSinceResults>> {
     let started = Instant::now();
-    let events = read_all_events(ledger)?;
+    let events = read_history_events(ledger, DECISION_EVENT_TYPES)?;
     let latest_offset = ledger.latest_offset()?;
     let window = HistoryWindow::new(
         latest_offset,
@@ -845,7 +844,7 @@ pub fn get_decisions_added_since(
     let index = DecisionIndex::from_events(&events)?;
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
     let standings = DecisionStandings::load(graph)?;
-    let mut drafts = ClassifiedDrafts::load(graph, &events, &decision_rows, &standings)?;
+    let mut drafts = ClassifiedDrafts::load(graph, ledger, &decision_rows, &standings)?;
     let filters = normalized_added_since_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
@@ -1540,28 +1539,65 @@ fn export_from_parts(
     }
 }
 
-pub(super) fn read_all_events(ledger: &impl EventLedger) -> Result<Vec<Event>> {
-    let mut events = Vec::new();
-    let mut offset = 0;
+/// The event types the feeds (`get_recent_activity`, `get_decisions_changed_since`) list a row
+/// for: every type but `ingest.batch_received`. A received batch is a raw transcript. It names no
+/// decision and changes nothing in the graph, and a cell holds them by the hundred thousand, so
+/// reading them to list them made a feed cost what the transcripts weigh, not what the decisions
+/// do (hivemind-gxypz). The classification that records what a batch decided is listed.
+const FEED_EVENT_TYPES: &[EventType] = &[
+    EventType::DecisionProposed,
+    EventType::DecisionRequested,
+    EventType::DecisionAccepted,
+    EventType::DecisionRejected,
+    EventType::DecisionSuperseded,
+    EventType::EvidenceRecorded,
+    EventType::HypothesisRecorded,
+    EventType::QuestionRecorded,
+    EventType::QuestionAsked,
+    EventType::RelationAdded,
+    EventType::RelationRemoved,
+    EventType::BlockerReported,
+    EventType::BlockerResolved,
+    EventType::NotificationSent,
+    EventType::NotificationAcknowledged,
+    EventType::SuggestionSurfaced,
+    EventType::IngestBatchClassified,
+    EventType::DecisionScored,
+    EventType::DecisionMetadataDerived,
+    EventType::DecisionMoved,
+    EventType::DecisionRetitled,
+    EventType::DecisionReaffirmed,
+    EventType::ProjectRegistered,
+    EventType::ProjectLinked,
+    EventType::ProjectUnlinked,
+    EventType::ProjectAnchored,
+    EventType::ProjectUnanchored,
+    EventType::ProjectTopicDeclared,
+];
 
-    loop {
-        let page = ledger.read(offset, LEDGER_READ_PAGE_SIZE)?;
-        let Some(last) = page.last() else {
-            break;
-        };
-        offset = event_id(last)?;
-        let page_len = page.len();
-        // An annotation row nobody can parse is skipped, not a reason to refuse every history
-        // read; the caller that wants to tell the reader scans for it (`read_notice`).
-        events.extend(
-            page.into_iter()
-                .filter(|event| !events::is_unreadable_annotation(event)),
-        );
-        if page_len < LEDGER_READ_PAGE_SIZE {
-            break;
-        }
-    }
+/// The event types the decision lists (`get_recent_decisions`, `get_decisions_added_since`) read:
+/// the events that carry or change a decision (`DecisionIndex`, `decision_ids_for_payload`) and
+/// the project registrations that name a project. Nothing else changes what they answer.
+const DECISION_EVENT_TYPES: &[EventType] = &[
+    EventType::DecisionProposed,
+    EventType::DecisionRequested,
+    EventType::DecisionAccepted,
+    EventType::DecisionRejected,
+    EventType::DecisionSuperseded,
+    EventType::RelationAdded,
+    EventType::BlockerReported,
+    EventType::DecisionMoved,
+    EventType::DecisionRetitled,
+    EventType::DecisionReaffirmed,
+    EventType::ProjectRegistered,
+];
 
+/// Every event of `types` in ledger order. An annotation row nobody can parse is skipped, not a
+/// reason to refuse every history read; the caller that wants to tell the reader scans for it
+/// (`read_notice`).
+fn read_history_events(ledger: &impl EventLedger, types: &[EventType]) -> Result<Vec<Event>> {
+    let mut events = ledger.read_all_types_for_tenant(&ledger.bound_tenant(), types)?;
+    events.retain(|event| !events::is_unreadable_annotation(event));
     Ok(events)
 }
 

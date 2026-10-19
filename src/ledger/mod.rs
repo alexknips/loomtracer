@@ -88,6 +88,33 @@ pub trait EventLedger {
         Ok(found)
     }
 
+    /// Every event of the given `types`, oldest first: [`Self::read_types_for_tenant`] a page at a
+    /// time until the ledger has no more. The read for a query that walks a few kinds of event
+    /// and must not pay for the rest, which on a cell are raw `ingest.batch_received` transcripts
+    /// by the hundred thousand.
+    fn read_all_types_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        types: &[EventType],
+    ) -> Result<Vec<Event>> {
+        const PAGE: usize = 1_000;
+        let mut found = Vec::new();
+        let mut offset = 0;
+        loop {
+            let page = self.read_types_for_tenant(tenant_id, types, &[], offset, PAGE)?;
+            let Some(last) = page.last().and_then(|event| event.event_id) else {
+                break;
+            };
+            offset = last;
+            let full_page = page.len() >= PAGE;
+            found.extend(page);
+            if !full_page {
+                break;
+            }
+        }
+        Ok(found)
+    }
+
     /// Events of one `event_type` after `offset`, oldest first, at most `limit`, reduced to
     /// [`EventFields`]: the cheapest read of a few small fields from many events. The Postgres
     /// ledger extracts the fields in the query and sends only them; the default reads the typed
