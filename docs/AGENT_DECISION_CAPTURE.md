@@ -907,7 +907,9 @@ HIVEMIND_AGENT_TOOL Override agent_tool field (default: claude)
 worker (`src/classifier.rs`) that reads `ingest.batch_received` events and
 annotates them with `ingest.batch_classified` events via Haiku 4.5. The
 worker exits immediately when `ANTHROPIC_API_KEY` is absent — the rest of
-the system stays correct without it. Its prompt carries the decision test (a
+the system stays correct without it. It also starts only on the SQLite
+backend: a Postgres server does not start it, a key included, and logs one
+warning saying the key is ignored. Its prompt carries the decision test (a
 choice binds something or is costly to undo; a request goes to your tracker) and it
 no longer produces `decision-request`. See
 [`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md) for the classifier design.
@@ -1083,8 +1085,9 @@ dropped.
 
 Both Worker A and Worker B write identical `IngestBatchClassified` events to the
 same queue. Concurrent classification is idempotent — last writer wins per batch.
-Setting `ANTHROPIC_API_KEY` later starts Worker B automatically; Worker A remains
-available for on-demand draining.
+Setting `ANTHROPIC_API_KEY` later starts Worker B automatically on a SQLite
+server (a Postgres server ignores the key); Worker A remains available for
+on-demand draining.
 
 See [`docs/KEYLESS_CAPTURE.md`](KEYLESS_CAPTURE.md) for a zero-to-first-decision
 walkthrough that requires no API key.

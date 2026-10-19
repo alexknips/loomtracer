@@ -221,7 +221,7 @@ project root, or from the shell environment.
 | `HIVEMIND_PUBLISH_ADDR` | `127.0.0.1` | Host address compose publishes `HIVEMIND_PORT` on (compose only). See [Exposing the cell deliberately](#exposing-the-cell-deliberately). |
 | `HIVEMIND_ADMIN_KEY` | *(unset)* | Bearer token for `POST /v1/tenants`, `POST /v1/users`, `GET /v1/users`, and token revocation. Required before provisioning tenants or users. |
 | `HIVEMIND_API_KEY` | *(unset)* | Static bearer token (SQLite mode only; forwarded by `docker-compose.yml`). With neither this nor `HIVEMIND_DATABASE_URL` set the server runs in development mode (no auth), which refuses a non-loopback bind. |
-| `ANTHROPIC_API_KEY` | *(unset)* | Enables the Layer-3 ingest classifier (Claude Haiku). Optional. |
+| `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `HIVEMIND_DATABASE_URL` is set, which is the compose default: the server logs one warning at start and classifies nothing. Optional; see [Keyless capture](#keyless-capture--no-anthropic_api_key-required). |
 | `HIVEMIND_CORS_ORIGINS` | *(unset)* | Comma-separated origins allowed for browser cross-origin requests. |
 | `POSTGRES_PASSWORD` | `hivemind` | Password for the bundled Postgres service. Change before production. |
 | `HIVEMIND_TENANT` | `local` | Default tenant. For the CLI and `hivemind mcp` this selects the Postgres tenant scope when `HIVEMIND_DATABASE_URL`/`--database-url` is also set. Not used by `serve`, which resolves the tenant per request from the caller's auth token instead. |
@@ -258,7 +258,10 @@ config (`CONNECTOR_*`) as a placeholder — that surface is not yet finalised
 
 `ANTHROPIC_API_KEY` in the table above is **optional**. Without it the server
 starts and operates correctly — the only thing that doesn't run is the
-server-side background classifier (Worker B).
+server-side background classifier (Worker B). Worker B runs only on the SQLite
+backend: with `HIVEMIND_DATABASE_URL` set, as in the default compose stack, it
+never starts, a key included, and the server logs one warning saying the key is
+ignored. On that stack classification is always Worker A.
 
 **If you omit `ANTHROPIC_API_KEY`**, classification still happens via
 **Worker A**: the `hivemind-capture` plugin ships a
@@ -371,9 +374,9 @@ curl -s -o /dev/null -w "%{http_code}" -X POST $HM_URL/mcp \
 # → 200
 ```
 
-**Layer-3 classifier** (if `ANTHROPIC_API_KEY` is set): after step 2, wait a
-few seconds then re-fetch the decision — `topic_keys` should be populated
-automatically.
+**Layer-3 classifier** (SQLite mode with `ANTHROPIC_API_KEY` set; a Postgres
+server ignores the key): after step 2, wait a few seconds then re-fetch the
+decision — `topic_keys` should be populated automatically.
 
 **Fluent (no-id) routes:** step 3b above is one of four GET routes that
 resolve a decision without an id — `situational`, `recall`, `why`, `verify`.

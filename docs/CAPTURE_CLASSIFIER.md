@@ -9,7 +9,7 @@ events, query the graph, rank existing decisions, deduplicate, or resolve
 disagreement.
 
 Three workers run it today: the optional server-side worker
-(`src/classifier.rs`, which needs `ANTHROPIC_API_KEY`), the agent-seat
+(`src/classifier.rs`, which needs `ANTHROPIC_API_KEY` and a SQLite server), the agent-seat
 `/hivemind-capture:classify-queue` command, and the keyless
 `/hivemind-capture:batch-capture` command (a Haiku subagent inside the agent's
 own session). The canonical write path remains the commands layer: each worker

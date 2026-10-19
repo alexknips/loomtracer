@@ -7,7 +7,8 @@
 //!
 //! The worker is entirely optional: if ANTHROPIC_API_KEY is absent it exits
 //! immediately and the rest of the system — including the quality profile's
-//! deterministic floors — stays fully correct without it.
+//! deterministic floors — stays fully correct without it. It reads the SQLite ledger in a
+//! folder, so `serve` starts it only on the SQLite backend.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -562,12 +563,12 @@ fn write_assessment(
 /// Try to read the API key and spawn the worker. Logs a warning and returns
 /// `None` if the key is absent.
 pub fn try_spawn(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId) -> Option<()> {
-    match std::env::var("ANTHROPIC_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => {
+    match crate::classifier::anthropic_api_key() {
+        Some(key) => {
             spawn_scorer(hivemind_dir, tenant_id, key);
             Some(())
         }
-        _ => {
+        None => {
             warn!(
                 target: "hivemind::scorer",
                 "ANTHROPIC_API_KEY not set — Layer-3 scorer disabled"

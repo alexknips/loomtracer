@@ -31,7 +31,10 @@ services:
       # Static bearer token for SQLite mode (no HIVEMIND_DATABASE_URL). An
       # empty value counts as unset; SQLite mode without it refuses to start.
       HIVEMIND_API_KEY: "${HIVEMIND_API_KEY:-}"
-      # Optional: enable the Layer-3 ingest classifier (Claude Haiku).
+      # Optional, SQLite mode only: enable the server-side Layer-3 classifier and
+      # scorer (Claude Haiku). With HIVEMIND_DATABASE_URL set, as above, the key is
+      # ignored and the server logs a warning; classify keylessly with
+      # /hivemind-capture:classify-queue (docs/KEYLESS_CAPTURE.md).
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       # Optional: comma-separated CORS origins for browser SPA access.
       HIVEMIND_CORS_ORIGINS: "${HIVEMIND_CORS_ORIGINS:-}"

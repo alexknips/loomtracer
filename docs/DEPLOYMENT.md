@@ -53,7 +53,7 @@ reads these from the shell or from an `.env` file in the project root.
 | `HIVEMIND_ADMIN_KEY` | *(unset)* | Bearer token for `POST /v1/tenants` (Postgres mode). Required before provisioning tenants. |
 | `HIVEMIND_TENANT` | `local` | Tenant to open. For the CLI and `hivemind mcp` this selects the Postgres tenant scope when `HIVEMIND_DATABASE_URL`/`--database-url` is also set (see below for what happens on an unrecognized value). Not used by `serve`, which resolves the tenant per request from the caller's auth instead. |
 | `HIVEMIND_CORS_ORIGINS` | *(unset)* | Comma-separated origins for browser cross-origin requests. |
-| `ANTHROPIC_API_KEY` | *(unset)* | Enables the Layer-3 ingest classifier (Claude Haiku). Optional. |
+| `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `HIVEMIND_DATABASE_URL` is set: the server logs one warning at start and classifies nothing. Optional. |
 | `POSTGRES_PASSWORD` | `hivemind` | Password for the bundled Postgres service (compose only). |
 
 ### CLI and MCP direct-Postgres mode
@@ -297,9 +297,6 @@ fly postgres attach hivemind-pg --app hivemind-api
 # 3. Set the API key secret (all clients must send this as a Bearer token)
 fly secrets set HIVEMIND_API_KEY="$(openssl rand -hex 32)" --app hivemind-api
 
-# Optional: enable the Layer-3 ingest classifier
-# fly secrets set ANTHROPIC_API_KEY=sk-ant-... --app hivemind-api
-
 # 4. Deploy
 fly deploy --app hivemind-api
 ```
@@ -330,7 +327,7 @@ Set these via `fly secrets set --app <your-app-name>`. Never commit them.
 | `HIVEMIND_DATABASE_URL` | Yes (Postgres mode) | Set automatically by `fly postgres attach`. Enables multi-tenant Postgres backend. |
 | `HIVEMIND_API_KEY` | Yes (production) | Bearer token all clients must send. Omit only in dev mode. |
 | `HIVEMIND_ADMIN_KEY` | Recommended | Bearer token for the `POST /v1/tenants` provisioning endpoint. |
-| `ANTHROPIC_API_KEY` | Optional | Enables the Layer-3 decision classifier on ingest. |
+| `ANTHROPIC_API_KEY` | Not used | Ignored on Postgres: the server-side Layer-3 classifier and scorer start only on the SQLite backend. Classify keylessly with `/hivemind-capture:classify-queue`. |
 
 ### Continuous deployment
 

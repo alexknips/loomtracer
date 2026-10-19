@@ -282,7 +282,8 @@ Two producers write a version-2 assessment, both optional and both going through
 same write path (`Commands::record_decision_assessed`), so a plugin/edge call is
 checked exactly as strictly as the server's own:
 
-- **The background scorer** (`src/scorer.rs`). Runs only with `ANTHROPIC_API_KEY` set;
+- **The background scorer** (`src/scorer.rs`). Runs only with `ANTHROPIC_API_KEY` set and
+  only on a SQLite server (a Postgres server ignores the key and logs one warning);
   absent, it logs once and never starts, and the rest of the system — including every
   floor — stays fully correct without it. Every 30 seconds it scans the ledger for
   decisions with no version-2 assessment yet: both classifier-extracted captures

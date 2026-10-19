@@ -925,14 +925,7 @@ pub async fn serve_http(state: AppState, config: &ApiConfig) -> crate::Result<()
         warn!(target: "hivemind::api", error = %e, "graph cache warm-up task failed; the first read of each tenant builds its graph");
     }
 
-    crate::classifier::try_spawn(
-        Arc::new(config.hivemind_dir.clone()),
-        crate::events::TenantId::local(),
-    );
-    crate::scorer::try_spawn(
-        Arc::new(config.hivemind_dir.clone()),
-        crate::events::TenantId::local(),
-    );
+    spawn_layer3_workers(&state.backend);
     slack::try_spawn_drain_loop(&state);
 
     let app = build_router(state);
@@ -952,6 +945,30 @@ pub async fn serve_http(state: AppState, config: &ApiConfig) -> crate::Result<()
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| CliError::InvalidInput(format!("server error: {e}")).into())
+}
+
+/// Starts the Layer-3 background workers (the classifier and the scorer) when the server holds a
+/// SQLite ledger. Both open the ledger folder by path and work the `local` tenant only, so on
+/// Postgres they would open a fresh empty `ledger.sqlite` beside the database and find nothing to
+/// do while every capture sits in Postgres. There they do not start; a key that is set is ignored
+/// and the log says so once. Batches on a Postgres server are classified keylessly instead
+/// (`classify-queue`, docs/KEYLESS_CAPTURE.md).
+fn spawn_layer3_workers(backend: &ApiBackend) {
+    match backend.sqlite_dir() {
+        Some(dir) => {
+            let dir = Arc::new(dir.to_path_buf());
+            crate::classifier::try_spawn(Arc::clone(&dir), crate::events::TenantId::local());
+            crate::scorer::try_spawn(dir, crate::events::TenantId::local());
+        }
+        None => {
+            if crate::classifier::anthropic_api_key().is_some() {
+                warn!(
+                    target: "hivemind::api",
+                    "ANTHROPIC_API_KEY is set but ignored: the server-side classifier and scorer read a SQLite ledger and this server's ledger is Postgres; classify keylessly with classify-queue"
+                );
+            }
+        }
+    }
 }
 
 async fn shutdown_signal() {

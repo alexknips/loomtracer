@@ -216,7 +216,7 @@ conversation from last week sits in last week's window however late it was class
 | | Worker A | Worker B |
 |---|---|---|
 | **Where** | Agent-side (`/classify-queue`) | Server-side (`src/classifier.rs`) |
-| **Key required** | No — uses subscription seat | Yes — `ANTHROPIC_API_KEY` |
+| **Key required** | No — uses subscription seat | Yes — `ANTHROPIC_API_KEY`, and a SQLite server |
 | **When it runs** | On demand after your session | Automatically in background |
 | **Queue** | Same shared work queue | Same shared work queue |
 | **Result** | Identical `IngestBatchClassified` events | Identical `IngestBatchClassified` events |
@@ -224,9 +224,12 @@ conversation from last week sits in last week's window however late it was class
 Both workers write to the same queue and the result is the same — concurrent
 classification is idempotent (last writer wins per batch).
 
-If you later add `ANTHROPIC_API_KEY` to the server, Worker B starts classifying
-automatically. Worker A is still available for on-demand draining or when the
-server key is absent.
+If you later add `ANTHROPIC_API_KEY` to a SQLite server, Worker B starts
+classifying automatically. A Postgres server (`HIVEMIND_DATABASE_URL` set: the
+default compose stack, Fly) never starts Worker B: it reads a SQLite ledger and
+the captures are in Postgres, so the server ignores the key and logs one warning
+saying so. There Worker A is the only classifier. Worker A is also available for
+on-demand draining on a SQLite server, or when the server key is absent.
 
 ---
 

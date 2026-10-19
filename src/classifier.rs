@@ -2,7 +2,8 @@
 //! annotates them with ingest.batch_classified events via Haiku 4.5.
 //!
 //! The worker is entirely optional: if ANTHROPIC_API_KEY is absent it exits
-//! immediately and the rest of the system stays fully correct without it.
+//! immediately and the rest of the system stays fully correct without it. It reads the SQLite
+//! ledger in a folder, so `serve` starts it only on the SQLite backend.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -1038,15 +1039,23 @@ pub async fn classify_text(
     Ok(raw_captures_to_items(output.captures))
 }
 
+/// The key the Layer-3 workers run on: `ANTHROPIC_API_KEY`, unless it is unset or blank (compose
+/// passes an empty value through when the operator set none).
+pub(crate) fn anthropic_api_key() -> Option<String> {
+    std::env::var("ANTHROPIC_API_KEY")
+        .ok()
+        .filter(|key| !key.trim().is_empty())
+}
+
 /// Try to read the API key and spawn the worker. Logs a warning and returns
 /// `None` if the key is absent.
 pub fn try_spawn(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId) -> Option<()> {
-    match std::env::var("ANTHROPIC_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => {
+    match anthropic_api_key() {
+        Some(key) => {
             spawn_classifier(hivemind_dir, tenant_id, key);
             Some(())
         }
-        _ => {
+        None => {
             warn!(
                 target: "hivemind::classifier",
                 "ANTHROPIC_API_KEY not set — Layer-3 classifier disabled"

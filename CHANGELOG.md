@@ -718,6 +718,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A Postgres server no longer starts a classifier and scorer that read an empty SQLite file.**
+  `hivemind serve` started both Layer-3 workers whenever `ANTHROPIC_API_KEY` was set, whatever the
+  backend. They open `ledger.sqlite` under `HIVEMIND_DIR` and work the `local` tenant, so with
+  `HIVEMIND_DATABASE_URL` set (the compose default and the Fly recipe) they created an empty
+  `ledger.sqlite`, saw no batch and no decision, and classified and scored nothing without a log
+  line saying so. They now start only on the SQLite backend. On Postgres a key that is set is
+  ignored and the server logs one warning at start; classify keylessly with `classify-queue`. The
+  docs that promised the key switches the classifier on there now say it does not. (hivemind-tbu78)
 - **`hivemind migrate --from <typo>` no longer leaves an empty ledger at the typo.** It opened
   the source before checking anything, and opening makes a ledger, so a mistyped `--from` ended
   with "nothing to migrate" and a `ledger.sqlite` behind it; every later read of that folder

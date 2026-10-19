@@ -63,6 +63,7 @@ impl Serve {
     fn spawn_in(dir: PathBuf, args: &[&str], envs: &[(&str, &str)]) -> Self {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_hivemind"));
         for var in [
+            "ANTHROPIC_API_KEY",
             "HIVEMIND_API_KEY",
             "HIVEMIND_ADMIN_KEY",
             "HIVEMIND_DATABASE_URL",
@@ -116,6 +117,23 @@ impl Serve {
                 return (seen, addr);
             }
             seen.push(line);
+        }
+    }
+
+    /// Reads stderr until a line contains `needle`, appending every line read to `seen`. For a
+    /// line a background task logs, which can land just after "HTTP API listening".
+    fn wait_line(&self, needle: &str, seen: &mut Vec<String>) {
+        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let line = self.lines.recv_timeout(left).unwrap_or_else(|e| {
+                panic!("server never logged {needle:?} ({e}); stderr so far: {seen:#?}")
+            }); // ubs:ignore: test-only
+            let found = line.contains(needle);
+            seen.push(line);
+            if found {
+                return;
+            }
         }
     }
 
@@ -386,6 +404,100 @@ fn serve_builds_the_graph_before_it_listens() {
         lines[warmed]
     ); // ubs:ignore: test-only
     assert_eq!(http_status(&addr, "GET", "/v1/health", &[], ""), 200); // ubs:ignore: test-only
+}
+
+// ---------------------------------------------------------------------------
+// Layer-3 workers run only on the ledger they can read (hivemind-tbu78)
+// ---------------------------------------------------------------------------
+
+const KEY_IGNORED: &str = "ANTHROPIC_API_KEY is set but ignored";
+
+#[test]
+fn sqlite_server_with_an_anthropic_key_starts_the_classifier_and_the_scorer() {
+    let serve = Serve::spawn(
+        "layer3-sqlite",
+        &[],
+        &[("ANTHROPIC_API_KEY", "sk-ant-test-key")],
+    );
+    let (mut lines, _addr) = serve.wait_listening();
+    for worker in ["classifier worker started", "scorer worker started"] {
+        if !lines.iter().any(|l| l.contains(worker)) {
+            serve.wait_line(worker, &mut lines);
+        }
+    }
+    assert!(
+        !lines.iter().any(|l| l.contains(KEY_IGNORED)),
+        "the SQLite backend uses the key; it must not call it ignored: {lines:#?}"
+    ); // ubs:ignore: test-only
+}
+
+/// A Postgres server holds every capture in the database. The workers read a SQLite file under
+/// `HIVEMIND_DIR`, so a key must not start them: they would create an empty `ledger.sqlite`
+/// there and classify and score nothing. Needs `--features shared-backend-postgres` and
+/// `HIVEMIND_TEST_POSTGRES_URL`; without the URL the test says so and passes.
+#[cfg(feature = "shared-backend-postgres")]
+mod postgres {
+    use super::*;
+
+    fn test_database_url() -> Option<String> {
+        match std::env::var("HIVEMIND_TEST_POSTGRES_URL") {
+            Ok(url) if !url.is_empty() => Some(url),
+            _ => {
+                eprintln!("skipping Postgres serve test: HIVEMIND_TEST_POSTGRES_URL is not set");
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn postgres_server_ignores_the_anthropic_key_and_leaves_no_sqlite_ledger() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let dir = unique_dir("layer3-postgres");
+        let serve = Serve::spawn_in(
+            dir.clone(),
+            &[],
+            &[
+                ("HIVEMIND_DATABASE_URL", url.as_str()),
+                ("ANTHROPIC_API_KEY", "sk-ant-test-key"),
+            ],
+        );
+        let (lines, _addr) = serve.wait_listening();
+        let ignored = lines.iter().filter(|l| l.contains(KEY_IGNORED)).count();
+        assert_eq!(
+            ignored, 1,
+            "the server must say once that the key is ignored: {lines:#?}"
+        ); // ubs:ignore: test-only
+        assert!(
+            !lines.iter().any(|l| l.contains("worker started")),
+            "no Layer-3 worker may start on Postgres: {lines:#?}"
+        ); // ubs:ignore: test-only
+           // A worker's first pass runs as soon as it is spawned, so a moment after the server
+           // reports listening a worker that had started would have made the file.
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            !dir.join("ledger.sqlite").exists(),
+            "a Postgres server must not leave a SQLite ledger under its HIVEMIND_DIR"
+        ); // ubs:ignore: test-only
+    }
+
+    #[test]
+    fn postgres_server_without_a_key_has_nothing_to_ignore() {
+        let Some(url) = test_database_url() else {
+            return;
+        };
+        let serve = Serve::spawn(
+            "layer3-postgres-keyless",
+            &[],
+            &[("HIVEMIND_DATABASE_URL", url.as_str())],
+        );
+        let (lines, _addr) = serve.wait_listening();
+        assert!(
+            !lines.iter().any(|l| l.contains(KEY_IGNORED)),
+            "no key is set, so none is ignored: {lines:#?}"
+        ); // ubs:ignore: test-only
+    }
 }
 
 // ---------------------------------------------------------------------------
