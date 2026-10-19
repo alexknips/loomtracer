@@ -299,9 +299,13 @@ pub enum Command {
     /// supersede each: a guided review of what agents (or anyone) decided lately.
     ///
     /// Candidates come from the same deterministic path as `query recent`. Each verdict is
-    /// written as an ordinary accept, reject or supersede event from `--actor`, so reviewed
-    /// state is derived from the ledger, never stored separately; `--unreviewed-only` skips
-    /// decisions someone already ruled on.
+    /// written as an ordinary accept, reject or supersede event from the reviewer: the global
+    /// `--actor`, which goes before `review` (`hivemind --actor human:me review ...`), so
+    /// reviewed state is derived from the ledger, never stored separately. `--unreviewed-only`
+    /// skips the decisions that reviewer already accepted, rejected or superseded, not ones
+    /// someone else ruled on. `review --actor` is a different flag: a glob filter on the actors
+    /// who made the decisions, for example `review --actor 'agent:*'`; it does not name the
+    /// reviewer.
     ///
     /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
     /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
@@ -851,8 +855,8 @@ pub struct MigrateArgs {
 #[derive(Debug, Clone, Args)]
 pub struct MapArgs {
     /// Blend weight between pure-semantic (0.0) and structural-supersession (1.0).
-    /// Values between 0 and 1 blend both signals. Use 0.0,0.5 to output both.
-    #[arg(long, default_value = "0.5")]
+    /// Values between 0 and 1 blend both signals. Use 0.0,0.5 (or repeat the flag) to output both.
+    #[arg(long, default_value = "0.5", value_delimiter = ',')]
     pub alpha: Vec<f64>,
 
     /// Output compact text summary instead of JSON.
@@ -1298,7 +1302,8 @@ pub struct AskArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct ReviewArgs {
-    /// Glob pattern for decision actor ids to review, for example agent:*.
+    /// Glob pattern for the actors whose decisions to review, for example agent:*. This filters
+    /// the decisions' authors; the reviewer is the global --actor, before `review`.
     #[arg(long = "actor", value_delimiter = ',')]
     pub actor_patterns: Vec<String>,
 
@@ -1314,6 +1319,7 @@ pub struct ReviewArgs {
     #[arg(long = "now", hide = true)]
     pub now: Option<String>,
 
+    /// Skip decisions the reviewer (the global --actor) already accepted, rejected or superseded.
     #[arg(long = "unreviewed-only")]
     pub unreviewed_only: bool,
 

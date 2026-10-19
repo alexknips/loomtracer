@@ -718,6 +718,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`hivemind map --alpha 0.0,0.5` now works, and `hivemind review --help` says who the
+  reviewer is.** `map --help` told you to pass `0.0,0.5` to get both maps, but the flag took one
+  value per use and refused the comma form with an invalid-float error (only `--alpha 0.0 --alpha
+  0.5` worked). It takes the comma list now, as the server's map route always did, and still
+  takes the repeated flag. `review --help` said each verdict is written "from `--actor`" and that
+  `--unreviewed-only` skips decisions "someone" already ruled on. The reviewer is the global
+  `--actor`, which goes before `review`, and `--unreviewed-only` skips only the decisions that
+  reviewer already accepted, rejected or superseded. `review --actor` is the glob filter on the
+  actors who made the decisions, and its help now says so. (hivemind-piwlc)
 - **The background scorer no longer offers its model text the write path refuses, and no longer
   pays again for a decision it keeps failing.** For a classifier capture it listed the expressed
   confidence, the topic keys and the options joined on one line as quotable fields, but a quote

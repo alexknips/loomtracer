@@ -773,6 +773,19 @@ fn map_with_several_alphas_keeps_stdout_a_json_array_and_puts_the_notice_on_stde
 }
 
 #[test]
+fn map_takes_a_comma_separated_alpha_list_as_its_help_says() {
+    let dir = unique_dir("map-alpha-commas");
+    make_ledger_with_decision(&dir);
+
+    let output = hivemind(&dir, Some(CELL), &["map", "--alpha", "0.0,0.5"]);
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let maps: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("map --alpha 0.0,0.5 prints a JSON array"); // ubs:ignore: test-only; panicking is correct in tests
+    assert_eq!(maps.as_array().map(Vec::len), Some(2), "{maps}");
+}
+
+#[test]
 fn import_prepare_documents_opens_no_ledger_so_it_is_not_refused() {
     let note = write_decision_note("prepare-note");
     let dir = unique_dir("prepare-ledger");
