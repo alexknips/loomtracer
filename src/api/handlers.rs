@@ -22,6 +22,7 @@ use crate::grounding::{
 };
 use crate::importance::{rank_decisions_by_importance, ImportanceRequest, DEFAULT_PAGE_SIZE};
 use crate::ledger::{EventLedger, SqliteEventLedger, TenantScopedLedger};
+use crate::option_filler;
 use crate::possibly_related::{possibly_related, PossiblyRelatedRequest};
 use crate::projector::{memory::SharedGraph, GraphView};
 use crate::quality_profile::{verify_with_quality, why_with_quality};
@@ -467,7 +468,7 @@ fn capture_decision_blocking(
         let description = option
             .description
             .filter(|d| !d.trim().is_empty())
-            .unwrap_or_else(|| format!("Option '{label}'"));
+            .unwrap_or_else(|| option_filler::http(&label));
 
         let option_id = commands
             .record_option(&ctx.actor_id, &label, &description)

@@ -107,19 +107,24 @@ Calibration and Bias exposure have floors.
 **Alternatives.** The alternatives are the options other than the chosen one (all
 of them while none is chosen). A description counts only if it is the author's
 own. Text a capture surface fills in when none was given does not, and neither
-does a description that only repeats the option's label:
+does a description that only repeats the option's label. Each surface writes its
+text through one function in `src/option_filler.rs`, and the floor recognises it
+through the same file, so a rewording changes both together:
 
 | Written by | Text (`<label>` is the option's label) |
 | --- | --- |
 | MCP `capture_decision` | `Option generated from MCP value '<label>'` |
-| CLI `emit decision.proposed` | `Option generated from CLI value '<label>'` |
+| CLI `emit decision.capture`, `decision.proposed` | `Option generated from CLI value '<label>'` |
 | `supersede` | `Option generated from supersede value '<label>'` |
 | HTTP capture | `Option '<label>'` |
 | Slack ingest | `Slack option '<label>' captured from <source>` |
 | Document import | `Option imported from document block <block>` |
 
-A description that merely begins with one of these but goes on (an author who
-kept the generated text and added their reason) is the author's own.
+A description that merely begins with one of the first four but goes on (an
+author who kept the generated text and added their reason) is the author's own.
+Slack ingest and document import are the exception: their text ends in a
+free-form tail (the thread, the block id), so words added after it cannot be told
+from the tail and the description still reads as generated.
 
 **Ex ante.** Something counts toward a floor only if it was recorded before the
 decision or attached at capture. Evidence, a prior decision, an assumption or a

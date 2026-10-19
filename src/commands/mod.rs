@@ -363,6 +363,7 @@ use crate::events::{
 };
 use crate::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
 use crate::ledger::EventLedger;
+use crate::option_filler;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
 
@@ -2721,18 +2722,11 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
 
         for (option_label, option_id) in option_labels.iter().zip(&option_ids) {
-            let mut option_description = String::with_capacity(
-                "Option generated from supersede value ''".len() + option_label.len(),
-            );
-            let _ = write!(
-                option_description,
-                "Option generated from supersede value '{option_label}'"
-            );
             self.record_option_with_id(
                 input.actor_id,
                 option_id,
                 option_label,
-                &option_description,
+                &option_filler::supersede(option_label),
             )?;
         }
 

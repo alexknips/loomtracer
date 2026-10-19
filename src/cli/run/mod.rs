@@ -8,7 +8,6 @@ mod migrate;
 mod reaffirm;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fmt::Write as _;
 use std::io::{self, BufRead, Read as IoRead, Write as IoWrite};
 use std::path::{Path, PathBuf};
 
@@ -41,6 +40,7 @@ use crate::ledger::{
     AnyLedger, EventLedger, LedgerConfig, SqliteEventLedger, TenantScopedLedger,
     TenantScopedOwnedLedger,
 };
+use crate::option_filler;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant, GraphView};
 use crate::quality_profile::{
     self, decision_log_section, parse_kinds, ScanRequest, SuggestionsRequest,
@@ -2790,13 +2790,8 @@ fn record_cli_options<L: EventLedger>(
     let mut option_ids = Vec::with_capacity(option_labels.len());
     let mut chosen_option_id = None;
     for option_label in option_labels {
-        let mut option_description =
-            String::with_capacity("Option generated from CLI value ''".len() + option_label.len());
-        let _ = write!(
-            option_description,
-            "Option generated from CLI value '{option_label}'"
-        );
-        let option_id = commands.record_option(actor_id, option_label, &option_description)?;
+        let option_id =
+            commands.record_option(actor_id, option_label, &option_filler::cli(option_label))?;
         if chosen_option_label == Some(option_label.as_str()) {
             chosen_option_id = Some(option_id.clone());
         }

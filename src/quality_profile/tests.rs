@@ -7,7 +7,6 @@ use uuid::Uuid;
 use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
 use crate::events::{HypothesisKind, ModelDimension, ModelDimensions};
 use crate::ledger::InMemoryEventLedger;
-use crate::mcp::args::default_option_description;
 use crate::projector::{memory::MemoryGraph, rebuild_graph};
 use crate::queries::test_fixtures::{floor_scenario, ts, FLOOR_SCENARIO_DECISIONS};
 use crate::queries::{
@@ -287,17 +286,17 @@ fn with_no_option_chosen_every_option_is_an_alternative() {
 #[test]
 fn text_a_capture_surface_generates_does_not_count_as_a_description() {
     // Each of these is what a surface writes when the author gave the option no description of
-    // their own (`GENERATED_QUOTED_PREFIXES` and friends), plus a description that only repeats
-    // the label.
+    // their own (built by the surface's own `option_filler` function), plus a description that
+    // only repeats the label.
     let generated = [
-        "Option generated from MCP value 'Direct'",
-        "Option generated from CLI value 'Direct'",
-        "Option generated from supersede value 'Direct'",
-        "Option 'Direct'",
-        "Slack option 'Direct' captured from slack://C123/p456",
-        "Option imported from document block block-7",
-        "Direct",
-        "  direct  ",
+        option_filler::mcp("Direct"),
+        option_filler::cli("Direct"),
+        option_filler::supersede("Direct"),
+        option_filler::http("Direct"),
+        option_filler::slack("Direct", "slack://T1/C123/p456"),
+        option_filler::import("block-7"),
+        "Direct".to_owned(),
+        "  direct  ".to_owned(),
     ];
     for description in generated {
         let mut record = facts();
@@ -307,7 +306,7 @@ fn text_a_capture_surface_generates_does_not_count_as_a_description() {
                 "Gateway",
                 Some("Route every call through one gateway"),
             ),
-            option("o:b", "Direct", Some(description)),
+            option("o:b", "Direct", Some(&description)),
         ];
         record.chosen_option_id = Some("o:a".to_owned());
 
@@ -320,25 +319,6 @@ fn text_a_capture_surface_generates_does_not_count_as_a_description() {
             ids(&["o:b"])
         );
     }
-}
-
-#[test]
-fn the_mcp_placeholder_the_write_layer_fills_in_does_not_count() {
-    // The recogniser and the MCP surface must agree on the text; this fails if either moves.
-    let mut record = facts();
-    record.options = vec![
-        option(
-            "o:a",
-            "Gateway",
-            Some("Route every call through one gateway"),
-        ),
-        option("o:b", "Direct", Some(&default_option_description("Direct"))),
-    ];
-    record.chosen_option_id = Some("o:a".to_owned());
-
-    let profile = profile_from_record(&record);
-
-    assert_eq!(assessed(&profile.alternatives).0, Level::Partial);
 }
 
 #[test]
@@ -1501,8 +1481,7 @@ fn a_directly_captured_decision_gets_a_profile() -> Result<()> {
     let chosen =
         commands.record_option(actor, "Gateway", "Route every call through one gateway")?;
     let described = commands.record_option(actor, "Direct", "Calls go straight to the service")?;
-    let placeholder =
-        commands.record_option(actor, "Queue", &default_option_description("Queue"))?;
+    let placeholder = commands.record_option(actor, "Queue", &option_filler::mcp("Queue"))?;
     commands.record_evidence_with_id(
         actor,
         "e:load-test",

@@ -18,6 +18,7 @@ pub mod ledger;
 pub mod linear;
 pub mod map;
 pub mod mcp;
+pub(crate) mod option_filler;
 pub mod possibly_related;
 pub mod projector;
 pub mod quality_profile;

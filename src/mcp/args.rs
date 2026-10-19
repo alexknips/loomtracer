@@ -11,11 +11,6 @@ use serde_json::{Map, Value};
 
 pub(crate) const INVALID_PARAMS: i32 = -32602;
 
-/// Default description injected when an MCP option object omits `description`.
-pub(crate) fn default_option_description(label: &str) -> String {
-    format!("Option generated from MCP value '{label}'")
-}
-
 pub(crate) fn require_string(
     args: &Map<String, Value>,
     field: &str,

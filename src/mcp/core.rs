@@ -49,6 +49,7 @@ use crate::grounding::{
 };
 use crate::importance::{self, ImportanceRequest, DEFAULT_PAGE_SIZE};
 use crate::ledger::{AnyLedger, EventLedger, TenantScopedLedger};
+use crate::option_filler;
 use crate::projector::{
     memory::{MemoryGraph, SharedGraph},
     rebuild_graph_for_tenant, GraphView,
@@ -80,9 +81,8 @@ use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
 use crate::summarize::{RecallRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT};
 
 use super::args::{
-    default_option_description, optional_bool, optional_bool_or, optional_datetime,
-    optional_option_labels, optional_string, optional_string_array, optional_usize, require_string,
-    require_string_array, topic_keys_arg,
+    optional_bool, optional_bool_or, optional_datetime, optional_option_labels, optional_string,
+    optional_string_array, optional_usize, require_string, require_string_array, topic_keys_arg,
 };
 
 // ---------------------------------------------------------------------------
@@ -519,7 +519,7 @@ impl CaptureDecisionArgs {
                 .and_then(Value::as_str)
                 .filter(|s| !s.trim().is_empty())
                 .map(str::to_owned)
-                .unwrap_or_else(|| default_option_description(&label));
+                .unwrap_or_else(|| option_filler::mcp(&label));
             options.push(CaptureOptionArg { label, description });
         }
 

@@ -19,6 +19,7 @@ use crate::events::{
     self, Event, EventPayload, EventProvenance, EventSource, EventType, HypothesisKind,
 };
 use crate::ledger::EventLedger;
+use crate::option_filler;
 use crate::util::require_non_empty;
 use crate::Result;
 
@@ -406,15 +407,11 @@ pub fn import_slack_thread<L: EventLedger>(
     let mut option_ids = Vec::with_capacity(draft.option_labels.len());
     let mut chosen_option_id = None;
     for label in &draft.option_labels {
-        let mut description = String::with_capacity(
-            "Slack option '' captured from ".len() + label.len() + draft.source_ref.len(),
-        );
-        let _ = write!(
-            description,
-            "Slack option '{label}' captured from {}",
-            draft.source_ref
-        );
-        let option_id = commands.record_option(&draft.actor_id, label, &description)?;
+        let option_id = commands.record_option(
+            &draft.actor_id,
+            label,
+            &option_filler::slack(label, &draft.source_ref),
+        )?;
         if draft.chosen_option_label.as_deref() == Some(label.as_str()) {
             chosen_option_id = Some(option_id.clone());
         }
@@ -1891,10 +1888,7 @@ fn write_document_decision_events<L: EventLedger>(
         CommandContext::local(EventProvenance::document(source_ref.to_owned()))
             .with_event_ts(event_ts),
     );
-    let mut imported_option_description =
-        String::with_capacity("Option imported from document block ".len() + draft.block_id.len());
-    imported_option_description.push_str("Option imported from document block ");
-    imported_option_description.push_str(&draft.block_id);
+    let imported_option_description = option_filler::import(&draft.block_id);
     for (option_id, label) in identities.option_ids.iter().zip(&draft.option_labels) {
         commands.record_option_with_id(actor_id, option_id, label, &imported_option_description)?;
     }

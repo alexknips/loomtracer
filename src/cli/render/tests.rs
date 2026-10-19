@@ -930,7 +930,7 @@ fn rejected_scenario(options: &[(&str, &str, &str)]) -> Result<Scenario> {
     let scenario = Scenario::new();
     let placeholders: Vec<String> = options
         .iter()
-        .map(|(_, label, _)| format!("Option generated from CLI value '{label}'"))
+        .map(|(_, label, _)| crate::option_filler::cli(label))
         .collect();
     let options: Vec<(&str, &str, &str)> = options
         .iter()

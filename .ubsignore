@@ -72,6 +72,7 @@ src/map/tests.rs
 src/classifier/tests.rs
 src/anthropic/tests.rs
 src/scorer/tests.rs
+src/option_filler/tests.rs
 src/quality_profile/tests.rs
 src/quality_profile/findings/tests.rs
 src/quality_profile/failure_modes/tests.rs

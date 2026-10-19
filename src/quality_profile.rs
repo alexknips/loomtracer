@@ -64,6 +64,7 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 
 use crate::events::{HypothesisKind, ModelDimension};
+use crate::option_filler;
 use crate::projector::GraphView;
 use crate::queries::{
     get_record_facts, EvidenceFact, GroundingAdded, HypothesisFact, ModelAssessmentFact,
@@ -532,46 +533,14 @@ fn framing(facts: &RecordFacts) -> Assessment {
 // Alternatives
 // ---------------------------------------------------------------------------
 
-/// Text a capture surface fills in when the author gave an option no description, keyed by the
-/// surface that writes it. Each is `<prefix><label>'`. These are the literals those surfaces
-/// write today (`mcp::args::default_option_description`, `cli::run::record_cli_options`,
-/// `Commands::supersede`, `api::handlers` capture); the rule is documented in
-/// `docs/DECISION_SCORING.md`.
-const GENERATED_QUOTED_PREFIXES: [&str; 4] = [
-    "Option generated from MCP value '",
-    "Option generated from CLI value '",
-    "Option generated from supersede value '",
-    "Option '",
-];
-const GENERATED_SLACK_PREFIX: &str = "Slack option '";
-const GENERATED_SLACK_INFIX: &str = "' captured from ";
-const GENERATED_IMPORT_PREFIX: &str = "Option imported from document block ";
-
-/// Whether `description` is only the option's own label or text a capture surface generated for
-/// it. Such text carries nothing the author wrote, so it does not count as a description.
-fn is_generated_description(label: &str, description: &str) -> bool {
-    if description.eq_ignore_ascii_case(label) || description.starts_with(GENERATED_IMPORT_PREFIX) {
-        return true;
-    }
-    if GENERATED_QUOTED_PREFIXES.iter().any(|prefix| {
-        description
-            .strip_prefix(prefix)
-            .and_then(|rest| rest.strip_prefix(label))
-            == Some("'")
-    }) {
-        return true;
-    }
-    description
-        .strip_prefix(GENERATED_SLACK_PREFIX)
-        .and_then(|rest| rest.strip_prefix(label))
-        .is_some_and(|rest| rest.starts_with(GENERATED_SLACK_INFIX))
-}
-
+/// Whether the option carries a description its author wrote. The text a capture surface fills
+/// in for an option with none, and a description that only repeats the label, do not count:
+/// [`option_filler::is_generated`] reads the same templates the surfaces write.
 fn has_own_description(option: &OptionFact) -> bool {
     let Some(description) = stated(option.description.as_deref()) else {
         return false;
     };
-    !is_generated_description(option.label.as_deref().map_or("", str::trim), description)
+    !option_filler::is_generated(option.label.as_deref().map_or("", str::trim), description)
 }
 
 /// The options set against the one taken: every option other than the chosen one (all of them

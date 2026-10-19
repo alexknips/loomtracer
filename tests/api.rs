@@ -1885,6 +1885,43 @@ async fn verify_resolves_by_id_and_by_description() {
     assert_eq!(body["data"]["decision_id"], decision_id); // ubs:ignore
 }
 
+/// An option captured over HTTP with no description gets filler text; the Alternatives floor
+/// must read that as no description, not as the author's own words (hivemind-ox14j).
+#[tokio::test]
+async fn an_http_capture_without_an_option_description_reads_as_partial_alternatives() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Filler text does not count as an option description",
+                "rationale": "An option the author left bare must not read as described",
+                "topic_keys": ["option-filler-test"],
+                "options": [{"label": "bare"}, {"label": "also bare"}],
+                "chosen_option_label": "bare"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "capture: {body}"); // ubs:ignore
+    let decision_id = body["decision_id"].as_str().unwrap().to_owned();
+
+    let (status, verify) = call(
+        app(dir),
+        get_req(&format!("/v1/decisions/verify?id={decision_id}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{verify}"); // ubs:ignore
+
+    let alternatives = &verify["data"]["quality"]["alternatives"];
+    assert_eq!(alternatives["status"], "assessed", "{verify}"); // ubs:ignore
+    assert_eq!(alternatives["level"], "partial", "{verify}"); // ubs:ignore
+}
+
 #[tokio::test]
 async fn verify_and_why_carry_the_quality_profile_and_the_days_the_decision_has_held() {
     let dir = test_ledger_dir();

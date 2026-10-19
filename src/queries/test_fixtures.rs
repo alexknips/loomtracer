@@ -1064,6 +1064,8 @@ pub(crate) fn floor_scenario() -> Result<Scenario> {
             &["e:sourced"],
         ),
     )?;
+    let direct_filler = crate::option_filler::mcp("Direct");
+    let queue_filler = crate::option_filler::cli("Queue");
     s.proposal(
         crew,
         "2026-01-02T00:00:01Z",
@@ -1076,16 +1078,8 @@ pub(crate) fn floor_scenario() -> Result<Scenario> {
                     "Gateway",
                     "Route every call through one gateway",
                 ),
-                (
-                    "d:placeholders:b",
-                    "Direct",
-                    "Option generated from MCP value 'Direct'",
-                ),
-                (
-                    "d:placeholders:c",
-                    "Queue",
-                    "Option generated from CLI value 'Queue'",
-                ),
+                ("d:placeholders:b", "Direct", &direct_filler),
+                ("d:placeholders:c", "Queue", &queue_filler),
             ],
             Some("d:placeholders:a"),
             &["e:unsourced"],
