@@ -1081,7 +1081,10 @@ session end, not per batch and not on an hourly sweep. A shared daily cap
 (`HIVEMIND_CLASSIFY_DAILY_CAP`, default 150) protects against runaway spend
 across every session in a city; once hit, `submit` refuses with an error and
 the remaining batches stay pending for the next UTC day rather than being
-dropped.
+dropped. Worker B keeps to the same cap: it checks it before each call, counts the
+classifications any worker recorded today plus its own failed calls, and stops for the UTC day
+when it is spent. A batch whose call or write failed is logged once and not sent again until the
+next UTC day; it stays pending, and `classify-queue` can still drain it.
 
 Both Worker A and Worker B write identical `IngestBatchClassified` events to the
 same queue. Concurrent classification is idempotent — last writer wins per batch.

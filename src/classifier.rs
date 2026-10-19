@@ -273,9 +273,46 @@ async fn run_classifier_loop(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, ap
         }
     };
 
+    let classifier = HaikuClassifier {
+        client: &client,
+        api_key: &api_key,
+        hivemind_dir: &hivemind_dir,
+        tenant_id: &tenant_id,
+    };
+    let mut state = PassState::default();
     loop {
-        classify_pending_batches(&client, &hivemind_dir, &tenant_id, &api_key).await;
+        classify_pending_batches(
+            &classifier,
+            &hivemind_dir,
+            &tenant_id,
+            daily_classification_cap(),
+            &mut state,
+        )
+        .await;
         tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+/// What the worker remembers from pass to pass, for the current UTC day. A call that failed is
+/// not made again until the next day: the batch stays pending in the ledger for that long, and
+/// a retry on the next pass would fail the same way and be billed the same.
+#[derive(Default)]
+struct PassState {
+    day: Option<chrono::NaiveDate>,
+    /// Received-batch events whose call or write failed today. Each spent a call of the cap.
+    failed: std::collections::HashSet<EventId>,
+    /// Whether the spent cap has been said today.
+    cap_said: bool,
+}
+
+impl PassState {
+    /// Forgets yesterday's failures and starts the day's cap over.
+    fn start_pass(&mut self, today: chrono::NaiveDate) {
+        if self.day != Some(today) {
+            self.day = Some(today);
+            self.failed.clear();
+            self.cap_said = false;
+        }
     }
 }
 
@@ -623,6 +660,16 @@ pub fn daily_cap_status(
     ledger: &impl EventLedger,
     tenant_id: &TenantId,
 ) -> crate::Result<DailyCapStatus> {
+    daily_cap_status_under(ledger, tenant_id, daily_classification_cap())
+}
+
+/// [`daily_cap_status`] under a cap the caller names, so the worker reads the environment once per
+/// pass and a test needs no process-wide variable.
+fn daily_cap_status_under(
+    ledger: &impl EventLedger,
+    tenant_id: &TenantId,
+    cap: usize,
+) -> crate::Result<DailyCapStatus> {
     let today = Utc::now().date_naive();
     let mut offset = 0u64;
     let mut classified_today = 0usize;
@@ -645,7 +692,6 @@ pub fn daily_cap_status(
         }
     }
 
-    let cap = daily_classification_cap();
     Ok(DailyCapStatus {
         classified_today,
         cap,
@@ -661,13 +707,96 @@ struct BatchInfo {
     turn_ids: Vec<String>,
 }
 
+/// A batch's captures as the model gave them, ready to be written, and the model that gave them.
+struct ClassifiedBatch {
+    model: String,
+    captures: Vec<CaptureItem>,
+}
+
+/// The model-facing half of a pass: what a batch's text comes to. A trait so the pass's own
+/// bookkeeping, the cap and the failed batches, is tested without a network.
+trait BatchClassifier {
+    async fn classify(
+        &self,
+        batch: &BatchInfo,
+    ) -> Result<ClassifiedBatch, crate::anthropic::BoxError>;
+}
+
+/// [`BatchClassifier`] over the metered Anthropic API.
+struct HaikuClassifier<'a> {
+    client: &'a reqwest::Client,
+    api_key: &'a str,
+    hivemind_dir: &'a PathBuf,
+    tenant_id: &'a TenantId,
+}
+
+impl BatchClassifier for HaikuClassifier<'_> {
+    async fn classify(
+        &self,
+        batch: &BatchInfo,
+    ) -> Result<ClassifiedBatch, crate::anthropic::BoxError> {
+        let (output, model) = call_haiku(self.client, self.api_key, &batch.batch_text).await?;
+        let mut captures: Vec<CaptureItem> = output
+            .captures
+            .into_iter()
+            .map(|r| CaptureItem {
+                kind: r.kind,
+                title: r.title,
+                rationale: r.rationale,
+                topic_keys: r.topic_keys,
+                evidence_ids: r.evidence_ids,
+                options: r.options,
+                chosen_option: r.chosen_option,
+                extraction_confidence: r.extraction_confidence,
+                expressed_confidence: r.expressed_confidence,
+                supersedes_id: r.supersedes_id,
+                premised_on_ids: r.premised_on_ids,
+                supports_ids: r.supports_ids,
+                refutes_ids: r.refutes_ids,
+                actor_id: r.actor_id,
+                accepted_by: r.accepted_by,
+                rejected_by: r.rejected_by,
+                blocked_actor_id: r.blocked_actor_id,
+                decision_id: r.decision_id,
+                participants: Vec::new(),
+                restates_id: None,
+                source_turn_id: r.source_turn_id,
+                source_ts: None,
+                question: r.question,
+                session_initiator: None,
+            })
+            .collect();
+
+        conform_to_batch(&mut captures, &batch.turn_ids);
+        mark_restatements_best_effort(
+            self.client,
+            self.api_key,
+            &model,
+            self.hivemind_dir,
+            self.tenant_id,
+            &mut captures,
+        )
+        .await;
+        Ok(ClassifiedBatch { model, captures })
+    }
+}
+
+/// One pass of Worker B: classifies the batches still pending, oldest first, one call each, while
+/// the day's cap lasts. The cap counts the classifications already recorded today, by any worker,
+/// and the calls this worker has seen fail. A call or a write that fails is logged once and the
+/// batch is left for tomorrow (see [`PassState`]).
 async fn classify_pending_batches(
-    client: &reqwest::Client,
+    classifier: &impl BatchClassifier,
     hivemind_dir: &PathBuf,
     tenant_id: &TenantId,
-    api_key: &str,
+    cap: usize,
+    state: &mut PassState,
 ) {
-    let batches = match find_unclassified_batches(hivemind_dir, tenant_id) {
+    state.start_pass(Utc::now().date_naive());
+    let Some(budget) = calls_left(hivemind_dir, tenant_id, cap, state) else {
+        return;
+    };
+    let batches = match pending_batches(hivemind_dir, tenant_id, &state.failed, budget) {
         Ok(b) => b,
         Err(e) => {
             warn!(target: "hivemind::classifier", "ledger scan failed: {e}");
@@ -676,69 +805,64 @@ async fn classify_pending_batches(
     };
 
     for batch in batches {
+        // Another worker may have spent the cap since the pass began.
+        if calls_left(hivemind_dir, tenant_id, cap, state).is_none() {
+            return;
+        }
         debug!(target: "hivemind::classifier", batch_id = %batch.batch_id, "classifying batch");
 
-        match call_haiku(client, api_key, &batch.batch_text).await {
-            Ok((output, model)) => {
-                let captures: Vec<CaptureItem> = output
-                    .captures
-                    .into_iter()
-                    .map(|r| CaptureItem {
-                        kind: r.kind,
-                        title: r.title,
-                        rationale: r.rationale,
-                        topic_keys: r.topic_keys,
-                        evidence_ids: r.evidence_ids,
-                        options: r.options,
-                        chosen_option: r.chosen_option,
-                        extraction_confidence: r.extraction_confidence,
-                        expressed_confidence: r.expressed_confidence,
-                        supersedes_id: r.supersedes_id,
-                        premised_on_ids: r.premised_on_ids,
-                        supports_ids: r.supports_ids,
-                        refutes_ids: r.refutes_ids,
-                        actor_id: r.actor_id,
-                        accepted_by: r.accepted_by,
-                        rejected_by: r.rejected_by,
-                        blocked_actor_id: r.blocked_actor_id,
-                        decision_id: r.decision_id,
-                        participants: Vec::new(),
-                        restates_id: None,
-                        source_turn_id: r.source_turn_id,
-                        source_ts: None,
-                        question: r.question,
-                        session_initiator: None,
-                    })
-                    .collect();
-
-                let mut captures = captures;
-                conform_to_batch(&mut captures, &batch.turn_ids);
-                mark_restatements_best_effort(
-                    client,
-                    api_key,
-                    &model,
-                    hivemind_dir,
-                    tenant_id,
-                    &mut captures,
-                )
-                .await;
-
-                if let Err(e) = write_classification(
-                    hivemind_dir,
-                    tenant_id,
-                    &batch.batch_id,
-                    &model,
-                    captures,
-                    Some(batch.event_id),
-                ) {
-                    warn!(target: "hivemind::classifier", batch_id = %batch.batch_id, "write failed: {e}");
-                }
-            }
-            Err(e) => {
-                warn!(target: "hivemind::classifier", batch_id = %batch.batch_id, "haiku call failed: {}", e);
-            }
+        let outcome = match classifier.classify(&batch).await {
+            Ok(classified) => write_classification(
+                hivemind_dir,
+                tenant_id,
+                &batch.batch_id,
+                &classified.model,
+                classified.captures,
+                Some(batch.event_id),
+            )
+            .map_err(|e| format!("write failed: {e}")),
+            Err(e) => Err(format!("haiku call failed: {e}")),
+        };
+        if let Err(reason) = outcome {
+            warn!(
+                target: "hivemind::classifier",
+                batch_id = %batch.batch_id,
+                "{reason}; the batch is not sent again today"
+            );
+            state.failed.insert(batch.event_id);
         }
     }
+}
+
+/// How many more calls today's cap allows, or `None` when the cap is spent (said once a day) or
+/// the ledger could not be read.
+fn calls_left(
+    hivemind_dir: &PathBuf,
+    tenant_id: &TenantId,
+    cap: usize,
+    state: &mut PassState,
+) -> Option<usize> {
+    let status = SqliteEventLedger::open(hivemind_dir)
+        .and_then(|ledger| daily_cap_status_under(&ledger, tenant_id, cap));
+    let left = match status {
+        Ok(status) => status.remaining.saturating_sub(state.failed.len()),
+        Err(e) => {
+            warn!(target: "hivemind::classifier", "daily cap unreadable: {e}");
+            return None;
+        }
+    };
+    if left == 0 {
+        if !state.cap_said {
+            info!(
+                target: "hivemind::classifier",
+                cap,
+                "daily classification cap spent; batches wait for the next UTC day"
+            );
+            state.cap_said = true;
+        }
+        return None;
+    }
+    Some(left)
 }
 
 /// Layer 3's restatement judgement (hivemind-83cj): each decision capture is compared with the
@@ -777,69 +901,46 @@ fn recorded_decisions_graph(
     Ok(graph)
 }
 
-fn find_unclassified_batches(
+/// The oldest `limit` received batches that no classification covers and no call has failed on
+/// today, with their turns. Which batches are pending is decided from heads, as the queue listing
+/// does; the turns of only the chosen few are read, in one query by event id.
+fn pending_batches(
     hivemind_dir: &PathBuf,
     tenant_id: &TenantId,
+    failed: &std::collections::HashSet<EventId>,
+    limit: usize,
 ) -> crate::Result<Vec<BatchInfo>> {
     let ledger = SqliteEventLedger::open(hivemind_dir)?;
-    let mut offset = 0u64;
-    const PAGE: usize = 256;
-
-    let mut received: Vec<BatchInfo> = Vec::new();
-    let mut already_classified: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-
-    loop {
-        let events = ledger.read_for_tenant(tenant_id, offset, PAGE)?;
-        if events.is_empty() {
-            break;
-        }
-
-        for event in &events {
-            match event.event_type {
-                EventType::IngestBatchReceived => {
-                    if let Some(event_id) = event.event_id {
-                        if let Some(batch_id) =
-                            event.payload.get("batch_id").and_then(|v| v.as_str())
-                        {
-                            let batch_text = render_batch_text(event);
-                            if batch_text.is_empty() {
-                                debug!(
-                                    target: "hivemind::classifier",
-                                    "batch {batch_id} has no renderable turns; will classify empty text"
-                                );
-                            }
-                            received.push(BatchInfo {
-                                event_id,
-                                batch_id: batch_id.to_owned(),
-                                batch_text,
-                                turn_ids: turn_ids(event),
-                            });
-                        }
-                    }
-                }
-                EventType::IngestBatchClassified => {
-                    for batch_id in classified_batch_ids(&event.payload) {
-                        already_classified.insert(batch_id);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if let Some(last) = events.last().and_then(|e| e.event_id) {
-            offset = last;
-        } else {
-            break;
-        }
-    }
-
-    let pending: Vec<_> = received
+    let event_ids: Vec<EventId> = pending_batch_heads(&ledger, tenant_id)?
         .into_iter()
-        .filter(|b| !already_classified.contains(&b.batch_id))
+        .map(|head| head.event_id)
+        .filter(|event_id| !failed.contains(event_id))
+        .take(limit)
         .collect();
+    Ok(ledger
+        .read_ids_for_tenant(tenant_id, &event_ids)?
+        .iter()
+        .filter_map(batch_info_from_event)
+        .collect())
+}
 
-    Ok(pending)
+/// The batch a received-batch event describes. `None` for an event with no `batch_id`.
+fn batch_info_from_event(event: &crate::events::Event) -> Option<BatchInfo> {
+    let event_id = event.event_id?;
+    let batch_id = event.payload.get("batch_id").and_then(|v| v.as_str())?;
+    let batch_text = render_batch_text(event);
+    if batch_text.is_empty() {
+        debug!(
+            target: "hivemind::classifier",
+            "batch {batch_id} has no renderable turns; will classify empty text"
+        );
+    }
+    Some(BatchInfo {
+        event_id,
+        batch_id: batch_id.to_owned(),
+        batch_text,
+        turn_ids: turn_ids(event),
+    })
 }
 
 /// The batch's turns as the classifier reads them: one `[<role> turn <turn_id>] <text>` per

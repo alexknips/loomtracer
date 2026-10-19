@@ -36,6 +36,8 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct Response {
     content: Vec<ContentBlock>,
+    /// Why the model stopped; `max_tokens` means the output was cut off mid-way.
+    stop_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,7 +92,22 @@ where
     }
 
     let api_resp: Response = response.json().await?;
-    let text = api_resp
+    output_of(api_resp, max_tokens)
+}
+
+/// The structured output a response carries. A response the model stopped at `max_tokens` is
+/// cut-off JSON: it is reported as that, not as the parse error it would otherwise be.
+fn output_of<T>(response: Response, max_tokens: u32) -> Result<T, BoxError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    if response.stop_reason.as_deref() == Some("max_tokens") {
+        return Err(format!(
+            "Anthropic API stopped at max_tokens ({max_tokens}): the output was cut off"
+        )
+        .into());
+    }
+    let text = response
         .content
         .into_iter()
         .find(|b| b.block_type == "text")
@@ -100,3 +117,6 @@ where
     let output: T = serde_json::from_str(&text)?;
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests;

@@ -726,6 +726,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   line saying so. They now start only on the SQLite backend. On Postgres a key that is set is
   ignored and the server logs one warning at start; classify keylessly with `classify-queue`. The
   docs that promised the key switches the classifier on there now say it does not. (hivemind-tbu78)
+- **The server classifier (Worker B) keeps to the daily cap and does not resend a failed batch
+  every 10 seconds.** A pass made one paid call per pending batch whatever
+  `HIVEMIND_CLASSIFY_DAILY_CAP` said (only `classify-queue submit` honoured it), and a batch
+  whose call or write failed stayed pending and was sent again on the next pass, for ever. It
+  now checks the cap before each call, counting the classifications any worker recorded today
+  and its own failed calls, and stops for the UTC day when the cap is spent. A batch whose call
+  or write failed is logged once and left until the next UTC day (it stays pending). A reply
+  the model stopped at `max_tokens` is reported as that, in the classifier, scorer and
+  restatement judge alike, not as a JSON parse error. Pending batches are found with the heads-only
+  reads `classify-queue list` uses, not by reading the whole ledger with its payloads every pass.
+  (hivemind-49ddt)
 - **`hivemind migrate --from <typo>` no longer leaves an empty ledger at the typo.** It opened
   the source before checking anything, and opening makes a ledger, so a mistyped `--from` ended
   with "nothing to migrate" and a `ledger.sqlite` behind it; every later read of that folder

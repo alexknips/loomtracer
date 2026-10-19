@@ -135,7 +135,10 @@ given one.
 - Timeout: if the background classifier exceeds 5 seconds, drop the attempt and
   log the timeout for later tuning.
 - Retry policy: no synchronous retry from the Stop hook. Retry only in offline
-  evaluation tooling.
+  evaluation tooling. The server worker does not retry either: a batch whose call or
+  write failed (a timeout, a reply cut off at the output budget, a refused write) is
+  logged once and left until the next UTC day. A reply the model stopped at `max_tokens`
+  is reported as that.
 
 Structured-output schema compilation may add first-use latency. The 2 second
 target applies to the warmed schema path.

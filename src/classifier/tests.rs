@@ -837,3 +837,208 @@ fn the_daily_budget_counts_only_todays_classifications() {
 
     assert_eq!(status.classified_today, 1);
 }
+
+// --- Worker B's pass: the daily cap and the batches that fail (hivemind-49ddt) ---
+
+/// Stands in for the model: records which batches it was asked about and fails those it is told
+/// to. The `model` it answers with is what the write path records.
+struct ScriptedModel {
+    failing: HashSet<&'static str>,
+    model: &'static str,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+impl ScriptedModel {
+    fn new(failing: &[&'static str]) -> Self {
+        Self {
+            failing: failing.iter().copied().collect(),
+            model: "claude-haiku-4-5-20251001",
+            asked: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn asked(&self) -> Vec<String> {
+        self.asked.lock().expect("asked lock").clone()
+    }
+}
+
+impl BatchClassifier for ScriptedModel {
+    async fn classify(
+        &self,
+        batch: &BatchInfo,
+    ) -> Result<ClassifiedBatch, crate::anthropic::BoxError> {
+        self.asked
+            .lock()
+            .expect("asked lock")
+            .push(batch.batch_id.clone());
+        if self.failing.contains(batch.batch_id.as_str()) {
+            return Err(
+                "Anthropic API stopped at max_tokens (1200): the output was cut off".into(),
+            );
+        }
+        Ok(ClassifiedBatch {
+            model: self.model.to_owned(),
+            captures: Vec::new(),
+        })
+    }
+}
+
+/// A folder whose SQLite ledger holds these received batches, oldest first.
+fn dir_with_received(batch_ids: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let ledger = SqliteEventLedger::open(dir.path()).expect("open ledger");
+    for (second, batch_id) in batch_ids.iter().enumerate() {
+        append_received(
+            &ledger,
+            batch_id,
+            "session-a",
+            "agent:test:queue",
+            second as u32,
+        );
+    }
+    dir
+}
+
+/// A classification another worker recorded just now, covering `batch_id`.
+fn append_classified_now(dir: &tempfile::TempDir, batch_id: &str) {
+    let ledger = SqliteEventLedger::open(dir.path()).expect("open ledger");
+    let mut event = queue_event(
+        EventType::IngestBatchClassified,
+        serde_json::json!({ "batch_id": batch_id, "batch_ids": [batch_id], "captures": [] }),
+        0,
+    );
+    event.ts = Some(chrono::Utc::now());
+    ledger
+        .append_for_tenant(&TenantId::local(), event)
+        .expect("append classification");
+}
+
+async fn pass(model: &ScriptedModel, dir: &tempfile::TempDir, cap: usize, state: &mut PassState) {
+    classify_pending_batches(
+        model,
+        &dir.path().to_path_buf(),
+        &TenantId::local(),
+        cap,
+        state,
+    )
+    .await;
+}
+
+fn pending_ids(dir: &tempfile::TempDir) -> Vec<String> {
+    let ledger = SqliteEventLedger::open(dir.path()).expect("open ledger");
+    list_pending_batches_for_ledger(&ledger, &TenantId::local(), None, 100)
+        .expect("pending batches")
+        .batches
+        .into_iter()
+        .map(|batch| batch.batch_id)
+        .collect()
+}
+
+#[tokio::test]
+async fn worker_b_stops_calling_the_model_when_the_daily_cap_is_spent() {
+    let dir = dir_with_received(&["b1", "b2", "b3"]);
+    let model = ScriptedModel::new(&[]);
+    let mut state = PassState::default();
+
+    pass(&model, &dir, 2, &mut state).await;
+    pass(&model, &dir, 2, &mut state).await;
+
+    assert_eq!(
+        model.asked(),
+        ["b1", "b2"],
+        "two calls the cap allows, and none after it is spent"
+    );
+    assert_eq!(pending_ids(&dir), ["b3"], "the batch past the cap waits");
+    assert!(state.cap_said, "the spent cap is said once");
+}
+
+#[tokio::test]
+async fn worker_b_counts_the_classifications_other_workers_recorded_today() {
+    let dir = dir_with_received(&["b1", "b2"]);
+    append_classified_now(&dir, "elsewhere");
+    let model = ScriptedModel::new(&[]);
+
+    pass(&model, &dir, 2, &mut PassState::default()).await;
+
+    assert_eq!(
+        model.asked(),
+        ["b1"],
+        "one of the two calls was already spent"
+    );
+}
+
+#[tokio::test]
+async fn a_batch_whose_call_failed_is_not_sent_again_the_same_day() {
+    let dir = dir_with_received(&["b1", "b2"]);
+    let model = ScriptedModel::new(&["b1"]);
+    let mut state = PassState::default();
+
+    pass(&model, &dir, 150, &mut state).await;
+    pass(&model, &dir, 150, &mut state).await;
+    pass(&model, &dir, 150, &mut state).await;
+
+    assert_eq!(
+        model.asked(),
+        ["b1", "b2"],
+        "the failing batch costs one call, and does not hold up the batch behind it"
+    );
+    assert_eq!(pending_ids(&dir), ["b1"], "it stays pending in the ledger");
+}
+
+#[tokio::test]
+async fn a_failed_call_spends_a_call_of_the_cap() {
+    let dir = dir_with_received(&["b1", "b2", "b3"]);
+    let model = ScriptedModel::new(&["b1", "b2"]);
+    let mut state = PassState::default();
+
+    pass(&model, &dir, 2, &mut state).await;
+    pass(&model, &dir, 2, &mut state).await;
+
+    assert_eq!(
+        model.asked(),
+        ["b1", "b2"],
+        "two failed calls are two calls: the third batch waits for tomorrow"
+    );
+}
+
+#[tokio::test]
+async fn a_write_the_ledger_refuses_is_not_repeated() {
+    let dir = dir_with_received(&["b1"]);
+    let mut model = ScriptedModel::new(&[]);
+    model.model = "";
+    let mut state = PassState::default();
+
+    pass(&model, &dir, 150, &mut state).await;
+    pass(&model, &dir, 150, &mut state).await;
+
+    assert_eq!(
+        model.asked(),
+        ["b1"],
+        "the refused write is not paid for twice"
+    );
+    assert_eq!(pending_ids(&dir), ["b1"]);
+}
+
+#[tokio::test]
+async fn yesterdays_failures_are_forgotten_when_a_new_day_starts() {
+    let dir = dir_with_received(&["b1"]);
+    let model = ScriptedModel::new(&[]);
+    let first_event = {
+        let ledger = SqliteEventLedger::open(dir.path()).expect("open ledger");
+        pending_batch_heads(&ledger, &TenantId::local()).expect("heads")[0].event_id
+    };
+    let mut state = PassState {
+        day: Some(chrono::Utc::now().date_naive() - chrono::Duration::days(1)),
+        failed: HashSet::from([first_event]),
+        cap_said: true,
+    };
+
+    pass(&model, &dir, 150, &mut state).await;
+
+    assert_eq!(
+        model.asked(),
+        ["b1"],
+        "the batch is tried again on the new day"
+    );
+    assert!(state.failed.is_empty() && !state.cap_said);
+}
