@@ -291,6 +291,17 @@ pub(crate) fn tool_reads_decisions(name: &str) -> bool {
     tool_kind(name) == Some(ToolKind::ReadDecisions)
 }
 
+/// The tools that append events to the ledger, in [`TOOL_KINDS`] order. The site's reference
+/// generator sorts its tool pages into write and read tools with this, so what the page calls a
+/// write tool is what the server runs as one.
+pub fn write_tool_names() -> Vec<&'static str> {
+    TOOL_KINDS
+        .iter()
+        .filter(|(_, kind)| *kind == ToolKind::Write)
+        .map(|(name, _)| *name)
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // project / project_source (capture_decision, supersede_decision)
 // ---------------------------------------------------------------------------

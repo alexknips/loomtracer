@@ -222,6 +222,11 @@ fn the_write_tools_are_the_tools_that_append_events() {
             "classify_queue_submit",
         ]
     ); // ubs:ignore: test-only assertion
+    assert_eq!(
+        crate::mcp::write_tool_names(),
+        writes,
+        "the public write set is the Write rows of TOOL_KINDS"
+    ); // ubs:ignore: test-only assertion
     assert_eq!(tool_kind("no_such_tool"), None); // ubs:ignore: test-only assertion
     assert_eq!(tool_kind("classify_queue_list"), Some(ToolKind::ReadOther)); // ubs:ignore: test-only assertion
     assert!(

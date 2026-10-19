@@ -2,7 +2,7 @@
 //!
 //! Generates `website/src/content/docs/reference/mcp-tools.md` from
 //! `mcp::tool_definitions()` and validates that `cli.md` documents every
-//! `EmitCommand` and `QueryCommand` variant.
+//! top-level CLI verb and every `EmitCommand` and `QueryCommand` variant.
 //!
 //! Usage:
 //!   cargo run --bin generate-reference            # write / update docs
@@ -14,24 +14,12 @@
 
 use std::fmt::Write as FmtWrite;
 
-use clap::CommandFactory;
+use clap::{Command, CommandFactory};
 use hivemind::cli::Cli;
-use hivemind::mcp::tool_definitions;
+use hivemind::mcp::{tool_definitions, write_tool_names};
 use serde_json::Value;
 
-// Write tools modify the ledger; everything else is a read (or layer-3) tool.
-const WRITE_TOOLS: &[&str] = &[
-    "capture_decision",
-    "capture_evidence",
-    "capture_hypothesis",
-    "disagree_decision",
-    "supersede_decision",
-    "move_decision",
-    "ground_decision",
-    "reaffirm_decision",
-    "acknowledge_suggestion",
-];
-
+const CLI_PATH: &str = "website/src/content/docs/reference/cli.md";
 const MCP_SETUP_PATH: &str = "website/src/content/docs/guides/mcp-setup.md";
 const HOMEPAGE_PATH: &str = "website/src/pages/index.astro";
 
@@ -78,13 +66,10 @@ fn main() {
             for name in &cli_missing {
                 eprintln!("  - {name}");
             }
-            eprintln!(
-                "Add each missing subcommand to\n\
-                 website/src/content/docs/reference/cli.md"
-            );
+            eprintln!("Add each missing subcommand to\n{CLI_PATH}");
             failed = true;
         } else {
-            println!("OK: cli.md documents all emit and query subcommands.");
+            println!("OK: cli.md documents every CLI verb and every emit and query subcommand.");
         }
 
         if !check_tool_count_mentions(MCP_SETUP_PATH, &setup_text, tool_count) {
@@ -127,7 +112,7 @@ fn main() {
                 eprintln!("  - {name}");
             }
         } else {
-            println!("OK: cli.md documents all emit and query subcommands.");
+            println!("OK: cli.md documents every CLI verb and every emit and query subcommand.");
         }
 
         write_fixed_tool_count_mentions(MCP_SETUP_PATH, &setup_text, tool_count);
@@ -361,12 +346,15 @@ fn generate_mcp_reference() -> String {
     writeln!(out).unwrap();
     writeln!(out, "---").unwrap();
     writeln!(out).unwrap();
+    // The server's own write set, so a tool added or reclassified there moves pages here.
+    let write_tools = write_tool_names();
+
     writeln!(out, "## Write tools").unwrap();
     writeln!(out).unwrap();
 
     for tool in &tools {
         let name = tool["name"].as_str().unwrap_or_default();
-        if WRITE_TOOLS.contains(&name) {
+        if write_tools.contains(&name) {
             append_tool_section(&mut out, tool);
         }
     }
@@ -376,7 +364,7 @@ fn generate_mcp_reference() -> String {
 
     for tool in &tools {
         let name = tool["name"].as_str().unwrap_or_default();
-        if !WRITE_TOOLS.contains(&name) {
+        if !write_tools.contains(&name) {
             append_tool_section(&mut out, tool);
         }
     }
@@ -501,30 +489,34 @@ fn append_error_section(out: &mut String) {
 // CLI completeness check
 // ---------------------------------------------------------------------------
 
-/// Return the names of emit + query subcommands not found in cli.md.
+/// Return the CLI subcommands not documented in cli.md: top-level verbs by name,
+/// `emit` / `query` subcommands as `<top> <name>`.
 fn check_cli_completeness() -> Vec<String> {
-    let cli_path = "website/src/content/docs/reference/cli.md";
-    let cli_md = match std::fs::read_to_string(cli_path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Cannot read {cli_path}: {e}");
-            return vec![];
-        }
-    };
+    let cli_md = std::fs::read_to_string(CLI_PATH).unwrap_or_else(|e| {
+        eprintln!("Cannot read {CLI_PATH}: {e}");
+        std::process::exit(1)
+    });
+    missing_cli_subcommands(&Cli::command(), &cli_md)
+}
 
-    let root = Cli::command();
+/// Walk every top-level verb of `root` (hidden ones and the skip list aside) and, under `emit`
+/// and `query`, every subcommand, and name the ones `cli_md` does not document.
+fn missing_cli_subcommands(root: &Command, cli_md: &str) -> Vec<String> {
     let mut missing = Vec::new();
 
-    for top_name in ["emit", "query"] {
-        let top_cmd = root
-            .get_subcommands()
-            .find(|c| c.get_name() == top_name)
-            .unwrap_or_else(|| {
-                eprintln!("toplevel '{top_name}' subcommand not found");
-                std::process::exit(1)
-            });
+    for top in root.get_subcommands() {
+        let top_name = top.get_name();
+        if top.is_hide_set() || should_skip_cli_check("", top_name) {
+            continue;
+        }
+        if !documents_verb(cli_md, top) {
+            missing.push(top_name.to_owned());
+        }
+        if !matches!(top_name, "emit" | "query") {
+            continue;
+        }
 
-        for sub in top_cmd.get_subcommands() {
+        for sub in top.get_subcommands() {
             let name = sub.get_name();
             // Skip internal / rarely-documented sub-subcommands.
             if should_skip_cli_check(top_name, name) {
@@ -544,8 +536,24 @@ fn check_cli_completeness() -> Vec<String> {
     missing
 }
 
+/// True when a cli.md heading has a code span that opens with the verb (or an alias of it), like
+/// ``### `review` `` or ``### `ground` / `reaffirm` ``. A mention in prose does not document a
+/// verb: words like `ask` and `map` turn up anywhere.
+fn documents_verb(cli_md: &str, verb: &Command) -> bool {
+    let names: Vec<&str> = std::iter::once(verb.get_name())
+        .chain(verb.get_all_aliases())
+        .collect();
+    cli_md
+        .lines()
+        .filter(|line| line.starts_with('#'))
+        .flat_map(|heading| heading.split('`').skip(1).step_by(2))
+        .filter_map(|span| span.split_whitespace().next())
+        .any(|first_word| names.contains(&first_word))
+}
+
 /// True for subcommand names that are intentionally omitted from the public
-/// reference (internal / low-level / deprecated entries).
+/// reference (internal / low-level / deprecated entries). `top` is empty for a
+/// top-level verb.
 fn should_skip_cli_check(top: &str, name: &str) -> bool {
     // Low-level primitives not part of the user-facing reference:
     if top == "emit" {
@@ -558,5 +566,116 @@ fn should_skip_cli_check(top: &str, name: &str) -> bool {
     if top == "query" {
         return matches!(name, "get_blocker_notification_candidates");
     }
-    false
+    // clap's generated `help` subcommand is not a verb.
+    top.is_empty() && name == "help"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tool names under `## Write tools` and under `## Read tools` in a generated page.
+    fn tools_by_section(page: &str) -> (Vec<String>, Vec<String>) {
+        let (mut writes, mut reads) = (Vec::new(), Vec::new());
+        let mut section = "";
+        for line in page.lines() {
+            if let Some(heading) = line.strip_prefix("## ") {
+                section = heading;
+            } else if let Some(name) = line
+                .strip_prefix("### `")
+                .and_then(|rest| rest.strip_suffix('`'))
+            {
+                match section {
+                    "Write tools" => writes.push(name.to_owned()),
+                    "Read tools" => reads.push(name.to_owned()),
+                    _ => {}
+                }
+            }
+        }
+        (writes, reads)
+    }
+
+    #[test]
+    fn the_write_section_is_the_servers_write_set() {
+        let (mut writes, reads) = tools_by_section(&generate_mcp_reference());
+
+        // The three tools the hand-kept list once missed.
+        for name in [
+            "retitle_decision",
+            "request_decision",
+            "classify_queue_submit",
+        ] {
+            assert!(
+                writes.iter().any(|w| w == name),
+                "{name} is not a write tool"
+            ); // ubs:ignore: test-only assertion
+            assert!(
+                !reads.iter().any(|r| r == name),
+                "{name} is listed as a read tool"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        let mut server_writes: Vec<String> =
+            write_tool_names().into_iter().map(str::to_owned).collect();
+        writes.sort();
+        server_writes.sort();
+        assert_eq!(
+            writes, server_writes,
+            "the page's Write tools differ from the server's write set"
+        ); // ubs:ignore: test-only assertion
+        assert_eq!(
+            writes.len() + reads.len(),
+            tool_definitions().len(),
+            "a tool is on neither side of the page, or on both"
+        ); // ubs:ignore: test-only assertion
+    }
+
+    /// A cli.md heading for every verb, and for every emit and query subcommand, the CLI has.
+    fn complete_cli_md(root: &Command) -> String {
+        let mut md = String::new();
+        for top in root.get_subcommands() {
+            writeln!(md, "### `{}`", top.get_name()).unwrap();
+            if matches!(top.get_name(), "emit" | "query") {
+                for sub in top.get_subcommands() {
+                    writeln!(md, "### `{} {}`", top.get_name(), sub.get_name()).unwrap();
+                }
+            }
+        }
+        md
+    }
+
+    #[test]
+    fn a_cli_md_with_a_section_for_every_verb_is_complete() {
+        let root = Cli::command();
+        assert_eq!(
+            missing_cli_subcommands(&root, &complete_cli_md(&root)),
+            Vec::<String>::new()
+        ); // ubs:ignore: test-only assertion
+    }
+
+    #[test]
+    fn a_top_level_verb_without_a_section_is_reported() {
+        let root = Cli::command();
+        let without_reaffirm = complete_cli_md(&root).replace("### `reaffirm`\n", "");
+        assert_eq!(
+            missing_cli_subcommands(&root, &without_reaffirm),
+            ["reaffirm"]
+        ); // ubs:ignore: test-only assertion
+
+        // Mentioning the verb in prose is not documenting it.
+        let mentioned = format!("{without_reaffirm}\nRun `hivemind reaffirm <id>` to confirm.\n");
+        assert_eq!(missing_cli_subcommands(&root, &mentioned), ["reaffirm"]); // ubs:ignore: test-only assertion
+    }
+
+    #[test]
+    fn a_verb_named_in_a_shared_heading_is_documented() {
+        let root = Cli::command();
+        let shared = complete_cli_md(&root)
+            .replace("### `reaffirm`\n", "")
+            .replace("### `ground`\n", "### `ground` / `reaffirm`\n");
+        assert_eq!(
+            missing_cli_subcommands(&root, &shared),
+            Vec::<String>::new()
+        ); // ubs:ignore: test-only assertion
+    }
 }

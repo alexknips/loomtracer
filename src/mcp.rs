@@ -1904,6 +1904,8 @@ impl From<(i32, String)> for RpcError {
 pub(crate) mod args;
 pub(crate) mod core;
 
+pub use core::write_tool_names;
+
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

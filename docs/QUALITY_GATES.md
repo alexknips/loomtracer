@@ -60,6 +60,14 @@ subcommand, a flag, or an MCP tool therefore also opens a matching pull
 request on the site repo that regenerates the reference — merge the
 hivemind change first, because the site's check reads hivemind `master`.
 
+Two rules keep the check from agreeing with itself. The generator sorts MCP tools
+into "Write tools" and "Read tools" with `hivemind::mcp::write_tool_names()`,
+which is the `Write` rows of the server's own `TOOL_KINDS` table; it keeps no
+tool list of its own. And `cli.md` must have a heading with a code span opening
+with each top-level verb (``### `review` ``), plus each `emit` and `query`
+subcommand; a mention in prose does not count. A verb that is deliberately
+undocumented goes in `should_skip_cli_check`.
+
 ## Code Gate Set (Mandatory)
 
 Run this full gate set before submitting a polecat branch with any code diff:
