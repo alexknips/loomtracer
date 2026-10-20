@@ -1098,9 +1098,12 @@ quantitative assessment in the same response, so nobody needs to know to ask
   reasons and the nodes they rest on. Counts (options weighed, evidence linked)
   are in those reasons, not in a second block.
 - `still_holds.days_held` is the whole days nothing in the graph replaced the
-  decision: from `occurred_at` to now, or to the superseding decision's
-  `occurred_at` once it was superseded (the earliest superseder when concurrent
-  supersessions both survive). It is not evidence the decision was carried out
+  decision: from `occurred_at` to now, or to the time the supersession was
+  recorded once it was superseded (the earliest link when concurrent
+  supersessions both survive; the superseding decision's own `occurred_at` only
+  for a link that states no time). It runs to the link because the graph held
+  the decision as standing until then, the same date `reexamine` and the
+  propagation line give the change. It is not evidence the decision was carried out
   and the text says so. It is absent, never `0`, when a date it needs is not
   recorded or the end falls before the start.
 - `verify` (`get_decision_outcome`) carries `data.quality`; `why`

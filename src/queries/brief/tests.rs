@@ -766,7 +766,7 @@ fn days_held_counts_whole_days_to_now_while_nothing_replaced_the_decision() -> R
 }
 
 #[test]
-fn days_held_stops_at_the_decision_that_superseded_it() -> Result<()> {
+fn days_held_stops_when_the_supersession_was_linked() -> Result<()> {
     let scenario = Scenario::new();
     scenario.decision("d:old", "Use SQLite", "human:alex", "2026-01-01T00:00:00Z")?;
     scenario.decision(
@@ -777,11 +777,11 @@ fn days_held_stops_at_the_decision_that_superseded_it() -> Result<()> {
     )?;
     scenario.supersede("d:old", "d:new", "human:alex", "2026-01-05T00:00:00Z")?;
 
-    // Months later, it still held three days: the days stop when the replacement was recorded,
-    // not when the supersession was linked and not at the clock.
+    // Months later, it still held four days: the days stop when the graph recorded the
+    // replacement, not at the clock.
     assert_eq!(
         days_held_of(&scenario, "d:old", "2026-06-01T00:00:00Z")?,
-        Some(3)
+        Some(4)
     );
     // The replacement is a live decision of its own.
     assert_eq!(
@@ -792,23 +792,93 @@ fn days_held_stops_at_the_decision_that_superseded_it() -> Result<()> {
     Ok(())
 }
 
+// A decision linked as the superseder weeks after it was decided (hivemind-ot2gf): the answer
+// dates the change by the link everywhere else (the re-examine items, the propagation line), so
+// the days held run to the link and agree with them.
 #[test]
-fn days_held_of_concurrent_supersessions_stops_at_the_earliest() -> Result<()> {
+fn days_held_runs_to_the_link_when_the_superseder_was_decided_earlier() -> Result<()> {
     let scenario = Scenario::new();
-    scenario.decision("d:old", "Use SQLite", "human:alex", "2026-01-01T00:00:00Z")?;
+    scenario.decision("d:old", "Use SQLite", "human:alex", "2026-09-22T05:01:40Z")?;
     scenario.decision(
-        "d:late",
+        "d:new",
         "Use Postgres",
         "human:alex",
-        "2026-01-20T00:00:00Z",
+        "2026-09-24T09:00:00Z",
     )?;
-    scenario.decision("d:early", "Use files", "human:bob", "2026-01-06T00:00:00Z")?;
-    scenario.supersede("d:old", "d:late", "human:alex", "2026-01-20T00:00:01Z")?;
-    scenario.supersede("d:old", "d:early", "human:bob", "2026-01-21T00:00:00Z")?;
+    scenario.supersede("d:old", "d:new", "human:alex", "2026-10-20T00:10:00Z")?;
+
+    assert_eq!(
+        days_held_of(&scenario, "d:old", "2026-10-20T07:00:00Z")?,
+        Some(27),
+        "22 September 05:01 to 20 October 00:10: 27 and a bit days, not the 2 days to the \
+         replacement's own date"
+    );
+    // The replacement is a live decision of its own, dated by its own capture.
+    assert_eq!(
+        days_held_of(&scenario, "d:new", "2026-10-20T07:00:00Z")?,
+        Some(25)
+    );
+    Ok(())
+}
+
+#[test]
+fn days_held_of_concurrent_supersessions_stops_at_the_earliest_link() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.decision("d:old", "Use SQLite", "human:alex", "2026-01-01T00:00:00Z")?;
+    for (id, title, decided_at) in [
+        ("d:late", "Use Postgres", "2026-01-02T00:00:00Z"),
+        ("d:early", "Use files", "2026-01-03T00:00:00Z"),
+        ("d:middle", "Use Dolt", "2026-01-04T00:00:00Z"),
+    ] {
+        scenario.decision(id, title, "human:bob", decided_at)?;
+    }
+    // Linked out of order, so the earliest link is neither the first offset nor the last.
+    scenario.supersede("d:old", "d:late", "human:alex", "2026-01-20T00:00:00Z")?;
+    scenario.supersede("d:old", "d:early", "human:bob", "2026-01-08T00:00:00Z")?;
+    scenario.supersede("d:old", "d:middle", "human:bob", "2026-01-15T00:00:00Z")?;
 
     assert_eq!(
         days_held_of(&scenario, "d:old", "2026-06-01T00:00:00Z")?,
-        Some(5)
+        Some(7)
+    );
+    Ok(())
+}
+
+// An edge that states no time is dated by the decision it links, the way the re-examine items
+// date it (hivemind-xhoie).
+#[test]
+fn days_held_falls_back_to_the_superseder_for_an_edge_with_no_time() -> Result<()> {
+    use crate::projector::{GraphProperties, GraphValue};
+
+    let graph = MemoryGraph::default();
+    let decided_at = |at: &str| {
+        GraphProperties::from([("occurred_at".to_owned(), GraphValue::String(at.to_owned()))])
+    };
+    graph.upsert_node(
+        NodeKind::Decision,
+        "d:old",
+        &decided_at("2026-01-01T00:00:00Z"),
+    )?;
+    graph.upsert_node(
+        NodeKind::Decision,
+        "d:new",
+        &decided_at("2026-01-04T00:00:00Z"),
+    )?;
+    graph.upsert_edge(
+        RelationKind::Supersedes,
+        "d:new",
+        "d:old",
+        &GraphProperties::new(),
+    )?;
+
+    assert_eq!(
+        days_held(
+            &graph,
+            "d:old",
+            Some(ts("2026-01-01T00:00:00Z")),
+            ts("2026-06-01T00:00:00Z")
+        )?,
+        Some(3)
     );
     Ok(())
 }
@@ -834,12 +904,12 @@ fn days_held_is_left_out_not_zeroed_when_the_dates_cannot_say() -> Result<()> {
     // A decision with no date of its own has no figure either.
     let graph = scenario.graph()?;
     assert_eq!(
-        days_held(&graph, None, &[], ts("2026-06-01T00:00:00Z"))?,
+        days_held(&graph, "d:1", None, ts("2026-06-01T00:00:00Z"))?,
         None
     );
 
-    // A replacement recorded before the decision it replaces (a backdated import) is not a
-    // negative number of days.
+    // A link recorded before the decision it replaces (a backdated import) is not a negative
+    // number of days.
     let scenario = Scenario::new();
     scenario.decision("d:old", "Use SQLite", "human:alex", "2026-03-01T00:00:00Z")?;
     scenario.decision(
@@ -848,7 +918,7 @@ fn days_held_is_left_out_not_zeroed_when_the_dates_cannot_say() -> Result<()> {
         "human:alex",
         "2026-02-01T00:00:00Z",
     )?;
-    scenario.supersede("d:old", "d:new", "human:alex", "2026-03-02T00:00:00Z")?;
+    scenario.supersede("d:old", "d:new", "human:alex", "2026-02-15T00:00:00Z")?;
     assert_eq!(
         days_held_of(&scenario, "d:old", "2026-06-01T00:00:00Z")?,
         None

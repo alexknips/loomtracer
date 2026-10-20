@@ -21,7 +21,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::floor::RecordedFloor;
-use crate::projector::{GraphRow, GraphView, NodeKind};
+use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::context::{get_decision_context, linked_actor_ids, ReviewShape};
@@ -34,8 +34,8 @@ use super::reexamine::{
     propagation_of_decision, Propagation, ReexamineEntry, DEFAULT_PROPAGATION_WINDOW_DAYS,
 };
 use super::shared::{
-    node_row, optional_datetime, optional_string, optional_string_list, query_error,
-    query_timer_start,
+    neighbor_edges_with_time, node_row, optional_datetime, optional_string, optional_string_list,
+    query_error, query_timer_start, Direction,
 };
 use super::status::DecisionStatus;
 use super::QueryResponse;
@@ -111,10 +111,10 @@ pub struct DraftedFrom {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct StillHolds {
     pub held_up: bool,
-    /// Whole days from `occurred_at` until now, or until the decision that superseded it was
-    /// recorded: how long nothing in the graph replaced it. It is not evidence that the decision
-    /// was carried out. Absent, never `0`, when the dates needed are not recorded or run
-    /// backwards.
+    /// Whole days from `occurred_at` until now, or until the supersession was recorded (the
+    /// time the link was made, not the date of the decision it names): how long nothing in the
+    /// graph replaced it. It is not evidence that the decision was carried out. Absent, never
+    /// `0`, when the dates needed are not recorded or run backwards.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub days_held: Option<u32>,
     pub reasons: Vec<OutcomeReason>,
@@ -266,7 +266,7 @@ pub(crate) fn get_decision_brief_with_labels(
         None
     };
     let grounding = grounding_of_at(graph, decision_id, now)?;
-    let days_held = days_held(graph, occurred_at, &outcome.reasons, now)?;
+    let days_held = days_held(graph, decision_id, occurred_at, now)?;
     // Only a decision that changed has a propagation to report; any other reads nothing extra.
     let propagation = match decision.status {
         DecisionStatus::Superseded | DecisionStatus::Rejected | DecisionStatus::Contested => {
@@ -353,37 +353,47 @@ pub(crate) fn get_decision_brief_with_labels(
     })
 }
 
-/// `StillHolds::days_held`: whole days from `occurred_at` to the first superseding decision's
-/// `occurred_at`, or to `now` while nothing superseded it. A fact about the dates on the record:
-/// `None` when the decision's date, or a superseder's, is not recorded, or when the end comes
-/// before the start (a backdated import), because a guess would read as a measurement.
+/// `StillHolds::days_held`: whole days from `occurred_at` to when the first supersession of the
+/// decision was recorded, or to `now` while nothing superseded it. The end is the time of the
+/// `SUPERSEDES` edge, the same date the re-examine items and the propagation line give the
+/// change, never the superseding decision's own `occurred_at`: that decision can be older than
+/// the link (`emit decision.superseded --old A --new B` with a B decided weeks ago), and the
+/// graph held A as standing until the link was recorded. Only an edge that states no time falls
+/// back to the superseder's `occurred_at`. A fact about the dates on the record: `None` when the
+/// decision's date, or a supersession's, is not recorded, or when the end comes before the start,
+/// because a guess would read as a measurement.
 fn days_held(
     graph: &impl GraphView,
+    decision_id: &str,
     occurred_at: Option<DateTime<Utc>>,
-    reasons: &[OutcomeReason],
     now: DateTime<Utc>,
 ) -> Result<Option<u32>> {
     let Some(start) = occurred_at else {
         return Ok(None);
     };
-    let mut superseders = reasons.iter().filter_map(|reason| match reason {
-        OutcomeReason::SupersededBy { by_id, .. } => Some(by_id.as_str()),
-        _ => None,
-    });
-    let end = if let Some(first) = superseders.next() {
-        // Concurrent supersessions both survive; the decision was held until the earliest.
-        let mut earliest = superseder_occurred_at(graph, first)?;
-        for by_id in superseders {
-            earliest = match (earliest, superseder_occurred_at(graph, by_id)?) {
-                (Some(left), Some(right)) => Some(left.min(right)),
-                _ => None,
-            };
-        }
-        earliest
-    } else {
-        Some(now)
-    };
-    Ok(end.and_then(|end| u32::try_from((end - start).num_days()).ok()))
+    let supersessions = neighbor_edges_with_time(
+        graph,
+        NodeKind::Decision,
+        decision_id,
+        RelationKind::Supersedes,
+        NodeKind::Decision,
+        Direction::Incoming,
+    )?;
+    // Concurrent supersessions both survive; the decision was held until the earliest link. One
+    // that cannot be dated could be the earliest, so the figure is left out.
+    let mut earliest: Option<DateTime<Utc>> = None;
+    for (by_id, stamp) in &supersessions {
+        let linked_at = match stamp.at {
+            Some(at) => Some(at),
+            None => superseder_occurred_at(graph, by_id)?,
+        };
+        let Some(linked_at) = linked_at else {
+            return Ok(None);
+        };
+        earliest = Some(earliest.map_or(linked_at, |known| known.min(linked_at)));
+    }
+    let end = earliest.unwrap_or(now);
+    Ok(u32::try_from((end - start).num_days()).ok())
 }
 
 fn superseder_occurred_at(graph: &impl GraphView, by_id: &str) -> Result<Option<DateTime<Utc>>> {

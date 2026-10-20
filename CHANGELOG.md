@@ -718,6 +718,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`verify`, `why` and `--summary` count the days a superseded decision held to the link, not
+  to the replacement's own date.** `still_holds.days_held` ended at the superseding decision's
+  `occurred_at`, so linking a decision decided on 24 September as the replacement of one decided
+  on 22 September (`emit decision.superseded --old A --new B`, run on 20 October) said it "held
+  2 days until it was superseded" while the same answer said the change was open since
+  20 October. The re-examine items, the propagation line and the attention findings already date
+  a change by the link. The days now run to the time the supersession was recorded (the earliest
+  link when concurrent supersessions both survive): 28 days in that example. A supersession
+  recorded without a time keeps the replacement's date; a link recorded before the decision it
+  replaces still leaves the figure out. (hivemind-ot2gf)
 - **Nine MCP tools are written once, so stdio and `POST /mcp` refuse a bad argument in the
   same words, and stdio no longer lists tools it cannot run.** `capture_evidence`,
   `capture_hypothesis`, `get_decision`, `get_relevant_decisions`, `search_decisions`,
