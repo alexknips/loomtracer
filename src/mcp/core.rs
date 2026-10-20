@@ -1,9 +1,9 @@
 //! Transport-agnostic core for MCP tools.
 //!
 //! Both the stdio transport (`mcp.rs`) and the MCP-over-HTTP transport
-//! (`api/mcp_http.rs`) implement the same ~15-tool surface. Historically
-//! each did so with its own ~90%-identical body, which already drifted once
-//! (see hivemind-whvd). This module is where that surface collapses to one
+//! (`api/mcp_http.rs`) serve the same tool surface. Historically each did so
+//! with its own ~90%-identical body, which drifted (see hivemind-whvd,
+//! hivemind-q3rpv). This module is where that surface collapses to one
 //! implementation per tool, consumed by both transports.
 //!
 //! Boundaries:
@@ -18,18 +18,13 @@
 //!    to the MCP `content`/`structuredContent` wire shape is unchanged and
 //!    stays with each adapter's existing renderer.
 //!
-//! Migrated so far: `capture_decision`, `get_situational_decisions`,
-//! `resolve_target`/`get_decision_neighborhood`, `get_supersession_chain`,
-//! `recall_decisions`, `supersede_decision`, `disagree_decision`, `move_decision`,
-//! `ground_decision`, `reaffirm_decision`, `get_reexamine_items`,
-//! `get_decision_outcome`, `hivemind_compact_view`, `score_decision`,
-//! `scan_decision_quality`, `get_suggestions`, `rank_decisions_by_importance`, `recent_decisions`,
-//! `decision_quality_candidates`, `get_decision_context`,
-//! `decision_context_candidates`, `scan_misfiled_decisions`,
-//! `analyze_failure_modes`, `request_decision`, `acknowledge_suggestion`. Later
-//! tools follow the same shape — an `Args::from_json` parser plus a
-//! `core::<tool>` function — one pair per tool, each independently
-//! reviewable.
+//! Every tool in `tool_definitions()` lives here as an `Args::from_json` parser
+//! plus a `core::<tool>` function, one pair per tool: a transport only
+//! resolves who is calling and which ledger and graph to read, then calls the
+//! pair. Two tools, [`HTTP_ONLY_TOOLS`], work the server's ingest queue and are
+//! called by `POST /mcp` alone; stdio's `tools/list` leaves them out. A new
+//! tool is added here, with a row in [`TOOL_KINDS`], and wired into both
+//! dispatch tables.
 
 use std::sync::Arc;
 
@@ -41,7 +36,7 @@ use crate::commands::{
     DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, HivemindError};
-use crate::events::{AckAction, EventProvenance, ProjectSource, TenantId};
+use crate::events::{AckAction, CaptureItem, EventProvenance, ProjectSource, TenantId};
 use crate::floor::FloorAnswers;
 use crate::grounding::{
     premise_cycle_refusal, resolve_grounding_in, GroundingResolution, GroundingSpec,
@@ -60,25 +55,29 @@ use crate::quality_profile::{
 use crate::queries::{
     annotate_resolution, context_next_cursor, derive_decision_status,
     get_changed_decisions as query_get_changed_decisions, get_compact_view,
-    get_contested_decisions as query_get_contested_decisions,
+    get_contested_decisions as query_get_contested_decisions, get_decision as query_get_decision,
     get_decision_brief as query_get_decision_brief,
     get_decision_context as query_get_decision_context, get_decision_context_candidates,
     get_decision_neighborhood as query_get_decision_neighborhood, get_decision_quality_candidates,
     get_decision_timeline as query_get_decision_timeline,
     get_open_why_decisions as query_get_open_why_decisions, get_recent_decisions,
     get_reexamine_items as query_get_reexamine_items,
+    get_relevant_decisions as query_get_relevant_decisions,
     get_supersession_chain as query_get_supersession_chain,
     get_waiting_requests as query_get_waiting_requests, misfiled_next_cursor, outcome_next_cursor,
     outcome_page_len, require_registered_project, resolve_decision_by_description,
     resolve_decision_for_reading, scan_misfiled_decisions as query_scan_misfiled_decisions,
-    upstream_of, ChangedDecisionsRequest, ContestedDecisionsRequest, DecisionContextRequest,
-    DecisionQualityCandidatesRequest, DecisionStatus, FailureAttributionRequest,
-    MisfiledScanRequest, NeighborhoodRequest, OpenWhyRequest, QueryContext, QueryResponse,
-    RecentDecisionFilterRequest, RecentDecisionsRequest, ReexamineRequest, ResolveOutcome,
-    ResolvedCandidate, SituationalRequest, WaitingRequestsRequest, DEFAULT_REEXAMINE_PAGE_SIZE,
+    search_decisions_any, upstream_of, ChangedDecisionsRequest, ContestedDecisionsRequest,
+    DecisionContextRequest, DecisionQualityCandidatesRequest, DecisionStatus,
+    FailureAttributionRequest, MisfiledScanRequest, NeighborhoodRequest, OpenWhyRequest,
+    QueryContext, QueryResponse, RecentDecisionFilterRequest, RecentDecisionsRequest,
+    ReexamineRequest, ResolveOutcome, ResolvedCandidate, SearchDecisionRequest, SituationalRequest,
+    WaitingRequestsRequest, DEFAULT_REEXAMINE_PAGE_SIZE,
 };
 use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
-use crate::summarize::{RecallRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT};
+use crate::summarize::{
+    RecallRequest, SummarizeMode, SummarizeRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT,
+};
 
 use super::args::{
     optional_bool, optional_bool_or, optional_datetime, optional_option_labels, optional_string,
@@ -277,6 +276,16 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("hivemind_compact_view", ToolKind::ReadDecisions),
     ("summarize_decisions", ToolKind::ReadDecisions),
 ];
+
+/// The tools only `POST /mcp` serves: they work the server's ingest queue, which a local stdio
+/// ledger has no workers for (hivemind-zdsh.18). Stdio's `tools/list` leaves them out, so it
+/// never advertises a tool it would answer "unknown tool" to.
+pub(crate) const HTTP_ONLY_TOOLS: &[&str] = &["classify_queue_list", "classify_queue_submit"];
+
+/// True for a tool stdio does not serve.
+pub(crate) fn tool_is_http_only(name: &str) -> bool {
+    HTTP_ONLY_TOOLS.contains(&name)
+}
 
 /// The kind of the named tool, or `None` for a name that is not a tool.
 pub(crate) fn tool_kind(name: &str) -> Option<ToolKind> {
@@ -2541,4 +2550,389 @@ pub(crate) fn analyze_failure_modes(
     let response =
         quality_profile::analyze_failure_modes(graph, &args.request).map_err(CoreError::from)?;
     query_output(&response)
+}
+
+// ---------------------------------------------------------------------------
+// capture_evidence / capture_hypothesis
+// ---------------------------------------------------------------------------
+
+/// Parsed, validated arguments for the `capture_evidence` tool.
+pub(crate) struct CaptureEvidenceArgs {
+    pub(crate) actor_id: String,
+    pub(crate) content: String,
+}
+
+impl CaptureEvidenceArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            actor_id,
+            content: require_string(args, "content")?,
+        })
+    }
+}
+
+/// The core for the `capture_evidence` MCP tool: records one piece of evidence on its own, with
+/// no decision resting on it yet.
+pub(crate) fn capture_evidence<P: LedgerProvider>(
+    provider: &P,
+    args: CaptureEvidenceArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let commands = Commands::new_with_context(
+        &handle.ledger,
+        CommandContext::new(
+            handle.tenant_id,
+            EventProvenance::agent(args.actor_id.clone()),
+        ),
+    );
+    let evidence_id = commands
+        .record_evidence(&args.actor_id, &args.content)
+        .map_err(CoreError::from)?;
+    Ok(ToolOutput(json!({ "evidence_id": evidence_id })))
+}
+
+/// Parsed, validated arguments for the `capture_hypothesis` tool.
+pub(crate) struct CaptureHypothesisArgs {
+    pub(crate) actor_id: String,
+    pub(crate) statement: String,
+}
+
+impl CaptureHypothesisArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            actor_id,
+            statement: require_string(args, "statement")?,
+        })
+    }
+}
+
+/// The core for the `capture_hypothesis` MCP tool: records one assumption on its own, with no
+/// decision resting on it yet.
+pub(crate) fn capture_hypothesis<P: LedgerProvider>(
+    provider: &P,
+    args: CaptureHypothesisArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let commands = Commands::new_with_context(
+        &handle.ledger,
+        CommandContext::new(
+            handle.tenant_id,
+            EventProvenance::agent(args.actor_id.clone()),
+        ),
+    );
+    let hypothesis_id = commands
+        .record_hypothesis(&args.actor_id, &args.statement)
+        .map_err(CoreError::from)?;
+    Ok(ToolOutput(json!({ "hypothesis_id": hypothesis_id })))
+}
+
+// ---------------------------------------------------------------------------
+// get_decision / get_relevant_decisions / search_decisions / dump_graph /
+// summarize_decisions
+// ---------------------------------------------------------------------------
+
+/// Parsed, validated arguments for the `get_decision` tool.
+pub(crate) struct GetDecisionArgs {
+    pub(crate) decision_id: String,
+}
+
+impl GetDecisionArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        Ok(Self {
+            decision_id: require_string(args, "decision_id")?,
+        })
+    }
+}
+
+/// The core for the `get_decision` MCP tool: one decision as the graph holds it, or `data: null`
+/// when no decision has the id.
+pub(crate) fn get_decision(
+    graph: &impl GraphView,
+    args: GetDecisionArgs,
+) -> Result<ToolOutput, CoreError> {
+    let response = query_get_decision(graph, &args.decision_id).map_err(CoreError::from)?;
+    query_output(&response)
+}
+
+/// Parsed, validated arguments for the `get_relevant_decisions` tool.
+pub(crate) struct GetRelevantDecisionsArgs {
+    pub(crate) topic: String,
+    pub(crate) status: Option<DecisionStatus>,
+}
+
+impl GetRelevantDecisionsArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        Ok(Self {
+            topic: require_string(args, "topic")?,
+            status: optional_string(args, "status")?
+                .map(|status| parse_decision_status(&status))
+                .transpose()?,
+        })
+    }
+}
+
+/// The core for the `get_relevant_decisions` MCP tool: the decisions filed under a topic key,
+/// optionally only those in one status. A `status` that is not a status name is refused, never
+/// read as "any".
+pub(crate) fn get_relevant_decisions(
+    graph: &impl GraphView,
+    args: GetRelevantDecisionsArgs,
+) -> Result<ToolOutput, CoreError> {
+    let response =
+        query_get_relevant_decisions(graph, &args.topic, args.status).map_err(CoreError::from)?;
+    query_output(&response)
+}
+
+/// Default page size of `search_decisions`.
+const SEARCH_DEFAULT_LIMIT: usize = 25;
+
+/// Parsed, validated arguments for the `search_decisions` tool.
+pub(crate) struct SearchDecisionsArgs {
+    pub(crate) request: SearchDecisionRequest,
+}
+
+impl SearchDecisionsArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        let query = optional_string(args, "q")?;
+        let statuses = optional_string_array(args, "status")?
+            .iter()
+            .map(|status| parse_decision_status(status))
+            .collect::<Result<Vec<_>, _>>()?;
+        let limit = optional_usize(args, "limit")?.unwrap_or(SEARCH_DEFAULT_LIMIT);
+        Ok(Self {
+            request: SearchDecisionRequest {
+                query,
+                topic_keys: optional_string_array(args, "topic")?,
+                statuses,
+                actor_ids: optional_string_array(args, "actor_id")?,
+                sources: optional_string_array(args, "source")?,
+                since: optional_datetime(args, "since")?,
+                until: optional_datetime(args, "until")?,
+                limit,
+                cursor: optional_string(args, "cursor")?,
+                project: None,
+            },
+        })
+    }
+}
+
+/// The core for the `search_decisions` MCP tool: one page of the decisions matching a full-text
+/// query and filters. The ledger must be [`AnyLedger`] specifically: the full-text search picks
+/// its index by backend.
+pub(crate) fn search_decisions<P>(
+    provider: &P,
+    graph: &impl GraphView,
+    args: SearchDecisionsArgs,
+) -> Result<ToolOutput, CoreError>
+where
+    P: LedgerProvider<Ledger = AnyLedger>,
+{
+    let handle = provider.ledger()?;
+    let context = QueryContext::new(handle.tenant_id);
+    let response = search_decisions_any(&context, &handle.ledger, graph, &args.request)
+        .map_err(CoreError::from)?;
+    query_output(&response)
+}
+
+/// The core for the `dump_graph` MCP tool: the decision graph as Graphviz DOT. Takes no
+/// arguments.
+pub(crate) fn dump_graph(graph: &impl GraphView) -> Result<ToolOutput, CoreError> {
+    let dot = crate::cli::render_decision_dot(graph).map_err(CoreError::from)?;
+    Ok(ToolOutput(json!({ "format": "dot", "content": dot })))
+}
+
+/// Parsed, validated arguments for the `summarize_decisions` tool.
+pub(crate) struct SummarizeDecisionsArgs {
+    pub(crate) request: SummarizeRequest,
+}
+
+impl SummarizeDecisionsArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        let decision_ids = require_string_array(args, "decision_ids")?;
+        if decision_ids.is_empty() {
+            return Err(CoreError::InvalidArgument(
+                "decision_ids must not be empty".to_owned(),
+            ));
+        }
+        let refuse_unless_one = |mode: &str| {
+            if decision_ids.len() == 1 {
+                Ok(())
+            } else {
+                Err(CoreError::InvalidArgument(format!(
+                    "mode={mode} requires exactly one decision_id"
+                )))
+            }
+        };
+        let mode = match optional_string(args, "mode")?.as_deref() {
+            None if decision_ids.len() == 1 => SummarizeMode::Single,
+            None => SummarizeMode::Cluster,
+            Some("single") => {
+                refuse_unless_one("single")?;
+                SummarizeMode::Single
+            }
+            Some("cluster") => SummarizeMode::Cluster,
+            Some("chain") => {
+                refuse_unless_one("chain")?;
+                SummarizeMode::Chain
+            }
+            Some(other) => {
+                return Err(CoreError::InvalidArgument(format!(
+                    "unknown mode `{other}`; must be single, cluster, or chain"
+                )))
+            }
+        };
+        Ok(Self {
+            request: SummarizeRequest { decision_ids, mode },
+        })
+    }
+}
+
+/// The core for the `summarize_decisions` MCP tool: a deterministic digest of one decision, a
+/// cluster of them, or one decision's supersession chain. No model is called.
+pub(crate) fn summarize_decisions(
+    graph: &impl GraphView,
+    args: SummarizeDecisionsArgs,
+) -> Result<ToolOutput, CoreError> {
+    let response =
+        crate::summarize::summarize_decisions(graph, &args.request).map_err(CoreError::from)?;
+    query_output(&response)
+}
+
+// ---------------------------------------------------------------------------
+// classify_queue_list / classify_queue_submit (HTTP only, see HTTP_ONLY_TOOLS)
+// ---------------------------------------------------------------------------
+
+/// Default page size of `classify_queue_list`.
+const CLASSIFY_QUEUE_DEFAULT_LIMIT: usize = 20;
+
+/// The classifier recorded on a submission that names none: the subscription-seat worker.
+const CLASSIFY_QUEUE_DEFAULT_MODEL: &str = "agent:worker-a";
+
+/// Parsed, validated arguments for the `classify_queue_list` tool.
+pub(crate) struct ClassifyQueueListArgs {
+    pub(crate) session_id: Option<String>,
+    pub(crate) limit: usize,
+}
+
+impl ClassifyQueueListArgs {
+    pub(crate) fn from_json(args: &Map<String, Value>) -> Result<Self, CoreError> {
+        Ok(Self {
+            session_id: optional_string(args, "session_id")?,
+            limit: optional_usize(args, "limit")?.unwrap_or(CLASSIFY_QUEUE_DEFAULT_LIMIT),
+        })
+    }
+}
+
+/// The core for the `classify_queue_list` MCP tool: the oldest pending (unclassified) ingest
+/// batches with rendered turn text, plus today's classification budget; `pending_total` and
+/// `truncated` say how much more is waiting. The MCP mirror of `GET /v1/classify-queue`
+/// (hivemind-zdsh.18).
+pub(crate) fn classify_queue_list<P: LedgerProvider>(
+    provider: &P,
+    args: ClassifyQueueListArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let queue = crate::classifier::pending_queue_for_ledger(
+        &handle.ledger,
+        &handle.tenant_id,
+        args.session_id.as_deref(),
+        args.limit,
+    )
+    .map_err(CoreError::from)?;
+    Ok(ToolOutput(queue.to_json()))
+}
+
+/// Parsed, validated arguments for the `classify_queue_submit` tool.
+pub(crate) struct ClassifyQueueSubmitArgs {
+    pub(crate) actor_id: String,
+    pub(crate) batch_ids: Vec<String>,
+    pub(crate) captures: Vec<CaptureItem>,
+    pub(crate) model: String,
+}
+
+impl ClassifyQueueSubmitArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        let batch_ids = require_string_array(args, "batch_ids")?;
+        if batch_ids.is_empty() {
+            return Err(CoreError::InvalidArgument(
+                "batch_ids must not be empty".to_owned(),
+            ));
+        }
+        let captures = args
+            .get("captures")
+            .cloned()
+            .ok_or_else(|| CoreError::InvalidArgument("missing `captures`".to_owned()))?;
+        let captures = serde_json::from_value(captures).map_err(|error| {
+            CoreError::InvalidArgument(format!("`captures` is invalid: {error}"))
+        })?;
+        Ok(Self {
+            actor_id,
+            batch_ids,
+            captures,
+            model: optional_string(args, "model")?
+                .unwrap_or_else(|| CLASSIFY_QUEUE_DEFAULT_MODEL.to_owned()),
+        })
+    }
+}
+
+/// The core for the `classify_queue_submit` MCP tool: records the captures for one or more
+/// pending batches from the same session as a single classification event, the session-grouped
+/// cadence (hivemind-zdsh.18): one model call per session end, not one per batch. A batch the
+/// tenant never received is refused by name with nothing written, and once the daily cap is hit
+/// the submission is refused, not dropped: the batches stay pending for the next day. The MCP
+/// mirror of `POST /v1/classify-queue/submit`.
+pub(crate) fn classify_queue_submit<P: LedgerProvider>(
+    provider: &P,
+    args: ClassifyQueueSubmitArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let commands = Commands::new_with_context(
+        &handle.ledger,
+        CommandContext::new(
+            handle.tenant_id.clone(),
+            EventProvenance::agent(args.actor_id.clone()),
+        ),
+    );
+
+    // A batch this tenant never received is a bad argument whatever the cap says.
+    commands
+        .require_received_batches(&args.batch_ids)
+        .map_err(CoreError::from)?;
+
+    let cap_status = crate::classifier::daily_cap_status(&handle.ledger, &handle.tenant_id)
+        .map_err(CoreError::from)?;
+    if cap_status.remaining == 0 {
+        return Err(CoreError::InvalidArgument(format!(
+            "daily classification cap ({}) reached; batches remain pending until tomorrow (UTC)",
+            cap_status.cap
+        )));
+    }
+
+    let recorded = commands
+        .record_ingest_batch_classified(
+            &args.actor_id,
+            &args.batch_ids,
+            &args.model,
+            crate::classifier::SCHEMA_VERSION,
+            args.captures,
+            None,
+        )
+        .map_err(CoreError::from)?;
+
+    let mut reply = json!({
+        "batch_ids": args.batch_ids,
+        "capture_count": recorded.recorded_count,
+        "event_id": recorded.event_id,
+    });
+    recorded.annotate_reply(&mut reply);
+    Ok(ToolOutput(reply))
 }

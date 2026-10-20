@@ -31,7 +31,7 @@ cargo test --locked
 - **Write layer:** `src/commands` (validates invariants, appends events), `src/events.rs`, `src/ingest.rs`, `src/ledger` (`sqlite`, `postgres`, `memory`).
 - **Read layer:** `src/queries` (pure reads), `src/projector` (replays the ledger into the graph).
 - **Layer 3:** `src/summarize.rs`, `src/scorer.rs`, `src/classifier.rs`, `src/quality_profile`, `src/importance.rs`, `src/possibly_related.rs`.
-- **Surfaces:** `src/cli` (`args.rs` defines every flag, `run/` holds the handlers), `src/mcp.rs` (`tool_definitions()` is the one tool list for stdio and `POST /mcp`), `src/api` (REST).
+- **Surfaces:** `src/cli` (`args.rs` defines every flag, `run/` holds the handlers), `src/mcp.rs` (`tool_definitions()` is the one tool list; stdio leaves out `HTTP_ONLY_TOOLS`) with `src/mcp/core.rs`, where every tool's argument parser and logic live once and both transports (`src/mcp.rs` stdio, `src/api/mcp_http.rs` for `POST /mcp`) only adapt them, `src/api` (REST).
 - **Outside `src/`:** `plugins/hivemind-capture` and `plugins/hivemind-context` are shell scripts and skills, exercised by `tests/*.rs`; `capture/` is the Python shipper. The CLI and MCP reference pages are regenerated in the site repo (`docs/QUALITY_GATES.md`, Reference Docs).
 
 ## Day-one gotchas

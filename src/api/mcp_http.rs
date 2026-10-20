@@ -18,37 +18,25 @@ use axum::extract::{Json, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
-use crate::commands::{CommandContext, Commands};
-use crate::events::{EventProvenance, TenantId};
-use crate::mcp::args::{
-    optional_string as mcp_opt_str, optional_string_array as mcp_opt_str_array,
-    optional_usize as mcp_opt_usize, require_string as mcp_req_str,
-    require_string_array as mcp_req_str_array,
-};
+use crate::events::TenantId;
 use crate::mcp::core::{
-    AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CompactViewArgs,
+    AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CaptureEvidenceArgs,
+    CaptureHypothesisArgs, ClassifyQueueListArgs, ClassifyQueueSubmitArgs, CompactViewArgs,
     CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
-    GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionContextArgs,
+    GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionArgs, GetDecisionContextArgs,
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
-    GetReexamineItemsArgs, GetSituationalDecisionsArgs, GetSuggestionsArgs,
-    GetSupersessionChainArgs, GetWaitingRequestsArgs, GraphSource, GroundDecisionArgs,
-    LedgerHandle, LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs,
-    ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
-    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
-    SupersedeDecisionArgs,
+    GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
+    GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GraphSource,
+    GroundDecisionArgs, LedgerHandle, LedgerProvider, MoveDecisionArgs,
+    RankDecisionsByImportanceArgs, ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs,
+    RequestDecisionArgs, RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs,
+    ScoreDecisionArgs, SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
 };
 use crate::projector::memory::MemoryGraph;
-use crate::queries::{
-    get_decision, get_relevant_decisions, search_decisions_any, DecisionStatus, QueryContext,
-    SearchDecisionRequest,
-};
 
 use super::auth::extract_ctx;
 use super::graph::{get_cached_graph, get_cached_graph_for_core};
-use super::{
-    parse_datetime, parse_status, query_envelope, ApiBackend, ApiLedger, ApiRequestCtx, ApiResult,
-    AppState, GraphCache, HEADER_FORWARDED_PROTO,
-};
+use super::{ApiBackend, ApiLedger, ApiRequestCtx, AppState, GraphCache, HEADER_FORWARDED_PROTO};
 
 pub(super) async fn mcp_http_handler(
     State(state): State<AppState>,
@@ -432,21 +420,14 @@ fn mcp_capture_evidence(
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
 ) -> McpToolResult {
-    let content = mcp_req_str(&args, "content")?;
-    let ledger = backend
-        .open_ledger_for_tenant(&ctx.tenant_id)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    let commands = Commands::new_with_context(
-        &ledger,
-        CommandContext::new(
-            ctx.tenant_id.clone(),
-            EventProvenance::agent(actor_id.to_owned()),
-        ),
-    );
-    let evidence_id = commands
-        .record_evidence(actor_id, &content)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    Ok(serde_json::json!({ "evidence_id": evidence_id }))
+    let core_args = CaptureEvidenceArgs::from_json(&args, actor_id.to_owned())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: None,
+    };
+    let output = crate::mcp::core::capture_evidence(&provider, core_args)?;
+    Ok(output.into_value())
 }
 
 fn mcp_capture_hypothesis(
@@ -455,21 +436,14 @@ fn mcp_capture_hypothesis(
     actor_id: &str,
     args: serde_json::Map<String, serde_json::Value>,
 ) -> McpToolResult {
-    let statement = mcp_req_str(&args, "statement")?;
-    let ledger = backend
-        .open_ledger_for_tenant(&ctx.tenant_id)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    let commands = Commands::new_with_context(
-        &ledger,
-        CommandContext::new(
-            ctx.tenant_id.clone(),
-            EventProvenance::agent(actor_id.to_owned()),
-        ),
-    );
-    let hypothesis_id = commands
-        .record_hypothesis(actor_id, &statement)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    Ok(serde_json::json!({ "hypothesis_id": hypothesis_id }))
+    let core_args = CaptureHypothesisArgs::from_json(&args, actor_id.to_owned())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: None,
+    };
+    let output = crate::mcp::core::capture_hypothesis(&provider, core_args)?;
+    Ok(output.into_value())
 }
 
 fn mcp_disagree(
@@ -613,10 +587,10 @@ fn mcp_get_decision(
     args: serde_json::Map<String, serde_json::Value>,
     cache: &Arc<GraphCache>,
 ) -> McpToolResult {
-    let decision_id = mcp_req_str(&args, "decision_id")?;
+    let core_args = GetDecisionArgs::from_json(&args)?;
     let graph = mcp_open_graph(backend, ctx, cache)?;
-    let response = get_decision(&*graph, &decision_id).map_err(|e| (-32603i32, e.to_string()))?;
-    serde_json::to_value(query_envelope(response)).map_err(|e| (-32603i32, e.to_string()))
+    let output = crate::mcp::core::get_decision(&*graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn mcp_get_decision_outcome(
@@ -641,24 +615,10 @@ fn mcp_get_relevant_decisions(
     args: serde_json::Map<String, serde_json::Value>,
     cache: &Arc<GraphCache>,
 ) -> McpToolResult {
-    let topic = mcp_req_str(&args, "topic")?;
-    let status_filter = match args
-        .get("status")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        None => None,
-        Some("proposed") => Some(DecisionStatus::Proposed),
-        Some("accepted") => Some(DecisionStatus::Accepted),
-        Some("rejected") => Some(DecisionStatus::Rejected),
-        Some("contested") => Some(DecisionStatus::Contested),
-        Some("superseded") => Some(DecisionStatus::Superseded),
-        Some(other) => return Err((-32602, format!("unknown status `{other}`"))),
-    };
+    let core_args = GetRelevantDecisionsArgs::from_json(&args)?;
     let graph = mcp_open_graph(backend, ctx, cache)?;
-    let response = get_relevant_decisions(&*graph, &topic, status_filter)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    serde_json::to_value(query_envelope(response)).map_err(|e| (-32603i32, e.to_string()))
+    let output = crate::mcp::core::get_relevant_decisions(&*graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn mcp_get_situational_decisions(
@@ -786,52 +746,15 @@ fn mcp_search_decisions(
     args: serde_json::Map<String, serde_json::Value>,
     cache: &Arc<GraphCache>,
 ) -> McpToolResult {
-    let ledger = backend
-        .open_ledger_for_tenant(&ctx.tenant_id)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    let graph =
-        get_cached_graph(&ledger, &ctx.tenant_id, cache).map_err(|e| (-32603i32, e.to_string()))?;
-
-    let query = mcp_opt_str(&args, "q")?;
-    let topic_keys = mcp_opt_str_array(&args, "topic")?;
-    let statuses = mcp_opt_str_array(&args, "status")?
-        .into_iter()
-        .map(|s| parse_status(&s))
-        .collect::<ApiResult<Vec<_>>>()
-        .map_err(|e| (-32602i32, e.to_string()))?;
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize)
-        .unwrap_or(25);
-    let since = match mcp_opt_str(&args, "since")? {
-        Some(s) => Some(
-            parse_datetime(&s).map_err(|e| (-32602i32, format!("`since` must be RFC3339: {e}")))?,
-        ),
-        None => None,
+    let core_args = SearchDecisionsArgs::from_json(&args)?;
+    let graph = mcp_open_graph(backend, ctx, cache)?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: None,
     };
-    let until = match mcp_opt_str(&args, "until")? {
-        Some(s) => Some(
-            parse_datetime(&s).map_err(|e| (-32602i32, format!("`until` must be RFC3339: {e}")))?,
-        ),
-        None => None,
-    };
-    let request = SearchDecisionRequest {
-        query,
-        topic_keys,
-        statuses,
-        actor_ids: mcp_opt_str_array(&args, "actor_id")?,
-        sources: mcp_opt_str_array(&args, "source")?,
-        since,
-        until,
-        limit,
-        cursor: mcp_opt_str(&args, "cursor")?,
-        project: None,
-    };
-    let query_ctx = QueryContext::new(ctx.tenant_id.clone());
-    let response = search_decisions_any(&query_ctx, &ledger, &*graph, &request)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    serde_json::to_value(query_envelope(response)).map_err(|e| (-32603i32, e.to_string()))
+    let output = crate::mcp::core::search_decisions(&provider, &*graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn mcp_score_decision(
@@ -970,8 +893,8 @@ fn mcp_dump_graph(
     cache: &Arc<GraphCache>,
 ) -> McpToolResult {
     let graph = mcp_open_graph(backend, ctx, cache)?;
-    let dot = crate::cli::render_decision_dot(&*graph).map_err(|e| (-32603i32, e.to_string()))?;
-    Ok(serde_json::json!({ "format": "dot", "content": dot }))
+    let output = crate::mcp::core::dump_graph(&*graph)?;
+    Ok(output.into_value())
 }
 
 fn mcp_compact_view(
@@ -996,136 +919,40 @@ fn mcp_summarize(
     args: serde_json::Map<String, serde_json::Value>,
     cache: &Arc<GraphCache>,
 ) -> McpToolResult {
-    use crate::summarize::{summarize_decisions, SummarizeMode, SummarizeRequest};
-
-    let decision_ids = mcp_req_str_array(&args, "decision_ids")?;
-    if decision_ids.is_empty() {
-        return Err((-32602, "decision_ids must not be empty".into()));
-    }
-    let mode_str = mcp_opt_str(&args, "mode")?;
-    let mode = match mode_str.as_deref() {
-        None if decision_ids.len() == 1 => SummarizeMode::Single,
-        None => SummarizeMode::Cluster,
-        Some("single") if decision_ids.len() != 1 => {
-            return Err((
-                -32602,
-                "mode=single requires exactly one decision_id".into(),
-            ))
-        }
-        Some("single") => SummarizeMode::Single,
-        Some("cluster") => SummarizeMode::Cluster,
-        Some("chain") if decision_ids.len() != 1 => {
-            return Err((-32602, "mode=chain requires exactly one decision_id".into()))
-        }
-        Some("chain") => SummarizeMode::Chain,
-        Some(other) => {
-            return Err((
-                -32602,
-                format!("unknown mode `{other}`; must be single, cluster, or chain"),
-            ))
-        }
-    };
+    let core_args = SummarizeDecisionsArgs::from_json(&args)?;
     let graph = mcp_open_graph(backend, ctx, cache)?;
-    let request = SummarizeRequest { decision_ids, mode };
-    let response =
-        summarize_decisions(&*graph, &request).map_err(|e| (-32603i32, e.to_string()))?;
-    serde_json::to_value(query_envelope(response)).map_err(|e| (-32603i32, e.to_string()))
+    let output = crate::mcp::core::summarize_decisions(&*graph, core_args)?;
+    Ok(output.into_value())
 }
 
-/// Lists the oldest pending (unclassified) ingest batches with rendered turn
-/// text, plus today's classification budget; `pending_total` and `truncated`
-/// say how much more is waiting. MCP mirror of `GET /v1/classify-queue`
-/// (hivemind-zdsh.18).
 fn mcp_classify_queue_list(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
 ) -> McpToolResult {
-    let session_id = mcp_opt_str(&args, "session_id")?;
-    let limit = mcp_opt_usize(&args, "limit")?.unwrap_or(20);
-
-    let ledger = backend
-        .open_ledger_for_tenant(&ctx.tenant_id)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    let queue = crate::classifier::pending_queue_for_ledger(
-        &ledger,
-        &ctx.tenant_id,
-        session_id.as_deref(),
-        limit,
-    )
-    .map_err(|e| (-32603i32, e.to_string()))?;
-    Ok(queue.to_json())
+    let core_args = ClassifyQueueListArgs::from_json(&args)?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: None,
+    };
+    let output = crate::mcp::core::classify_queue_list(&provider, core_args)?;
+    Ok(output.into_value())
 }
 
-/// Submits captures for one or more pending batches from the same session in
-/// a single classification event — the session-grouped cadence
-/// (hivemind-zdsh.18): one model call per session end, not one per batch.
-/// Refuses a batch id the tenant never received, naming it, with nothing written.
-/// Refuses with an error once the daily classification cap is hit; batches
-/// stay pending for the next day rather than being dropped. MCP mirror of
-/// `POST /v1/classify-queue/submit`.
+/// Recorded as the token's own actor, whatever `actor_id` or session the call carries: a
+/// classification is the worker's, not a session's.
 fn mcp_classify_queue_submit(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     args: serde_json::Map<String, serde_json::Value>,
 ) -> McpToolResult {
-    let batch_ids = mcp_req_str_array(&args, "batch_ids")?;
-    if batch_ids.is_empty() {
-        return Err((-32602, "batch_ids must not be empty".into()));
-    }
-    let captures_value = args
-        .get("captures")
-        .cloned()
-        .ok_or_else(|| (-32602, "missing `captures`".to_owned()))?;
-    let captures: Vec<crate::events::CaptureItem> = serde_json::from_value(captures_value)
-        .map_err(|e| (-32602, format!("`captures` is invalid: {e}")))?;
-    let model = mcp_opt_str(&args, "model")?.unwrap_or_else(|| "agent:worker-a".to_owned());
-
-    let ledger = backend
-        .open_ledger_for_tenant(&ctx.tenant_id)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-
-    let commands = Commands::new_with_context(
-        &ledger,
-        CommandContext::new(
-            ctx.tenant_id.clone(),
-            EventProvenance::agent(ctx.actor_id.clone()),
-        ),
-    );
-
-    // A batch this tenant never received is a bad argument whatever the cap says.
-    commands
-        .require_received_batches(&batch_ids)
-        .map_err(|e| (-32602i32, e.to_string()))?;
-
-    let cap_status = crate::classifier::daily_cap_status(&ledger, &ctx.tenant_id)
-        .map_err(|e| (-32603i32, e.to_string()))?;
-    if cap_status.remaining == 0 {
-        return Err((
-            -32000,
-            format!(
-                "daily classification cap ({}) reached; batches remain pending until tomorrow (UTC)",
-                cap_status.cap
-            ),
-        ));
-    }
-
-    let recorded = commands
-        .record_ingest_batch_classified(
-            &ctx.actor_id,
-            &batch_ids,
-            &model,
-            crate::classifier::SCHEMA_VERSION,
-            captures,
-            None,
-        )
-        .map_err(|e| (-32603i32, e.to_string()))?;
-
-    let mut reply = serde_json::json!({
-        "batch_ids": batch_ids,
-        "capture_count": recorded.recorded_count,
-        "event_id": recorded.event_id,
-    });
-    recorded.annotate_reply(&mut reply);
-    Ok(reply)
+    let core_args = ClassifyQueueSubmitArgs::from_json(&args, ctx.actor_id.clone())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: None,
+    };
+    let output = crate::mcp::core::classify_queue_submit(&provider, core_args)?;
+    Ok(output.into_value())
 }

@@ -1,6 +1,7 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
 use super::*;
+use crate::commands::Commands;
 use crate::ledger::{EventLedger, SqliteEventLedger};
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -113,7 +114,7 @@ fn one_connection_naming_its_agent_does_not_rename_the_shared_config() {
 }
 
 #[test]
-fn tools_list_includes_all_eighteen_tools() {
+fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
     let dir = unique_dir("list");
     let config = McpConfig::new(&dir).with_session_id("test-session");
     let responses = drive(
@@ -122,7 +123,7 @@ fn tools_list_includes_all_eighteen_tools() {
     );
     assert_eq!(responses.len(), 1); // ubs:ignore: test-only; index guaranteed by test setup
     let tools = responses[0]["result"]["tools"].as_array().expect("array"); // ubs:ignore: test-only; panicking is correct in tests
-    assert_eq!(tools.len(), 39, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
+    assert_eq!(tools.len(), 37, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
     let names: Vec<&str> = tools
         .iter()
         .map(|tool| tool["name"].as_str().expect("string name")) // ubs:ignore: test-only; panicking is correct in tests
@@ -165,12 +166,39 @@ fn tools_list_includes_all_eighteen_tools() {
         "dump_graph",
         "hivemind_compact_view",
         "summarize_decisions",
-        "classify_queue_list",
-        "classify_queue_submit",
     ] {
         assert!(names.contains(&expected), "missing tool {expected}"); // ubs:ignore: test-only assertion
     }
+    // The queue tools only `POST /mcp` serves are not offered: stdio would answer "unknown tool".
+    for http_only in crate::mcp::core::HTTP_ONLY_TOOLS {
+        assert!(
+            !names.contains(http_only),
+            "stdio lists {http_only}, which only HTTP serves"
+        ); // ubs:ignore: test-only assertion
+    }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_http_only_tools_are_the_tools_whose_description_says_so() {
+    // One list says which tools stdio leaves out, and the tools' own descriptions say it to the
+    // reader of the reference. They must not name different tools.
+    let mut described: Vec<String> = crate::mcp::tool_definitions()
+        .iter()
+        .filter(|tool| {
+            tool["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("HTTP-transport only"))
+        })
+        .map(|tool| tool["name"].as_str().expect("string name").to_owned()) // ubs:ignore: test-only; panicking is correct in tests
+        .collect();
+    let mut listed: Vec<String> = crate::mcp::core::HTTP_ONLY_TOOLS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    described.sort();
+    listed.sort();
+    assert_eq!(described, listed); // ubs:ignore: test-only assertion
 }
 
 #[test]
@@ -4466,24 +4494,41 @@ mod transport_parity {
     // both transports, and until they moved a call over HTTP answered "unknown tool".
     // -----------------------------------------------------------------------
 
-    /// Every tool `tools/list` names answers a call over HTTP, and over stdio unless its
-    /// description says it is HTTP-transport only. A call with no arguments is refused or
-    /// answered, never "unknown tool" (a JSON-RPC error, so no `result`).
+    /// Every tool a transport's `tools/list` names answers a call on that transport, and a tool
+    /// stdio does not list is not served there. A call with no arguments is refused or answered,
+    /// never "unknown tool" (a JSON-RPC error, so no `result`).
     #[tokio::test]
     async fn every_listed_tool_dispatches_on_the_transports_that_offer_it() {
+        let dir = unique_dir("dispatch-list");
+        let config = McpConfig::new(&dir).with_session_id("parity-stdio");
+        let listing = drive(
+            &config,
+            &[r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let stdio_listed: Vec<String> = listing[0]["result"]["tools"] // ubs:ignore: test-only; index guaranteed by test setup
+            .as_array()
+            .expect("tools array") // ubs:ignore: test-only; panicking is correct in tests
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("tool name").to_owned()) // ubs:ignore: test-only; panicking is correct in tests
+            .collect();
+
         for tool in crate::mcp::tool_definitions() {
             let name = tool["name"].as_str().expect("tool name"); // ubs:ignore: test-only; panicking is correct in tests
-            let http_only = tool["description"]
-                .as_str()
-                .is_some_and(|description| description.contains("HTTP-transport only"));
             let (stdio, http) = run(name, &format!("dispatch-{name}"), json!({})).await;
-            for (transport, result) in [("stdio", &stdio), ("http", &http)] {
-                if http_only && transport == "stdio" {
-                    continue;
-                }
+            assert!(
+                http.is_object(), // ubs:ignore: test-only assertion
+                "{name}: http does not dispatch a tool it lists: {http:?}"
+            );
+            if stdio_listed.iter().any(|listed| listed == name) {
                 assert!(
-                    result.is_object(), // ubs:ignore: test-only assertion
-                    "{name}: {transport} does not dispatch a tool it lists: {result:?}"
+                    stdio.is_object(), // ubs:ignore: test-only assertion
+                    "{name}: stdio lists a tool it does not dispatch: {stdio:?}"
+                );
+            } else {
+                assert!(
+                    stdio.is_null(), // ubs:ignore: test-only assertion
+                    "{name}: stdio serves a tool it does not list: {stdio:?}"
                 );
             }
         }
@@ -4952,6 +4997,311 @@ mod transport_parity {
                 ); // ubs:ignore: test-only assertion
             }
         }
+    }
+
+    /// The tools that were written once per transport (hivemind-q3rpv) refuse a bad argument
+    /// with the same words on both. Until they moved behind `mcp::core`, a `limit` that was a
+    /// string or negative made HTTP `search_decisions` use 25, and a `status` that was not a
+    /// string made HTTP `get_relevant_decisions` return every decision; stdio refused both.
+    #[tokio::test]
+    async fn the_tools_once_written_twice_refuse_the_same_bad_arguments_on_both_transports() {
+        let cases: &[(&str, &str, Value, &str)] = &[
+            (
+                "search_decisions",
+                "search-string-limit",
+                json!({ "q": "billing", "limit": "ten" }),
+                "`limit` must be an integer",
+            ),
+            (
+                "search_decisions",
+                "search-negative-limit",
+                json!({ "q": "billing", "limit": -1 }),
+                "`limit` must be a non-negative integer",
+            ),
+            (
+                "search_decisions",
+                "search-fractional-limit",
+                json!({ "q": "billing", "limit": 1.5 }),
+                "`limit` must be a non-negative integer",
+            ),
+            (
+                "search_decisions",
+                "search-bad-status",
+                json!({ "status": ["bogus"] }),
+                "unknown status `bogus`",
+            ),
+            (
+                "search_decisions",
+                "search-status-not-a-list",
+                json!({ "status": "accepted" }),
+                "`status` must be an array of strings",
+            ),
+            (
+                "search_decisions",
+                "search-bad-since",
+                json!({ "since": "yesterday" }),
+                "`since` must be RFC3339",
+            ),
+            (
+                "get_relevant_decisions",
+                "relevant-no-topic",
+                json!({}),
+                "missing `topic`",
+            ),
+            (
+                "get_relevant_decisions",
+                "relevant-status-not-a-string",
+                json!({ "topic": "parity", "status": 5 }),
+                "`status` must be a string",
+            ),
+            (
+                "get_relevant_decisions",
+                "relevant-bad-status",
+                json!({ "topic": "parity", "status": "bogus" }),
+                "unknown status `bogus`",
+            ),
+            (
+                "get_decision",
+                "get-decision-no-id",
+                json!({}),
+                "missing `decision_id`",
+            ),
+            (
+                "capture_evidence",
+                "evidence-no-content",
+                json!({}),
+                "missing `content`",
+            ),
+            (
+                "capture_evidence",
+                "evidence-content-not-a-string",
+                json!({ "content": 5 }),
+                "`content` must be a string",
+            ),
+            (
+                "capture_hypothesis",
+                "hypothesis-no-statement",
+                json!({}),
+                "missing `statement`",
+            ),
+            (
+                "summarize_decisions",
+                "summarize-no-ids",
+                json!({}),
+                "missing `decision_ids`",
+            ),
+            (
+                "summarize_decisions",
+                "summarize-empty-ids",
+                json!({ "decision_ids": [] }),
+                "decision_ids must not be empty",
+            ),
+            (
+                "summarize_decisions",
+                "summarize-bad-mode",
+                json!({ "decision_ids": ["decision-1"], "mode": "bogus" }),
+                "unknown mode `bogus`; must be single, cluster, or chain",
+            ),
+            (
+                "summarize_decisions",
+                "summarize-single-of-two",
+                json!({ "decision_ids": ["decision-1", "decision-2"], "mode": "single" }),
+                "mode=single requires exactly one decision_id",
+            ),
+            (
+                "summarize_decisions",
+                "summarize-chain-of-two",
+                json!({ "decision_ids": ["decision-1", "decision-2"], "mode": "chain" }),
+                "mode=chain requires exactly one decision_id",
+            ),
+        ];
+        for (tool, label, arguments, expected_message) in cases {
+            let (stdio, http) = run(tool, label, arguments.clone()).await;
+            for (name, result) in [("stdio", &stdio), ("http", &http)] {
+                assert!(
+                    result["isError"].as_bool().unwrap_or(false), // ubs:ignore: test-only assertion
+                    "{label}: {name} should refuse: {result:?}"
+                );
+                assert!(
+                    error_text(result).contains(expected_message), // ubs:ignore: test-only assertion
+                    "{label}: {name} said {:?}, expected {expected_message:?}",
+                    error_text(result)
+                );
+            }
+            assert_eq!(
+                error_text(&stdio),
+                error_text(&http),
+                "{label}: the transports refuse in different words"
+            ); // ubs:ignore: test-only assertion
+        }
+    }
+
+    /// The same tools answer a good call alike: filters are applied and the reply has the same
+    /// shape on both transports.
+    #[tokio::test]
+    async fn the_tools_once_written_twice_answer_alike_on_both_transports() {
+        let seeded = &["Adopt async billing queue"];
+
+        let (stdio, http) = run_seeded_with_ids(
+            seeded,
+            "get_decision",
+            "alike-get-decision",
+            |id| json!({ "decision_id": id }),
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "get_decision {name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                result["structuredContent"]["data"]["title"], "Adopt async billing queue",
+                "get_decision {name}: title"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        let (stdio, http) = run_seeded_with_ids(
+            seeded,
+            "summarize_decisions",
+            "alike-summarize",
+            |id| json!({ "decision_ids": [id] }),
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "summarize_decisions {name}"); // ubs:ignore: test-only assertion
+            let data = &result["structuredContent"]["data"];
+            assert_eq!(data["unit"], "single", "summarize_decisions {name}: unit"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                data["cited_decision_ids"].as_array().map(Vec::len),
+                Some(1),
+                "summarize_decisions {name}: cited"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        // The status filter narrows the answer on both transports, not on one.
+        for (label, arguments, expected_count) in [
+            ("alike-relevant-any", json!({ "topic": "parity" }), 1),
+            (
+                "alike-relevant-superseded",
+                json!({ "topic": "parity", "status": "superseded" }),
+                0,
+            ),
+        ] {
+            let (stdio, http) =
+                run_seeded("get_relevant_decisions", label, seeded, arguments).await;
+            for (name, result) in [("stdio", &stdio), ("http", &http)] {
+                assert_eq!(result["isError"], false, "{label} {name}"); // ubs:ignore: test-only assertion
+                assert_eq!(
+                    result["structuredContent"]["result_count"], expected_count,
+                    "{label} {name}: result_count"
+                ); // ubs:ignore: test-only assertion
+            }
+        }
+
+        let (stdio, http) = run_seeded(
+            "search_decisions",
+            "alike-search",
+            seeded,
+            json!({ "q": "billing", "limit": 5 }),
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "search_decisions {name}"); // ubs:ignore: test-only assertion
+            let data = &result["structuredContent"]["data"];
+            assert_eq!(data["total_matches"], 1, "search_decisions {name}: total"); // ubs:ignore: test-only assertion
+            assert_eq!(data["limit"], 5, "search_decisions {name}: limit"); // ubs:ignore: test-only assertion
+        }
+
+        let (stdio, http) = run_seeded("dump_graph", "alike-dump", seeded, json!({})).await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "dump_graph {name}"); // ubs:ignore: test-only assertion
+            let structured = &result["structuredContent"];
+            assert_eq!(structured["format"], "dot", "dump_graph {name}: format"); // ubs:ignore: test-only assertion
+            assert!(
+                structured["content"]
+                    .as_str()
+                    .is_some_and(|dot| dot.contains("digraph")), // ubs:ignore: test-only assertion
+                "dump_graph {name}: not DOT: {structured:?}"
+            );
+        }
+
+        for (tool, arguments, id_field) in [
+            (
+                "capture_evidence",
+                json!({ "content": "p95 was 3ms in the benchmark" }),
+                "evidence_id",
+            ),
+            (
+                "capture_hypothesis",
+                json!({ "statement": "Reads stay under 5ms" }),
+                "hypothesis_id",
+            ),
+        ] {
+            let (stdio, http) = run(tool, &format!("alike-{tool}"), arguments).await;
+            for (name, result) in [("stdio", &stdio), ("http", &http)] {
+                assert_eq!(result["isError"], false, "{tool} {name}"); // ubs:ignore: test-only assertion
+                assert!(
+                    result["structuredContent"][id_field]
+                        .as_str()
+                        .is_some_and(|id| !id.is_empty()), // ubs:ignore: test-only assertion
+                    "{tool} {name}: no {id_field}: {result:?}"
+                );
+            }
+        }
+    }
+
+    /// The classification-queue tools are served by `POST /mcp` alone: they refuse a bad argument
+    /// there, and stdio answers "unknown tool" instead of listing them (see
+    /// `tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot`).
+    #[tokio::test]
+    async fn the_queue_tools_refuse_bad_arguments_over_http_and_are_unknown_on_stdio() {
+        let http_dir = unique_dir("parity-http-queue-bad-args");
+        let cases: &[(&str, Value, &str)] = &[
+            (
+                "classify_queue_list",
+                json!({ "limit": -1 }),
+                "`limit` must be a non-negative integer",
+            ),
+            ("classify_queue_submit", json!({}), "missing `batch_ids`"),
+            (
+                "classify_queue_submit",
+                json!({ "batch_ids": [], "captures": [] }),
+                "batch_ids must not be empty",
+            ),
+            (
+                "classify_queue_submit",
+                json!({ "batch_ids": ["session:0-1"] }),
+                "missing `captures`",
+            ),
+            (
+                "classify_queue_submit",
+                json!({ "batch_ids": ["session:0-1"], "captures": "none" }),
+                "`captures` is invalid:",
+            ),
+        ];
+        for (tool, arguments, expected_message) in cases {
+            let reply = http_call(&http_dir, tool, arguments.clone()).await;
+            let result = &reply["result"];
+            assert!(
+                result["isError"].as_bool().unwrap_or(false), // ubs:ignore: test-only assertion
+                "{tool}: http should refuse {arguments}: {reply:?}"
+            );
+            assert!(
+                error_text(result).contains(expected_message), // ubs:ignore: test-only assertion
+                "{tool}: http said {:?}, expected {expected_message:?}",
+                error_text(result)
+            );
+        }
+        let _ = std::fs::remove_dir_all(&http_dir);
+
+        let stdio_dir = unique_dir("parity-stdio-queue-unknown");
+        for tool in crate::mcp::core::HTTP_ONLY_TOOLS {
+            let reply = stdio_call(&stdio_dir, tool, json!({}));
+            assert!(
+                reply["error"]["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("unknown tool")), // ubs:ignore: test-only assertion
+                "{tool}: stdio should not know it: {reply:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&stdio_dir);
     }
 
     // -----------------------------------------------------------------------

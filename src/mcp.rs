@@ -16,42 +16,34 @@
 
 use std::io::{BufRead, BufReader, Write};
 
-use args::{
-    optional_datetime, optional_string, optional_string_array, optional_usize, require_string,
-    require_string_array,
-};
+use args::optional_string;
 use std::path::PathBuf;
 
-use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::{debug, warn};
 
 use crate::cli::project_context::{resolve_project_in_ledger, ProjectContextEnv, ResolvedProject};
-use crate::commands::{CommandContext, Commands};
 use crate::error::{CliError, CommandError, HivemindError};
-use crate::events::{EventProvenance, ProjectSource, TenantId};
+use crate::events::{ProjectSource, TenantId};
 use crate::identity::{
     agent_actor_id, agent_session_from_env, agent_tool_from_client_name, agent_tool_from_env,
     NEUTRAL_AGENT_TOOL,
 };
 use crate::ledger::{AnyLedger, LedgerConfig};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
-use crate::queries::{
-    get_decision, get_relevant_decisions, search_decisions_any, DecisionStatus, QueryContext,
-    SearchDecisionRequest,
-};
-use crate::summarize::{summarize_decisions, SummarizeMode, SummarizeRequest};
 use crate::Result;
 use core::{
-    AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CompactViewArgs,
-    CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
-    GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionContextArgs,
+    AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CaptureEvidenceArgs,
+    CaptureHypothesisArgs, CompactViewArgs, CoreError, DecisionContextCandidatesArgs,
+    DecisionQualityCandidatesArgs, DisagreeArgs, GetChangedDecisionsArgs,
+    GetContestedDecisionsArgs, GetDecisionArgs, GetDecisionContextArgs,
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
-    GetReexamineItemsArgs, GetSituationalDecisionsArgs, GetSuggestionsArgs,
-    GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle,
-    LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs, ReaffirmDecisionArgs,
-    RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs,
-    ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SupersedeDecisionArgs,
+    GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
+    GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs,
+    LedgerHandle, LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs,
+    ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
+    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
+    SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
 };
 
 /// MCP protocol revision this server speaks. Aligns with the modelcontextprotocol.io
@@ -159,14 +151,6 @@ impl McpConfig {
     pub(crate) fn with_project_context(mut self, env: ProjectContextEnv) -> Self {
         self.project_context = Some(env);
         self
-    }
-
-    fn command_context(&self, provenance: EventProvenance) -> CommandContext {
-        CommandContext::new(self.tenant_id.clone(), provenance)
-    }
-
-    fn query_context(&self) -> QueryContext {
-        QueryContext::new(self.tenant_id.clone())
     }
 }
 
@@ -344,7 +328,7 @@ fn dispatch(
             Ok(initialize_result())
         }
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(tools_list_result()),
+        "tools/list" => Ok(stdio_tools_list_result()),
         "tools/call" => tools_call(params, config),
         other => Err(RpcError::method_not_found(other)),
     }
@@ -358,8 +342,24 @@ pub(crate) fn initialize_result() -> Value {
     })
 }
 
+/// Every tool, as `POST /mcp` lists them.
 pub(crate) fn tools_list_result() -> Value {
     json!({ "tools": tool_definitions() })
+}
+
+/// The tools stdio can run: `tool_definitions()` without the HTTP-only ones, so `tools/list`
+/// never offers a call that answers "unknown tool".
+fn stdio_tools_list_result() -> Value {
+    let tools: Vec<Value> = tool_definitions()
+        .into_iter()
+        .filter(|tool| {
+            !tool
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(core::tool_is_http_only)
+        })
+        .collect();
+    json!({ "tools": tools })
 }
 
 fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
@@ -1349,15 +1349,10 @@ fn insert_project_reminder(reply: &mut Value, resolved: Option<&ResolvedProject>
 fn tool_capture_evidence(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
     let args = args.as_object().cloned().unwrap_or_default();
     let actor_id = actor_id_or_default(&args, config)?;
-    let content = require_string(&args, "content")?;
-
-    let ledger = AnyLedger::open(&config.ledger, &config.tenant_id)?;
-    let commands = Commands::new_with_context(
-        &ledger,
-        config.command_context(EventProvenance::agent(actor_id.clone())),
-    );
-    let evidence_id = commands.record_evidence(&actor_id, &content)?;
-    Ok(json!({ "evidence_id": evidence_id }))
+    let core_args = CaptureEvidenceArgs::from_json(&args, actor_id)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::capture_evidence(&provider, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_capture_hypothesis(
@@ -1366,15 +1361,10 @@ fn tool_capture_hypothesis(
 ) -> std::result::Result<Value, RpcError> {
     let args = args.as_object().cloned().unwrap_or_default();
     let actor_id = actor_id_or_default(&args, config)?;
-    let statement = require_string(&args, "statement")?;
-
-    let ledger = AnyLedger::open(&config.ledger, &config.tenant_id)?;
-    let commands = Commands::new_with_context(
-        &ledger,
-        config.command_context(EventProvenance::agent(actor_id.clone())),
-    );
-    let hypothesis_id = commands.record_hypothesis(&actor_id, &statement)?;
-    Ok(json!({ "hypothesis_id": hypothesis_id }))
+    let core_args = CaptureHypothesisArgs::from_json(&args, actor_id)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::capture_hypothesis(&provider, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_disagree_decision(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
@@ -1466,10 +1456,10 @@ fn tool_get_reexamine_items(
 
 fn tool_get_decision(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
     let args = args.as_object().cloned().unwrap_or_default();
-    let decision_id = require_string(&args, "decision_id")?;
+    let core_args = GetDecisionArgs::from_json(&args)?;
     let graph = open_memory_graph(config)?;
-    let response = get_decision(&graph, &decision_id)?;
-    Ok(serde_json::to_value(QueryEnvelope::from(response))?)
+    let output = core::get_decision(&graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_get_relevant_decisions(
@@ -1477,24 +1467,10 @@ fn tool_get_relevant_decisions(
     config: &McpConfig,
 ) -> std::result::Result<Value, RpcError> {
     let args = args.as_object().cloned().unwrap_or_default();
-    let topic = require_string(&args, "topic")?;
-    let status = optional_string(&args, "status")?;
-    let status_filter = match status.as_deref() {
-        None => None,
-        Some("proposed") => Some(DecisionStatus::Proposed),
-        Some("accepted") => Some(DecisionStatus::Accepted),
-        Some("rejected") => Some(DecisionStatus::Rejected),
-        Some("contested") => Some(DecisionStatus::Contested),
-        Some("superseded") => Some(DecisionStatus::Superseded),
-        Some(other) => {
-            return Err(RpcError::invalid_params(format!(
-                "unknown status `{other}`"
-            )))
-        }
-    };
+    let core_args = GetRelevantDecisionsArgs::from_json(&args)?;
     let graph = open_memory_graph(config)?;
-    let response = get_relevant_decisions(&graph, &topic, status_filter)?;
-    Ok(serde_json::to_value(QueryEnvelope::from(response))?)
+    let output = core::get_relevant_decisions(&graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_get_situational_decisions(
@@ -1578,29 +1554,11 @@ fn tool_get_decision_neighborhood(
 
 fn tool_search_decisions(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
     let args = args.as_object().cloned().unwrap_or_default();
-    let query = optional_string(&args, "q")?;
-    let statuses = optional_string_array(&args, "status")?
-        .into_iter()
-        .map(|status| parse_decision_status(&status))
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    let limit = optional_usize(&args, "limit")?.unwrap_or(25);
-    let request = SearchDecisionRequest {
-        query,
-        topic_keys: optional_string_array(&args, "topic")?,
-        statuses,
-        actor_ids: optional_string_array(&args, "actor_id")?,
-        sources: optional_string_array(&args, "source")?,
-        since: optional_datetime(&args, "since")?,
-        until: optional_datetime(&args, "until")?,
-        limit,
-        cursor: optional_string(&args, "cursor")?,
-        project: None,
-    };
-    let ledger = AnyLedger::open(&config.ledger, &config.tenant_id)?;
-    let graph = MemoryGraph::default();
-    rebuild_graph_for_tenant(&ledger, &config.tenant_id, &graph)?;
-    let response = search_decisions_any(&config.query_context(), &ledger, &graph, &request)?;
-    Ok(serde_json::to_value(QueryEnvelope::from(response))?)
+    let core_args = SearchDecisionsArgs::from_json(&args)?;
+    let graph = open_memory_graph(config)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::search_decisions(&provider, &graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_recall_decisions(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
@@ -1617,37 +1575,10 @@ fn tool_summarize_decisions(
     config: &McpConfig,
 ) -> std::result::Result<Value, RpcError> {
     let args = args.as_object().cloned().unwrap_or_default();
-    let decision_ids = require_string_array(&args, "decision_ids")?;
-    if decision_ids.is_empty() {
-        return Err(RpcError::invalid_params("decision_ids must not be empty"));
-    }
-    let mode_str = optional_string(&args, "mode")?;
-    let mode = match mode_str.as_deref() {
-        None if decision_ids.len() == 1 => SummarizeMode::Single,
-        None => SummarizeMode::Cluster,
-        Some("single") if decision_ids.len() != 1 => {
-            return Err(RpcError::invalid_params(
-                "mode=single requires exactly one decision_id",
-            ))
-        }
-        Some("single") => SummarizeMode::Single,
-        Some("cluster") => SummarizeMode::Cluster,
-        Some("chain") if decision_ids.len() != 1 => {
-            return Err(RpcError::invalid_params(
-                "mode=chain requires exactly one decision_id",
-            ))
-        }
-        Some("chain") => SummarizeMode::Chain,
-        Some(other) => {
-            return Err(RpcError::invalid_params(format!(
-                "unknown mode `{other}`; must be single, cluster, or chain"
-            )))
-        }
-    };
+    let core_args = SummarizeDecisionsArgs::from_json(&args)?;
     let graph = open_memory_graph(config)?;
-    let request = SummarizeRequest { decision_ids, mode };
-    let response = summarize_decisions(&graph, &request).map_err(RpcError::from)?;
-    Ok(serde_json::to_value(QueryEnvelope::from(response))?)
+    let output = core::summarize_decisions(&graph, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_recent_decisions(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
@@ -1661,8 +1592,8 @@ fn tool_recent_decisions(args: Value, config: &McpConfig) -> std::result::Result
 
 fn tool_dump_graph(_args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
     let graph = open_memory_graph(config)?;
-    let dot = crate::cli::render_decision_dot(&graph)?;
-    Ok(json!({ "format": "dot", "content": dot }))
+    let output = core::dump_graph(&graph)?;
+    Ok(output.into_value())
 }
 
 fn tool_compact_view(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
@@ -1797,19 +1728,6 @@ fn actor_id_or_default(
         .unwrap_or_else(|| agent_actor_id(&config.agent_tool, &config.session_id)))
 }
 
-fn parse_decision_status(value: &str) -> std::result::Result<DecisionStatus, RpcError> {
-    match value {
-        "proposed" => Ok(DecisionStatus::Proposed),
-        "accepted" => Ok(DecisionStatus::Accepted),
-        "rejected" => Ok(DecisionStatus::Rejected),
-        "contested" => Ok(DecisionStatus::Contested),
-        "superseded" => Ok(DecisionStatus::Superseded),
-        other => Err(RpcError::invalid_params(format!(
-            "unknown status `{other}`"
-        ))),
-    }
-}
-
 fn mcp_actor_id(
     args: &Map<String, Value>,
     config: &McpConfig,
@@ -1821,29 +1739,6 @@ fn mcp_actor_id(
         Ok(config.session_id.clone())
     } else {
         Ok(agent_actor_id(&config.agent_tool, &config.session_id))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Envelope shaping
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize)]
-struct QueryEnvelope<T: Serialize> {
-    result_count: usize,
-    truncated: bool,
-    latency_ms: u128,
-    data: T,
-}
-
-impl<T: Serialize> From<crate::queries::QueryResponse<T>> for QueryEnvelope<T> {
-    fn from(response: crate::queries::QueryResponse<T>) -> Self {
-        Self {
-            result_count: response.result_count,
-            truncated: response.truncated,
-            latency_ms: response.latency_ms,
-            data: response.data,
-        }
     }
 }
 

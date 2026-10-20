@@ -718,6 +718,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Nine MCP tools are written once, so stdio and `POST /mcp` refuse a bad argument in the
+  same words, and stdio no longer lists tools it cannot run.** `capture_evidence`,
+  `capture_hypothesis`, `get_decision`, `get_relevant_decisions`, `search_decisions`,
+  `dump_graph`, `summarize_decisions`, `classify_queue_list` and `classify_queue_submit` had a
+  copy per transport, and the copies had drifted: over HTTP, `search_decisions` quietly used
+  its default limit of 25 for a `limit` that was a string or negative, and
+  `get_relevant_decisions` returned every decision for a `status` that was not a string, where
+  stdio refused both. Both now refuse, with one message, on both transports. stdio's
+  `tools/list` no longer offers `classify_queue_list` and `classify_queue_submit`, which only
+  `POST /mcp` serves; a stdio call to either still answers "unknown tool". (hivemind-q3rpv)
 - **`hivemind map --alpha 0.0,0.5` now works, and `hivemind review --help` says who the
   reviewer is.** `map --help` told you to pass `0.0,0.5` to get both maps, but the flag took one
   value per use and refused the comma form with an invalid-float error (only `--alpha 0.0 --alpha
