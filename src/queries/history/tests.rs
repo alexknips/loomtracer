@@ -18,6 +18,7 @@ fn recent_activity_is_bounded_newest_first_and_cited() -> Result<()> {
 
     let response = get_recent_activity(
         &ledger,
+        &graph_of(&ledger)?,
         &RecentActivityRequest {
             limit: 2,
             ..RecentActivityRequest::default()
@@ -47,6 +48,7 @@ fn changed_since_classifies_decision_history_and_paginates() -> Result<()> {
 
     let response = get_decisions_changed_since(
         &ledger,
+        &graph_of(&ledger)?,
         &ChangedSinceRequest {
             since_offset: Some(1),
             limit: 4,
@@ -75,6 +77,7 @@ fn changed_since_classifies_decision_history_and_paginates() -> Result<()> {
 
     let second_page = get_decisions_changed_since(
         &ledger,
+        &graph_of(&ledger)?,
         &ChangedSinceRequest {
             since_offset: Some(1),
             limit: 10,
@@ -114,6 +117,7 @@ fn changed_since_windows_by_event_timestamp_and_leaves_the_offsets_unbounded() -
 
     let response = get_decisions_changed_since(
         &ledger,
+        &graph_of(&ledger)?,
         &ChangedSinceRequest {
             since_timestamp: Some(ts(3)),
             until_timestamp: Some(ts(6)),
@@ -219,6 +223,7 @@ fn changed_since_handles_request_blocker_and_notification_events() -> Result<()>
 
     let response = get_decisions_changed_since(
         &ledger,
+        &graph_of(&ledger)?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 10,
@@ -272,6 +277,7 @@ fn export_summary_includes_query_params_ledger_range_and_citations() -> Result<(
 
     let response = export_read_only_summary(
         &ledger,
+        &graph_of(&ledger)?,
         &ReadOnlyExportRequest {
             query: ReadOnlyExportQuery::RecentActivity(RecentActivityRequest {
                 limit: 1,
@@ -340,13 +346,23 @@ fn every_history_read_answers_the_same_with_a_malformed_assessment_row_in_the_le
         Ok(vec![
             without_ledger_range(
                 serde_json::to_value(
-                    get_recent_activity(ledger, &RecentActivityRequest::default())?.data,
+                    get_recent_activity(
+                        ledger,
+                        &graph_of(ledger)?,
+                        &RecentActivityRequest::default(),
+                    )?
+                    .data,
                 )
                 .expect("serializes"),
             ),
             without_ledger_range(
                 serde_json::to_value(
-                    get_decisions_changed_since(ledger, &ChangedSinceRequest::default())?.data,
+                    get_decisions_changed_since(
+                        ledger,
+                        &graph_of(ledger)?,
+                        &ChangedSinceRequest::default(),
+                    )?
+                    .data,
                 )
                 .expect("serializes"),
             ),
@@ -881,7 +897,12 @@ fn changed_since_reports_a_move_and_its_reversal_with_from_to_actor_and_time() -
 fn recent_activity_reports_a_move_and_its_reversal_with_from_to_actor_and_time() -> Result<()> {
     let ledger = moved_and_moved_back_ledger()?;
 
-    let activity = get_recent_activity(&ledger, &RecentActivityRequest::default())?.data;
+    let activity = get_recent_activity(
+        &ledger,
+        &graph_of(&ledger)?,
+        &RecentActivityRequest::default(),
+    )?
+    .data;
     // Newest first: the move back, then the move, then the proposal (no project_move).
     let moves: Vec<_> = activity
         .items
@@ -1089,7 +1110,12 @@ fn changed_since_reports_a_retitle_and_its_reversal_with_from_to_actor_and_time(
 fn recent_activity_reports_a_retitle_and_its_reversal_with_from_to_actor_and_time() -> Result<()> {
     let ledger = retitled_and_retitled_back_ledger()?;
 
-    let activity = get_recent_activity(&ledger, &RecentActivityRequest::default())?.data;
+    let activity = get_recent_activity(
+        &ledger,
+        &graph_of(&ledger)?,
+        &RecentActivityRequest::default(),
+    )?
+    .data;
     // Newest first: the retitle back, then the retitle, then the proposal (no title_change).
     let retitles: Vec<_> = activity
         .items
@@ -1236,6 +1262,7 @@ fn goal_with_a_derived_decision() -> Result<Scenario> {
 fn changed_since_start(ledger: &InMemoryEventLedger) -> Result<Vec<DecisionChangeRow>> {
     Ok(get_decisions_changed_since(
         ledger,
+        &graph_of(ledger)?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 100,
@@ -1296,7 +1323,12 @@ fn superseding_a_premise_surfaces_the_derived_decisions_as_a_stale_premise() -> 
     assert_eq!(stale.event_type, EventType::DecisionSuperseded);
 
     // The same in the recent-activity feed, and nothing for the bystander.
-    let activity = get_recent_activity(scenario.ledger(), &RecentActivityRequest::default())?.data;
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &graph_of(scenario.ledger())?,
+        &RecentActivityRequest::default(),
+    )?
+    .data;
     let stale_activity: Vec<_> = activity
         .items
         .iter()
@@ -1735,20 +1767,22 @@ fn changed_in(
     ledger: &InMemoryEventLedger,
     request: ChangedSinceRequest,
 ) -> Result<Vec<(EventId, EventType)>> {
-    Ok(get_decisions_changed_since(ledger, &request)?
-        .data
-        .items
-        .into_iter()
-        .map(|row| (row.event_origin, row.event_type))
-        .filter(|(_, event_type)| {
-            matches!(
-                event_type,
-                EventType::DecisionProposed
-                    | EventType::DecisionAccepted
-                    | EventType::EvidenceRecorded
-            )
-        })
-        .collect())
+    Ok(
+        get_decisions_changed_since(ledger, &graph_of(ledger)?, &request)?
+            .data
+            .items
+            .into_iter()
+            .map(|row| (row.event_origin, row.event_type))
+            .filter(|(_, event_type)| {
+                matches!(
+                    event_type,
+                    EventType::DecisionProposed
+                        | EventType::DecisionAccepted
+                        | EventType::EvidenceRecorded
+                )
+            })
+            .collect(),
+    )
 }
 
 fn event_types(changes: &[(EventId, EventType)]) -> Vec<EventType> {
@@ -2045,6 +2079,317 @@ fn added_since_gives_a_proposal_a_capture_replaced_its_standing() -> Result<()> 
     Ok(())
 }
 
+// ── a standing a capture states is a change, as the hand-recorded one is (hivemind-pf6xi) ──
+
+/// `d:goal` replaced by a decision a classification accepts, and a second classification that
+/// rejects the decision it records, on a ledger where `d:derived` follows `d:goal`. Returns the
+/// scenario, the replacing classification's offset and decision, and the rejecting one's.
+fn goal_replaced_and_a_capture_rejected() -> Result<(Scenario, EventId, String, EventId, String)> {
+    let scenario = goal_with_a_derived_decision()?;
+    let replacing = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:00:00Z",
+        vec![decision_capture(
+            "Ship the self-hosted MVP",
+            json!({"supersedes_id": "d:goal", "accepted_by": ["human:alice"]}),
+        )],
+    )?;
+    let rejecting = scenario.classified_captures(
+        CLASSIFIER,
+        "2026-10-11T09:05:00Z",
+        vec![decision_capture(
+            "Nightly dumps go to S3",
+            json!({"rejected_by": ["human:bob"]}),
+        )],
+    )?;
+    Ok((
+        scenario,
+        replacing,
+        format!("capture:{replacing}:0"),
+        rejecting,
+        format!("capture:{rejecting}:0"),
+    ))
+}
+
+fn sorted(mut ids: Vec<String>) -> Vec<String> {
+    ids.sort();
+    ids
+}
+
+#[test]
+fn changed_since_lists_what_a_capture_replaces_and_rejects_as_it_lists_the_hand_recorded(
+) -> Result<()> {
+    let (scenario, replacing, replacement, rejecting, rejected) =
+        goal_replaced_and_a_capture_rejected()?;
+
+    let rows = changed_since_start(scenario.ledger())?;
+
+    let supersession = rows
+        .iter()
+        .find(|row| row.change_kind == HistoryChangeKind::Supersession)
+        .expect("the capture's supersession is a row");
+    assert_eq!(
+        supersession.decision_ids,
+        sorted(vec!["d:goal".to_owned(), replacement.clone()])
+    );
+    // Cited by the classification that stated it, as that event is cited everywhere else.
+    assert_eq!(supersession.event_origin, replacing);
+    assert_eq!(supersession.event_type, EventType::IngestBatchClassified);
+    assert_eq!(supersession.actor_id, CLASSIFIER);
+    assert_eq!(supersession.ts, Some(test_ts("2026-10-11T09:00:00Z")));
+    assert_eq!(supersession.citation_id, format!("event:{replacing}"));
+
+    let stale = rows
+        .iter()
+        .find(|row| row.change_kind == HistoryChangeKind::StalePremise)
+        .expect("the decision that rested on the replaced one is told");
+    assert_eq!(stale.decision_ids, vec!["d:derived".to_owned()]);
+    assert_eq!(stale.event_origin, replacing);
+
+    let rejection = rows
+        .iter()
+        .find(|row| {
+            row.change_kind == HistoryChangeKind::StatusChange
+                && row.event_type == EventType::IngestBatchClassified
+        })
+        .expect("the capture's rejection is a row");
+    assert_eq!(rejection.decision_ids, vec![rejected]);
+    assert_eq!(rejection.event_origin, rejecting);
+    assert_eq!(rejection.event_type, EventType::IngestBatchClassified);
+
+    // The classification keeps its own row, and nothing is said of the bystander.
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.event_type == EventType::IngestBatchClassified
+                && row.change_kind == HistoryChangeKind::ContextChange)
+            .count(),
+        2
+    );
+    assert!(!rows
+        .iter()
+        .any(|row| row.decision_ids.contains(&"d:bystander".to_owned())
+            && row.change_kind != HistoryChangeKind::NewDecision));
+    Ok(())
+}
+
+#[test]
+fn recent_activity_lists_what_a_capture_replaces_and_rejects() -> Result<()> {
+    let (scenario, replacing, _, rejecting, _) = goal_replaced_and_a_capture_rejected()?;
+
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &RecentActivityRequest {
+            limit: 100,
+            ..RecentActivityRequest::default()
+        },
+    )?
+    .data;
+
+    let at = |origin: EventId, kind: HistoryChangeKind| {
+        activity
+            .items
+            .iter()
+            .filter(|row| row.event_origin == origin && row.change_kind == kind)
+            .count()
+    };
+    assert_eq!(at(replacing, HistoryChangeKind::Supersession), 1);
+    assert_eq!(at(replacing, HistoryChangeKind::StalePremise), 1);
+    assert_eq!(at(rejecting, HistoryChangeKind::StatusChange), 1);
+    Ok(())
+}
+
+#[test]
+fn a_supersession_the_ledger_states_is_listed_once_though_the_graph_holds_its_edge() -> Result<()> {
+    let scenario = goal_with_a_derived_decision()?;
+    scenario.decision(
+        "d:goal-2",
+        "Ship the self-hosted MVP",
+        "human:alex",
+        "2026-02-01T00:00:00Z",
+    )?;
+    scenario.supersede("d:goal", "d:goal-2", "human:alex", "2026-02-01T00:00:01Z")?;
+
+    let rows = changed_since_start(scenario.ledger())?;
+
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.change_kind == HistoryChangeKind::Supersession)
+            .count(),
+        1
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.change_kind == HistoryChangeKind::StalePremise)
+            .count(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn the_feeds_filter_what_a_capture_states_by_the_status_and_topic_the_graph_gives() -> Result<()> {
+    let (scenario, _, replacement, _, rejected) = goal_replaced_and_a_capture_rejected()?;
+    let listed = |filters: HistoryFilterRequest| -> Result<Vec<Vec<String>>> {
+        Ok(get_decisions_changed_since(
+            scenario.ledger(),
+            &scenario.graph()?,
+            &ChangedSinceRequest {
+                since_offset: Some(0),
+                filters,
+                limit: 100,
+                ..ChangedSinceRequest::default()
+            },
+        )?
+        .data
+        .items
+        .into_iter()
+        .filter(|row| row.event_type == EventType::IngestBatchClassified)
+        .map(|row| row.decision_ids)
+        .filter(|ids| !ids.is_empty())
+        .collect())
+    };
+
+    // The graph's word: the replaced decision is superseded, the one a capture rejected is rejected,
+    // and the replacement a capture accepted is accepted, which no event of the ledger says.
+    assert_eq!(
+        listed(HistoryFilterRequest {
+            statuses: vec![DecisionStatus::Rejected],
+            ..HistoryFilterRequest::default()
+        })?,
+        vec![vec![rejected.clone()]]
+    );
+    assert_eq!(
+        listed(HistoryFilterRequest {
+            statuses: vec![DecisionStatus::Accepted],
+            ..HistoryFilterRequest::default()
+        })?,
+        vec![sorted(vec!["d:goal".to_owned(), replacement.clone()])]
+    );
+    // The topics a capture states are on the decision's node, not in a proposal.
+    assert_eq!(
+        listed(HistoryFilterRequest {
+            topic_keys: vec!["capture".to_owned()],
+            ..HistoryFilterRequest::default()
+        })?,
+        vec![
+            sorted(vec!["d:goal".to_owned(), replacement]),
+            vec![rejected]
+        ]
+    );
+    assert!(listed(HistoryFilterRequest {
+        topic_keys: vec!["unrelated".to_owned()],
+        ..HistoryFilterRequest::default()
+    })?
+    .is_empty());
+    Ok(())
+}
+
+#[test]
+fn changed_since_a_capture_leaves_out_what_the_capture_stated_before_the_window() -> Result<()> {
+    let (scenario, replacing, _, _, _) = goal_replaced_and_a_capture_rejected()?;
+
+    let rows = get_decisions_changed_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &ChangedSinceRequest {
+            since_offset: Some(replacing),
+            limit: 100,
+            ..ChangedSinceRequest::default()
+        },
+    )?
+    .data
+    .items;
+
+    assert!(rows
+        .iter()
+        .all(|row| row.change_kind != HistoryChangeKind::Supersession
+            && row.change_kind != HistoryChangeKind::StalePremise));
+    assert!(rows
+        .iter()
+        .any(|row| row.change_kind == HistoryChangeKind::StatusChange));
+    Ok(())
+}
+
+#[test]
+fn a_feed_refuses_a_standing_whose_classification_the_ledger_does_not_hold() -> Result<()> {
+    let (scenario, ..) = goal_replaced_and_a_capture_rejected()?;
+    let graph = scenario.graph()?;
+
+    // A window that quietly lost the standing would look complete.
+    let missing = get_decisions_changed_since(
+        &InMemoryEventLedger::new(),
+        &graph,
+        &ChangedSinceRequest::default(),
+    );
+    assert!(missing.is_err());
+    let missing = get_decisions_added_since(
+        &InMemoryEventLedger::new(),
+        &graph,
+        &DecisionsAddedSinceRequest::default(),
+    );
+    assert!(missing.is_err());
+    Ok(())
+}
+
+#[test]
+fn added_since_lists_the_decision_a_capture_replaced_and_the_one_resting_on_it_as_changed(
+) -> Result<()> {
+    let (scenario, replacing, replacement, _, rejected) = goal_replaced_and_a_capture_rejected()?;
+
+    // The window opens at the first classification, after `d:goal` and `d:derived` were recorded.
+    let data = get_decisions_added_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &DecisionsAddedSinceRequest {
+            since_offset: Some(replacing - 1),
+            limit: 100,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?
+    .data;
+
+    let changed = |decision_id: &str| {
+        data.changed_existing_decisions
+            .iter()
+            .find(|entry| entry.decision_id == decision_id)
+    };
+    let goal = changed("d:goal").expect("the replaced decision is changed");
+    assert_eq!(goal.status, DecisionStatus::Superseded);
+    assert_eq!(
+        goal.changes_in_window
+            .iter()
+            .map(|change| (change.change_kind, change.provenance.event_origin))
+            .collect::<Vec<_>>(),
+        vec![(HistoryChangeKind::Supersession, replacing)]
+    );
+    let derived = changed("d:derived").expect("the decision resting on it is changed");
+    assert_eq!(
+        derived
+            .changes_in_window
+            .iter()
+            .map(|change| change.change_kind)
+            .collect::<Vec<_>>(),
+        vec![HistoryChangeKind::StalePremise]
+    );
+    assert!(changed("d:bystander").is_none());
+
+    // The decisions the captures record are added, with the standing the captures state; their own
+    // replacing and rejecting is no change to them.
+    let added = |decision_id: &str| {
+        data.added_decisions
+            .iter()
+            .find(|entry| entry.decision_id == decision_id)
+    };
+    let replacement = added(&replacement).expect("the replacing decision is added");
+    assert_eq!(replacement.status, DecisionStatus::Accepted);
+    assert!(replacement.changes_in_window.is_empty());
+    let rejected = added(&rejected).expect("the rejected decision is added");
+    assert_eq!(rejected.status, DecisionStatus::Rejected);
+    assert!(rejected.changes_in_window.is_empty());
+    Ok(())
+}
+
 // ── a history read costs the events it answers from, not the transcripts around them (hivemind-gxypz) ──
 
 /// What the two feeds and the two decision lists answer over the whole ledger, without the ledger
@@ -2066,6 +2411,7 @@ fn history_answers(
         answer(
             &get_recent_activity(
                 ledger,
+                graph,
                 &RecentActivityRequest {
                     limit: 500,
                     ..RecentActivityRequest::default()
@@ -2076,6 +2422,7 @@ fn history_answers(
         answer(
             &get_decisions_changed_since(
                 ledger,
+                graph,
                 &ChangedSinceRequest {
                     since_offset: Some(0),
                     limit: 500,
@@ -2176,6 +2523,7 @@ fn the_history_reads_answer_the_same_among_transcripts_and_never_read_the_whole_
     // event with a row.
     let activity = get_recent_activity(
         &TypedReadsOnly(scenario.ledger()),
+        &graph,
         &RecentActivityRequest {
             limit: 500,
             ..RecentActivityRequest::default()

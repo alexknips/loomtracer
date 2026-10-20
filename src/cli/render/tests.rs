@@ -592,7 +592,12 @@ fn history_lines_say_where_a_moved_decision_went_and_when_and_leave_other_lines_
         "2026-01-02T03:04:05Z",
     )?;
 
-    let activity = get_recent_activity(scenario.ledger(), &RecentActivityRequest::default())?.data;
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &RecentActivityRequest::default(),
+    )?
+    .data;
     let activity_text = render_recent_activity_summary(&activity);
     let mut activity_lines = activity_text.lines();
     let moved_line = activity_lines.next().expect("the move is the newest row");
@@ -612,6 +617,7 @@ fn history_lines_say_where_a_moved_decision_went_and_when_and_leave_other_lines_
 
     let changed = get_decisions_changed_since(
         scenario.ledger(),
+        &scenario.graph()?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 10,
@@ -659,7 +665,12 @@ fn history_lines_say_what_a_retitled_decision_became_and_when_and_leave_other_li
         "2026-01-02T03:04:05Z",
     )?;
 
-    let activity = get_recent_activity(scenario.ledger(), &RecentActivityRequest::default())?.data;
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &RecentActivityRequest::default(),
+    )?
+    .data;
     let activity_text = render_recent_activity_summary(&activity);
     let mut activity_lines = activity_text.lines();
     let retitled_line = activity_lines
@@ -684,6 +695,7 @@ short name\tat=2026-01-02T03:04:05+00:00"
 
     let changed = get_decisions_changed_since(
         scenario.ledger(),
+        &scenario.graph()?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 10,
@@ -1655,6 +1667,7 @@ fn history_lines_say_which_premise_a_decision_still_holds_after_and_why() -> Res
 
     let activity = get_recent_activity(
         scenario.ledger(),
+        &scenario.graph()?,
         &RecentActivityRequest {
             limit: 500,
             ..RecentActivityRequest::default()
@@ -1679,6 +1692,7 @@ fn history_lines_say_which_premise_a_decision_still_holds_after_and_why() -> Res
 
     let changed = get_decisions_changed_since(
         scenario.ledger(),
+        &scenario.graph()?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 500,

@@ -112,6 +112,16 @@ pub(super) fn steps(
     Ok(steps)
 }
 
+/// The rejections and replacements captures state beyond `events`: the two standings a feed lists
+/// as a change of their own. Reads the graph and nothing else, so a feed that holds the events it
+/// lists pays for no ledger read.
+pub(super) fn standings(graph: &impl GraphView, events: &[Step]) -> Result<Vec<Step>> {
+    let stated = Stated::of(events);
+    let mut steps = rejections(graph, &stated)?;
+    steps.extend(supersessions(graph, &stated)?);
+    Ok(steps)
+}
+
 /// The decisions a capture premises on a hypothesis, directly or through the option it chose.
 fn premises(graph: &impl GraphView) -> Result<Vec<Step>> {
     let mut steps = Vec::new();

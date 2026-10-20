@@ -352,6 +352,42 @@ fn read_steps(
     Ok(steps)
 }
 
+/// A rejection or replacement a classified capture states and no `decision.rejected` or
+/// `decision.superseded` of the ledger says (hivemind-pf6xi). The history feeds list it as that
+/// event, cited by the classification event that recorded it.
+pub(super) struct CapturedStanding {
+    /// The offset of the classification event that recorded it.
+    pub(super) origin: EventId,
+    /// The `decision.rejected` or `decision.superseded` it stands for.
+    pub(super) payload: EventPayload,
+}
+
+/// The standings classified captures state beyond the `decision.rejected` and
+/// `decision.superseded` events among `events`, in the order `captured` reads them. An edge one
+/// of those events already explains is not listed a second time.
+pub(super) fn captured_standings(
+    graph: &impl GraphView,
+    events: &[Event],
+) -> Result<Vec<CapturedStanding>> {
+    let stated = events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.event_type,
+                EventType::DecisionRejected | EventType::DecisionSuperseded
+            )
+        })
+        .map(step_of)
+        .collect::<Result<Vec<_>>>()?;
+    Ok(captured::standings(graph, &stated)?
+        .into_iter()
+        .map(|step| CapturedStanding {
+            origin: step.origin,
+            payload: step.payload,
+        })
+        .collect())
+}
+
 fn step_of(event: &Event) -> Result<Step> {
     let origin = event
         .event_id

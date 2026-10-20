@@ -3472,8 +3472,8 @@ fn assert_revisions_reaffirm_refusals(scenario: &Scenario, graph: &impl GraphVie
 
 /// The history feeds list as stale on a supersession the decisions that followed the premise, bar
 /// the one that alone superseded it (hivemind-851kw): `d:bystander` for `d:old`, nothing for
-/// `d:solo`, and both superseders for `d:two`, each told about the other. Read from the ledger
-/// alone, so the same on every backend.
+/// `d:solo`, and both superseders for `d:two`, each told about the other. Read from the ledger's
+/// events and the graph's standings, so the same on every backend.
 fn assert_revisions_history(scenario: &Scenario) -> Result<()> {
     use crate::queries::{
         get_decisions_changed_since, get_recent_activity, ChangedSinceRequest, HistoryChangeKind,
@@ -3495,6 +3495,7 @@ fn assert_revisions_history(scenario: &Scenario) -> Result<()> {
 
     let activity = get_recent_activity(
         scenario.ledger(),
+        &scenario.graph()?,
         &RecentActivityRequest {
             limit: 200,
             ..RecentActivityRequest::default()
@@ -3516,6 +3517,7 @@ fn assert_revisions_history(scenario: &Scenario) -> Result<()> {
 
     let changed = get_decisions_changed_since(
         scenario.ledger(),
+        &scenario.graph()?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 200,

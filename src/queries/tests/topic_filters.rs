@@ -341,6 +341,7 @@ fn the_history_reads_filter_by_the_topic_as_typed() -> Result<()> {
 
         let changed = get_decisions_changed_since(
             &f.ledger,
+            &f.graph,
             &ChangedSinceRequest {
                 since_offset: Some(0),
                 filters: HistoryFilterRequest {

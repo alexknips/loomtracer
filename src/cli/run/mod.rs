@@ -3107,11 +3107,6 @@ fn run_query(cli: &Cli, query: &QueryArgs) -> Result<String> {
     let context = cli_query_context(cli)?;
     let ledger = open_ledger(cli)?;
 
-    if query.command.is_ledger_history_query() {
-        let scoped_ledger = TenantScopedLedger::new(&ledger, context.tenant_id.clone());
-        return run_query_with_ledger(&scoped_ledger, query);
-    }
-
     match selected_graph_backend(cli)? {
         GraphBackend::Memory => {
             let graph = MemoryGraph::default();
@@ -3120,79 +3115,6 @@ fn run_query(cli: &Cli, query: &QueryArgs) -> Result<String> {
         }
         GraphBackend::Kuzu => run_query_with_kuzu(&context, &ledger, &cli.hivemind_dir, query),
     }
-}
-
-impl QueryCommand {
-    fn is_ledger_history_query(&self) -> bool {
-        matches!(
-            self,
-            QueryCommand::GetRecentActivity(_)
-                | QueryCommand::GetDecisionsChangedSince(_)
-                | QueryCommand::ExportReadOnlySummary(_)
-        )
-    }
-}
-
-fn run_query_with_ledger(ledger: &impl EventLedger, query: &QueryArgs) -> Result<String> {
-    let output = match &query.command {
-        QueryCommand::GetRecentActivity(args) => {
-            let response = get_recent_activity(ledger, &recent_activity_request(args)?)?;
-            format_query_response(
-                query.summary,
-                &response,
-                render_recent_activity_summary,
-                response.data.next_cursor.as_deref(),
-            )?
-        }
-        QueryCommand::GetDecisionsChangedSince(args) => {
-            let response = get_decisions_changed_since(ledger, &changed_since_request(args)?)?;
-            format_query_response(
-                query.summary,
-                &response,
-                render_changed_since_summary,
-                response.data.next_cursor.as_deref(),
-            )?
-        }
-        QueryCommand::ExportReadOnlySummary(args) => {
-            let request = export_read_only_summary_request(args)?;
-            let response = export_read_only_summary(ledger, &request)?;
-            format_query_response(
-                query.summary,
-                &response,
-                render_read_only_export_summary,
-                response.data.continuation_cursor.as_deref(),
-            )?
-        }
-        QueryCommand::GetDecision(_)
-        | QueryCommand::GetRelevantDecisions(_)
-        | QueryCommand::GetSupersessionChain(_)
-        | QueryCommand::GetDecisionNeighborhood(_)
-        | QueryCommand::GetCompactView(_)
-        | QueryCommand::GetDecisionOutcome(_)
-        | QueryCommand::RecentDecisions(_)
-        | QueryCommand::GetDecisionsAddedSince(_)
-        | QueryCommand::Search(_)
-        | QueryCommand::SearchDecisions(_)
-        | QueryCommand::Recall(_)
-        | QueryCommand::GetActiveDecisionBlockers(_)
-        | QueryCommand::GetWaitingRequests(_)
-        | QueryCommand::GetContestedDecisions(_)
-        | QueryCommand::GetOpenWhyDecisions(_)
-        | QueryCommand::GetChangedDecisions(_)
-        | QueryCommand::GetBlockerNotificationCandidates(_)
-        | QueryCommand::ScoreDecision(_)
-        | QueryCommand::ScanDecisionQuality(_)
-        | QueryCommand::GetSuggestions(_)
-        | QueryCommand::RankDecisionsByImportance(_)
-        | QueryCommand::ScanMisfiledDecisions(_)
-        | QueryCommand::GetSituationalDecisions(_) => {
-            return Err(
-                CliError::InvalidInput("query requires graph-backed execution".to_owned()).into(),
-            )
-        }
-    };
-
-    Ok(output)
 }
 
 const REVIEWED_SEMANTICS: &str =
@@ -4178,12 +4100,38 @@ fn run_query_with_graph(
                 response.data.next_cursor.as_deref(),
             )?
         }
-        QueryCommand::GetRecentActivity(_)
-        | QueryCommand::GetDecisionsChangedSince(_)
-        | QueryCommand::ExportReadOnlySummary(_) => {
-            return Err(
-                CliError::InvalidInput("query requires ledger-backed execution".to_owned()).into(),
-            )
+        QueryCommand::GetRecentActivity(args) => {
+            let scoped_ledger = TenantScopedLedger::new(ledger, context.tenant_id.clone());
+            let response =
+                get_recent_activity(&scoped_ledger, graph, &recent_activity_request(args)?)?;
+            format_query_response(
+                query.summary,
+                &response,
+                render_recent_activity_summary,
+                response.data.next_cursor.as_deref(),
+            )?
+        }
+        QueryCommand::GetDecisionsChangedSince(args) => {
+            let scoped_ledger = TenantScopedLedger::new(ledger, context.tenant_id.clone());
+            let response =
+                get_decisions_changed_since(&scoped_ledger, graph, &changed_since_request(args)?)?;
+            format_query_response(
+                query.summary,
+                &response,
+                render_changed_since_summary,
+                response.data.next_cursor.as_deref(),
+            )?
+        }
+        QueryCommand::ExportReadOnlySummary(args) => {
+            let scoped_ledger = TenantScopedLedger::new(ledger, context.tenant_id.clone());
+            let request = export_read_only_summary_request(args)?;
+            let response = export_read_only_summary(&scoped_ledger, graph, &request)?;
+            format_query_response(
+                query.summary,
+                &response,
+                render_read_only_export_summary,
+                response.data.continuation_cursor.as_deref(),
+            )?
         }
     };
 

@@ -728,6 +728,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   stdio refused both. Both now refuse, with one message, on both transports. stdio's
   `tools/list` no longer offers `classify_queue_list` and `classify_queue_submit`, which only
   `POST /mcp` serves; a stdio call to either still answers "unknown tool". (hivemind-q3rpv)
+- **`query get_decisions_changed_since`, `get_recent_activity` and `get_decisions_added_since`
+  now say a passive capture replaced or rejected a decision.** A classified capture's
+  `supersedes_id` and `rejected_by` are edges of the graph and no `decision.superseded` or
+  `decision.rejected` event, so the feeds, which list events, showed the classification as a
+  context change that named no decision: a decision a capture replaced stayed unchanged in them,
+  the decisions that rested on it were not told, and the same supersession recorded by hand was
+  listed. Each such position is now a `supersession` or `status_change` row, and a
+  `stale_premise` row for the decisions that followed the replaced one, cited by the
+  classification event that recorded it (`event_origin`, `citation_id`, `ts` and actor are the
+  event's own); `get_decisions_added_since` lists the replaced decision as changed. `--status`
+  filters on these three queries read where the graph says a decision stands, so a decision a
+  capture replaced is found by `--status superseded` and one a capture accepted by `--status
+  accepted`, and `--topic` finds a capture's decision by the topics its node holds. The three
+  queries now read the graph beside the ledger: `query` builds it as it does for the other
+  history reads (`get_recent_decisions`, `get_changed_decisions`). A hypothesis a capture refutes
+  is still not a feed row; `why` and `get_changed_decisions` show it. (hivemind-pf6xi)
 - **`hivemind map --alpha 0.0,0.5` now works, and `hivemind review --help` says who the
   reviewer is.** `map --help` told you to pass `0.0,0.5` to get both maps, but the flag took one
   value per use and refused the comma form with an invalid-float error (only `--alpha 0.0 --alpha

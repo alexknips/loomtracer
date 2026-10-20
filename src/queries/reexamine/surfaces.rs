@@ -344,6 +344,7 @@ fn history_gives_a_reaffirmation_its_own_row() -> Result<()> {
 
     let activity = get_recent_activity(
         scenario.ledger(),
+        &scenario.graph()?,
         &RecentActivityRequest {
             limit: 500,
             ..RecentActivityRequest::default()
@@ -370,6 +371,7 @@ fn history_gives_a_reaffirmation_its_own_row() -> Result<()> {
 
     let changed = get_decisions_changed_since(
         scenario.ledger(),
+        &scenario.graph()?,
         &ChangedSinceRequest {
             since_offset: Some(0),
             limit: 500,

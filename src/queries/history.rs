@@ -1,7 +1,7 @@
 //! Temporal decision history: diffs, weekly summaries, and slot-keyed temporal query output.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::time::Instant;
 
@@ -23,14 +23,15 @@ use crate::projector::{GraphRow, GraphView, NodeKind};
 use crate::Result;
 
 use self::drafts::{ClassifiedDraft, ClassifiedDrafts};
-use super::brief::{option_label_of, OptionLabel};
+use super::brief::{is_classified_capture, option_label_of, OptionLabel};
 use super::project_label::ProjectLabels;
 use super::reexamine;
 use super::shared::{
-    node_rows, normalized_query, normalized_topic_filter_values, recorded_floor_of,
-    stored_topics_include,
+    node_row, node_rows, normalized_query, normalized_topic_filter_values, optional_string_list,
+    recorded_floor_of, stored_topics_include,
 };
 use super::status::DecisionStandings;
+use super::timeline::{captured_standings, CapturedStanding};
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
 mod drafts;
@@ -471,12 +472,17 @@ pub struct ReadOnlyExport {
 
 pub fn get_recent_activity(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     request: &RecentActivityRequest,
 ) -> Result<QueryResponse<RecentActivityResults>> {
     let started = Instant::now();
     let events = read_history_events(ledger, FEED_EVENT_TYPES)?;
     let latest_offset = ledger.latest_offset()?;
-    let index = DecisionIndex::from_events(&events)?;
+    let captured = CapturedStandings::read(graph, &events)?;
+    let mut index = DecisionIndex::from_events(&events)?;
+    index.note_captured(&captured);
+    let standings = DecisionStandings::load(graph)?;
+    let mut unmet = captured.by_origin();
     let filters = normalized_history_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
@@ -484,8 +490,13 @@ pub fn get_recent_activity(
 
     let mut rows = Vec::new();
     for event in &events {
-        let stale_row = stale_premise_activity_row(event, &index)?;
-        for row in std::iter::once(activity_row(event, &index)?).chain(stale_row) {
+        let mut event_rows = vec![activity_row(event, &index)?];
+        event_rows.extend(stale_premise_activity_row(event, &index)?);
+        for payload in unmet.remove(&event_id(event)?).unwrap_or_default() {
+            event_rows.push(activity_row_of(event, payload, &index)?);
+            event_rows.extend(stale_premise_activity_row_of(event, payload, &index)?);
+        }
+        for row in event_rows {
             if matches_history_filters(
                 &row.actor_id,
                 row.source,
@@ -493,11 +504,13 @@ pub fn get_recent_activity(
                 &row.decision_ids,
                 &filters,
                 &index,
+                &standings,
             ) {
                 rows.push(row);
             }
         }
     }
+    refuse_unmet_standings(&unmet)?;
     rows.sort_by_key(|row| Reverse(row.event_origin));
 
     let total_matches = rows.len();
@@ -732,6 +745,7 @@ fn recent_entry_of_draft(
 /// decide what to keep of the whole.
 fn changed_window_rows(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     request: &ChangedSinceRequest,
 ) -> Result<(HistoryWindow, HistoryFilters, Vec<DecisionChangeRow>)> {
     let events = read_history_events(ledger, FEED_EVENT_TYPES)?;
@@ -743,16 +757,27 @@ fn changed_window_rows(
         request.since_timestamp,
         request.until_timestamp,
     );
-    let index = DecisionIndex::from_events(&events)?;
+    let captured = CapturedStandings::read(graph, &events)?;
+    let mut index = DecisionIndex::from_events(&events)?;
+    index.note_captured(&captured);
+    let standings = DecisionStandings::load(graph)?;
+    let mut unmet = captured.by_origin();
     let filters = normalized_history_filters(&request.filters);
 
     let mut rows = Vec::new();
     for event in &events {
-        if !window.contains(event_id(event)?, event.ts) {
+        let event_id = event_id(event)?;
+        let stated = unmet.remove(&event_id).unwrap_or_default();
+        if !window.contains(event_id, event.ts) {
             continue;
         }
-        let stale_row = stale_premise_change_row(event, &index)?;
-        for row in std::iter::once(decision_change_row(event, &index)?).chain(stale_row) {
+        let mut event_rows = vec![decision_change_row(event, &index)?];
+        event_rows.extend(stale_premise_change_row(event, &index)?);
+        for payload in stated {
+            event_rows.push(decision_change_row_of(event, payload, &index)?);
+            event_rows.extend(stale_premise_change_row_of(event, payload, &index)?);
+        }
+        for row in event_rows {
             if matches_history_filters(
                 &row.actor_id,
                 row.source,
@@ -760,11 +785,13 @@ fn changed_window_rows(
                 &row.decision_ids,
                 &filters,
                 &index,
+                &standings,
             ) {
                 rows.push(row);
             }
         }
     }
+    refuse_unmet_standings(&unmet)?;
     rows.sort_by_key(|row| row.event_origin);
     Ok((window, filters, rows))
 }
@@ -774,11 +801,13 @@ fn changed_window_rows(
 /// naming no decision, still reports each decision it changed.
 pub fn get_changed_decision_ids_since(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     since_offset: Option<EventId>,
     since_timestamp: Option<DateTime<Utc>>,
 ) -> Result<(ChangeBoundary, BTreeSet<String>)> {
     let (window, _, rows) = changed_window_rows(
         ledger,
+        graph,
         &ChangedSinceRequest {
             since_offset,
             since_timestamp,
@@ -791,10 +820,11 @@ pub fn get_changed_decision_ids_since(
 
 pub fn get_decisions_changed_since(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     request: &ChangedSinceRequest,
 ) -> Result<QueryResponse<DecisionsChangedSinceResults>> {
     let started = Instant::now();
-    let (window, filters, rows) = changed_window_rows(ledger, request)?;
+    let (window, filters, rows) = changed_window_rows(ledger, graph, request)?;
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
     let offset = parse_history_cursor(cursor.as_deref())?;
@@ -841,18 +871,22 @@ pub fn get_decisions_added_since(
         request.since_timestamp,
         request.until_timestamp,
     );
-    let index = DecisionIndex::from_events(&events)?;
+    let captured = CapturedStandings::read(graph, &events)?;
+    let mut index = DecisionIndex::from_events(&events)?;
+    index.note_captured(&captured);
     let decision_rows = node_rows(graph, NodeKind::Decision)?;
     let standings = DecisionStandings::load(graph)?;
     let mut drafts = ClassifiedDrafts::load(graph, ledger, &decision_rows, &standings)?;
+    let classifications = classification_events(ledger, &captured)?;
     let filters = normalized_added_since_filters(&request.filters);
     let limit = normalized_history_limit(request.limit);
     let cursor = normalized_query(request.cursor.as_deref());
     let offset = parse_history_cursor(cursor.as_deref())?;
 
     let mut creation_events: BTreeMap<String, &Event> = BTreeMap::new();
-    let mut per_decision_changes: BTreeMap<String, Vec<(EventId, &Event, HistoryChangeKind)>> =
-        BTreeMap::new();
+    // Each change names the event that recorded it and, for a standing a capture states inside its
+    // classification event, the payload it stands for; the event's own payload otherwise.
+    let mut per_decision_changes: BTreeMap<String, Vec<WindowChange>> = BTreeMap::new();
 
     for event in &events {
         let event_id = event_id(event)?;
@@ -872,6 +906,7 @@ pub fn get_decisions_added_since(
                 event_id,
                 event,
                 change_kind,
+                None,
             ));
         }
         for decision_id in stale_premise_dependents(&payload, &index, event_id) {
@@ -879,8 +914,42 @@ pub fn get_decisions_added_since(
                 event_id,
                 event,
                 HistoryChangeKind::StalePremise,
+                None,
             ));
         }
+    }
+    for standing in &captured.standings {
+        let event = classifications.get(&standing.origin).ok_or_else(|| {
+            query_error(format!(
+                "a capture's standing was recorded by event {}, which the ledger does not hold",
+                standing.origin
+            ))
+        })?;
+        if !window.contains(standing.origin, event.ts) {
+            continue;
+        }
+        let payload = Some(&standing.payload);
+        let change_kind = change_kind_for_payload(&standing.payload);
+        for decision_id in decision_ids_for_payload(&standing.payload, &index) {
+            per_decision_changes.entry(decision_id).or_default().push((
+                standing.origin,
+                event,
+                change_kind,
+                payload,
+            ));
+        }
+        for decision_id in stale_premise_dependents(&standing.payload, &index, standing.origin) {
+            per_decision_changes.entry(decision_id).or_default().push((
+                standing.origin,
+                event,
+                HistoryChangeKind::StalePremise,
+                payload,
+            ));
+        }
+    }
+    // Oldest first, as the events were read: the standings were met after them.
+    for changes in per_decision_changes.values_mut() {
+        changes.sort_by_key(|change| change.0);
     }
 
     let mut added: Vec<AddedDecisionEntry> = Vec::new();
@@ -931,7 +1000,7 @@ pub fn get_decisions_added_since(
         };
 
         let mut changes = Vec::with_capacity(change_events.len());
-        for (event_id_value, event, change_kind) in change_events {
+        for (event_id_value, event, change_kind, stated) in change_events {
             if created_in_window
                 && creation
                     .as_ref()
@@ -939,16 +1008,23 @@ pub fn get_decisions_added_since(
             {
                 continue;
             }
-            let payload = events::validate(event).map_err(query_validation_error)?;
-            let affected_nodes = affected_nodes_for_event(event, &payload);
+            let validated;
+            let payload = match stated {
+                Some(payload) => payload,
+                None => {
+                    validated = events::validate(event).map_err(query_validation_error)?;
+                    &validated
+                }
+            };
+            let affected_nodes = affected_nodes_for_event(event, payload);
             let provenance = decision_event_provenance(event)?;
             changes.push(DecisionChange {
                 change_kind: *change_kind,
                 provenance,
                 affected_nodes,
-                project_move: project_move_for_payload(&payload),
-                title_change: title_change_for_payload(&payload),
-                reaffirmed_premise: reaffirmed_premise_for_payload(&payload),
+                project_move: project_move_for_payload(payload),
+                title_change: title_change_for_payload(payload),
+                reaffirmed_premise: reaffirmed_premise_for_payload(payload),
             });
         }
 
@@ -1072,6 +1148,36 @@ pub fn get_decisions_added_since(
             changed_existing_decisions: changed_page,
         },
     })
+}
+
+/// One change in the window to one decision: its ledger offset, the event that recorded it, how it
+/// changed the decision, and the payload it stands for when that is not the event's own.
+type WindowChange<'a> = (
+    EventId,
+    &'a Event,
+    HistoryChangeKind,
+    Option<&'a EventPayload>,
+);
+
+/// The classification events that recorded the standings `captured` holds, by offset. The decision
+/// lists read no classification event themselves, so they are asked for by id.
+fn classification_events(
+    ledger: &impl EventLedger,
+    captured: &CapturedStandings,
+) -> Result<HashMap<EventId, Event>> {
+    let origins: Vec<EventId> = captured
+        .standings
+        .iter()
+        .map(|standing| standing.origin)
+        .collect();
+    if origins.is_empty() {
+        return Ok(HashMap::new());
+    }
+    Ok(ledger
+        .read_ids_for_tenant(&ledger.bound_tenant(), &origins)?
+        .into_iter()
+        .filter_map(|event| Some((event.event_id?, event)))
+        .collect())
 }
 
 /// What an added-since entry says of one decision, whether the ledger's proposal or the graph's
@@ -1450,13 +1556,14 @@ impl HistoryWindow {
 
 pub fn export_read_only_summary(
     ledger: &impl EventLedger,
+    graph: &impl GraphView,
     request: &ReadOnlyExportRequest,
 ) -> Result<QueryResponse<ReadOnlyExport>> {
     let started = Instant::now();
 
     let export = match &request.query {
         ReadOnlyExportQuery::RecentActivity(activity_request) => {
-            let response = get_recent_activity(ledger, activity_request)?;
+            let response = get_recent_activity(ledger, graph, activity_request)?;
             let query_params = recent_activity_query_params(&response.data);
             let citation_map = activity_citation_map(&response.data.items);
             let json_body = serde_json::to_value(&response.data).map_err(json_query_error)?;
@@ -1476,7 +1583,7 @@ pub fn export_read_only_summary(
             )
         }
         ReadOnlyExportQuery::DecisionsChangedSince(changed_request) => {
-            let response = get_decisions_changed_since(ledger, changed_request)?;
+            let response = get_decisions_changed_since(ledger, graph, changed_request)?;
             let query_params = changed_since_query_params(&response.data);
             let citation_map = change_citation_map(&response.data.items);
             let json_body = serde_json::to_value(&response.data).map_err(json_query_error)?;
@@ -1601,6 +1708,70 @@ fn read_history_events(ledger: &impl EventLedger, types: &[EventType]) -> Result
     Ok(events)
 }
 
+/// What classified captures state about where decisions stand, for the feeds to list
+/// (hivemind-pf6xi). A capture's `rejected_by` and `supersedes_id` are edges of the graph and no
+/// `decision.rejected` or `decision.superseded` of the ledger, so the events a feed lists never
+/// said them, and a replaced decision stayed unchanged in it. Each standing is listed as the event
+/// it stands for, cited by the classification event that recorded it, as a hand-recorded one is.
+struct CapturedStandings {
+    standings: Vec<CapturedStanding>,
+    /// The topics of the decisions the standings name that a capture recorded, which the graph's
+    /// node holds and no proposal does.
+    topic_keys: BTreeMap<String, Vec<String>>,
+}
+
+impl CapturedStandings {
+    /// The standings of `graph` that none of the `decision.rejected` and `decision.superseded`
+    /// among `events` states.
+    fn read(graph: &impl GraphView, events: &[Event]) -> Result<Self> {
+        let standings = captured_standings(graph, events)?;
+        let mut topic_keys = BTreeMap::new();
+        for standing in &standings {
+            let named = match &standing.payload {
+                EventPayload::DecisionRejected(rejected) => &rejected.decision_id,
+                EventPayload::DecisionSuperseded(superseded) => &superseded.new_decision_id,
+                _ => continue,
+            };
+            if !is_classified_capture(named) || topic_keys.contains_key(named) {
+                continue;
+            }
+            if let Some(row) = node_row(graph, NodeKind::Decision, named)? {
+                let keys = optional_string_list(&row, "topic_keys");
+                topic_keys.insert(named.clone(), keys); // ubs:ignore: the map owns its ids
+            }
+        }
+        Ok(Self {
+            standings,
+            topic_keys,
+        })
+    }
+
+    /// The payloads, by the offset of the classification event that recorded them. A feed takes
+    /// each away as it meets the event, so what is left names an event it never met.
+    fn by_origin(&self) -> BTreeMap<EventId, Vec<&EventPayload>> {
+        let mut by_origin: BTreeMap<EventId, Vec<&EventPayload>> = BTreeMap::new();
+        for standing in &self.standings {
+            by_origin
+                .entry(standing.origin)
+                .or_default()
+                .push(&standing.payload);
+        }
+        by_origin
+    }
+}
+
+/// Refuses the standings a feed did not meet the event of: a window that quietly lost one would
+/// look complete.
+fn refuse_unmet_standings(unmet: &BTreeMap<EventId, Vec<&EventPayload>>) -> Result<()> {
+    match unmet.keys().next() {
+        None => Ok(()),
+        Some(origin) => Err(query_error(format!(
+            "a capture's standing was recorded by event {origin}, which the ledger does not hold"
+        ))
+        .into()),
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct DecisionIndex {
     decisions: BTreeMap<String, DecisionIndexEntry>,
@@ -1615,8 +1786,6 @@ struct DecisionIndex {
 struct DecisionIndexEntry {
     topic_keys: Vec<String>,
     actor_ids: BTreeSet<String>,
-    accepted: bool,
-    rejected: bool,
     superseded_by: BTreeSet<String>,
     option_ids: BTreeSet<String>,
     evidence_ids: BTreeSet<String>,
@@ -1667,12 +1836,10 @@ impl DecisionIndex {
                 }
                 EventPayload::DecisionAccepted(payload) => {
                     let entry = index.decisions.entry(payload.decision_id).or_default();
-                    entry.accepted = true;
                     entry.actor_ids.insert(event.actor_id.clone());
                 }
                 EventPayload::DecisionRejected(payload) => {
                     let entry = index.decisions.entry(payload.decision_id).or_default();
-                    entry.rejected = true;
                     entry.actor_ids.insert(event.actor_id.clone());
                 }
                 EventPayload::DecisionSuperseded(payload) => {
@@ -1784,17 +1951,26 @@ impl DecisionIndex {
         Ok(index)
     }
 
-    fn status(&self, decision_id: &str) -> Option<DecisionStatus> {
-        let entry = self.decisions.get(decision_id)?;
-        if !entry.superseded_by.is_empty() {
-            Some(DecisionStatus::Superseded)
-        } else {
-            match (entry.accepted, entry.rejected) {
-                (true, true) => Some(DecisionStatus::Contested),
-                (true, false) => Some(DecisionStatus::Accepted),
-                (false, true) => Some(DecisionStatus::Rejected),
-                (false, false) => Some(DecisionStatus::Proposed),
+    /// Folds in what classified captures state: a decision a capture replaces was superseded by
+    /// the capturing decision, which matters to who else replaced it (`solely_supersedes`), and a
+    /// decision a capture records answers the topics its node names, since no proposal carries
+    /// them (hivemind-pf6xi).
+    fn note_captured(&mut self, captured: &CapturedStandings) {
+        for standing in &captured.standings {
+            if let EventPayload::DecisionSuperseded(payload) = &standing.payload {
+                self.decisions
+                    .entry(payload.old_decision_id.clone()) // ubs:ignore: the index owns its ids
+                    .or_default()
+                    .superseded_by
+                    .insert(payload.new_decision_id.clone()); // ubs:ignore: the index owns its ids
             }
+        }
+        for (decision_id, topic_keys) in &captured.topic_keys {
+            self.decisions
+                .entry(decision_id.clone()) // ubs:ignore: the index owns its ids
+                .or_default()
+                .topic_keys
+                .clone_from(topic_keys);
         }
     }
 
@@ -1805,13 +1981,6 @@ impl DecisionIndex {
                     .iter()
                     .all(|topic| stored_topics_include(&entry.topic_keys, topic))
             })
-    }
-
-    fn status_matches(&self, decision_id: &str, statuses: &[DecisionStatus]) -> bool {
-        statuses.is_empty()
-            || self
-                .status(decision_id)
-                .is_some_and(|status| statuses.contains(&status))
     }
 
     fn decisions_assuming(&self, hypothesis_id: &str) -> Vec<String> {
@@ -1880,11 +2049,21 @@ fn stale_premise_dependents(
 }
 
 fn activity_row(event: &Event, index: &DecisionIndex) -> Result<ActivityRow> {
-    let event_id = event_id(event)?;
     let payload = events::validate(event).map_err(query_validation_error)?;
-    let change_kind = change_kind_for_payload(&payload);
-    let decision_ids = decision_ids_for_payload(&payload, index);
-    let affected_nodes = affected_nodes_for_event(event, &payload);
+    activity_row_of(event, &payload, index)
+}
+
+/// The row `payload` makes, cited by `event`: the event's own payload, or the standing a
+/// classified capture states inside it (`CapturedStandings`).
+fn activity_row_of(
+    event: &Event,
+    payload: &EventPayload,
+    index: &DecisionIndex,
+) -> Result<ActivityRow> {
+    let event_id = event_id(event)?;
+    let change_kind = change_kind_for_payload(payload);
+    let decision_ids = decision_ids_for_payload(payload, index);
+    let affected_nodes = affected_nodes_for_event(event, payload);
     let citation = citation_for_event(event)?;
 
     Ok(ActivityRow {
@@ -1898,19 +2077,28 @@ fn activity_row(event: &Event, index: &DecisionIndex) -> Result<ActivityRow> {
         ts: event.ts,
         decision_ids,
         affected_nodes,
-        project_move: project_move_for_payload(&payload),
-        title_change: title_change_for_payload(&payload),
-        reaffirmed_premise: reaffirmed_premise_for_payload(&payload),
+        project_move: project_move_for_payload(payload),
+        title_change: title_change_for_payload(payload),
+        reaffirmed_premise: reaffirmed_premise_for_payload(payload),
         citation_id: citation.citation_id,
     })
 }
 
 fn decision_change_row(event: &Event, index: &DecisionIndex) -> Result<DecisionChangeRow> {
-    let event_id = event_id(event)?;
     let payload = events::validate(event).map_err(query_validation_error)?;
-    let change_kind = change_kind_for_payload(&payload);
-    let decision_ids = decision_ids_for_payload(&payload, index);
-    let affected_nodes = affected_nodes_for_event(event, &payload);
+    decision_change_row_of(event, &payload, index)
+}
+
+/// `activity_row_of` for the changed-since listing.
+fn decision_change_row_of(
+    event: &Event,
+    payload: &EventPayload,
+    index: &DecisionIndex,
+) -> Result<DecisionChangeRow> {
+    let event_id = event_id(event)?;
+    let change_kind = change_kind_for_payload(payload);
+    let decision_ids = decision_ids_for_payload(payload, index);
+    let affected_nodes = affected_nodes_for_event(event, payload);
     let citation = citation_for_event(event)?;
 
     Ok(DecisionChangeRow {
@@ -1924,9 +2112,9 @@ fn decision_change_row(event: &Event, index: &DecisionIndex) -> Result<DecisionC
         ts: event.ts,
         decision_ids,
         affected_nodes,
-        project_move: project_move_for_payload(&payload),
-        title_change: title_change_for_payload(&payload),
-        reaffirmed_premise: reaffirmed_premise_for_payload(&payload),
+        project_move: project_move_for_payload(payload),
+        title_change: title_change_for_payload(payload),
+        reaffirmed_premise: reaffirmed_premise_for_payload(payload),
         citation_id: citation.citation_id,
     })
 }
@@ -1935,11 +2123,19 @@ fn decision_change_row(event: &Event, index: &DecisionIndex) -> Result<DecisionC
 /// decisions that follow from the premise. `None` when nothing follows from it.
 fn stale_premise_activity_row(event: &Event, index: &DecisionIndex) -> Result<Option<ActivityRow>> {
     let payload = events::validate(event).map_err(query_validation_error)?;
-    let dependents = stale_premise_dependents(&payload, index, event_id(event)?);
+    stale_premise_activity_row_of(event, &payload, index)
+}
+
+fn stale_premise_activity_row_of(
+    event: &Event,
+    payload: &EventPayload,
+    index: &DecisionIndex,
+) -> Result<Option<ActivityRow>> {
+    let dependents = stale_premise_dependents(payload, index, event_id(event)?);
     if dependents.is_empty() {
         return Ok(None);
     }
-    let mut row = activity_row(event, index)?;
+    let mut row = activity_row_of(event, payload, index)?;
     row.change_kind = HistoryChangeKind::StalePremise;
     row.decision_ids = dependents;
     Ok(Some(row))
@@ -1951,11 +2147,19 @@ fn stale_premise_change_row(
     index: &DecisionIndex,
 ) -> Result<Option<DecisionChangeRow>> {
     let payload = events::validate(event).map_err(query_validation_error)?;
-    let dependents = stale_premise_dependents(&payload, index, event_id(event)?);
+    stale_premise_change_row_of(event, &payload, index)
+}
+
+fn stale_premise_change_row_of(
+    event: &Event,
+    payload: &EventPayload,
+    index: &DecisionIndex,
+) -> Result<Option<DecisionChangeRow>> {
+    let dependents = stale_premise_dependents(payload, index, event_id(event)?);
     if dependents.is_empty() {
         return Ok(None);
     }
-    let mut row = decision_change_row(event, index)?;
+    let mut row = decision_change_row_of(event, payload, index)?;
     row.change_kind = HistoryChangeKind::StalePremise;
     row.decision_ids = dependents;
     Ok(Some(row))
@@ -2336,6 +2540,7 @@ fn matches_history_filters(
     decision_ids: &[String],
     filters: &HistoryFilters,
     index: &DecisionIndex,
+    standings: &DecisionStandings,
 ) -> bool {
     if !filters.actor_ids.is_empty()
         && !filters
@@ -2370,7 +2575,8 @@ fn matches_history_filters(
 
     decision_ids.iter().any(|decision_id| {
         index.topic_matches(decision_id, &filters.topic_keys)
-            && index.status_matches(decision_id, &filters.statuses)
+            && (filters.statuses.is_empty()
+                || filters.statuses.contains(&standings.status_of(decision_id)))
     })
 }
 

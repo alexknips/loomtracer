@@ -152,8 +152,9 @@ authority.
 
 ## Timeline, Changed-Since, And Export DTOs
 
-The first layer-2 history DTOs are deterministic ledger reads. They do not call
-LLMs, mutate state, or rank beyond explicit ledger ordering.
+The first layer-2 history DTOs are deterministic reads of the ledger and the
+graph projected from it. They do not call LLMs, mutate state, or rank beyond
+explicit ledger ordering.
 
 `get_recent_activity(request)` returns newest-first timeline rows:
 
@@ -167,7 +168,13 @@ LLMs, mutate state, or rank beyond explicit ledger ordering.
   `change_kind`, actor, source/source ref, timestamp, affected decision ids,
   affected graph nodes, and `citation_id`. A transcript received for
   classification (`ingest.batch_received`) is not a row: it names no decision,
-  and the classification that follows it is.
+  and the classification that follows it is. A classified capture can state a
+  position inside itself (`supersedes_id`, `rejected_by`), which is no
+  `decision.superseded` or `decision.rejected` event. The graph holds it as an
+  edge, so each is a `supersession` or `status_change` row, and a
+  `stale_premise` row for the decisions that followed the replaced one, cited by
+  the classification event that recorded it, as the hand-recorded event would
+  be. A `status` filter reads where the graph says a decision stands.
 
 `get_decisions_changed_since(request)` returns oldest-first changes in a
 resolved ledger window:

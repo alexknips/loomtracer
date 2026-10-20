@@ -165,7 +165,7 @@ pub fn get_situational_decisions(
     });
 
     let changed_ids = if request.since_offset.is_some() || request.since_timestamp.is_some() {
-        Some(changed_decision_ids(context, ledger, request)?)
+        Some(changed_decision_ids(context, graph, ledger, request)?)
     } else {
         None
     };
@@ -357,9 +357,15 @@ fn score_candidates(
 /// a page would call every decision changed past its end "unchanged".
 fn changed_decision_ids(
     context: &QueryContext,
+    graph: &impl GraphView,
     ledger: &impl EventLedger,
     request: &SituationalRequest,
 ) -> Result<(ChangeBoundary, BTreeSet<String>)> {
     let scoped = TenantScopedLedger::new(ledger, context.tenant_id.clone());
-    get_changed_decision_ids_since(&scoped, request.since_offset, request.since_timestamp)
+    get_changed_decision_ids_since(
+        &scoped,
+        graph,
+        request.since_offset,
+        request.since_timestamp,
+    )
 }
