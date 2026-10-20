@@ -6,10 +6,10 @@ never hand-written fixture JSON injected into a database. This is the public dem
 data (hivemind-hc-yds): nothing here is real, no city decisions, no real people, no real
 projects. It exists to show what HiveMind is for.
 
-Contrast `demos/showcase/`, which is an older, hand-authored fixture corpus for local SPA
-testing. That approach hid a broken live capture path for three months (hu-0pf) before anyone
-noticed, because nothing exercised the real capture verbs. This generator exists so that can't
-happen again: it fails loudly if the CLI's argument shape drifts out from under it.
+An earlier hand-authored fixture corpus (removed) hid a broken live capture path for three
+months (hu-0pf) before anyone noticed, because nothing exercised the real capture verbs. This
+generator exists so that can't happen again: it fails loudly if the CLI's argument shape drifts
+out from under it.
 
 ## What's in it
 
