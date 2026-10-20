@@ -718,6 +718,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`HIVEMIND_AGENT_SESSION` keeps one actor through the capture helpers and the skill's direct
+  form too, as the docs said.** The README, `docs/DOGFOOD.md` and `docs/AGENT_DECISION_CAPTURE.md`
+  tell a person outside Gas City to set it, and the MCP server and bare `emit` honoured it, but
+  `/hivemind-capture:capture-decision`, `plugins/hivemind-capture/scripts/capture.sh`, the
+  repo-local `.claude/scripts/capture-decision.sh --source agent` and the `$hivemind-capture`
+  skill's direct `hivemind emit` form (and the `hivemind-context` plugin's write verbs) named the
+  session from `GC_AGENT`/`GC_ALIAS` and the client's own per-run id and ignored it, so with `HIVEMIND_AGENT_SESSION=alice-laptop` set
+  every session still recorded under a new `agent:claude:<uuid>` (or `agent:claude:manual-session`).
+  All of them now take the variable first, then `GC_AGENT`/`GC_ALIAS`, then the client's session
+  id, the same order as the CLI and the MCP server; the helper still records the per-run id in
+  `source_ref`. The skill no longer says the CLI files an unnamed tool as `codex` (it is
+  `unknown`), and `hivemind mcp --help` describes `--session-id` with the order the README gives
+  instead of "a generated id". (hivemind-9v7vu)
 - **`verify`, `why` and `--summary` count the days a superseded decision held to the link, not
   to the replacement's own date.** `still_holds.days_held` ended at the superseding decision's
   `occurred_at`, so linking a decision decided on 24 September as the replacement of one decided

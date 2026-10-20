@@ -30,7 +30,9 @@ Options:
                            session id (provenance), or the actor id when no
                            session id is available.
   --agent-tool TOOL        Agent tool name. Defaults from session context.
-  --agent-session SESSION  Agent session id. Defaults from session context.
+  --agent-session SESSION  Agent session id. Defaults to $HIVEMIND_AGENT_SESSION,
+                           then Gas City's GC_AGENT/GC_ALIAS, then the
+                           client's own session variable.
   --hivemind-dir DIR       Ledger directory. Defaults to plugin config,
                            $HIVEMIND_DIR, or <project>/hivemind.
 
@@ -170,8 +172,10 @@ detect_agent_tool() {
 }
 
 
-# Stable identity first: Gas City assigns every crew/polecat/refinery slot a
-# fixed name (GC_AGENT, mirrored in GC_ALIAS) that survives process restarts.
+# Stable identity first: HIVEMIND_AGENT_SESSION, which the user sets to name
+# one actor outside Gas City (the CLI and the MCP server read it first too,
+# identity.rs::agent_session_from_env), then Gas City's fixed slot name
+# (GC_AGENT, mirrored in GC_ALIAS) that survives process restarts.
 # A raw session id (CLAUDE_SESSION_ID, CODEX_SESSION_ID, ...) does not -- it's
 # freshly generated on every run, so checking it first makes the same physical
 # agent appear as a different actor on every restart (hivemind-zdsh.9). Raw
@@ -180,6 +184,7 @@ detect_agent_session() {
   case "$1" in
     codex)
       first_nonempty \
+        "${HIVEMIND_AGENT_SESSION:-}" \
         "${GC_AGENT:-}" \
         "${GC_ALIAS:-}" \
         "${CODEX_THREAD_ID:-}" \
@@ -191,6 +196,7 @@ detect_agent_session() {
       ;;
     claude)
       first_nonempty \
+        "${HIVEMIND_AGENT_SESSION:-}" \
         "${GC_AGENT:-}" \
         "${GC_ALIAS:-}" \
         "${CLAUDE_SESSION_ID:-}" \
@@ -201,6 +207,7 @@ detect_agent_session() {
       ;;
     *)
       first_nonempty \
+        "${HIVEMIND_AGENT_SESSION:-}" \
         "${GC_AGENT:-}" \
         "${GC_ALIAS:-}" \
         "${GC_SESSION_ID:-}" \

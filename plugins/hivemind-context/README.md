@@ -103,8 +103,8 @@ own default actor and record no new events.
 
 Write verbs (`disagree`, `supersede`, `ground`, `reaffirm`) pass `--actor agent:<tool>:<name>`
 explicitly, derived the same way `hivemind-capture`'s scripts derive it —
-Gas City's stable `GC_AGENT`/`GC_ALIAS` slot identity first (it survives
-process restarts), falling back to a raw per-run session id
+`HIVEMIND_AGENT_SESSION` first, then Gas City's stable `GC_AGENT`/`GC_ALIAS` slot identity
+(it survives process restarts), falling back to a raw per-run session id
 (`CLAUDE_SESSION_ID`/`CLAUDE_CODE_SESSION_ID` under Claude,
 `CODEX_THREAD_ID`/`CODEX_SESSION_ID`/`CODEX_TASK_ID` under Codex), then
 Gas City's session-instance variables. `run_disagree`/`run_supersede`/`run_ground`/`run_reaffirm`

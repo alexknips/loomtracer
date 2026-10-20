@@ -2130,6 +2130,203 @@ fn human_cli_capture_is_recorded_as_the_human_and_an_agent_stays_an_agent() -> T
     Ok(())
 }
 
+/// The step-3 `bash` block of the skill's direct form: the one an agent runs when the helper is
+/// unavailable.
+fn skill_direct_capture_block(skill: &str) -> TestResult<String> {
+    let after = skill
+        .split("3. Capture a new proposed decision directly when the helper is unavailable:")
+        .nth(1)
+        .ok_or("the skill should show the direct capture form as step 3")?;
+    let block = after
+        .split("```bash\n")
+        .nth(1)
+        .and_then(|rest| rest.split("```").next())
+        .ok_or("step 3 should carry a bash block")?;
+    Ok(block.to_owned())
+}
+
+/// A spawned process that sees no agent: the variables `without_agent_env` clears, plus the
+/// ones the capture helpers and the skill's direct form read on top of them.
+fn without_ambient_agent_session(command: &mut Command) -> &mut Command {
+    without_agent_env(command);
+    for key in [
+        "CODEX_THREAD_ID",
+        "CLAUDE_PROJECT_DIR",
+        "CLAUDE_PLUGIN_ROOT",
+        "GC_SESSION_ID",
+        "GC_SESSION_NAME",
+    ] {
+        command.env_remove(key);
+    }
+    command
+}
+
+/// Runs one capture path with `HIVEMIND_AGENT_SESSION` pinned to `alice-laptop` and the client's
+/// own per-run session variable set to `session_id`, and returns the proposal it recorded.
+#[cfg(unix)]
+fn capture_pinned(
+    label: &str,
+    mut command: Command,
+    bin_dir: &Path,
+    ledger: &Path,
+    (session_var, session_id): (&str, &str),
+) -> TestResult<hivemind::events::Event> {
+    without_ambient_agent_session(&mut command);
+    let output = command
+        .current_dir(markerless_cwd())
+        .env(
+            "PATH",
+            format!("{}:{}", bin_dir.display(), std::env::var("PATH")?),
+        )
+        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
+        .env("HIVEMIND_DIR", ledger)
+        .env("HIVEMIND_AGENT_SESSION", "alice-laptop")
+        .env(session_var, session_id)
+        .output()?;
+    require(
+        output.status.success(),
+        format!(
+            "{label} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )?;
+    event_with_type(ledger, hivemind::events::EventType::DecisionProposed)
+}
+
+/// hivemind-9v7vu: the docs tell a person outside Gas City to set `HIVEMIND_AGENT_SESSION` to
+/// keep one actor, and the MCP server and bare `emit` honour it. The plugin helper, the
+/// repo-local helper and the skill's direct form each named the session from their own list of
+/// variables and never looked at it, so every session still landed under a new actor. Each path
+/// runs twice with one pin and two different per-run session ids.
+#[cfg(unix)]
+#[test]
+fn a_pinned_agent_session_keeps_one_actor_through_the_helpers_and_the_skills_direct_form(
+) -> TestResult<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scratch = unique_temp_dir("hivemind-pinned-session")?;
+    // The skill's direct form calls `hivemind` off `PATH`.
+    let bin_dir = scratch.join("bin");
+    fs::create_dir_all(&bin_dir)?;
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_hivemind"), bin_dir.join("hivemind"))?;
+    let skill_block = skill_direct_capture_block(&fs::read_to_string(
+        root.join("plugins/hivemind-capture/skills/hivemind-capture/SKILL.md"),
+    )?)?;
+
+    let capture_args = [
+        "--title",
+        "Keep one actor through the pinned session",
+        "--rationale",
+        "A pinned HIVEMIND_AGENT_SESSION must name the actor whichever helper records the capture",
+        "--topic-keys",
+        "identity,capture",
+        "--options",
+        "pin,per-run",
+        "--chose",
+        "pin",
+        "--rests-on-assumption",
+        "The pin is the one name a person gave their agent",
+        "--binds-nothing",
+        "--cheap-to-undo",
+    ];
+    let plugin_helper = || {
+        let mut command =
+            Command::new(root.join("plugins/hivemind-capture/scripts/capture-decision.sh"));
+        command.args(capture_args);
+        command
+    };
+    let repo_local_helper = || {
+        let mut command = Command::new(root.join(".claude/scripts/capture-decision.sh"));
+        command.args(["--source", "agent"]).args(capture_args);
+        command
+    };
+    let skill_form = || {
+        let mut command = Command::new("bash");
+        command.args(["-c", &skill_block]);
+        command
+    };
+
+    const CLAUDE: &str = "CLAUDE_CODE_SESSION_ID";
+    const CODEX: &str = "CODEX_THREAD_ID";
+    // (label, how to run it, the client's per-run session variable, the actor it must record)
+    let cases: [(&str, &dyn Fn() -> Command, &str, &str); 5] = [
+        (
+            "plugin-claude",
+            &plugin_helper,
+            CLAUDE,
+            "agent:claude:alice-laptop",
+        ),
+        (
+            "plugin-codex",
+            &plugin_helper,
+            CODEX,
+            "agent:codex:alice-laptop",
+        ),
+        (
+            "repo-local",
+            &repo_local_helper,
+            CLAUDE,
+            "agent:claude:alice-laptop",
+        ),
+        (
+            "skill-claude",
+            &skill_form,
+            CLAUDE,
+            "agent:claude:alice-laptop",
+        ),
+        (
+            "skill-codex",
+            &skill_form,
+            CODEX,
+            "agent:codex:alice-laptop",
+        ),
+    ];
+    for (label, command, session_var, expected_actor) in cases {
+        for session_id in ["88888888-bbbb", "99999999-cccc"] {
+            let run = format!("{label} ({session_var}={session_id})");
+            let proposal = capture_pinned(
+                &run,
+                command(),
+                &bin_dir,
+                &scratch.join(format!("{label}-{session_id}")),
+                (session_var, session_id),
+            )?;
+            require_eq(proposal.actor_id.as_str(), expected_actor, &run)?;
+            // The pin names the actor; the run it came from stays in provenance where the
+            // helper can see it (hivemind-zdsh.9).
+            if label.starts_with("plugin-") {
+                require_eq(proposal.source_ref.as_deref(), Some(session_id), &run)?;
+            }
+        }
+    }
+
+    // The context plugin's write verbs (`disagree`, `supersede`, `ground`, `reaffirm`) pass
+    // `--actor agent:<tool>:<name>` and name the session the same way the capture helper does, so
+    // a pinned person is one actor across a capture and the verbs that follow it.
+    let context_lib = root.join("plugins/hivemind-context/scripts/lib.sh");
+    for (tool, session_var) in [("claude", CLAUDE), ("codex", CODEX)] {
+        let mut command = Command::new("bash");
+        command.args([
+            "-c",
+            &format!(
+                "source '{}' && detect_agent_session {tool}",
+                context_lib.display()
+            ),
+        ]);
+        let output = without_ambient_agent_session(&mut command)
+            .env("HIVEMIND_AGENT_SESSION", "alice-laptop")
+            .env(session_var, "88888888-bbbb")
+            .output()?;
+        require_eq(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "alice-laptop",
+            &format!("hivemind-context under {tool}"),
+        )?;
+    }
+
+    let _ = fs::remove_dir_all(scratch);
+    Ok(())
+}
+
 /// A spawned CLI that sees no agent session: every variable `identity` reads to name an agent
 /// (hivemind-jglb7) is removed, so a person-at-a-terminal assertion holds when `cargo test` runs
 /// inside a Claude Code, Codex or Gas City session too (hivemind-2qg60).

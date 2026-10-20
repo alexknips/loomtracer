@@ -1004,8 +1004,11 @@ pub struct ClassifyQueueSubmitArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct McpArgs {
-    /// Override the session identifier embedded in event provenance for
-    /// captures coming through this server. Defaults to a generated id.
+    /// The session name (the `<name>` of `agent:<tool>:<name>`) embedded in event provenance for
+    /// captures coming through this server. Without it, the first of `HIVEMIND_AGENT_SESSION`,
+    /// Gas City's `GC_AGENT`/`GC_ALIAS`, then the client's own session variable
+    /// (`CLAUDE_CODE_SESSION_ID` under Claude Code), and a fresh generated `mcp-<uuid>` only
+    /// when none names one.
     #[arg(long)]
     pub session_id: Option<String>,
 

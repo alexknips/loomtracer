@@ -38,16 +38,17 @@ This directory is both the Codex capture plugin and the Claude Code
   hash, revision ID, or access date) when a link appears in a capture context.
 
 The shared helper defaults to `source=agent` and derives
-`actor_id=agent:<tool>:<name>`. The name is stable only inside Gas City, where
-`GC_AGENT` (mirrored in `GC_ALIAS`) is checked first, since it names a fixed
-crew/polecat/refinery slot that survives process restarts. Anywhere else it
-falls back to a raw per-run session id (`CODEX_THREAD_ID`,
-`CODEX_SESSION_ID`, or `CODEX_TASK_ID` under Codex; `CLAUDE_SESSION_ID` or
-`CLAUDE_CODE_SESSION_ID` under Claude Code), then Gas City's session-instance
-variables (`GC_SESSION_ID`/`GC_SESSION_NAME`), so each session is its own actor.
-To keep one actor outside Gas City, pass `--agent-session <name>` (or
-`--actor-id`) to the helper; the bundled MCP server also reads
-`HIVEMIND_AGENT_SESSION`.
+`actor_id=agent:<tool>:<name>`. The name is stable only where something stable
+names it: `HIVEMIND_AGENT_SESSION` is checked first, then `GC_AGENT` (mirrored
+in `GC_ALIAS`), since it names a fixed crew/polecat/refinery slot that survives
+process restarts. With neither it falls back to a raw per-run session id
+(`CODEX_THREAD_ID`, `CODEX_SESSION_ID`, or `CODEX_TASK_ID` under Codex;
+`CLAUDE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID` under Claude Code), then Gas
+City's session-instance variables (`GC_SESSION_ID`/`GC_SESSION_NAME`), so each
+session is its own actor. To keep one actor outside Gas City, export
+`HIVEMIND_AGENT_SESSION` (say `alice-laptop`) before starting the client, or
+pass `--agent-session <name>` (or `--actor-id`) to the helper; the bundled MCP
+server reads the same variable.
 
 ## Install
 

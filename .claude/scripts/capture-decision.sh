@@ -14,7 +14,9 @@ Options:
   --source human|agent       Provenance source. Defaults to human.
   --actor-id ID              Override actor id. Required by direct human CLI calls.
   --source-ref REF           Override source_ref. Defaults to actor id.
-  --agent-session SESSION    Claude session id for --source agent.
+  --agent-session SESSION    Session name for --source agent. Defaults to
+                             $HIVEMIND_AGENT_SESSION, then GC_AGENT/GC_ALIAS,
+                             then Claude's own session id.
   --hivemind-dir DIR         Ledger directory. Defaults to $HIVEMIND_DIR or ./hivemind.
 
 A capture must say what it rests on, what it binds and what undoing it would cost; one
@@ -55,12 +57,13 @@ SOURCE="human"
 ACTOR_ID=""
 SOURCE_REF=""
 AGENT_TOOL="claude"
-# Stable identity first: Gas City assigns every crew/polecat/refinery slot a
-# fixed name (GC_AGENT, mirrored in GC_ALIAS) that survives process restarts.
-# A raw session id (CLAUDE_SESSION_ID, ...) does not -- it's freshly
-# generated on every run, so checking it first makes the same physical agent
-# appear as a different actor on every restart (hivemind-zdsh.9).
-AGENT_SESSION="${GC_AGENT:-${GC_ALIAS:-${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-manual-session}}}}"
+# Stable identity first: HIVEMIND_AGENT_SESSION, which the user sets to name one
+# actor outside Gas City, then Gas City's fixed slot name (GC_AGENT, mirrored in
+# GC_ALIAS) that survives process restarts. A raw session id (CLAUDE_SESSION_ID,
+# ...) does not -- it's freshly generated on every run, so checking it first
+# makes the same physical agent appear as a different actor on every restart
+# (hivemind-zdsh.9).
+AGENT_SESSION="${HIVEMIND_AGENT_SESSION:-${GC_AGENT:-${GC_ALIAS:-${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-manual-session}}}}}"
 FORWARDED=()
 
 while [[ $# -gt 0 ]]; do

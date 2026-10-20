@@ -383,6 +383,7 @@ slash command, or `emit decision.capture --agent-tool ... --agent-session ...`.
 ### `source=agent` is present, but the actor is unexpected
 
 The helper derives identity from the client environment, stable name first:
+`HIVEMIND_AGENT_SESSION` (a name you set to keep one actor), then
 `GC_AGENT`/`GC_ALIAS` (a Gas City agent's fixed slot name), then a raw
 per-run session id -- Claude uses `CLAUDE_SESSION_ID` or
 `CLAUDE_CODE_SESSION_ID`; Codex uses `CODEX_THREAD_ID`, `CODEX_SESSION_ID`,
