@@ -854,7 +854,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   (`ingest.batch_received`) that cost seconds per call, growing with the transcripts rather
   than with the decisions. The history reads now fetch only the event types they report, plus
   the classification event a drafted decision names; a project-scoped read (`--project` on
-  `search` and `recall`, `situational`, `reexamine`, `misfiled`, `get_project`, the decision-log
+  `recall`, `situational`, `reexamine`, `misfiled`, `get_project`, the decision-log
   export) fetches only the six `project.*` event types; and the line the CLI and the stdio MCP
   tools print when annotation rows could not be read fetches only the annotation rows. What the
   reads answer is unchanged, with one exception: `get_recent_activity` and

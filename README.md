@@ -93,7 +93,7 @@ costs) are required; [CLI Shape](#cli-shape) says why.
 
 ## Decision Quality — Where HiveMind is Heading
 
-*The quality profile and attention findings below are shipped; failure-mode attribution is planned.*
+*The quality profile, attention findings and failure-mode attribution below are shipped; the organizational feedback loop is planned.*
 
 Recording decisions is the foundation. The next layer is measuring whether
 they held up — and feeding that signal back so organizations can improve how
@@ -119,14 +119,28 @@ a decision afterwards (superseded, contested, refuted premise) is shown as outco
 staleness, not folded into a quality grade. See
 [`docs/DECISION_SCORING.md`](docs/DECISION_SCORING.md).
 
-**Failure-mode attribution and organizational self-improvement (planned).**
+**Failure-mode attribution (shipped).** `analyze_failure_modes` (MCP, stdio and
+HTTP) asks which conditions go with decisions that did not hold up, and answers
+in aggregate. Each group gives its size, how many failed, its failure rate and
+how far that is from the whole ledger's rate, with a confidence flag that
+follows the group's size. The groups are authorship (human-authored, agent
+proposed and human accepted, agent only), review (unreviewed, self-accepted,
+peer-reviewed, disputed, rejected), whether an agent acted within a human's
+delegation or alone, capture source, whether options and evidence were
+recorded, and each quality dimension at each level. A decision failed when it
+was superseded, rejected or contested, or a premise it rests on no longer
+stands; how it was made is a condition to group by, never a failure itself. It
+reads every decision, returns no per-person ranking, does not group by model,
+and needs no LLM.
+
+**Organizational self-improvement (planned).**
 The goal is understanding *how* mistakes happen in an organization — by
-condition and pattern (model choice, context sufficiency, presence and quality
-of review, evidence thinness, human/AI/joint authorship), not by assigning
-blame to individuals. Engineers are becoming decision engineers; HiveMind aims
-to give that discipline measurable metrics and a structured feedback loop.
-External consumers — dashboards, automation, factory loops — pull profiles,
-findings and signals via MCP.
+condition and pattern, not by assigning blame to individuals. Engineers are
+becoming decision engineers; HiveMind aims to give that discipline measurable
+metrics and a structured feedback loop. The metrics above ship; the loop that
+carries them back into how an organization decides is planned. External
+consumers — dashboards, automation, factory loops — pull profiles, findings and
+signals via MCP.
 
 The default CLI stores events in SQLite at `./hivemind/ledger.sqlite` or the
 directory passed with `--hivemind-dir`. A write creates the ledger on first use;
