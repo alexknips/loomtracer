@@ -2368,13 +2368,15 @@ pub enum QueryCommand {
     /// The ledger's latest events as a timeline, newest first: each capture, acceptance,
     /// rejection, supersession, evidence, hypothesis or move with its actor, source, timestamp
     /// and the decisions it touched. A transcript received for classification is not listed (it
-    /// names no decision); the classification that follows it is, and so is a rejection or
-    /// replacement a capture states inside itself. Paginated.
+    /// names no decision); the classification that follows it is, and so is each decision it
+    /// records and a rejection or replacement a capture states inside itself. Paginated.
     #[command(name = "get_recent_activity")]
     GetRecentActivity(QueryRecentActivityArgs),
     /// What changed in a ledger window, oldest first: new decisions, status changes, new
     /// evidence, refuted assumptions, supersessions and moves, each citing its event (the
-    /// classification, for a rejection or replacement a capture states inside itself). Bounded by
+    /// classification, for a decision a capture records and for a rejection or replacement it
+    /// states inside itself). A window holds the events recorded in it: a decision drafted from a
+    /// transcript is new when its classification is, whenever the turn was said. Bounded by
     /// ledger offset or timestamp so the same diff can be replayed exactly.
     #[command(name = "get_decisions_changed_since")]
     GetDecisionsChangedSince(QueryChangedSinceArgs),

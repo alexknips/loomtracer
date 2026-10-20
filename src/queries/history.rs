@@ -31,7 +31,7 @@ use super::shared::{
     recorded_floor_of, stored_topics_include,
 };
 use super::status::DecisionStandings;
-use super::timeline::{captured_standings, CapturedStanding};
+use super::timeline::{captured_creations, captured_standings, CapturedStanding};
 use super::{DecisionStatus, QueryResponse, MAX_QUERY_RESULTS};
 
 mod drafts;
@@ -478,7 +478,7 @@ pub fn get_recent_activity(
     let started = Instant::now();
     let events = read_history_events(ledger, FEED_EVENT_TYPES)?;
     let latest_offset = ledger.latest_offset()?;
-    let captured = CapturedStandings::read(graph, &events)?;
+    let captured = CapturedStandings::read_for_feed(graph, &events)?;
     let mut index = DecisionIndex::from_events(&events)?;
     index.note_captured(&captured);
     let standings = DecisionStandings::load(graph)?;
@@ -757,7 +757,7 @@ fn changed_window_rows(
         request.since_timestamp,
         request.until_timestamp,
     );
-    let captured = CapturedStandings::read(graph, &events)?;
+    let captured = CapturedStandings::read_for_feed(graph, &events)?;
     let mut index = DecisionIndex::from_events(&events)?;
     index.note_captured(&captured);
     let standings = DecisionStandings::load(graph)?;
@@ -1724,10 +1724,28 @@ impl CapturedStandings {
     /// The standings of `graph` that none of the `decision.rejected` and `decision.superseded`
     /// among `events` states.
     fn read(graph: &impl GraphView, events: &[Event]) -> Result<Self> {
-        let standings = captured_standings(graph, events)?;
+        Self::of(graph, captured_standings(graph, events)?)
+    }
+
+    /// [`Self::read`], and the decisions captures record as the `decision.proposed` each stands
+    /// for (hivemind-svqxz), ahead of what the same classification states of them. A feed lists a
+    /// decision as new when it first appears, and a capture's decision has no proposal to say so.
+    /// The decision lists leave them out: they list a draft as added from the graph's own record.
+    fn read_for_feed(graph: &impl GraphView, events: &[Event]) -> Result<Self> {
+        let mut standings = captured_creations(graph)?;
+        standings.extend(captured_standings(graph, events)?);
+        Self::of(graph, standings)
+    }
+
+    fn of(graph: &impl GraphView, standings: Vec<CapturedStanding>) -> Result<Self> {
         let mut topic_keys = BTreeMap::new();
         for standing in &standings {
             let named = match &standing.payload {
+                EventPayload::DecisionProposed(proposed) => {
+                    // The recorded decision's own topics; no later standing names it again.
+                    topic_keys.insert(proposed.decision_id.clone(), proposed.topic_keys.clone()); // ubs:ignore: the map owns its ids
+                    continue;
+                }
                 EventPayload::DecisionRejected(rejected) => &rejected.decision_id,
                 EventPayload::DecisionSuperseded(superseded) => &superseded.new_decision_id,
                 _ => continue,

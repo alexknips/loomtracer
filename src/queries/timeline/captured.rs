@@ -25,13 +25,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::{DateTime, Utc};
 
 use crate::events::{
-    DecisionAcceptedPayload, DecisionRejectedPayload, DecisionSupersededPayload, EventId,
-    EventPayload, EventType, RelationAddedPayload, RelationKind as EventRelationKind,
+    DecisionAcceptedPayload, DecisionProposedPayload, DecisionRejectedPayload,
+    DecisionSupersededPayload, EventId, EventPayload, EventType, RelationAddedPayload,
+    RelationKind as EventRelationKind,
 };
 use crate::ledger::EventLedger;
 use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::queries::brief::is_classified_capture;
-use crate::queries::shared::{neighbor_pairs, query_error, relation_edges_with_origin, Direction};
+use crate::queries::shared::{
+    neighbor_pairs, node_rows, optional_int, optional_string, optional_string_list, query_error,
+    relation_edges_with_origin, Direction,
+};
 use crate::queries::status_events::{cited, proposer_of, recorded_of};
 use crate::Result;
 
@@ -120,6 +124,58 @@ pub(super) fn standings(graph: &impl GraphView, events: &[Step]) -> Result<Vec<S
     let mut steps = rejections(graph, &stated)?;
     steps.extend(supersessions(graph, &stated)?);
     Ok(steps)
+}
+
+/// The decisions classified captures record, each as the `decision.proposed` it stands for, cited
+/// by the classification event that recorded it (hivemind-svqxz). A capture's decision has no
+/// proposal in the ledger, so a feed that lists events alone met its classification as a context
+/// change naming no decision, and the decision read as unchanged since before it existed. The
+/// payload holds what the node states of the proposal (title, rationale, topics, project) and
+/// nothing a proposal would carry that the node does not. Reads the graph and nothing else.
+pub(super) fn creations(graph: &impl GraphView) -> Result<Vec<Step>> {
+    let mut steps = Vec::new();
+    for (decision_id, row) in node_rows(graph, NodeKind::Decision)? {
+        if !is_classified_capture(&decision_id) {
+            continue;
+        }
+        let origin = offset_of(optional_int(&row, "event_origin"), "a drafted decision")?;
+        steps.push(Step {
+            origin,
+            ts: None,
+            actor_id: None,
+            payload: EventPayload::DecisionProposed(DecisionProposedPayload {
+                decision_id,
+                title: optional_string(&row, "title").unwrap_or_default(),
+                rationale: optional_string(&row, "rationale").unwrap_or_default(),
+                topic_keys: optional_string_list(&row, "topic_keys"),
+                option_ids: Vec::new(),
+                option_labels: Vec::new(),
+                option_descriptions: Vec::new(),
+                chosen_option_id: None,
+                hypothesis_ids: Vec::new(),
+                evidence_ids: Vec::new(),
+                expressed_confidence: None,
+                quote: None,
+                question: None,
+                project: optional_string(&row, "project"),
+                project_source: None,
+                binds: None,
+                undo_cost: None,
+            }),
+        });
+    }
+    // One classification's captures in the order it listed them: ids sort as text, so capture 10
+    // would otherwise come before capture 2.
+    steps.sort_by_key(|step| (step.origin, capture_index(&step.payload)));
+    Ok(steps)
+}
+
+/// The position of a drafted decision in its classification (`capture:<event>:<index>`).
+fn capture_index(payload: &EventPayload) -> Option<usize> {
+    let EventPayload::DecisionProposed(proposed) = payload else {
+        return None;
+    };
+    proposed.decision_id.rsplit(':').next()?.parse().ok()
 }
 
 /// The decisions a capture premises on a hypothesis, directly or through the option it chose.

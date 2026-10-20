@@ -168,7 +168,10 @@ explicit ledger ordering.
   `change_kind`, actor, source/source ref, timestamp, affected decision ids,
   affected graph nodes, and `citation_id`. A transcript received for
   classification (`ingest.batch_received`) is not a row: it names no decision,
-  and the classification that follows it is. A classified capture can state a
+  and the classification that follows it is. A decision a classified capture
+  records has no `decision.proposed` event, so each is a `new_decision` row cited
+  by the classification event that recorded it, as a hand-recorded proposal is.
+  A classified capture can state a
   position inside itself (`supersedes_id`, `rejected_by`), which is no
   `decision.superseded` or `decision.rejected` event. The graph holds it as an
   edge, so each is a `supersession` or `status_change` row, and a
@@ -186,7 +189,9 @@ resolved ledger window:
   `ledger_range`.
 - `items`: event rows classified as `new_decision`, `status_change`,
   `new_evidence`, `refuted_assumption`, `supersession`, or `context_change`,
-  with the same citation and affected-node fields as timeline rows.
+  with the same citation and affected-node fields as timeline rows. A decision
+  drafted from a transcript (passive capture) is a `new_decision` row when its
+  classification event is in the window, whenever the turn it records was said.
 
 A `since_offset` is exclusive; `until_offset` is inclusive. Offsets bound a
 window only when the caller gives them. A timestamp bound is tested against each

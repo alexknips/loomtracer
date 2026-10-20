@@ -733,6 +733,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **What changed since a date now lists the decisions passive capture recorded after it.** A
+  classified capture's decision has no `decision.proposed` event, so `query
+  get_decisions_changed_since` and `get_recent_activity` listed its classification as a
+  `context_change` that named no decision, and `situational --since-ts` (and the MCP
+  `get_situational_decisions` `since_timestamp`) read the decision as `since=unchanged` /
+  `changed_since=false`: on the cell, 124 of 130 captured decisions from the last month read
+  unchanged, against 22 of 22 recorded by hand as changed. Each decision a classified capture
+  records is now a `new_decision` row naming it, cited by the classification event that
+  recorded it (`event_origin`, `citation_id`, `ts` and actor are the event's own), and the
+  classification keeps its own row. A window holds the events recorded in it: a decision is new
+  when its classification is, whenever the turn it records was said. `get_decisions_added_since`
+  is unchanged, since it already listed a capture's draft as added. (hivemind-svqxz)
 - **`HIVEMIND_AGENT_SESSION` keeps one actor through the capture helpers and the skill's direct
   form too, as the docs said.** The README, `docs/DOGFOOD.md` and `docs/AGENT_DECISION_CAPTURE.md`
   tell a person outside Gas City to set it, and the MCP server and bare `emit` honoured it, but

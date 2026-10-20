@@ -2244,7 +2244,10 @@ fn the_feeds_filter_what_a_capture_states_by_the_status_and_topic_the_graph_give
         .data
         .items
         .into_iter()
-        .filter(|row| row.event_type == EventType::IngestBatchClassified)
+        .filter(|row| {
+            row.event_type == EventType::IngestBatchClassified
+                && row.change_kind != HistoryChangeKind::NewDecision
+        })
         .map(|row| row.decision_ids)
         .filter(|ids| !ids.is_empty())
         .collect())
@@ -2387,6 +2390,250 @@ fn added_since_lists_the_decision_a_capture_replaced_and_the_one_resting_on_it_a
     let rejected = added(&rejected).expect("the rejected decision is added");
     assert_eq!(rejected.status, DecisionStatus::Rejected);
     assert!(rejected.changes_in_window.is_empty());
+    Ok(())
+}
+
+// ── a decision a capture records is new when its classification is, as a proposal is (hivemind-svqxz) ──
+
+/// The offset of the classification event that recorded the draft `capture:<event>:<index>`.
+fn classification_of(draft_id: &str) -> Result<EventId> {
+    draft_id
+        .split(':')
+        .nth(1)
+        .and_then(|offset| offset.parse().ok())
+        .ok_or_else(|| query_error(format!("{draft_id} is no classified capture's id")).into())
+}
+
+fn changed_since_time(scenario: &Scenario, since: &str) -> Result<Vec<DecisionChangeRow>> {
+    Ok(get_decisions_changed_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &ChangedSinceRequest {
+            since_timestamp: Some(test_ts(since)),
+            limit: 100,
+            ..ChangedSinceRequest::default()
+        },
+    )?
+    .data
+    .items)
+}
+
+fn new_decisions(rows: &[DecisionChangeRow]) -> Vec<(EventId, Vec<String>)> {
+    rows.iter()
+        .filter(|row| row.change_kind == HistoryChangeKind::NewDecision)
+        .map(|row| (row.event_origin, row.decision_ids.clone()))
+        .collect()
+}
+
+#[test]
+fn changed_since_lists_a_decision_a_capture_records_as_new_as_it_lists_a_proposal() -> Result<()> {
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+    let (today, earlier) = (
+        classification_of(&said_today)?,
+        classification_of(&said_earlier)?,
+    );
+
+    // The window opens after the hand-recorded decision (08:00) and before both classifications.
+    // Neither draft's turn falls in it, but both were recorded in it: the window is the ledger's.
+    let rows = changed_since_time(&scenario, "2026-10-11T08:30:00Z")?;
+
+    assert_eq!(
+        new_decisions(&rows),
+        vec![
+            (today, vec![said_today.clone()]),
+            (earlier, vec![said_earlier])
+        ]
+    );
+    let new = rows
+        .iter()
+        .find(|row| row.change_kind == HistoryChangeKind::NewDecision)
+        .expect("the draft is a new decision");
+    // Cited by the classification that recorded it, as that event is cited everywhere else.
+    assert_eq!(new.event_type, EventType::IngestBatchClassified);
+    assert_eq!(new.actor_id, CLASSIFIER);
+    assert_eq!(new.ts, Some(test_ts("2026-10-11T09:00:00Z")));
+    assert_eq!(new.citation_id, format!("event:{today}"));
+    assert_eq!(
+        new.affected_nodes,
+        vec![affected_node(&said_today, NodeKind::Decision)]
+    );
+    // The classification keeps its own row.
+    assert!(rows.iter().any(|row| row.event_origin == today
+        && row.change_kind == HistoryChangeKind::ContextChange
+        && row.decision_ids.is_empty()));
+    // The proposal before the window is not in it.
+    assert!(!rows
+        .iter()
+        .any(|row| row.decision_ids.contains(&"decision-hand".to_owned())));
+    Ok(())
+}
+
+#[test]
+fn changed_since_leaves_out_a_decision_recorded_before_the_window_opens() -> Result<()> {
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+    let (today, earlier) = (
+        classification_of(&said_today)?,
+        classification_of(&said_earlier)?,
+    );
+
+    // By time: the window opens between the two classifications.
+    assert_eq!(
+        new_decisions(&changed_since_time(&scenario, "2026-10-11T09:02:00Z")?),
+        vec![(earlier, vec![said_earlier.clone()])]
+    );
+    // By offset: the window opens at the first classification, which it does not contain.
+    let rows = get_decisions_changed_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &ChangedSinceRequest {
+            since_offset: Some(today),
+            limit: 100,
+            ..ChangedSinceRequest::default()
+        },
+    )?
+    .data
+    .items;
+    assert_eq!(new_decisions(&rows), vec![(earlier, vec![said_earlier])]);
+    Ok(())
+}
+
+#[test]
+fn the_decisions_a_window_changed_include_the_ones_a_capture_recorded_in_it() -> Result<()> {
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+
+    // What `situational --since-ts` marks `changed_since` from.
+    let (_, ids) = get_changed_decision_ids_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        None,
+        Some(test_ts("2026-10-11T08:30:00Z")),
+    )?;
+    assert_eq!(ids, BTreeSet::from([said_today.clone(), said_earlier]));
+
+    // Opened after both classifications, nothing is told.
+    let (_, ids) = get_changed_decision_ids_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        None,
+        Some(test_ts("2026-10-11T09:10:00Z")),
+    )?;
+    assert!(ids.is_empty());
+    Ok(())
+}
+
+#[test]
+fn recent_activity_lists_a_decision_a_capture_records_as_new() -> Result<()> {
+    let (scenario, said_today, _) = drafts_scenario()?;
+    let today = classification_of(&said_today)?;
+
+    let activity = get_recent_activity(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &RecentActivityRequest {
+            limit: 100,
+            ..RecentActivityRequest::default()
+        },
+    )?
+    .data;
+
+    assert_eq!(
+        activity
+            .items
+            .iter()
+            .filter(|row| row.event_origin == today
+                && row.change_kind == HistoryChangeKind::NewDecision)
+            .map(|row| row.decision_ids.clone())
+            .collect::<Vec<_>>(),
+        vec![vec![said_today]]
+    );
+    Ok(())
+}
+
+#[test]
+fn the_feeds_filter_a_captured_new_decision_by_the_topic_and_status_the_graph_gives() -> Result<()>
+{
+    let (scenario, said_today, said_earlier) = drafts_scenario()?;
+    scenario.accept(&said_today, "human:alex", "2026-10-11T10:00:00Z")?;
+    let listed = |filters: HistoryFilterRequest| -> Result<Vec<Vec<String>>> {
+        Ok(get_decisions_changed_since(
+            scenario.ledger(),
+            &scenario.graph()?,
+            &ChangedSinceRequest {
+                since_offset: Some(0),
+                filters,
+                limit: 100,
+                ..ChangedSinceRequest::default()
+            },
+        )?
+        .data
+        .items
+        .into_iter()
+        .filter(|row| row.change_kind == HistoryChangeKind::NewDecision)
+        .map(|row| row.decision_ids)
+        .filter(|ids| ids.iter().any(|id| id.starts_with("capture:")))
+        .collect())
+    };
+
+    // The topics a capture states are on the decision's node, not in a proposal.
+    assert_eq!(
+        listed(HistoryFilterRequest {
+            topic_keys: vec!["capture".to_owned()],
+            ..HistoryFilterRequest::default()
+        })?,
+        vec![vec![said_today.clone()], vec![said_earlier.clone()]]
+    );
+    assert!(listed(HistoryFilterRequest {
+        topic_keys: vec!["unrelated".to_owned()],
+        ..HistoryFilterRequest::default()
+    })?
+    .is_empty());
+    // And where it stands is the graph's word: only the one accepted since is accepted.
+    assert_eq!(
+        listed(HistoryFilterRequest {
+            statuses: vec![DecisionStatus::Accepted],
+            ..HistoryFilterRequest::default()
+        })?,
+        vec![vec![said_today]]
+    );
+    assert_eq!(
+        listed(HistoryFilterRequest {
+            statuses: vec![DecisionStatus::Proposed],
+            ..HistoryFilterRequest::default()
+        })?,
+        vec![vec![said_earlier]]
+    );
+    Ok(())
+}
+
+#[test]
+fn added_since_lists_a_captured_decision_once_and_as_no_change_to_itself() -> Result<()> {
+    let (scenario, said_today, _) = drafts_scenario()?;
+
+    let data = get_decisions_added_since(
+        scenario.ledger(),
+        &scenario.graph()?,
+        &DecisionsAddedSinceRequest {
+            since_timestamp: Some(test_ts("2026-10-11T07:00:00Z")),
+            limit: 100,
+            ..DecisionsAddedSinceRequest::default()
+        },
+    )?
+    .data;
+
+    // The draft is added from the graph's own record; the feeds' statement of its creation is
+    // theirs alone, so it is neither a second entry nor a change in the window.
+    let drafts: Vec<_> = data
+        .added_decisions
+        .iter()
+        .filter(|entry| entry.decision_id.starts_with("capture:"))
+        .collect();
+    assert_eq!(drafts.len(), 1);
+    assert_eq!(drafts[0].decision_id, said_today);
+    assert!(drafts[0].changes_in_window.is_empty());
+    assert!(data
+        .changed_existing_decisions
+        .iter()
+        .all(|entry| !entry.decision_id.starts_with("capture:")));
     Ok(())
 }
 

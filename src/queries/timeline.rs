@@ -388,6 +388,20 @@ pub(super) fn captured_standings(
         .collect())
 }
 
+/// The decisions classified captures record, each as the `decision.proposed` it stands for
+/// (hivemind-svqxz), for the feeds that list a decision as new when it first appears. Kept apart
+/// from [`captured_standings`]: `get_decisions_added_since` lists a draft as added from the graph's
+/// own record and wants no second statement of it.
+pub(super) fn captured_creations(graph: &impl GraphView) -> Result<Vec<CapturedStanding>> {
+    Ok(captured::creations(graph)?
+        .into_iter()
+        .map(|step| CapturedStanding {
+            origin: step.origin,
+            payload: step.payload,
+        })
+        .collect())
+}
+
 fn step_of(event: &Event) -> Result<Step> {
     let origin = event
         .event_id
