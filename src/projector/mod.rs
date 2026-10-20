@@ -1,7 +1,7 @@
 //! Projector trait and graph types: replays ledger events into a live in-memory graph view.
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
 
@@ -294,6 +294,21 @@ pub trait GraphView {
     fn query(&self, cypher: &str, params: &GraphParams) -> Result<Vec<GraphRow>>;
 
     fn wipe(&self) -> Result<()>;
+
+    /// The slug the Decision `decision_id` holds, `None` when it holds none or is not in the
+    /// graph. A projection asks this once per Decision it creates, so a backend that can answer
+    /// without listing every Decision should (the in-memory graph does); the default lists them.
+    fn decision_slug_of(&self, decision_id: &str) -> Result<Option<String>> {
+        Ok(existing_decision_slugs(self)?.remove(decision_id))
+    }
+
+    /// Whether any Decision holds `slug`. Asked up to once per rung of the collision ladder (see
+    /// `assign_decision_slug`); the default lists every Decision, as [`Self::decision_slug_of`].
+    fn decision_slug_taken(&self, slug: &str) -> Result<bool> {
+        Ok(existing_decision_slugs(self)?
+            .values()
+            .any(|held| held == slug))
+    }
 }
 
 /// Projects one event on its own: a classified batch has no received batch to read a turn time
@@ -1134,12 +1149,14 @@ fn decision_id_tail(decision_id: &str) -> String {
         .collect()
 }
 
-/// The slug of every currently-projected Decision node, by decision id. Reuses the existing "all
-/// nodes of a kind" query shape (see `current_project_anchors`) rather than adding a new query
-/// pattern to every `GraphView` backend: memory/Postgres already return every stored property
-/// for that shape regardless of the requested columns, and Kuzu (real Cypher) returns exactly
-/// the two columns named here.
-fn existing_decision_slugs(graph: &impl GraphView) -> Result<BTreeMap<String, String>> {
+/// The slug of every currently-projected Decision node, by decision id: what the default
+/// [`GraphView::decision_slug_of`] and [`GraphView::decision_slug_taken`] answer from. Reuses the
+/// existing "all nodes of a kind" query shape (see `current_project_anchors`) rather than adding
+/// a new query pattern to every `GraphView` backend: Postgres already returns every stored
+/// property for that shape regardless of the requested columns, and Kuzu (real Cypher) returns
+/// exactly the two columns named here. It is O(Decisions) per call; the in-memory graph, the one
+/// a server replays on every start, overrides both methods instead (hivemind-q13ms).
+fn existing_decision_slugs(graph: &(impl GraphView + ?Sized)) -> Result<BTreeMap<String, String>> {
     let rows = graph.query(
         "MATCH (node:`Decision`) RETURN node.id AS id, node.slug AS slug ORDER BY node.id;",
         &GraphParams::new(),
@@ -1172,13 +1189,11 @@ fn assign_decision_slug(
     decision_id: &str,
     title: &str,
 ) -> Result<GraphValue> {
-    let claimed = existing_decision_slugs(graph)?;
-    if let Some(own) = claimed.get(decision_id) {
-        return Ok(GraphValue::String(own.clone()));
+    if let Some(own) = graph.decision_slug_of(decision_id)? {
+        return Ok(GraphValue::String(own));
     }
     let base = capped_decision_slug(title);
-    let taken: BTreeSet<&str> = claimed.values().map(String::as_str).collect();
-    if !taken.contains(base.as_str()) {
+    if !graph.decision_slug_taken(&base)? {
         return Ok(GraphValue::String(base));
     }
     let tail = decision_id_tail(decision_id);
@@ -1189,7 +1204,7 @@ fn assign_decision_slug(
             continue;
         };
         let candidate = tail_suffixed_slug(&base, tail_slice);
-        if !taken.contains(candidate.as_str()) {
+        if !graph.decision_slug_taken(&candidate)? {
             return Ok(GraphValue::String(candidate));
         }
     }
@@ -1199,7 +1214,7 @@ fn assign_decision_slug(
     let mut suffix = 2u32;
     loop {
         let candidate = counter_suffixed_slug(&base, &tail, suffix);
-        if !taken.contains(candidate.as_str()) {
+        if !graph.decision_slug_taken(&candidate)? {
             return Ok(GraphValue::String(candidate));
         }
         suffix += 1;

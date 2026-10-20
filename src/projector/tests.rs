@@ -1417,6 +1417,178 @@ fn projecting_the_same_classified_batch_twice_leaves_each_drafts_slug_as_first_a
     Ok(())
 }
 
+/// A graph that answers `query` and the four writes through a [`MemoryGraph`] but keeps the
+/// trait's default slug lookups, the way a backend that answers only through `query` does
+/// (Postgres, Kuzu): what its `assign_decision_slug` reads is the whole-kind slug listing.
+struct QueryOnlyGraph(super::memory::MemoryGraph);
+
+impl GraphView for QueryOnlyGraph {
+    fn upsert_node(&self, kind: NodeKind, id: &str, properties: &GraphProperties) -> Result<()> {
+        self.0.upsert_node(kind, id, properties)
+    }
+
+    fn upsert_edge(
+        &self,
+        kind: RelationKind,
+        from_id: &str,
+        to_id: &str,
+        properties: &GraphProperties,
+    ) -> Result<()> {
+        self.0.upsert_edge(kind, from_id, to_id, properties)
+    }
+
+    fn query(&self, cypher: &str, params: &GraphParams) -> Result<Vec<GraphRow>> {
+        self.0.query(cypher, params)
+    }
+
+    fn wipe(&self) -> Result<()> {
+        self.0.wipe()
+    }
+}
+
+fn slug_properties(slug: GraphValue) -> GraphProperties {
+    GraphProperties::from([("slug".to_owned(), slug)])
+}
+
+/// Assigns `decision_id` a slug for `title` and stores it on a Decision node, as projecting its
+/// proposal does, and returns it.
+fn claim_slug(graph: &impl GraphView, decision_id: &str, title: &str) -> Result<String> {
+    let GraphValue::String(slug) = assign_decision_slug(graph, decision_id, title)? else {
+        return Err(projector_error("a slug is a string").into());
+    };
+    graph.upsert_node(
+        NodeKind::Decision,
+        decision_id,
+        &slug_properties(GraphValue::String(slug.clone())),
+    )?;
+    Ok(slug)
+}
+
+/// One decision per rung of the collision ladder, each claiming its slug in turn, and the first
+/// decision asked again at the end.
+fn slugs_down_the_collision_ladder(graph: &impl GraphView) -> Result<Vec<String>> {
+    let title = "Shared Title";
+    let mut slugs = Vec::new();
+    for decision_id in [
+        // First to claim the title: the bare title slug.
+        "decision-aaaa1111",
+        // Title taken: the shortest id-tail suffix, 4 characters.
+        "decision-bbbb2222",
+        // Title and `-bbbb` taken: the suffix grows one character at a time until one is free.
+        "decision-bbbb3333",
+        "decision-bbbb3344",
+        // A tail shorter than the shortest suffix has no suffix to try: the counter, from 2.
+        "capture:1:1",
+        // The same tail again (punctuation is not part of it): the counter moves on.
+        "capture:11",
+    ] {
+        slugs.push(claim_slug(graph, decision_id, title)?);
+    }
+    // A decision that already holds a slug is given that one back, not the next free rung.
+    slugs.push(claim_slug(graph, "decision-bbbb2222", title)?);
+    Ok(slugs)
+}
+
+#[test]
+fn a_slug_takes_the_first_free_rung_of_the_collision_ladder() -> Result<()> {
+    use super::memory::MemoryGraph;
+
+    let expected = [
+        "shared-title",
+        "shared-title-bbbb",
+        "shared-title-bbbb3",
+        "shared-title-bbbb33",
+        "shared-title-11-2",
+        "shared-title-11-3",
+        "shared-title-bbbb",
+    ];
+    assert_eq!(
+        slugs_down_the_collision_ladder(&MemoryGraph::default())?,
+        expected,
+        "the in-memory graph's indexed lookups"
+    );
+    assert_eq!(
+        slugs_down_the_collision_ladder(&QueryOnlyGraph(MemoryGraph::default()))?,
+        expected,
+        "the default lookups, which list every Decision's slug through `query`"
+    );
+    Ok(())
+}
+
+fn decision_node(graph: &impl GraphView, decision_id: &str, slug: GraphValue) -> Result<()> {
+    graph.upsert_node(NodeKind::Decision, decision_id, &slug_properties(slug))
+}
+
+#[test]
+fn the_memory_graphs_slug_lookups_follow_every_write_to_a_decision() -> Result<()> {
+    use super::memory::{MemoryGraph, SharedGraph};
+
+    let graph = MemoryGraph::default();
+    assert_eq!(graph.decision_slug_of("decision:a")?, None);
+    assert!(!graph.decision_slug_taken("alpha")?);
+
+    decision_node(&graph, "decision:a", GraphValue::String("alpha".to_owned()))?;
+    assert_eq!(
+        graph.decision_slug_of("decision:a")?,
+        Some("alpha".to_owned())
+    );
+    assert!(graph.decision_slug_taken("alpha")?);
+    assert!(!graph.decision_slug_taken("alpha-2")?, "whole slugs only");
+
+    // Only a Decision holds a slug a decision can collide with.
+    graph.upsert_node(
+        NodeKind::Hypothesis,
+        "hypothesis:a",
+        &slug_properties(GraphValue::String("beta".to_owned())),
+    )?;
+    assert!(!graph.decision_slug_taken("beta")?);
+    assert_eq!(graph.decision_slug_of("hypothesis:a")?, None);
+
+    // A write that names no slug leaves the one the node holds.
+    graph.upsert_node(
+        NodeKind::Decision,
+        "decision:a",
+        &GraphProperties::from([("title".to_owned(), GraphValue::String("Alpha".to_owned()))]),
+    )?;
+    assert!(graph.decision_slug_taken("alpha")?);
+
+    // A slug that moves is released.
+    decision_node(&graph, "decision:a", GraphValue::String("gamma".to_owned()))?;
+    assert!(!graph.decision_slug_taken("alpha")?);
+    assert!(graph.decision_slug_taken("gamma")?);
+    assert_eq!(
+        graph.decision_slug_of("decision:a")?,
+        Some("gamma".to_owned())
+    );
+
+    // A slug two Decisions hold stays taken until both let go of it.
+    decision_node(&graph, "decision:b", GraphValue::String("gamma".to_owned()))?;
+    decision_node(&graph, "decision:a", GraphValue::String("delta".to_owned()))?;
+    assert!(graph.decision_slug_taken("gamma")?, "decision:b holds it");
+    decision_node(&graph, "decision:b", GraphValue::Null)?;
+    assert!(!graph.decision_slug_taken("gamma")?);
+    assert_eq!(graph.decision_slug_of("decision:b")?, None);
+
+    // A clone answers like the graph it was cloned from and then goes its own way.
+    let copy = graph.clone();
+    assert!(copy.decision_slug_taken("delta")?);
+    graph.wipe()?;
+    assert!(!graph.decision_slug_taken("delta")?);
+    assert_eq!(graph.decision_slug_of("decision:a")?, None);
+    assert!(copy.decision_slug_taken("delta")?, "the clone kept its own");
+    decision_node(&copy, "decision:c", GraphValue::String("eps".to_owned()))?;
+    assert!(!graph.decision_slug_taken("eps")?);
+
+    // The cache's read-only view answers from the graph it wraps.
+    let shared = SharedGraph::new(Arc::new(copy));
+    assert!(shared.decision_slug_taken("eps")?);
+    assert_eq!(
+        shared.decision_slug_of("decision:c")?,
+        Some("eps".to_owned())
+    );
+    Ok(())
+}
+
 #[test]
 fn a_replay_reports_the_last_event_it_applied() -> Result<()> {
     use super::memory::MemoryGraph;

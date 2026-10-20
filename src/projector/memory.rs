@@ -20,6 +20,10 @@ type NodesAndEdges = (
 pub struct MemoryGraph {
     nodes: Mutex<BTreeMap<(NodeKind, String), GraphProperties>>,
     edges: Mutex<BTreeSet<MemoryEdge>>,
+    /// How many Decision nodes hold each slug, kept in step with `nodes` by `upsert_node` and
+    /// `wipe`, so "is this slug taken" is a lookup instead of a scan of every Decision. Derived
+    /// from `nodes`, never data of its own: always locked after `nodes`.
+    decision_slugs: Mutex<BTreeMap<String, usize>>,
     /// Annotation rows the replays that built this graph skipped because they could not be
     /// read. Not graph data: it travels with a cached graph so a reader of the cache can say so.
     unreadable_annotations: Mutex<Vec<UnreadableAnnotation>>,
@@ -36,6 +40,11 @@ impl Clone for MemoryGraph {
             edges: Mutex::new(
                 self.edges_lock()
                     .map(|edges| edges.clone())
+                    .unwrap_or_default(),
+            ),
+            decision_slugs: Mutex::new(
+                self.decision_slugs_lock()
+                    .map(|slugs| slugs.clone())
                     .unwrap_or_default(),
             ),
             unreadable_annotations: Mutex::new(self.unreadable_annotations()),
@@ -99,6 +108,23 @@ impl GraphView for SharedGraph {
     fn wipe(&self) -> Result<()> {
         Err(shared_graph_is_read_only())
     }
+
+    fn decision_slug_of(&self, decision_id: &str) -> Result<Option<String>> {
+        self.0.decision_slug_of(decision_id)
+    }
+
+    fn decision_slug_taken(&self, slug: &str) -> Result<bool> {
+        self.0.decision_slug_taken(slug)
+    }
+}
+
+/// The slug a node's properties hold: its `slug` when that is a string, `None` for a node with no
+/// slug or a null one.
+fn held_slug(properties: &GraphProperties) -> Option<&str> {
+    match properties.get("slug") {
+        Some(GraphValue::String(slug)) => Some(slug.as_str()),
+        _ => None,
+    }
 }
 
 impl GraphView for MemoryGraph {
@@ -106,7 +132,14 @@ impl GraphView for MemoryGraph {
         let key = (kind, id.to_owned());
         let mut nodes = self.nodes_lock()?;
         let mut existing = nodes.get(&key).cloned().unwrap_or_default();
+        let slug_before = match kind {
+            NodeKind::Decision => held_slug(&existing).map(str::to_owned),
+            _ => None,
+        };
         existing.extend(properties.clone());
+        if kind == NodeKind::Decision {
+            self.note_decision_slug(slug_before.as_deref(), held_slug(&existing))?;
+        }
         nodes.insert(key, existing);
         Ok(())
     }
@@ -888,11 +921,45 @@ impl GraphView for MemoryGraph {
     fn wipe(&self) -> Result<()> {
         self.nodes_lock()?.clear();
         self.edges_lock()?.clear();
+        self.decision_slugs_lock()?.clear();
         Ok(())
+    }
+
+    fn decision_slug_of(&self, decision_id: &str) -> Result<Option<String>> {
+        let nodes = self.nodes_lock()?;
+        Ok(nodes
+            .get(&(NodeKind::Decision, decision_id.to_owned()))
+            .and_then(held_slug)
+            .map(str::to_owned))
+    }
+
+    fn decision_slug_taken(&self, slug: &str) -> Result<bool> {
+        Ok(self.decision_slugs_lock()?.contains_key(slug))
     }
 }
 
 impl MemoryGraph {
+    /// Moves one Decision node's slug in `decision_slugs` from `before` to `after`.
+    fn note_decision_slug(&self, before: Option<&str>, after: Option<&str>) -> Result<()> {
+        if before == after {
+            return Ok(());
+        }
+        let mut slugs = self.decision_slugs_lock()?;
+        if let Some(before) = before {
+            if let Some(holders) = slugs.get_mut(before) {
+                *holders = holders.saturating_sub(1);
+                if *holders == 0 {
+                    slugs.remove(before);
+                }
+            }
+        }
+        if let Some(after) = after {
+            let holders = slugs.entry(after.to_owned()).or_insert(0);
+            *holders = holders.saturating_add(1);
+        }
+        Ok(())
+    }
+
     /// Return all nodes and edges as plain tuples, for evaluation use.
     pub fn nodes_and_edges(&self) -> Result<NodesAndEdges> {
         let nodes = self.nodes_lock()?.clone();
@@ -914,6 +981,12 @@ impl MemoryGraph {
         self.edges
             .lock()
             .map_err(|error| memory_error(format!("edge lock poisoned: {error}")).into())
+    }
+
+    fn decision_slugs_lock(&self) -> Result<MutexGuard<'_, BTreeMap<String, usize>>> {
+        self.decision_slugs
+            .lock()
+            .map_err(|error| memory_error(format!("slug lock poisoned: {error}")).into())
     }
 }
 
