@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::commands::normalize_topic_key;
+use crate::commands::{normalize_topic_key, MAX_TITLE_LEN};
 use crate::error::{CliError, CommandError};
 use crate::events::{
     DecisionProposedPayload, DecisionSupersededPayload, EventBuilder, EventId, EventPayload,
@@ -1102,11 +1102,11 @@ fn split_sentences(block: &str, offset: usize) -> Vec<Statement> {
     while i < len {
         let c = chars[i]; // ubs:ignore: i < len by while predicate
         if matches!(c, '.' | '!' | '?') {
-            // Check if followed by whitespace + uppercase (sentence boundary)
+            // Check if followed by whitespace (a line break counts) + uppercase (sentence boundary)
             let mut j = i + 1;
             while j < len {
                 let cj = chars[j]; // ubs:ignore: j < len by while predicate
-                if cj != ' ' && cj != '\t' {
+                if !matches!(cj, ' ' | '\t' | '\r' | '\n') {
                     break;
                 }
                 j += 1;
@@ -1150,51 +1150,43 @@ fn split_sentences(block: &str, offset: usize) -> Vec<Statement> {
     results
 }
 
+/// A heading labels the section under it; the section body is split like prose, so one edited
+/// sentence changes one statement and not the whole section. A heading is a statement of its own
+/// only when it states a decision ("## We decided to drop Redis").
 fn split_markdown(text: &str) -> Vec<Statement> {
-    // Group: heading + body until next same-or-higher heading forms one statement
     let mut results = Vec::new();
-    let mut current_start: Option<usize> = None;
-    let mut current_level: usize = 0;
-    let mut byte_offset = 0usize;
+    let mut body_start = 0usize;
+    let mut line_start = 0usize;
 
-    for line in text.lines() {
-        let line_len = line.len() + 1; // +1 for newline
-        if let Some(level) = heading_level(line) {
-            // If we have an open section, close it
-            if let Some(start) = current_start {
-                let text_slice = &text[start..byte_offset]; // ubs:ignore: start/byte_offset are tracked byte offsets, always valid
-                let trimmed = text_slice.trim().to_owned(); // ubs:ignore: per-section owned String, necessary for output
-                if !trimmed.is_empty() {
-                    results.push(Statement {
-                        text: trimmed,
-                        byte_span: (start, byte_offset),
-                    });
-                }
+    for line in text.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        if heading_level(line.trim_end()).is_some() {
+            push_body_statements(text, body_start, line_start, &mut results);
+            let heading = line.trim().trim_start_matches('#').trim();
+            if has_decision_keywords(heading) {
+                results.push(Statement {
+                    text: heading.to_owned(),
+                    byte_span: (line_start, line_end),
+                });
             }
-            current_start = Some(byte_offset);
-            current_level = level;
-        } else if current_start.is_none() {
-            // Preamble before first heading — treat as prose block
-            current_start = Some(byte_offset);
-            current_level = 999;
+            body_start = line_end;
         }
-        byte_offset += line_len;
-        let _ = current_level; // used in logic above
+        line_start = line_end;
     }
-
-    // Close last section
-    if let Some(start) = current_start {
-        let text_slice = &text[start..]; // ubs:ignore: start is a byte offset from iterating .lines(), always ≤ text.len()
-        let trimmed = text_slice.trim().to_owned();
-        if !trimmed.is_empty() {
-            results.push(Statement {
-                text: trimmed,
-                byte_span: (start, text.len()),
-            });
-        }
-    }
+    push_body_statements(text, body_start, text.len(), &mut results);
 
     results
+}
+
+/// Statements of `text[start..end]`, with spans in terms of the whole `text`.
+fn push_body_statements(text: &str, start: usize, end: usize, results: &mut Vec<Statement>) {
+    let Some(body) = text.get(start..end) else {
+        return;
+    };
+    results.extend(split_prose(body).into_iter().map(|s| Statement {
+        text: s.text,
+        byte_span: (s.byte_span.0 + start, s.byte_span.1 + start),
+    }));
 }
 
 fn heading_level(line: &str) -> Option<usize> {
@@ -1285,104 +1277,102 @@ pub fn diff_adjacent(prev: &[Statement], next: &[Statement]) -> Vec<DiffItem> {
     }
     raw.reverse();
 
-    // Post-process: detect Modified pairs (Removed + Added with >= 70% token overlap)
+    // Each run of changed statements between two unchanged ones is paired up on its own.
     let mut result: Vec<DiffItem> = Vec::with_capacity(raw.len());
-    // ubs:ignore: all raw[k/kk/kkk] accesses below are guarded by while k/kk/kkk < raw.len()
-    let mut k = 0usize;
-    while k < raw.len() {
-        let k_item = raw[k]; // ubs:ignore: k < raw.len() by while predicate
-        if let DiffItem::Removed { prev_ordinal } = k_item {
-            // Collect all consecutive Removed items
-            let mut removed_range = vec![prev_ordinal];
-            let mut kk = k + 1;
-            while kk < raw.len() {
-                let kk_item = raw[kk]; // ubs:ignore: kk < raw.len() by while predicate
-                if let DiffItem::Removed { prev_ordinal: p } = kk_item {
-                    removed_range.push(p);
-                    kk += 1;
-                } else {
-                    break;
-                }
+    let mut removed: Vec<usize> = Vec::new();
+    let mut added: Vec<usize> = Vec::new();
+    for item in raw {
+        match item {
+            DiffItem::Removed { prev_ordinal } => removed.push(prev_ordinal),
+            DiffItem::Added { next_ordinal } => added.push(next_ordinal),
+            DiffItem::Unchanged { .. } | DiffItem::Modified { .. } => {
+                pair_changed_run(prev, next, &removed, &added, &mut result);
+                removed.clear();
+                added.clear();
+                result.push(item);
             }
-            // Collect following Added items
-            let mut added_range: Vec<usize> = Vec::new();
-            let mut kkk = kk;
-            while kkk < raw.len() {
-                let kkk_item = raw[kkk]; // ubs:ignore: kkk < raw.len() by while predicate
-                if let DiffItem::Added { next_ordinal: a } = kkk_item {
-                    added_range.push(a);
-                    kkk += 1;
-                } else {
-                    break;
-                }
+        }
+    }
+    pair_changed_run(prev, next, &removed, &added, &mut result);
+
+    result
+}
+
+/// Turn one run of removed and added statements into `Modified` pairs where a removed statement
+/// has an added one that replaces it, and leave the rest as `Removed` / `Added`.
+///
+/// A removed statement is replaced by the added one that shares >= 70% of its tokens. A run that
+/// is left with exactly one removed and one added statement pairs those two: one statement sat
+/// in that place and another sits there now, so the edit replaced it even when the new wording
+/// shares few words with the old ("store it in Redis" -> "store it in Postgres, which is simpler
+/// to run"). A larger leftover run is not guessed at.
+fn pair_changed_run(
+    prev: &[Statement],
+    next: &[Statement],
+    removed: &[usize],
+    added: &[usize],
+    result: &mut Vec<DiffItem>,
+) {
+    let mut matched: Vec<(usize, usize)> = Vec::new(); // (prev_ordinal, next_ordinal)
+    for &rem_ord in removed {
+        let Some(prev_stmt) = prev.get(rem_ord) else {
+            continue;
+        };
+        let mut best: Option<(u32, usize)> = None;
+        for &add_ord in added {
+            if matched.iter().any(|&(_, a)| a == add_ord) {
+                continue;
             }
-
-            if !added_range.is_empty() {
-                // Try to match each removed to the best-matching added
-                let mut used_added: Vec<bool> = vec![false; added_range.len()];
-                let mut matched: Vec<(usize, usize)> = Vec::new(); // (removed_idx, added_idx)
-
-                for &rem_ord in &removed_range {
-                    let mut best_score = 0u32;
-                    let mut best_added_idx = None;
-                    for (ai, &add_ord) in added_range.iter().enumerate() {
-                        let is_used = used_added[ai]; // ubs:ignore: ai < used_added.len() = added_range.len() by enumerate
-                        if is_used {
-                            continue;
-                        }
-                        let score = token_overlap(&prev[rem_ord].text, &next[add_ord].text); // ubs:ignore: rem_ord ∈ prev; add_ord ∈ next; both ordinals from enumerated slices
-                        if score >= 70 && score > best_score {
-                            best_score = score;
-                            best_added_idx = Some(ai);
-                        }
-                    }
-                    if let Some(ai) = best_added_idx {
-                        used_added[ai] = true; // ubs:ignore: ai < used_added.len() by enumerate bounds
-                        matched.push((rem_ord, added_range[ai])); // ubs:ignore: ai < added_range.len() by enumerate
-                    }
-                }
-
-                // Emit matched as Modified, unmatched as Removed/Added
-                let matched_removed: BTreeSet<usize> = matched.iter().map(|(r, _)| *r).collect();
-                let matched_added: BTreeSet<usize> = matched.iter().map(|(_, a)| *a).collect();
-
-                for &rem_ord in &removed_range {
-                    if !matched_removed.contains(&rem_ord) {
-                        result.push(DiffItem::Removed {
-                            prev_ordinal: rem_ord,
-                        });
-                    }
-                }
-                for (rem_ord, add_ord) in matched {
-                    result.push(DiffItem::Modified {
-                        prev_ordinal: rem_ord,
-                        next_ordinal: add_ord,
-                    });
-                }
-                for &add_ord in &added_range {
-                    if !matched_added.contains(&add_ord) {
-                        result.push(DiffItem::Added {
-                            next_ordinal: add_ord,
-                        });
-                    }
-                }
-
-                k = kkk;
-            } else {
-                for &rem_ord in &removed_range {
-                    result.push(DiffItem::Removed {
-                        prev_ordinal: rem_ord,
-                    });
-                }
-                k = kk;
+            let Some(next_stmt) = next.get(add_ord) else {
+                continue;
+            };
+            let score = token_overlap(&prev_stmt.text, &next_stmt.text);
+            if score >= 70 && best.is_none_or(|(best_score, _)| score > best_score) {
+                best = Some((score, add_ord));
             }
-        } else {
-            result.push(raw[k]); // ubs:ignore: k < raw.len() by while predicate; DiffItem is Copy
-            k += 1;
+        }
+        if let Some((_, add_ord)) = best {
+            matched.push((rem_ord, add_ord));
         }
     }
 
-    result
+    let mut unmatched_removed = removed
+        .iter()
+        .copied()
+        .filter(|r| !matched.iter().any(|&(m, _)| m == *r));
+    let mut unmatched_added = added
+        .iter()
+        .copied()
+        .filter(|a| !matched.iter().any(|&(_, m)| m == *a));
+    if let (Some(rem_ord), Some(add_ord), None, None) = (
+        unmatched_removed.next(),
+        unmatched_added.next(),
+        unmatched_removed.next(),
+        unmatched_added.next(),
+    ) {
+        matched.push((rem_ord, add_ord));
+    }
+
+    for &rem_ord in removed {
+        if !matched.iter().any(|&(m, _)| m == rem_ord) {
+            result.push(DiffItem::Removed {
+                prev_ordinal: rem_ord,
+            });
+        }
+    }
+    for &(prev_ordinal, next_ordinal) in &matched {
+        result.push(DiffItem::Modified {
+            prev_ordinal,
+            next_ordinal,
+        });
+    }
+    for &add_ord in added {
+        if !matched.iter().any(|&(_, m)| m == add_ord) {
+            result.push(DiffItem::Added {
+                next_ordinal: add_ord,
+            });
+        }
+    }
 }
 
 fn token_overlap(left: &str, right: &str) -> u32 {
@@ -1529,6 +1519,10 @@ pub fn import_via_connector<L: EventLedger>(
 
     let mut prev_content_hash: Option<String> = None;
     let mut prev_statements: Vec<Statement> = Vec::new();
+    // The decision each statement of the previous version stands for, by position; `None` for a
+    // statement recorded as evidence. A statement an edit left alone keeps the decision of the
+    // version that first wrote it, so a later edit supersedes that decision, not a copy of it.
+    let mut prev_decision_ids: Vec<Option<String>> = Vec::new();
 
     for version in &all_versions {
         report.versions_walked += 1;
@@ -1542,156 +1536,89 @@ pub fn import_via_connector<L: EventLedger>(
         }
 
         let statements = segment_into_statements(&content.text);
+        let actor_id = version.author_actor.as_deref().unwrap_or(importer_actor);
 
+        // Record statement `next_ordinal` of this version, superseding `supersedes` when the
+        // edit replaced it; returns the decision the statement became, if it is one.
+        let record = |next_ordinal: usize,
+                      supersedes: Option<&str>,
+                      report: &mut ConnectorImportReport|
+         -> Result<Option<String>> {
+            let Some(stmt) = statements.get(next_ordinal) else {
+                return Ok(None);
+            };
+            let ordinal = (next_ordinal + 1) as u64; // ubs:ignore: usize→u64 widening cast
+            let source_ref = make_source_ref(
+                connector.kind(),
+                &source_id.doc_id,
+                &version.version_id,
+                &content.content_hash,
+                content.source_url.as_deref(),
+                ordinal,
+                stmt.byte_span,
+                &import_run_id,
+                importer_actor,
+                version.author_actor.as_deref(),
+            )?;
+            emit_statement(
+                ledger,
+                tenant_id,
+                actor_id,
+                connector.kind().as_str(),
+                &source_id.doc_id,
+                &version.version_id,
+                ordinal,
+                stmt,
+                &topic_keys,
+                &source_ref,
+                version.occurred_at,
+                supersedes,
+                report,
+            )
+        };
+
+        let mut decision_ids: Vec<Option<String>> = vec![None; statements.len()];
         if prev_content_hash.is_none() {
-            // First version: emit all statements
-            for (ordinal_0, stmt) in statements.iter().enumerate() {
-                let ordinal = (ordinal_0 + 1) as u64; // ubs:ignore: enumerate index; usize→u64 widening, no truncation
-                let actor_id = version.author_actor.as_deref().unwrap_or(importer_actor);
-
-                let source_ref = make_source_ref(
-                    connector.kind(),
-                    &source_id.doc_id,
-                    &version.version_id,
-                    &content.content_hash,
-                    content.source_url.as_deref(),
-                    ordinal,
-                    stmt.byte_span,
-                    &import_run_id,
-                    importer_actor,
-                    version.author_actor.as_deref(),
-                )?;
-
-                emit_statement(
-                    ledger,
-                    tenant_id,
-                    actor_id,
-                    connector.kind().as_str(),
-                    &source_id.doc_id,
-                    &version.version_id,
-                    ordinal,
-                    stmt,
-                    &topic_keys,
-                    &source_ref,
-                    version.occurred_at,
-                    None, // no supersession on first import
-                    &mut report,
-                )?;
+            // First version: every statement is new
+            for (next_ordinal, slot) in decision_ids.iter_mut().enumerate() {
+                *slot = record(next_ordinal, None, &mut report)?;
             }
         } else {
             // Subsequent versions: diff against prev
-            let diff = diff_adjacent(&prev_statements, &statements);
-
-            for item in &diff {
-                match item {
-                    DiffItem::Unchanged { next_ordinal, .. } => {
+            for item in diff_adjacent(&prev_statements, &statements) {
+                let (next_ordinal, decision_id) = match item {
+                    DiffItem::Unchanged {
+                        prev_ordinal,
+                        next_ordinal,
+                    } => {
                         report.statements_unchanged += 1;
-                        let _ = next_ordinal;
+                        let kept = prev_decision_ids.get(prev_ordinal).cloned().flatten(); // ubs:ignore: clone of one decision id, once per unchanged statement
+                        (next_ordinal, kept)
                     }
                     DiffItem::Added { next_ordinal } => {
-                        let stmt = &statements[*next_ordinal]; // ubs:ignore: next_ordinal is a valid index from diff_adjacent
-                        let ordinal = (*next_ordinal + 1) as u64; // ubs:ignore: usize→u64 widening cast
-                        let actor_id = version.author_actor.as_deref().unwrap_or(importer_actor);
-
-                        let source_ref = make_source_ref(
-                            connector.kind(),
-                            &source_id.doc_id,
-                            &version.version_id,
-                            &content.content_hash,
-                            content.source_url.as_deref(),
-                            ordinal,
-                            stmt.byte_span,
-                            &import_run_id,
-                            importer_actor,
-                            version.author_actor.as_deref(),
-                        )?;
-
-                        emit_statement(
-                            ledger,
-                            tenant_id,
-                            actor_id,
-                            connector.kind().as_str(),
-                            &source_id.doc_id,
-                            &version.version_id,
-                            ordinal,
-                            stmt,
-                            &topic_keys,
-                            &source_ref,
-                            version.occurred_at,
-                            None,
-                            &mut report,
-                        )?;
+                        (next_ordinal, record(next_ordinal, None, &mut report)?)
                     }
                     DiffItem::Modified {
                         prev_ordinal,
                         next_ordinal,
                     } => {
-                        let stmt = &statements[*next_ordinal]; // ubs:ignore: next_ordinal from diff_adjacent, valid index into statements
-                        let ordinal = (*next_ordinal + 1) as u64; // ubs:ignore: usize→u64 widening cast
-                        let actor_id = version.author_actor.as_deref().unwrap_or(importer_actor);
-
-                        let source_ref = make_source_ref(
-                            connector.kind(),
-                            &source_id.doc_id,
-                            &version.version_id,
-                            &content.content_hash,
-                            content.source_url.as_deref(),
-                            ordinal,
-                            stmt.byte_span,
-                            &import_run_id,
-                            importer_actor,
-                            version.author_actor.as_deref(),
-                        )?;
-
-                        // Compute the old decision ID for the supersession
-                        // We need the version_id of the version that introduced prev statement.
-                        // Since we don't track per-statement version_ids, we use a placeholder.
-                        // The supersession key is based on prev ordinal and the prev version walk.
-                        // For robustness, we derive the old decision_id deterministically.
-                        let prev_ordinal_1 = (*prev_ordinal + 1) as u64; // ubs:ignore: usize→u64 widening cast
-                                                                         // We need the version_id that created the prev statement. We don't have it
-                                                                         // directly here since prev_statements came from the last content version.
-                                                                         // The best we can do is look up by scanning — but for v1 we emit the
-                                                                         // supersession only when the new statement is also a decision (not evidence).
-                        let supersession = if has_decision_keywords(&stmt.text) {
-                            // The old decision_id is deterministically derived; we need the
-                            // previous version's version_id. We'll pass it as prev_version_id.
-                            // Since we track prev_statements from the last walked version,
-                            // we use the version_id of the current version's predecessor.
-                            // For v1, we embed prev_ordinal into source ref as a hint.
-                            let _ = prev_ordinal_1; // used in potential future lookup
-                            None // supersession emitted by emit_statement when old_decision_id is known
-                        } else {
-                            None
-                        };
-
-                        emit_statement(
-                            ledger,
-                            tenant_id,
-                            actor_id,
-                            connector.kind().as_str(),
-                            &source_id.doc_id,
-                            &version.version_id,
-                            ordinal,
-                            stmt,
-                            &topic_keys,
-                            &source_ref,
-                            version.occurred_at,
-                            supersession,
-                            &mut report,
-                        )?;
+                        let replaced = prev_decision_ids.get(prev_ordinal).cloned().flatten(); // ubs:ignore: clone of one decision id, once per modified statement
+                        let recorded = record(next_ordinal, replaced.as_deref(), &mut report)?;
+                        (next_ordinal, recorded)
                     }
-                    DiffItem::Removed { .. } => {
-                        // Removed statements: no new event; the old decision remains in the ledger
-                        // as superseded implicitly by absence. Explicit supersession is emitted
-                        // when we have a Modified pair.
-                    }
+                    // A removed statement writes nothing: there is no decision to supersede it
+                    // with, and its decision stays as it was.
+                    DiffItem::Removed { .. } => continue,
+                };
+                if let Some(slot) = decision_ids.get_mut(next_ordinal) {
+                    *slot = decision_id;
                 }
             }
         }
 
         prev_content_hash = Some(content.content_hash);
         prev_statements = statements;
+        prev_decision_ids = decision_ids;
     }
 
     Ok(report)
@@ -1716,18 +1643,38 @@ fn emit_statement<L: EventLedger>(
     occurred_at: DateTime<Utc>,
     supersedes_old_decision_id: Option<&str>,
     report: &mut ConnectorImportReport,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let proposal_uuid =
         connector_import_uuid(connector_kind_str, doc_id, version_id, ordinal, "proposal");
-
-    // Idempotency check
-    if event_uuid_exists_for_tenant(ledger, tenant_id, proposal_uuid)? {
+    let already_imported = event_uuid_exists_for_tenant(ledger, tenant_id, proposal_uuid)?;
+    if already_imported {
         report.statements_skipped_idempotent += 1;
-        return Ok(());
     }
 
-    if has_decision_keywords(&stmt.text) {
-        let decision_id = connector_decision_id(connector_kind_str, doc_id, version_id, ordinal);
+    if !has_decision_keywords(&stmt.text) {
+        if !already_imported {
+            let evidence_id =
+                connector_evidence_id(connector_kind_str, doc_id, version_id, ordinal);
+
+            emit_evidence_recorded(
+                ledger,
+                tenant_id,
+                actor_id,
+                &evidence_id,
+                &stmt.text,
+                proposal_uuid,
+                occurred_at,
+                source_ref_json,
+            )?;
+
+            report.statements_as_evidence += 1;
+        }
+        return Ok(None);
+    }
+
+    let decision_id = connector_decision_id(connector_kind_str, doc_id, version_id, ordinal);
+
+    if !already_imported {
         let option_id = connector_option_id(&decision_id);
         let relation_uuid = connector_import_uuid(
             connector_kind_str,
@@ -1737,15 +1684,12 @@ fn emit_statement<L: EventLedger>(
             "has_option",
         );
 
-        // Truncate title to fit
-        let title: String = stmt.text.chars().take(200).collect();
-
         emit_decision_proposed(
             ledger,
             tenant_id,
             actor_id,
             &decision_id,
-            &title,
+            &statement_title(&stmt.text),
             &stmt.text,
             topic_keys,
             &option_id,
@@ -1756,47 +1700,58 @@ fn emit_statement<L: EventLedger>(
         )?;
 
         report.statements_proposed += 1;
-
-        if let Some(old_id) = supersedes_old_decision_id {
-            let supersede_uuid = connector_import_uuid(
-                connector_kind_str,
-                doc_id,
-                version_id,
-                ordinal,
-                "superseded",
-            );
-            if !event_uuid_exists_for_tenant(ledger, tenant_id, supersede_uuid)? {
-                emit_decision_superseded(
-                    ledger,
-                    tenant_id,
-                    actor_id,
-                    old_id,
-                    &decision_id,
-                    supersede_uuid,
-                    occurred_at,
-                    source_ref_json,
-                )?;
-                report.statements_superseded += 1;
-            }
-        }
-    } else {
-        let evidence_id = connector_evidence_id(connector_kind_str, doc_id, version_id, ordinal);
-
-        emit_evidence_recorded(
-            ledger,
-            tenant_id,
-            actor_id,
-            &evidence_id,
-            &stmt.text,
-            proposal_uuid,
-            occurred_at,
-            source_ref_json,
-        )?;
-
-        report.statements_as_evidence += 1;
     }
 
-    Ok(())
+    // Checked on its own, not behind the proposal: a document imported before supersessions were
+    // written already holds the proposal, and importing it again must still link the versions.
+    if let Some(old_id) = supersedes_old_decision_id {
+        let supersede_uuid = connector_import_uuid(
+            connector_kind_str,
+            doc_id,
+            version_id,
+            ordinal,
+            "superseded",
+        );
+        if !event_uuid_exists_for_tenant(ledger, tenant_id, supersede_uuid)? {
+            emit_decision_superseded(
+                ledger,
+                tenant_id,
+                actor_id,
+                old_id,
+                &decision_id,
+                supersede_uuid,
+                occurred_at,
+                source_ref_json,
+            )?;
+            report.statements_superseded += 1;
+        }
+    }
+
+    Ok(Some(decision_id))
+}
+
+/// A decision title is a name, not a paragraph: the statement on one line, cut at a word
+/// boundary to `MAX_TITLE_LEN` with an ellipsis when it is longer. The full statement is the
+/// rationale.
+fn statement_title(text: &str) -> String {
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.chars().count() <= MAX_TITLE_LEN {
+        return one_line;
+    }
+    // One character is kept back for the ellipsis.
+    let head: String = one_line.chars().take(MAX_TITLE_LEN - 1).collect();
+    let cut_between_words = one_line
+        .chars()
+        .nth(MAX_TITLE_LEN - 1)
+        .is_some_and(char::is_whitespace);
+    // A cut inside a word drops that word; a single word longer than the title is cut hard.
+    let kept = if cut_between_words {
+        head.as_str()
+    } else {
+        head.rsplit_once(' ')
+            .map_or(head.as_str(), |(words, _)| words)
+    };
+    format!("{}…", kept.trim_end())
 }
 
 // ---------------------------------------------------------------------------

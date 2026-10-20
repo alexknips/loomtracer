@@ -446,3 +446,328 @@ fn test_parse_source_timestamp_rejects_what_it_cannot_read() {
         "the error names the version and the bad value: {err}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Statements, pairing and supersession across edits
+// ---------------------------------------------------------------------------
+
+fn texts(stmts: &[Statement]) -> Vec<&str> {
+    stmts.iter().map(|s| s.text.as_str()).collect()
+}
+
+#[test]
+fn test_markdown_section_splits_into_sentences_under_its_heading() {
+    let text = "# Architecture decisions\n\n\
+                We decided to store session state in Redis because restarts must not log users out.\n\n\
+                We chose Postgres over MySQL for the ledger because of jsonb indexes.\n";
+    let stmts = segment_into_statements(text);
+    assert_eq!(
+        texts(&stmts),
+        [
+            "We decided to store session state in Redis because restarts must not log users out.",
+            "We chose Postgres over MySQL for the ledger because of jsonb indexes."
+        ],
+        "a heading that states no decision labels its section and is not a statement"
+    );
+    for stmt in &stmts {
+        assert_eq!(
+            &text[stmt.byte_span.0..stmt.byte_span.1].trim(),
+            &stmt.text,
+            "the span points at the statement in the document"
+        );
+    }
+}
+
+#[test]
+fn test_markdown_heading_that_states_a_decision_is_a_statement() {
+    let text = "## We decided to drop Redis\n\nRestarts logged users out.\n";
+    let stmts = segment_into_statements(text);
+    assert_eq!(
+        texts(&stmts),
+        ["We decided to drop Redis", "Restarts logged users out."]
+    );
+}
+
+#[test]
+fn test_sentences_on_adjacent_lines_are_separate_statements() {
+    let stmts = segment_into_statements("We will use SQLite.\nWe will use Postgres later.\n");
+    assert_eq!(
+        texts(&stmts),
+        ["We will use SQLite.", "We will use Postgres later."]
+    );
+}
+
+fn statements(sentences: &[&str]) -> Vec<Statement> {
+    sentences
+        .iter()
+        .map(|s| Statement {
+            text: (*s).to_owned(),
+            byte_span: (0, s.len()),
+        })
+        .collect()
+}
+
+#[test]
+fn test_diff_pairs_a_sentence_replaced_in_place_even_with_new_wording() {
+    let prev = statements(&[
+        "We decided to store session state in Redis because restarts must not log users out.",
+        "We chose Postgres over MySQL for the ledger because of jsonb indexes.",
+    ]);
+    let next = statements(&[
+        "We decided to store session state in Postgres because one store is simpler to operate.",
+        "We chose Postgres over MySQL for the ledger because of jsonb indexes.",
+    ]);
+    let diff = diff_adjacent(&prev, &next);
+    assert!(
+        matches!(
+            diff.as_slice(),
+            [
+                DiffItem::Modified {
+                    prev_ordinal: 0,
+                    next_ordinal: 0
+                },
+                DiffItem::Unchanged {
+                    prev_ordinal: 1,
+                    next_ordinal: 1
+                }
+            ]
+        ),
+        "diff: {diff:?}"
+    );
+}
+
+#[test]
+fn test_diff_does_not_guess_pairs_in_a_larger_changed_run() {
+    let prev = statements(&["We will use Redis.", "We will use Kafka."]);
+    let next = statements(&["We will ship in March.", "We will hire two people."]);
+    let diff = diff_adjacent(&prev, &next);
+    assert!(
+        diff.iter().all(|d| !matches!(d, DiffItem::Modified { .. })),
+        "two statements out and two unrelated in are not paired: {diff:?}"
+    );
+    assert_eq!(diff.len(), 4, "diff: {diff:?}");
+}
+
+#[test]
+fn test_diff_pairs_by_overlap_first_then_the_lone_leftover() {
+    let prev = statements(&[
+        "We will use SQLite for the local ledger and keep it single file.",
+        "We will use Redis.",
+    ]);
+    let next = statements(&[
+        "We will ship in March.",
+        "We will use SQLite for the local ledger and keep it a single file.",
+    ]);
+    let diff = diff_adjacent(&prev, &next);
+    let pairs: Vec<_> = diff
+        .iter()
+        .filter_map(|d| match d {
+            DiffItem::Modified {
+                prev_ordinal,
+                next_ordinal,
+            } => Some((*prev_ordinal, *next_ordinal)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        [(0, 1), (1, 0)],
+        "the reworded SQLite sentence pairs by overlap, the last two by position: {diff:?}"
+    );
+}
+
+#[test]
+fn test_statement_title_is_a_short_name() {
+    assert_eq!(
+        statement_title("We chose Postgres\nover MySQL."),
+        "We chose Postgres over MySQL."
+    );
+
+    let long = "We decided to keep every session in one store because two stores mean two failure modes to operate, two sets of backups to verify and two upgrade paths to schedule.";
+    let title = statement_title(long);
+    assert!(
+        title.chars().count() <= MAX_TITLE_LEN,
+        "{} chars: {title}",
+        title.chars().count()
+    );
+    assert!(title.ends_with('…'), "a cut title says so: {title}");
+    assert!(
+        long.starts_with(title.trim_end_matches('…')),
+        "the title is the start of the statement: {title}"
+    );
+    assert!(
+        !title.trim_end_matches('…').ends_with(char::is_whitespace),
+        "{title}"
+    );
+
+    let one_word = "x".repeat(MAX_TITLE_LEN + 30);
+    assert_eq!(statement_title(&one_word).chars().count(), MAX_TITLE_LEN);
+}
+
+/// A repo whose decision doc is committed, then has one of its two decisions replaced.
+fn repo_with_replaced_decision() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    run_git(repo, &["init", "-q"]);
+    std::fs::create_dir(repo.join("docs")).unwrap();
+    let commits = [
+        "# Architecture decisions\n\n\
+         We decided to store session state in Redis because restarts must not log users out.\n\n\
+         We chose Postgres over MySQL for the ledger because of jsonb indexes.\n",
+        "# Architecture decisions\n\n\
+         We decided to store session state in Postgres because one store is simpler to operate.\n\n\
+         We chose Postgres over MySQL for the ledger because of jsonb indexes.\n",
+        "# Architecture decisions\n\n\
+         We decided to store session state in Postgres because one store is simpler to operate.\n\n\
+         We chose Postgres over MySQL for the ledger because of jsonb indexes.\n\n\
+         We agreed to drop the Redis container from the compose file.\n",
+    ];
+    for (i, text) in commits.iter().enumerate() {
+        std::fs::write(repo.join("docs/decisions.md"), text).unwrap();
+        run_git(repo, &["add", "."]);
+        run_git(repo, &["commit", "-q", "-m", &format!("edit {i}")]);
+    }
+    dir
+}
+
+fn import_decisions_doc(
+    ledger: &crate::ledger::InMemoryEventLedger,
+    dir: &Path,
+    max_versions: usize,
+) -> ConnectorImportReport {
+    let connectors: Vec<Box<dyn Connector>> = vec![Box::new(GitFileConnector)];
+    import_via_connector(
+        ledger,
+        &TenantId::local(),
+        &ConnectorImportRequest {
+            url_or_id: dir.join("docs/decisions.md").to_str().unwrap().to_owned(),
+            importer_actor_id: "human:alice".to_owned(),
+            max_versions,
+            import_run_id: None,
+        },
+        &connectors,
+    )
+    .unwrap()
+}
+
+fn events_of(
+    ledger: &crate::ledger::InMemoryEventLedger,
+    event_type: EventType,
+) -> Vec<serde_json::Value> {
+    ledger
+        .read_for_tenant(&TenantId::local(), 0, 1024)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event_type == event_type)
+        .map(|e| e.payload)
+        .collect()
+}
+
+#[test]
+fn test_reimport_after_an_edit_supersedes_the_replaced_decision() {
+    use crate::ledger::InMemoryEventLedger;
+
+    let dir = repo_with_replaced_decision();
+    let ledger = InMemoryEventLedger::new();
+
+    let report = import_decisions_doc(&ledger, dir.path(), 50);
+    assert_eq!(report.versions_walked, 3);
+    // Version 1 holds two decisions; version 2 replaces the first; version 3 adds one.
+    assert_eq!(report.statements_proposed, 4);
+    assert_eq!(report.statements_superseded, 1, "{report:?}");
+    assert_eq!(report.statements_unchanged, 3, "{report:?}");
+
+    let proposed = events_of(&ledger, EventType::DecisionProposed);
+    assert_eq!(proposed.len(), 4);
+    for payload in &proposed {
+        let title = payload["title"].as_str().unwrap();
+        assert!(
+            title.starts_with("We "),
+            "each decision is titled by its own sentence, not by the section: {title}"
+        );
+        assert!(title.chars().count() <= MAX_TITLE_LEN, "{title}");
+    }
+
+    let superseded = events_of(&ledger, EventType::DecisionSuperseded);
+    assert_eq!(superseded.len(), 1);
+    let id_of = |needle: &str| {
+        proposed
+            .iter()
+            .find(|p| p["title"].as_str().unwrap().contains(needle))
+            .map(|p| p["decision_id"].as_str().unwrap().to_owned())
+            .unwrap_or_else(|| panic!("no proposed decision mentions {needle}"))
+    };
+    assert_eq!(
+        superseded[0]["old_decision_id"],
+        id_of("in Redis"),
+        "the replaced sentence is the one superseded"
+    );
+    assert_eq!(
+        superseded[0]["new_decision_id"],
+        id_of("in Postgres because")
+    );
+
+    // Importing the same history again writes nothing new.
+    let again = import_decisions_doc(&ledger, dir.path(), 50);
+    assert_eq!(again.statements_proposed, 0, "{again:?}");
+    assert_eq!(again.statements_superseded, 0, "{again:?}");
+    assert_eq!(events_of(&ledger, EventType::DecisionSuperseded).len(), 1);
+}
+
+#[test]
+fn test_later_edit_supersedes_the_version_that_replaced_it_not_the_first() {
+    use crate::ledger::InMemoryEventLedger;
+
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
+    run_git(repo, &["init", "-q"]);
+    std::fs::create_dir(repo.join("docs")).unwrap();
+    for (i, store) in ["Redis", "Postgres", "DynamoDB"].iter().enumerate() {
+        std::fs::write(
+            repo.join("docs/decisions.md"),
+            format!("We decided to keep session state in {store} for now.\n"),
+        )
+        .unwrap();
+        run_git(repo, &["add", "."]);
+        run_git(repo, &["commit", "-q", "-m", &format!("edit {i}")]);
+    }
+
+    let ledger = InMemoryEventLedger::new();
+    let report = import_decisions_doc(&ledger, repo, 50);
+    assert_eq!(report.statements_superseded, 2, "{report:?}");
+
+    let superseded = events_of(&ledger, EventType::DecisionSuperseded);
+    assert_eq!(superseded.len(), 2);
+    assert_eq!(
+        superseded[0]["new_decision_id"], superseded[1]["old_decision_id"],
+        "the chain runs v1 -> v2 -> v3"
+    );
+}
+
+#[test]
+fn test_reimport_links_versions_an_earlier_build_left_unlinked() {
+    use crate::ledger::InMemoryEventLedger;
+
+    let dir = repo_with_replaced_decision();
+    let ledger = InMemoryEventLedger::new();
+    import_decisions_doc(&ledger, dir.path(), 50);
+
+    // The ledger as the build before this fix left it: every proposal, no supersession.
+    let kept: Vec<_> = ledger
+        .read_for_tenant(&TenantId::local(), 0, 1024)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.event_type != EventType::DecisionSuperseded)
+        .collect();
+    let old_ledger = InMemoryEventLedger::new();
+    for event in kept {
+        old_ledger
+            .append_for_tenant(&TenantId::local(), event)
+            .unwrap();
+    }
+    assert!(events_of(&old_ledger, EventType::DecisionSuperseded).is_empty());
+
+    let report = import_decisions_doc(&old_ledger, dir.path(), 50);
+    assert_eq!(report.statements_proposed, 0, "{report:?}");
+    assert_eq!(report.statements_superseded, 1, "{report:?}");
+}

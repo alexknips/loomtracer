@@ -199,18 +199,24 @@ emit_event_chain()          (one or more ledger events per diff)
 
 Per `docs/DECISION_EVENT_GRANULARITY_STUDY.md`: the pipeline emits events at
 statement granularity, not whole-document granularity. A "statement" is a
-semantically self-contained clause (typically a sentence or a labeled section
-heading + body pair).
+semantically self-contained clause (a sentence).
 
 Segmentation rules for v1:
 1. Split on sentence boundaries (period/exclamation/question followed by
-   whitespace + capital, or blank line).
-2. For markdown: each heading + the text until the next same-or-higher heading
-   forms one statement block.
+   whitespace, a line break counting as whitespace, then a capital letter) or
+   a blank line.
+2. For markdown: a heading labels the section under it, and the section's body
+   is split by rule 1, so a section with two decisions is two statements. The
+   heading is not a statement of its own unless it states a decision (it holds
+   one of the decision keywords of §6, as in `## We decided to drop Redis`).
 3. Statements shorter than 20 characters are merged with the preceding
    statement.
 4. Maximum statement length: 2000 characters (longer blocks are kept as-is,
-   not split further in v1).
+   not split further in v1). A bullet list whose items carry no sentence
+   punctuation is one statement; so is a paragraph with no full stop.
+
+A decision's title is its statement on one line, cut at a word boundary to 120
+characters with an ellipsis when longer; the whole statement is the rationale.
 
 This is deterministic and requires no LLM. Layer-3 may later offer smarter
 segmentation, but the write path must not call an LLM.
@@ -221,10 +227,16 @@ For each consecutive pair `(v_n, v_{n+1})`:
 
 1. Compute Myers diff on the statement lists.
 2. Classify each changed statement as: `Added`, `Removed`, `Modified`
-   (both removed and added with similarity > 70% token overlap),
+   (a removed statement and the added statement that replaces it),
    or `Unchanged`.
-3. For `Modified`: find the best-matching removed statement using the
-   same `token_overlap_percent` algorithm from `find_document_similarity_matches`.
+3. For `Modified`: within one run of changed statements, a removed statement is
+   paired with the added statement that shares at least 70% of its tokens
+   (best match first). A run left with exactly one removed and one added
+   statement pairs those two, since one statement sat in that place and another
+   sits there now, even when the new wording shares few words with the old
+   ("store it in Redis" -> "store it in Postgres, which is simpler to run"). A
+   larger leftover run is not paired: those statements stay `Removed` and
+   `Added`.
 4. Skip pairs where `content_hash(v_n) == content_hash(v_{n+1})` — no-op
    (connector may return identical content under different revision IDs).
 
@@ -245,13 +257,21 @@ For each consecutive pair `(v_n, v_{n+1})`:
 
 **Cross-version diff** (v_n already imported, v_{n+1} is new):
 - `Added` statement → `decision.proposed` for v_{n+1}.
-- `Removed` statement → `decision.superseded` pointing from v_{n+1} import to
-  the existing v_n decision node, with `supersedes_id` set.
+- `Removed` statement → no event. Nothing replaces it, and a `decision.superseded`
+  needs a decision to point to, so its decision stays as it was and the import
+  does not mark it as withdrawn.
 - `Modified` statement → `decision.proposed` for v_{n+1} + `decision.superseded`
-  with `supersedes_id` = best-matching v_n decision. The modification is
-  recorded as a supersession, not a mutation.
+  from the decision that v_n's statement became to the new one. The
+  modification is recorded as a supersession, not a mutation. The supersession
+  needs a decision on both sides: if either statement is not a decision (it
+  carries none of the §6 keywords and was recorded as evidence), the new
+  statement is recorded as usual and nothing is superseded.
 - `Unchanged` statement → no new event; existing decision node for v_n carries
-  forward.
+  forward, and a later edit supersedes it, not a copy.
+
+Importing again is safe: every event keeps its idempotency key, and the
+supersession is checked on its own key, so importing a document again links
+versions whose proposals are already in the ledger.
 
 **Idempotency key** for one connector-version-statement event:
 ```

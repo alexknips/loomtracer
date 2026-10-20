@@ -2075,8 +2075,9 @@ pub enum ImportCommand {
     #[command(name = "prepare-documents", alias = "prepare-document")]
     PrepareDocuments(PrepareDocumentsArgs),
     /// Import a document's version history from a connected source (a Google Doc or a
-    /// git-tracked file) as decision and supersession chains, and manage same-as links between
-    /// imported decisions.
+    /// git-tracked file) as decision and supersession chains: each sentence is a statement, an
+    /// edited one supersedes the one it replaces, and a deleted one is left as it was. Also
+    /// manages same-as links between imported decisions.
     #[command(name = "connector")]
     Connector(ImportConnectorArgs),
 }
