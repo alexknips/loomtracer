@@ -5,6 +5,7 @@ mod backend_error;
 mod memory;
 #[cfg(feature = "shared-backend-postgres")]
 mod postgres;
+mod received_batch;
 mod sqlite;
 
 #[cfg(test)]
@@ -22,6 +23,7 @@ pub use any::{AnyLedger, LedgerConfig};
 pub use memory::InMemoryEventLedger;
 #[cfg(feature = "shared-backend-postgres")]
 pub use postgres::{PostgresEventLedger, ProvisionedUser, ResolvedToken, TenantStore, UserInfo};
+pub use received_batch::ReceivedBatchFacts;
 pub use sqlite::{SqliteEventLedger, SqliteUserStore, SQLITE_TOKEN_PREFIX};
 
 /// An event reduced to what a caller named: its id, time and actor, and the string-valued
@@ -54,6 +56,27 @@ pub trait EventLedger {
     ) -> Result<()>;
 
     fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId>;
+
+    /// [`Self::replay_from_for_tenant`] with the events of the `skipped` types left out, for a
+    /// replay that has no use for one kind of event: on a cell 97% of the ledger is raw
+    /// `ingest.batch_received` transcripts. The SQL backends leave them out in the query, so they
+    /// are neither read nor decoded. The default replays every event and drops the skipped ones
+    /// in memory: always correct, never faster.
+    fn replay_from_for_tenant_except(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.replay_from_for_tenant(tenant_id, offset, &mut |event| {
+            if skipped.contains(&event.event_type) {
+                Ok(())
+            } else {
+                callback(event)
+            }
+        })
+    }
 
     /// Events of the given `types` after `offset`, oldest first, at most `limit`, each with the
     /// top-level payload keys named in `omit_payload_keys` left out. For a caller that needs one
@@ -147,6 +170,29 @@ pub trait EventLedger {
                         .collect(),
                 })
             })
+            .collect())
+    }
+
+    /// The facts of the received transcript batches after `offset`, oldest first, at most `limit`
+    /// ([`ReceivedBatchFacts`]): who shipped each and the few things a classification reads from
+    /// it. The SQL ledgers read the payload as text and keep those, so the transcript is never
+    /// decoded; the default decodes the events and picks the facts from them (always correct).
+    fn read_received_batches_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        Ok(self
+            .read_types_for_tenant(
+                tenant_id,
+                &[EventType::IngestBatchReceived],
+                &[],
+                offset,
+                limit,
+            )?
+            .iter()
+            .filter_map(ReceivedBatchFacts::from_event)
             .collect())
     }
 
@@ -274,6 +320,17 @@ impl<L: EventLedger + ?Sized> EventLedger for TenantScopedLedger<'_, L> {
             .replay_from_for_tenant(&self.tenant_id, offset, callback)
     }
 
+    fn replay_from_for_tenant_except(
+        &self,
+        _tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.ledger
+            .replay_from_for_tenant_except(&self.tenant_id, offset, skipped, callback)
+    }
+
     fn latest_offset_for_tenant(&self, _tenant_id: &TenantId) -> Result<EventId> {
         self.ledger.latest_offset_for_tenant(&self.tenant_id)
     }
@@ -317,6 +374,16 @@ impl<L: EventLedger + ?Sized> EventLedger for TenantScopedLedger<'_, L> {
     ) -> Result<Vec<EventFields>> {
         self.ledger
             .read_fields_for_tenant(&self.tenant_id, event_type, payload_keys, offset, limit)
+    }
+
+    fn read_received_batches_for_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        self.ledger
+            .read_received_batches_for_tenant(&self.tenant_id, offset, limit)
     }
 }
 
@@ -367,6 +434,17 @@ impl<L: EventLedger> EventLedger for TenantScopedOwnedLedger<L> {
             .replay_from_for_tenant(&self.tenant_id, offset, callback)
     }
 
+    fn replay_from_for_tenant_except(
+        &self,
+        _tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.ledger
+            .replay_from_for_tenant_except(&self.tenant_id, offset, skipped, callback)
+    }
+
     fn latest_offset_for_tenant(&self, _tenant_id: &TenantId) -> Result<EventId> {
         self.ledger.latest_offset_for_tenant(&self.tenant_id)
     }
@@ -410,5 +488,15 @@ impl<L: EventLedger> EventLedger for TenantScopedOwnedLedger<L> {
     ) -> Result<Vec<EventFields>> {
         self.ledger
             .read_fields_for_tenant(&self.tenant_id, event_type, payload_keys, offset, limit)
+    }
+
+    fn read_received_batches_for_tenant(
+        &self,
+        _tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        self.ledger
+            .read_received_batches_for_tenant(&self.tenant_id, offset, limit)
     }
 }

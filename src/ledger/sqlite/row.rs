@@ -6,6 +6,7 @@ use crate::events::{Event, EventSource, EventType, TenantId};
 use crate::Result;
 
 use super::super::backend_error::storage_error;
+use super::super::ReceivedBatchFacts;
 
 pub(super) struct StoredEvent {
     pub tenant_id: String,
@@ -88,6 +89,18 @@ pub(super) fn event_from_row(row: &Row<'_>) -> Result<Event> {
         payload,
         ts: Some(ts),
     })
+}
+
+/// A row of `read_received_batches_sql`: the id, the actor, then the payload as text.
+pub(super) fn received_batch_from_row(row: &Row<'_>) -> Result<ReceivedBatchFacts> {
+    let event_id_raw: i64 = row.get(0).map_err(storage_error)?;
+    let actor_id: String = row.get(1).map_err(storage_error)?;
+    let payload = row.get_ref(2).map_err(storage_error)?;
+    let payload = payload.as_str().map_err(storage_error)?;
+
+    let event_id = u64::try_from(event_id_raw)
+        .map_err(|error| storage_error(format!("invalid event_id in row: {error}")))?;
+    ReceivedBatchFacts::from_payload_text(event_id, actor_id, payload)
 }
 
 pub(super) fn event_type_as_str(event_type: EventType) -> &'static str {

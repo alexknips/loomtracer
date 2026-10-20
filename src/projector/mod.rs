@@ -11,11 +11,11 @@ use crate::events::{
     self, classified_batch_ids, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem,
     DecisionMovedPayload, DecisionProposedPayload, DecisionReaffirmedPayload,
     DecisionRequestedPayload, DecisionRetitledPayload, DecisionScoredPayload, Event, EventId,
-    EventPayload, EvidenceRecordedPayload, HypothesisRecordedPayload, IngestBatchClassifiedPayload,
-    NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
-    ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload, ProjectSource,
-    QuestionAskedPayload, QuestionRecordedPayload, ReadEvent, RelationKind as EventRelationKind,
-    SuggestionSurfacedPayload, TenantId, UnreadableAnnotation,
+    EventPayload, EventType, EvidenceRecordedPayload, HypothesisRecordedPayload,
+    IngestBatchClassifiedPayload, NotificationAcknowledgedPayload, NotificationSentPayload,
+    ProjectAnchorKind, ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload,
+    ProjectSource, QuestionAskedPayload, QuestionRecordedPayload, ReadEvent,
+    RelationKind as EventRelationKind, SuggestionSurfacedPayload, TenantId, UnreadableAnnotation,
 };
 use crate::ledger::EventLedger;
 use crate::Result;
@@ -548,26 +548,50 @@ pub fn project_from_ledger_for_tenant_reporting(
 /// logging them once (not once per row) so a log reader sees the count and the offsets. The report
 /// names the last event applied, which is where a graph that is kept resumes.
 ///
-/// The turn times and sessions of the received batches are read on the way (and, for a replay
-/// that starts after the first event, from before `offset`), so a classified batch's decisions
-/// read as when they were said, and as from the session that said them, whether the graph was
-/// rebuilt or extended.
+/// The replay runs to the ledger's latest event as of its start and no further: an event
+/// appended while it runs is left to the next replay, so the report's last event is every event
+/// up to it and none after.
+///
+/// The ledger's received batches, most of its events, are not replayed whole: what a
+/// classification reads of the ones it names, and the newest batch of each actor
+/// ([`batch_times::received_to_project`]), are applied in event order among the other events, so
+/// a classified batch's decisions read as when they were said, and as from the session that said
+/// them, whether the graph was rebuilt or extended.
 fn project_replay(
     ledger: &impl EventLedger,
     tenant_id: &TenantId,
     graph: &impl GraphView,
     offset: EventId,
 ) -> Result<ProjectionReport> {
-    let mut received_batches = ReceivedBatches::before(ledger, tenant_id, offset)?;
-    let mut report = ProjectionReport::default();
-    ledger.replay_from_for_tenant(tenant_id, offset, &mut |event| {
-        received_batches.note(event);
-        report
-            .unreadable_annotations
-            .extend(project_event_reporting(graph, event, &received_batches)?);
-        report.last_event_id = event.event_id;
-        Ok(())
-    })?;
+    let through = ledger.latest_offset_for_tenant(tenant_id)?;
+    if through <= offset {
+        return Ok(ProjectionReport::default());
+    }
+
+    let mut replay = Replay {
+        graph,
+        received: batch_times::received_to_project(ledger, tenant_id, offset, through)?,
+        received_batches: ReceivedBatches::default(),
+        report: ProjectionReport::default(),
+    };
+    ledger.replay_from_for_tenant_except(
+        tenant_id,
+        offset,
+        &[EventType::IngestBatchReceived],
+        &mut |event| {
+            if let Some(event_id) = event.event_id {
+                if event_id > through {
+                    return Ok(());
+                }
+                replay.apply_received_before(event_id)?;
+            }
+            replay.apply(event)
+        },
+    )?;
+    replay.apply_received_before(EventId::MAX)?;
+
+    let mut report = replay.report;
+    report.last_event_id = Some(through);
     if !report.unreadable_annotations.is_empty() {
         tracing::warn!(
             target: "hivemind::projector",
@@ -576,6 +600,39 @@ fn project_replay(
         );
     }
     Ok(report)
+}
+
+/// A replay in progress: the graph it builds, the received batches it has yet to hand over, and
+/// what it has noted of the ones it has.
+struct Replay<'graph, G: GraphView> {
+    graph: &'graph G,
+    received: batch_times::ReceivedToProject,
+    received_batches: ReceivedBatches,
+    report: ProjectionReport,
+}
+
+impl<G: GraphView> Replay<'_, G> {
+    /// Applies the received batches the ledger received before `event_id`.
+    fn apply_received_before(&mut self, event_id: EventId) -> Result<()> {
+        while let Some(batch) = self.received.next_before(event_id) {
+            match batch {
+                batch_times::Received::Named(facts) => self.received_batches.note(&facts),
+                batch_times::Received::NewestOfActor(event) => self.apply(&event)?,
+            }
+        }
+        Ok(())
+    }
+
+    fn apply(&mut self, event: &Event) -> Result<()> {
+        self.report
+            .unreadable_annotations
+            .extend(project_event_reporting(
+                self.graph,
+                event,
+                &self.received_batches,
+            )?);
+        Ok(())
+    }
 }
 
 pub fn rebuild_graph(ledger: &impl EventLedger, graph: &impl GraphView) -> Result<()> {

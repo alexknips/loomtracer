@@ -16,7 +16,7 @@ use crate::error::CliError;
 use crate::events::{Event, EventId, EventType, TenantId};
 #[cfg(feature = "shared-backend-postgres")]
 use crate::ledger::PostgresEventLedger;
-use crate::ledger::{EventFields, EventLedger, SqliteEventLedger};
+use crate::ledger::{EventFields, EventLedger, ReceivedBatchFacts, SqliteEventLedger};
 use crate::Result;
 
 /// Backend selector for [`AnyLedger::open`].
@@ -145,6 +145,24 @@ impl EventLedger for AnyLedger {
         }
     }
 
+    fn replay_from_for_tenant_except(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        match self {
+            AnyLedger::Sqlite(l) => {
+                l.replay_from_for_tenant_except(tenant_id, offset, skipped, callback)
+            }
+            #[cfg(feature = "shared-backend-postgres")]
+            AnyLedger::Postgres(l) => {
+                EventLedger::replay_from_for_tenant_except(l, tenant_id, offset, skipped, callback)
+            }
+        }
+    }
+
     fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
         match self {
             AnyLedger::Sqlite(l) => l.latest_offset_for_tenant(tenant_id),
@@ -198,6 +216,21 @@ impl EventLedger for AnyLedger {
                 offset,
                 limit,
             ),
+        }
+    }
+
+    fn read_received_batches_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        match self {
+            AnyLedger::Sqlite(l) => l.read_received_batches_for_tenant(tenant_id, offset, limit),
+            #[cfg(feature = "shared-backend-postgres")]
+            AnyLedger::Postgres(l) => {
+                EventLedger::read_received_batches_for_tenant(l, tenant_id, offset, limit)
+            }
         }
     }
 

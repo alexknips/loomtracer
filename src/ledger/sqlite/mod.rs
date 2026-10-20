@@ -17,7 +17,7 @@ use crate::util::require_agent_actor_id;
 use crate::Result;
 
 use super::backend_error::{storage_error, unknown_tenant_error};
-use super::{omit_payload_keys_from, EventLedger};
+use super::{omit_payload_keys_from, EventLedger, ReceivedBatchFacts};
 
 const LEDGER_DB_NAME: &str = "ledger.sqlite";
 const SQLITE_BUSY_TIMEOUT_MS: u64 = 30_000;
@@ -266,6 +266,42 @@ impl EventLedger for SqliteEventLedger {
         Ok(())
     }
 
+    fn replay_from_for_tenant_except(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        if skipped.is_empty() {
+            return self.replay_from_for_tenant(tenant_id, offset, callback);
+        }
+
+        let offset = i64::try_from(offset)
+            .map_err(|error| storage_error(format!("offset out of range: {error}")))?;
+        let mut values: Vec<rusqlite::types::Value> =
+            vec![tenant_id.as_str().to_owned().into(), offset.into()];
+        values.extend(
+            skipped
+                .iter()
+                .map(|event_type| row::event_type_as_str(*event_type).to_owned().into()),
+        );
+
+        let mut statement = self
+            .connection
+            .prepare(&replay_except_sql(skipped.len()))
+            .map_err(storage_error)?;
+        let mut rows = statement
+            .query(rusqlite::params_from_iter(values))
+            .map_err(storage_error)?;
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            let event = row::event_from_row(row)?;
+            callback(&event)?;
+        }
+
+        Ok(())
+    }
+
     fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
         let offset: i64 = self
             .connection
@@ -322,6 +358,43 @@ impl EventLedger for SqliteEventLedger {
         }
 
         Ok(events)
+    }
+
+    /// The facts are read out of the payload text as the rows arrive, so a transcript is never
+    /// decoded into a value: on a cell the received batches are 97% of the ledger and a replay
+    /// wants four small things of each.
+    fn read_received_batches_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let offset = i64::try_from(offset)
+            .map_err(|error| storage_error(format!("offset out of range: {error}")))?;
+        let limit = i64::try_from(limit)
+            .map_err(|error| storage_error(format!("limit out of range: {error}")))?;
+        let mut statement = self
+            .connection
+            .prepare(read_received_batches_sql())
+            .map_err(storage_error)?;
+        let mut rows = statement
+            .query(params![
+                tenant_id.as_str(),
+                row::event_type_as_str(EventType::IngestBatchReceived),
+                offset,
+                limit
+            ])
+            .map_err(storage_error)?;
+        let mut found = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            found.push(row::received_batch_from_row(row)?);
+        }
+
+        Ok(found)
     }
 
     fn read_ids_for_tenant(
@@ -582,6 +655,19 @@ fn replay_events_sql() -> String {
     )
 }
 
+fn replay_except_sql(skipped_count: usize) -> String {
+    let placeholders = (0..skipped_count)
+        .map(|index| format!("?{}", index + 3))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "SELECT {} FROM events
+         WHERE tenant_id = ?1 AND event_id > ?2 AND type NOT IN ({placeholders})
+         ORDER BY event_id ASC",
+        event_columns_sql()
+    )
+}
+
 fn read_types_sql(type_count: usize) -> String {
     let placeholders = (0..type_count)
         .map(|index| format!("?{}", index + 4))
@@ -593,6 +679,15 @@ fn read_types_sql(type_count: usize) -> String {
          ORDER BY event_id ASC LIMIT ?3",
         event_columns_sql()
     )
+}
+
+/// One received batch per row, in event order: the id and actor, and the payload as text.
+fn read_received_batches_sql() -> &'static str {
+    "SELECT event_id, actor_id, payload
+     FROM events
+     WHERE tenant_id = ?1 AND type = ?2 AND event_id > ?3
+     ORDER BY event_id ASC
+     LIMIT ?4"
 }
 
 fn read_event_by_id_sql() -> String {

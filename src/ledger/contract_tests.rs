@@ -11,7 +11,7 @@ use crate::events::{
     validate, Event, EventId, EventPayload, EventSource, EventType, HypothesisKind, RelationKind,
     TenantId,
 };
-use crate::ledger::EventLedger;
+use crate::ledger::{EventLedger, ReceivedBatchFacts};
 use crate::replay::{replay_events, ReplayCounts, ReplayEvent};
 use crate::Result;
 
@@ -77,8 +77,11 @@ pub fn assert_read_offset_and_limit<L: EventLedger>(ledger: &L) -> Result<()> {
 
 /// The typed, field and by-id reads (`read_types_for_tenant`, `read_fields_for_tenant`,
 /// `read_ids_for_tenant`) agree on every backend: only the asked types come back, oldest first, with offset and limit counted over the
-/// matching events; the named payload keys are left out and nothing else is; and the by-id read
-/// returns exactly the events with those ids, skipping ids that name no event.
+/// matching events; the named payload keys are left out and nothing else is; the by-id read
+/// returns exactly the events with those ids, skipping ids that name no event; the replay that
+/// skips types (`replay_from_for_tenant_except`) returns every other event in event order; and the
+/// lean read of received batches (`read_received_batches_for_tenant`) returns, for each, exactly
+/// the facts the decoded event holds.
 ///
 /// Failures are returned as errors rather than asserted, like the grounding helper below.
 pub fn assert_typed_and_id_reads<L: EventLedger>(ledger: &L, tenant_id: &TenantId) -> Result<()> {
@@ -253,6 +256,52 @@ pub fn assert_typed_and_id_reads<L: EventLedger>(ledger: &L, tenant_id: &TenantI
     )?;
     require_equal("fields: a limit of zero", &zero_fields.len(), &0)?;
 
+    let replayed_except = |offset, skipped: &[EventType]| -> Result<Vec<Option<EventId>>> {
+        let mut replayed = Vec::new();
+        ledger.replay_from_for_tenant_except(tenant_id, offset, skipped, &mut |event| {
+            replayed.push(event.event_id);
+            Ok(())
+        })?;
+        Ok(replayed)
+    };
+    require_equal(
+        "replay except: the skipped type left out, the rest in event order",
+        &replayed_except(0, &[EventType::IngestBatchReceived])?,
+        &vec![Some(evidence), Some(classified)],
+    )?;
+    require_equal(
+        "replay except: events after the offset only",
+        &replayed_except(evidence, &[EventType::IngestBatchReceived])?,
+        &vec![Some(classified)],
+    )?;
+    require_equal(
+        "replay except: several types skipped",
+        &replayed_except(
+            0,
+            &[
+                EventType::IngestBatchReceived,
+                EventType::IngestBatchClassified,
+            ],
+        )?,
+        &vec![Some(evidence)],
+    )?;
+    require_equal(
+        "replay except: nothing skipped is the whole replay",
+        &replayed_except(0, &[])?,
+        &vec![
+            Some(received_a),
+            Some(evidence),
+            Some(received_b),
+            Some(classified),
+            Some(received_c),
+        ],
+    )?;
+    require_equal(
+        "replay except: a type nothing holds skips nothing",
+        &replayed_except(received_b, &[EventType::DecisionProposed])?,
+        &vec![Some(classified), Some(received_c)],
+    )?;
+
     let by_id =
         ledger.read_ids_for_tenant(tenant_id, &[received_c, evidence, 9_999, received_c])?;
     require_equal(
@@ -309,6 +358,137 @@ pub fn assert_typed_and_id_reads<L: EventLedger>(ledger: &L, tenant_id: &TenantI
         "a type nothing holds",
         &ledger
             .read_all_types_for_tenant(tenant_id, &[EventType::DecisionProposed])?
+            .len(),
+        &0,
+    )?;
+
+    // The lean read of received batches: who shipped each and the four small things a
+    // classification reads, taken without decoding the transcript. Payloads of every odd shape
+    // sit among the plain ones, since a SQL ledger parses the text itself and must agree with the
+    // decoded event on each.
+    let odd_payloads = [
+        json!({
+            "batch_id": "timed",
+            "session_id": "session-2",
+            "agent_tool": "codex",
+            "turns": [
+                { "text": "a \"quoted\" \\ line\n", "ts": "2026-09-18T06:00:00Z" },
+                { "ts": "2026-09-19T08:00:00+02:00" },
+                { "ts": 7 },
+            ],
+        }),
+        json!({ "batch_id": "ünïcödé 🙂", "turns": [{ "text": "no time" }] }),
+        json!({ "batch_id": 42, "session_id": "  ", "turns": "text" }),
+        json!({ "turns": { "ts": "2026-09-18T06:00:00Z" } }),
+        json!({}),
+        json!({ "batch_id": "null-tool", "agent_tool": null }),
+    ];
+    let mut odd_ids = Vec::new();
+    for payload in odd_payloads {
+        odd_ids.push(append(EventType::IngestBatchReceived, payload)?);
+        // Between the batches, an event that is not one.
+        append(
+            EventType::EvidenceRecorded,
+            json!({ "evidence_id": "between" }),
+        )?;
+    }
+    let [timed_id, _, blank_id, _, _, null_tool_id] = odd_ids.as_slice() else {
+        return Err(contract_failure(format!(
+            "expected 6 odd received batches, appended {}",
+            odd_ids.len()
+        )));
+    };
+    let decoded = ledger.read_all_types_for_tenant(tenant_id, &[EventType::IngestBatchReceived])?;
+    let expected: Vec<ReceivedBatchFacts> = decoded
+        .iter()
+        .filter_map(ReceivedBatchFacts::from_event)
+        .collect();
+    require_equal(
+        "facts: every received batch, as many as were appended",
+        &expected.len(),
+        &(1_000 + odd_ids.len()),
+    )?;
+    let facts = ledger.read_received_batches_for_tenant(tenant_id, 0, 5_000)?;
+    require_equal(
+        "facts: the decoded events' facts, oldest first",
+        &facts,
+        &expected,
+    )?;
+    require_equal(
+        "facts: the first batch, in full",
+        &facts.first().cloned(),
+        &Some(ReceivedBatchFacts {
+            event_id: received_a,
+            actor_id: "actor:test".to_owned(),
+            batch_id: Some("batch-a".to_owned()),
+            session_id: Some("session-1".to_owned()),
+            agent_tool: "claude".to_owned(),
+            newest_turn_time: None,
+        }),
+    )?;
+    let timed = facts.iter().find(|batch| batch.event_id == *timed_id);
+    require_equal(
+        "facts: the newest turn time wins, offsets read as UTC, a non-string time skipped",
+        &timed.map(|batch| batch.newest_turn_time.map(|time| time.to_rfc3339())),
+        &Some(Some("2026-09-19T06:00:00+00:00".to_owned())),
+    )?;
+    let blank = facts.iter().find(|batch| batch.event_id == *blank_id);
+    require_equal(
+        "facts: a blank session and a non-string batch id read as none",
+        &blank.map(|batch| (batch.batch_id.clone(), batch.session_id.clone())),
+        &Some((None, None)),
+    )?;
+    let null_tool = facts.iter().find(|batch| batch.event_id == *null_tool_id);
+    require_equal(
+        "facts: a null agent tool reads as empty",
+        &null_tool.map(|batch| (batch.batch_id.clone(), batch.agent_tool.clone())),
+        &Some((Some("null-tool".to_owned()), String::new())),
+    )?;
+
+    require_equal(
+        "facts: offset and limit count received batches only",
+        &ledger
+            .read_received_batches_for_tenant(tenant_id, received_a, 2)?
+            .iter()
+            .map(|batch| batch.event_id)
+            .collect::<Vec<_>>(),
+        &vec![received_b, received_c],
+    )?;
+    require_equal(
+        "facts: an offset between two batches starts at the next one",
+        &ledger
+            .read_received_batches_for_tenant(tenant_id, evidence, 1)?
+            .iter()
+            .map(|batch| batch.event_id)
+            .collect::<Vec<_>>(),
+        &vec![received_b],
+    )?;
+    require_equal(
+        "facts: a page walk reads every batch once, in order",
+        &{
+            let mut walked = Vec::new();
+            let mut cursor = 0;
+            loop {
+                let page = ledger.read_received_batches_for_tenant(tenant_id, cursor, 400)?;
+                let Some(newest) = page.last() else { break };
+                cursor = newest.event_id;
+                walked.extend(page);
+            }
+            walked
+        },
+        &expected,
+    )?;
+    require_equal(
+        "facts: a limit of zero",
+        &ledger
+            .read_received_batches_for_tenant(tenant_id, 0, 0)?
+            .len(),
+        &0,
+    )?;
+    require_equal(
+        "facts: an offset past the last batch",
+        &ledger
+            .read_received_batches_for_tenant(tenant_id, ledger.latest_offset()?, 10)?
             .len(),
         &0,
     )?;

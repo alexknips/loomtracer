@@ -2,26 +2,22 @@
 //! they were said, which capture session shipped them, and who the session was held with.
 //!
 //! A received batch never reaches the graph, and the projector reads one event at a time, so a
-//! replay keeps the newest turn time and the session of every batch it passes. A classification
-//! after the replay's starting offset may name batches received before it (the server's graph
-//! cache replays only what is new), and those are read from the ledger before the replay
-//! starts. The answer is the same either way: a batch counts when it was received before the
-//! classification that names it, whether the replay started at the first event or later.
+//! replay keeps the newest turn time and the session of every batch a classification names. A
+//! batch counts when it was received before the classification that names it, whether the replay
+//! started at the first event or later. A replay reads the received batches as the few facts a
+//! classification reads of them ([`ReceivedBatchFacts`]) and projects whole only the newest of
+//! each actor ([`received_to_project`]): they are most of a cell's ledger, and their transcripts
+//! are never decoded.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
 
 use crate::events::{
-    classified_batch_ids, received_batch_newest_turn_time, received_batch_session_id,
-    session_agent_actor, Event, EventId, EventType, TenantId,
+    classified_batch_ids, session_agent_actor, Event, EventId, EventType, TenantId,
 };
-use crate::ledger::EventLedger;
+use crate::ledger::{EventLedger, ReceivedBatchFacts};
 use crate::Result;
-
-/// How many received batches one read of their ids asks for: the city cell's ~100k received
-/// batches take a handful of round trips.
-const HEAD_PAGE: usize = 10_000;
 
 /// What a replay knows of the batches it has passed: the newest turn time of each whose turns
 /// carry one, the session of each that names one, and who submitted each and with which agent
@@ -57,22 +53,19 @@ pub(super) struct ClassifiedSession {
 }
 
 impl ReceivedBatches {
-    /// Takes in `event` when it is a received batch. A batch received more than once keeps the
-    /// newest of its turn times and the first session it named.
-    pub(super) fn note(&mut self, event: &Event) {
-        if event.event_type != EventType::IngestBatchReceived {
-            return;
-        }
-        let Some(batch_id) = batch_id(event) else {
+    /// Takes in a received batch. A batch received more than once keeps the newest of its turn
+    /// times and the first session it named.
+    pub(super) fn note(&mut self, facts: &ReceivedBatchFacts) {
+        let Some(batch_id) = facts.batch_id.as_deref() else {
             return;
         };
-        if let Some(newest) = received_batch_newest_turn_time(&event.payload) {
+        if let Some(newest) = facts.newest_turn_time {
             self.turn_times
                 .entry(batch_id.to_owned())
                 .and_modify(|current| *current = (*current).max(newest))
                 .or_insert(newest);
         }
-        if let Some(session_id) = received_batch_session_id(&event.payload) {
+        if let Some(session_id) = facts.session_id.as_deref() {
             self.sessions
                 .entry(batch_id.to_owned())
                 .or_insert_with(|| session_id.to_owned());
@@ -80,13 +73,8 @@ impl ReceivedBatches {
         self.submitters
             .entry(batch_id.to_owned())
             .or_insert_with(|| Submitter {
-                actor_id: event.actor_id.clone(),
-                agent_tool: event
-                    .payload
-                    .get("agent_tool")
-                    .and_then(|tool| tool.as_str())
-                    .unwrap_or_default()
-                    .to_owned(),
+                actor_id: facts.actor_id.clone(),
+                agent_tool: facts.agent_tool.clone(),
             });
     }
 
@@ -131,84 +119,151 @@ impl ReceivedBatches {
         }
         session
     }
+}
 
-    /// The batches that a replay from `offset` classifies without having received them in the
-    /// same replay, read from the events up to `offset`. Empty for a replay from the
-    /// start, and when every classification in the replay names batches it received itself: the
-    /// ledger before `offset` is only read when something needs it, and then only the ids of its
-    /// received batches and the events of the ones wanted, never the turn text of the rest.
-    pub(super) fn before(
-        ledger: &impl EventLedger,
-        tenant_id: &TenantId,
-        offset: EventId,
-    ) -> Result<Self> {
-        let mut received = Self::default();
-        if offset == 0 {
-            return Ok(received);
-        }
-        let wanted = unreceived_batches_classified_after(ledger, tenant_id, offset)?;
-        if wanted.is_empty() {
-            return Ok(received);
-        }
+/// How many received batches, or classifications, one read asks for: the city cell's ~150k
+/// received batches take a handful of round trips.
+const PAGE: usize = 10_000;
 
-        let mut event_ids: Vec<EventId> = Vec::new();
-        let mut cursor = 0;
-        'pages: loop {
-            let rows = ledger.read_fields_for_tenant(
-                tenant_id,
-                EventType::IngestBatchReceived,
-                &["batch_id"],
-                cursor,
-                HEAD_PAGE,
-            )?;
-            for row in &rows {
-                if row.event_id > offset {
-                    break 'pages;
-                }
-                if matches!(row.fields.first(), Some(Some(id)) if wanted.contains(id.as_str())) {
-                    event_ids.push(row.event_id);
-                }
-            }
-            match rows.last() {
-                Some(last) if rows.len() == HEAD_PAGE => cursor = last.event_id,
-                _ => break,
-            }
+/// What a replay of the events after `offset`, up to `through`, takes from the received batches,
+/// in event order: [`Self::next_before`] hands it over as the replay reaches each event.
+pub(super) struct ReceivedToProject {
+    /// The batches that a classification in the replay names, wherever the ledger received them
+    /// (before `offset` too: the server's graph cache replays only what is new).
+    named: VecDeque<ReceivedBatchFacts>,
+    /// The newest received batch of each actor after `offset`, whole.
+    newest_of_actor: VecDeque<Event>,
+}
+
+/// A received batch handed to the replay.
+pub(super) enum Received {
+    /// A batch a classification names, to be noted before that classification reads it.
+    Named(ReceivedBatchFacts),
+    /// The newest batch of an actor, to be projected: the event that last wrote the actor's node.
+    NewestOfActor(Event),
+}
+
+impl ReceivedToProject {
+    /// The next received batch received before `event_id`, `None` when the next one is received
+    /// at or after it (or there is none).
+    pub(super) fn next_before(&mut self, event_id: EventId) -> Option<Received> {
+        let named = self
+            .named
+            .front()
+            .map(|facts| facts.event_id)
+            .filter(|id| *id < event_id);
+        let newest = self
+            .newest_of_actor
+            .front()
+            .and_then(|event| event.event_id)
+            .filter(|id| *id < event_id);
+        let take_named = match (named, newest) {
+            (Some(named), Some(newest)) => named <= newest,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => return None,
+        };
+        if take_named {
+            self.named.pop_front().map(Received::Named)
+        } else {
+            self.newest_of_actor
+                .pop_front()
+                .map(Received::NewestOfActor)
         }
-        for event in ledger.read_ids_for_tenant(tenant_id, &event_ids)? {
-            received.note(&event);
-        }
-        Ok(received)
     }
 }
 
-/// The ids of batches that a classification after `offset` names and that the replay does not
-/// itself receive before that classification.
-fn unreceived_batches_classified_after(
+/// The received batches a replay of the events after `offset`, up to `through`, takes from the
+/// ledger. Of the ledger's received batches, which on a cell are 97% of its events, only two
+/// kinds change the graph:
+///
+/// - A batch that a classification in the replay names. The classification reads the batch's turn
+///   time, session and submitter, so the batch is noted before it. Only the facts of the batch
+///   are read ([`EventLedger::read_received_batches_for_tenant`]), never the transcript.
+/// - The newest received batch of each actor after `offset`. A batch adds nothing to the graph
+///   but its submitter's Actor node, and each projection of an actor writes all of that node over,
+///   so the node a replay leaves is the one its last event wrote: only the newest received batch
+///   of an actor can be that event, and an older one is written over by it. These few are read
+///   whole, by id, and projected like any event.
+///
+/// Every other received batch is neither kept nor projected.
+pub(super) fn received_to_project(
     ledger: &impl EventLedger,
     tenant_id: &TenantId,
     offset: EventId,
-) -> Result<HashSet<String>> {
-    let mut received: HashSet<String> = HashSet::new();
-    let mut wanted: HashSet<String> = HashSet::new();
-    ledger.replay_from_for_tenant(tenant_id, offset, &mut |event| {
-        match event.event_type {
-            EventType::IngestBatchReceived => {
-                if let Some(id) = batch_id(event) {
-                    received.insert(id.to_owned());
+    through: EventId,
+) -> Result<ReceivedToProject> {
+    let names = batches_named_after(ledger, tenant_id, offset, through)?;
+    // Before `offset`, a received batch matters only to a classification that names it.
+    let mut cursor = if names.is_empty() { offset } else { 0 };
+
+    let mut named: VecDeque<ReceivedBatchFacts> = VecDeque::new();
+    let mut newest_of_actor: HashMap<String, EventId> = HashMap::new();
+    'pages: loop {
+        let page = ledger.read_received_batches_for_tenant(tenant_id, cursor, PAGE)?;
+        let page_len = page.len();
+        let last = page.last().map(|facts| facts.event_id);
+        for facts in page {
+            if facts.event_id > through {
+                break 'pages;
+            }
+            if facts.event_id > offset {
+                match newest_of_actor.get_mut(facts.actor_id.as_str()) {
+                    Some(newest) => *newest = facts.event_id,
+                    None => {
+                        let actor_id = facts.actor_id.clone(); // ubs:ignore: once per distinct actor, when first seen
+                        newest_of_actor.insert(actor_id, facts.event_id);
+                    }
                 }
             }
-            EventType::IngestBatchClassified => wanted.extend(
-                classified_batch_ids(&event.payload)
-                    .into_iter()
-                    .filter(|id| !received.contains(id.as_str())),
-            ),
-            _ => {}
+            if facts
+                .batch_id
+                .as_deref()
+                .is_some_and(|batch_id| names.contains(batch_id))
+            {
+                named.push_back(facts);
+            }
         }
-        Ok(())
-    })?;
-    Ok(wanted)
+        match last {
+            Some(last) if page_len == PAGE => cursor = last,
+            _ => break,
+        }
+    }
+
+    let event_ids: Vec<EventId> = newest_of_actor.into_values().collect();
+    Ok(ReceivedToProject {
+        named,
+        newest_of_actor: ledger.read_ids_for_tenant(tenant_id, &event_ids)?.into(),
+    })
 }
 
-fn batch_id(event: &Event) -> Option<&str> {
-    event.payload.get("batch_id").and_then(|id| id.as_str())
+/// The ids of the batches that the classifications after `offset`, up to `through`, name.
+fn batches_named_after(
+    ledger: &impl EventLedger,
+    tenant_id: &TenantId,
+    offset: EventId,
+    through: EventId,
+) -> Result<HashSet<String>> {
+    let mut named: HashSet<String> = HashSet::new();
+    let mut cursor = offset;
+    loop {
+        // `captures` is the bulk of a classification and names no batch.
+        let page = ledger.read_types_for_tenant(
+            tenant_id,
+            &[EventType::IngestBatchClassified],
+            &["captures"],
+            cursor,
+            PAGE,
+        )?;
+        for event in &page {
+            if event.event_id.is_some_and(|event_id| event_id > through) {
+                return Ok(named);
+            }
+            named.extend(classified_batch_ids(&event.payload));
+        }
+        match page.last().and_then(|last| last.event_id) {
+            Some(last) if page.len() == PAGE => cursor = last,
+            _ => return Ok(named),
+        }
+    }
 }

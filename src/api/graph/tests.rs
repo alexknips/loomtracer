@@ -14,8 +14,8 @@ use crate::events::{Event, EventId, EventSource, EventType};
 use crate::ledger::InMemoryEventLedger;
 
 /// A ledger that takes in the events it was given the moment a replay starts: the ones appended
-/// after `get_cached_graph` read the ledger's latest offset and before its replay read the
-/// ledger, which is how a write racing a refresh lands in the graph above the offset read.
+/// after `get_cached_graph` read the ledger's latest offset and after the replay fixed the
+/// offset it runs to, which is how a write racing a refresh lands above what the refresh applies.
 struct AppendsWhenReplayStarts {
     inner: InMemoryEventLedger,
     late: Mutex<Vec<Event>>,
@@ -150,29 +150,35 @@ fn slug_of(graph: &MemoryGraph, decision_id: &str) -> Option<GraphValue> {
 }
 
 #[test]
-fn an_event_appended_during_a_refresh_is_not_applied_again_by_the_next() {
+fn an_event_appended_during_a_refresh_is_left_to_the_next_and_applied_once() {
     let cache = empty_cache();
     let ledger = AppendsWhenReplayStarts::new(
         vec![proposal("decision:early", "Pick a database")],
         vec![proposal("decision:late", "Use per-seat pricing")],
     );
 
-    // The refresh reads the latest offset (1), then the late event lands (2), then the replay
-    // runs to the end of the ledger and so applies both.
+    // The refresh reads the latest offset (1), then the late event lands (2) while the replay
+    // runs: the replay applies the ledger as it stood when it began, so the late event is not in
+    // this graph and the cache says it has applied through 1.
     let first = refresh(&ledger, &cache);
-    let bare = Some(GraphValue::String("use-per-seat-pricing".to_owned()));
-    assert_eq!(slug_of(&first, "decision:late"), bare);
+    assert_eq!(slug_of(&first, "decision:late"), None);
     assert_eq!(
         cached_offset(&cache),
-        Some(2),
-        "the cache records the last event the replay applied, not the offset read before it"
+        Some(1),
+        "the cache records the last event the replay applied, which is the ledger's latest as the replay began"
     );
 
-    // Nothing new has been appended, so the next refresh has nothing to apply: it is the same
-    // graph, and the late decision still has the link it was first given.
+    // The next refresh finds the late event waiting and applies it, once.
     let second = refresh(&ledger, &cache);
-    assert!(Arc::ptr_eq(&first, &second), "nothing was left to replay");
+    let bare = Some(GraphValue::String("use-per-seat-pricing".to_owned()));
     assert_eq!(slug_of(&second, "decision:late"), bare);
+    assert_eq!(cached_offset(&cache), Some(2));
+
+    // Nothing new has been appended, so the refresh after has nothing to apply: it is the same
+    // graph, and the late decision still has the link it was first given.
+    let third = refresh(&ledger, &cache);
+    assert!(Arc::ptr_eq(&second, &third), "nothing was left to replay");
+    assert_eq!(slug_of(&third, "decision:late"), bare);
 }
 
 #[test]
@@ -196,6 +202,7 @@ fn a_refresh_after_a_late_event_still_applies_what_comes_after_it() {
         !Arc::ptr_eq(&first, &second),
         "an event after the cache was applied"
     );
+    // The late event and the one after it, both applied by the second refresh.
     assert_eq!(cached_offset(&cache), Some(3));
     assert_eq!(
         slug_of(&second, "decision:late"),
@@ -216,14 +223,19 @@ fn an_unreadable_annotation_appended_during_a_refresh_is_reported_once() {
         vec![malformed_assessment()],
     );
 
+    // The row lands while the first refresh runs, above what it applies: the next refresh reads
+    // it, and the one after does not read it again.
     let first = refresh(&ledger, &cache);
-    assert_eq!(first.unreadable_annotations().len(), 1);
+    assert_eq!(first.unreadable_annotations().len(), 0);
 
     let second = refresh(&ledger, &cache);
+    assert_eq!(second.unreadable_annotations().len(), 1);
+
+    let third = refresh(&ledger, &cache);
     assert_eq!(
-        second.unreadable_annotations().len(),
+        third.unreadable_annotations().len(),
         1,
-        "the next refresh does not read the same bad row again and note it twice"
+        "the refresh after does not read the same bad row again and note it twice"
     );
 }
 

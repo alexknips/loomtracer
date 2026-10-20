@@ -8,7 +8,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::events::{Event, EventSource, EventType};
-use crate::ledger::InMemoryEventLedger;
+use crate::ledger::{InMemoryEventLedger, ReceivedBatchFacts};
 
 use super::*;
 
@@ -3760,6 +3760,372 @@ fn a_ledger_bound_to_another_tenant_projects_that_tenants_events() -> Result<()>
 
     assert_eq!(the_decision_time(&rebuilt), time_value(SAID_AT)); // ubs:ignore
     assert_eq!(the_decision_time(&extended), time_value(SAID_AT)); // ubs:ignore
+    Ok(())
+}
+
+/// `batch` as shipped by `actor_id`.
+fn shipped_by(actor_id: &str, mut batch: Event) -> Event {
+    batch.actor_id = actor_id.to_owned();
+    batch
+}
+
+fn evidence_by(actor_id: &str, evidence_id: &str) -> Event {
+    event(
+        EventType::EvidenceRecorded,
+        actor_id,
+        json!({"evidence_id": evidence_id, "content": "Something seen.", "source": "test"}),
+    )
+}
+
+fn ledger_of(events: &[Event]) -> Result<InMemoryEventLedger> {
+    let ledger = InMemoryEventLedger::new();
+    for event in events {
+        ledger.append(event.clone())?;
+    }
+    Ok(ledger)
+}
+
+/// Projects every event of the ledger, the received batches too, the way a replay did before it
+/// left the batches nothing needs unread: the yardstick the replay that skips them is held to.
+fn project_every_event(ledger: &InMemoryEventLedger, graph: &RecordingGraph) -> Result<()> {
+    let mut received_batches = ReceivedBatches::default();
+    ledger.replay_from_for_tenant(&TenantId::local(), 0, &mut |event| {
+        if let Some(facts) = ReceivedBatchFacts::from_event(event) {
+            received_batches.note(&facts);
+        }
+        project_event_reporting(graph, event, &received_batches)?;
+        Ok(())
+    })
+}
+
+/// Events in the order they were written, with the shapes a replay of received batches has to
+/// get right: a classification that arrives after unrelated events, one that names a batch
+/// received twice (the second time after the first classification), batches nothing names, an
+/// actor that only ever shipped such a batch, actors whose last event is a batch (the last of
+/// several, after an event of another kind) and ones whose last event is not.
+fn events_with_received_batches() -> Vec<Event> {
+    let capture = classified_decision_capture(None, &[], &[]);
+    vec![
+        shipped_by(
+            "agent:claude:hook",
+            received_batch("batch:1", &[Some(SAID_AT)]),
+        ),
+        evidence_by("human:alice", "ev-1"),
+        shipped_by(
+            "agent:codex:shipper",
+            received_batch_in_session("batch:2", "session-2", &[Some("2026-09-19T08:00:00Z")]),
+        ),
+        shipped_by("agent:claude:hook", received_batch("batch:3", &[None])),
+        evidence_by("agent:claude:hook", "ev-2"),
+        classification(&["batch:1"], capture.clone(), CLASSIFIED_AT),
+        shipped_by(
+            "human:bob",
+            received_batch_in_session("batch:1", "session-9", &[Some("2026-09-20T08:00:00Z")]),
+        ),
+        shipped_by("human:alice", received_batch("batch:4", &[None])),
+        shipped_by("agent:claude:hook", received_batch("batch:5", &[None])),
+        classification(&["batch:2", "batch:1"], capture, "2026-10-04T03:00:20Z"),
+        evidence_by("human:carol", "ev-3"),
+        shipped_by("agent:gemini:shipper", received_batch("batch:6", &[None])),
+        evidence_by("agent:gemini:shipper", "ev-4"),
+        shipped_by("agent:gemini:shipper", received_batch("batch:7", &[None])),
+        shipped_by("agent:gemini:shipper", received_batch("batch:8", &[None])),
+    ]
+}
+
+/// The replay that leaves the received batches nothing needs unread builds the graph that
+/// projecting every event builds, Actor nodes included (each carries the event that last wrote
+/// it), whether the graph was rebuilt or extended from any point of the ledger.
+#[test]
+fn a_replay_that_leaves_unneeded_batches_unread_builds_the_graph_every_event_builds() -> Result<()>
+{
+    let events = events_with_received_batches();
+    let every = RecordingGraph::default();
+    project_every_event(&ledger_of(&events)?, &every)?;
+
+    for applied_first in 0..=events.len() {
+        let ledger = ledger_of(&events[..applied_first])?;
+        let graph = RecordingGraph::default();
+        project_from_ledger(&ledger, &graph, 0)?;
+        let applied_through = ledger.latest_offset()?;
+        for event in &events[applied_first..] {
+            ledger.append(event.clone())?;
+        }
+        project_from_ledger(&ledger, &graph, applied_through)?;
+
+        assert_eq!(
+            graph.snapshot(), // ubs:ignore
+            every.snapshot(),
+            "a graph of the first {applied_first} events, extended with the rest"
+        );
+    }
+    Ok(())
+}
+
+/// A classification after many unrelated events and batches nothing names reads its own batch:
+/// the one it names, where it sits among the rest.
+#[test]
+fn a_classification_after_unrelated_events_reads_the_batch_it_names() -> Result<()> {
+    let mut events = vec![received_batch(
+        "batch:named",
+        &[Some("2026-09-18T06:00:00Z"), Some(SAID_AT)],
+    )];
+    for index in 0..12 {
+        events.push(received_batch(
+            &format!("batch:other-{index}"),
+            &[Some("2026-09-30T00:00:00Z")],
+        ));
+        events.push(evidence_by("human:alice", &format!("ev-{index}")));
+    }
+    events.push(classification(
+        &["batch:named"],
+        classified_decision_capture(None, &[], &[]),
+        CLASSIFIED_AT,
+    ));
+
+    let rebuilt = project_events(events.clone())?;
+    assert_eq!(the_decision_time(&rebuilt), time_value(SAID_AT)); // ubs:ignore
+
+    // The same when the graph held everything but the classification, which then arrives.
+    let ledger = ledger_of(&events[..events.len() - 1])?;
+    let extended = RecordingGraph::default();
+    project_from_ledger(&ledger, &extended, 0)?;
+    let applied_through = ledger.latest_offset()?;
+    ledger.append(events[events.len() - 1].clone())?;
+    project_from_ledger(&ledger, &extended, applied_through)?;
+    assert_eq!(the_decision_time(&extended), time_value(SAID_AT)); // ubs:ignore
+    Ok(())
+}
+
+/// An actor whose only events are batches nothing names still gets its Actor node, as the
+/// event that last wrote it, not the first.
+#[test]
+fn an_actor_that_only_shipped_unnamed_batches_has_its_node_from_its_newest_batch() -> Result<()> {
+    let graph = project_events(vec![
+        evidence_by("human:alice", "ev-1"),
+        shipped_by("agent:codex:shipper", received_batch("batch:a", &[None])),
+        shipped_by("agent:codex:shipper", received_batch("batch:b", &[None])),
+        evidence_by("human:alice", "ev-2"),
+        shipped_by("agent:codex:shipper", received_batch("batch:c", &[None])),
+        evidence_by("human:alice", "ev-3"),
+    ])?;
+
+    let nodes = graph.nodes();
+    let shipper = nodes
+        .get(&(NodeKind::Actor, "agent:codex:shipper".to_owned()))
+        .expect("the shipper has an Actor node"); // ubs:ignore
+    assert_eq!(shipper.get("event_origin"), Some(&GraphValue::Int(5))); // ubs:ignore
+    assert_eq!(
+        shipper.get("kind"),
+        Some(&GraphValue::String("agent".to_owned())) // ubs:ignore
+    );
+    let alice = nodes
+        .get(&(NodeKind::Actor, "human:alice".to_owned()))
+        .expect("alice has an Actor node"); // ubs:ignore
+    assert_eq!(alice.get("event_origin"), Some(&GraphValue::Int(6))); // ubs:ignore
+    Ok(())
+}
+
+/// ReceivedReads counts what a replay takes out of the ledger: the received batches it hands
+/// over whole, and the ones it hands over as facts.
+#[derive(Default)]
+struct ReceivedReads {
+    whole: std::sync::atomic::AtomicUsize,
+    facts: std::sync::atomic::AtomicUsize,
+}
+
+impl ReceivedReads {
+    fn note_whole(&self, events: &[Event]) {
+        let received = events
+            .iter()
+            .filter(|event| event.event_type == EventType::IngestBatchReceived)
+            .count();
+        self.whole
+            .fetch_add(received, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn whole(&self) -> usize {
+        self.whole.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn facts(&self) -> usize {
+        self.facts.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// An in-memory ledger that counts the received batches read out of it, the way the SQL
+/// ledgers deliver them: whole from a replay, a typed read or a read by id, and as facts from
+/// `read_received_batches_for_tenant`. A replay that skips a type never delivers it.
+struct CountsReceivedReads {
+    inner: InMemoryEventLedger,
+    reads: ReceivedReads,
+}
+
+impl CountsReceivedReads {
+    fn of(events: &[Event]) -> Result<Self> {
+        Ok(Self {
+            inner: ledger_of(events)?,
+            reads: ReceivedReads::default(),
+        })
+    }
+}
+
+impl EventLedger for CountsReceivedReads {
+    fn bound_tenant(&self) -> TenantId {
+        self.inner.bound_tenant()
+    }
+
+    fn append_for_tenant(&self, tenant_id: &TenantId, event: Event) -> Result<EventId> {
+        self.inner.append_for_tenant(tenant_id, event)
+    }
+
+    fn read_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
+        let events = self.inner.read_for_tenant(tenant_id, offset, limit)?;
+        self.reads.note_whole(&events);
+        Ok(events)
+    }
+
+    fn replay_from_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.inner
+            .replay_from_for_tenant(tenant_id, offset, &mut |event| {
+                self.reads.note_whole(std::slice::from_ref(event));
+                callback(event)
+            })
+    }
+
+    fn replay_from_for_tenant_except(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.inner
+            .replay_from_for_tenant_except(tenant_id, offset, skipped, &mut |event| {
+                self.reads.note_whole(std::slice::from_ref(event));
+                callback(event)
+            })
+    }
+
+    fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
+        self.inner.latest_offset_for_tenant(tenant_id)
+    }
+
+    fn read_types_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        types: &[EventType],
+        omit_payload_keys: &[&str],
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
+        let events =
+            self.inner
+                .read_types_for_tenant(tenant_id, types, omit_payload_keys, offset, limit)?;
+        self.reads.note_whole(&events);
+        Ok(events)
+    }
+
+    fn read_received_batches_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        let facts = self
+            .inner
+            .read_received_batches_for_tenant(tenant_id, offset, limit)?;
+        self.reads
+            .facts
+            .fetch_add(facts.len(), std::sync::atomic::Ordering::SeqCst);
+        Ok(facts)
+    }
+
+    fn read_ids_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        event_ids: &[EventId],
+    ) -> Result<Vec<Event>> {
+        let events = self.inner.read_ids_for_tenant(tenant_id, event_ids)?;
+        self.reads.note_whole(&events);
+        Ok(events)
+    }
+}
+
+/// A ledger of one named batch with its classification, among `unnamed` batches that nothing
+/// names, shipped by three actors.
+fn ledger_of_unnamed_batches(unnamed: usize) -> Vec<Event> {
+    let mut events = vec![shipped_by(
+        "agent:claude:hook",
+        received_batch("batch:named", &[Some(SAID_AT)]),
+    )];
+    for index in 0..unnamed {
+        let actor = ["agent:claude:hook", "agent:codex:shipper", "human:bob"][index % 3];
+        events.push(shipped_by(
+            actor,
+            received_batch(&format!("batch:unnamed-{index}"), &[None]),
+        ));
+    }
+    events.push(classification(
+        &["batch:named"],
+        classified_decision_capture(None, &[], &[]),
+        CLASSIFIED_AT,
+    ));
+    events
+}
+
+/// The cost of a build in whole transcripts is one per actor, not every batch the ledger holds:
+/// four times the unnamed batches read the same, and the batch a classification names is read as
+/// facts, not whole.
+#[test]
+fn a_rebuild_reads_whole_only_the_newest_batch_of_each_actor() -> Result<()> {
+    let whole_reads = |unnamed: usize| -> Result<usize> {
+        let ledger = CountsReceivedReads::of(&ledger_of_unnamed_batches(unnamed))?;
+        project_from_ledger(&ledger, &RecordingGraph::default(), 0)?;
+        Ok(ledger.reads.whole())
+    };
+
+    let few = whole_reads(30)?;
+    assert_eq!(few, whole_reads(120)?); // ubs:ignore
+                                        // The newest batch of each of the three shippers.
+    assert_eq!(few, 3, "a rebuild read {few} received batches whole"); // ubs:ignore
+    Ok(())
+}
+
+/// A replay that extends a graph reads no batch from before its offset when no classification in
+/// it names one: only the batches after the offset, as facts, and the newest of each actor whole.
+#[test]
+fn an_extension_that_names_no_earlier_batch_reads_nothing_from_before_its_offset() -> Result<()> {
+    let mut events = ledger_of_unnamed_batches(60);
+    let before = events.len();
+    events.push(shipped_by(
+        "agent:codex:shipper",
+        received_batch("batch:new", &[None]),
+    ));
+    events.push(evidence_by("human:alice", "ev-new"));
+    let ledger = CountsReceivedReads::of(&events[..before])?;
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+    let applied_through = ledger.latest_offset()?;
+    for event in &events[before..] {
+        ledger.append(event.clone())?;
+    }
+    let reads_so_far = (ledger.reads.whole(), ledger.reads.facts());
+
+    project_from_ledger(&ledger, &graph, applied_through)?;
+
+    assert_eq!(ledger.reads.whole() - reads_so_far.0, 1); // ubs:ignore
+    assert_eq!(ledger.reads.facts() - reads_so_far.1, 1); // ubs:ignore
     Ok(())
 }
 

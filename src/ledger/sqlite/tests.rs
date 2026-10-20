@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::OptionalExtension;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::commands::{
@@ -14,13 +15,13 @@ use crate::commands::{
     Grounding,
 };
 use crate::error::CommandError;
-use crate::events::{Event, EventProvenance, TenantId};
+use crate::events::{Event, EventProvenance, EventType, TenantId};
 use crate::ledger::contract_tests::{
     assert_dedup_by_event_uuid, assert_event_ids_for_uuids, assert_grounding_events_round_trip,
     assert_monotonic_append, assert_read_offset_and_limit, assert_replay_from_zero_in_order,
     assert_replay_into_non_empty_ledger, assert_typed_and_id_reads, make_event,
 };
-use crate::ledger::EventLedger;
+use crate::ledger::{EventLedger, ReceivedBatchFacts};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::get_decision;
 use crate::util::require_agent_actor_id;
@@ -62,6 +63,60 @@ fn grounding_events_round_trip() -> Result<()> {
 fn typed_and_id_reads_agree_with_the_contract() -> Result<()> {
     with_sqlite_ledger("typed-id-reads", |ledger| {
         assert_typed_and_id_reads(ledger, &TenantId::local())
+    })
+}
+
+/// The facts read out of the payload text agree with the ones picked from the decoded event, and
+/// come with the actor and the id of each received batch only, in event order, from the offset.
+#[test]
+fn received_batch_facts_agree_with_the_decoded_events() -> Result<()> {
+    with_sqlite_ledger("received-facts", |ledger| {
+        let tenant = TenantId::local();
+        let payloads = [
+            json!({"batch_id": "plain", "session_id": "s1", "agent_tool": "claude",
+                   "turns": [{"ts": "2026-09-18T06:00:00Z", "text": "a \"quoted\" \\ line\n"},
+                             {"ts": "2026-09-19T08:00:00+02:00"}]}),
+            json!({"batch_id": "ünïcödé 🙂", "turns": [{"text": "no time"}, {"ts": 7}]}),
+            json!({"batch_id": 42, "session_id": "  ", "turns": "text"}),
+            json!({"turns": {"ts": "2026-09-18T06:00:00Z"}}),
+            json!({}),
+            json!([]),
+        ];
+        for (index, payload) in payloads.into_iter().enumerate() {
+            let mut event = make_event("facts", Uuid::new_v4());
+            event.event_type = EventType::IngestBatchReceived;
+            event.actor_id = format!("agent:claude:shipper-{index}");
+            event.payload = payload;
+            ledger.append(event)?;
+            // Between the batches, an event of another kind that is not a batch.
+            ledger.append(make_event("other", Uuid::new_v4()))?;
+        }
+
+        let facts = ledger.read_received_batches_for_tenant(&tenant, 0, 100)?;
+        let decoded = ledger.read_types_for_tenant(
+            &tenant,
+            &[EventType::IngestBatchReceived],
+            &[],
+            0,
+            100,
+        )?;
+        let expected: Vec<ReceivedBatchFacts> = decoded
+            .iter()
+            .filter_map(ReceivedBatchFacts::from_event)
+            .collect();
+        assert_eq!(facts.len(), 6);
+        assert_eq!(facts, expected);
+
+        let after_third = facts[2].event_id;
+        assert_eq!(
+            ledger.read_received_batches_for_tenant(&tenant, after_third, 2)?,
+            facts[3..5].to_vec(),
+            "from an offset, with a limit"
+        );
+        assert!(ledger
+            .read_received_batches_for_tenant(&tenant, 0, 0)?
+            .is_empty());
+        Ok(())
     })
 }
 

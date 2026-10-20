@@ -19,7 +19,7 @@ use crate::events::{Event, EventId, EventSource, EventType, TenantId};
 use crate::Result;
 
 use super::backend_error::storage_error;
-use super::{EventFields, EventLedger};
+use super::{EventFields, EventLedger, ReceivedBatchFacts};
 
 mod tenant_store;
 pub use tenant_store::{ProvisionedUser, ResolvedToken, TenantStore, UserInfo};
@@ -290,6 +290,39 @@ impl PostgresEventLedger {
             .collect()
     }
 
+    /// [`EventLedger::read_received_batches_for_tenant`]: the payload crosses the wire as text and
+    /// is read for its facts as the rows arrive, so a page holds the facts and one page of text,
+    /// never the transcripts of the ledger.
+    pub fn read_received_batches_for_tenant(
+        &self,
+        tenant_id: &str,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        validate_tenant_id_ref(tenant_id)?;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let offset = event_id_to_i64(offset, "offset")?;
+        let limit = i64::try_from(limit)
+            .map_err(|error| storage_error(format!("limit out of range: {error}")))?;
+        let type_name = event_type_as_str(EventType::IngestBatchReceived);
+
+        let mut client = self.pool.get().map_err(storage_error)?;
+        let mut tx = client.transaction().map_err(storage_error)?;
+        set_tenant_local_pg(&mut tx, tenant_id).map_err(pg_op_to_result)?;
+        let rows = tx
+            .query(
+                read_received_batches_sql(),
+                &[&tenant_id, &type_name, &offset, &limit],
+            )
+            .map_err(storage_error)?;
+        tx.commit().map_err(storage_error)?;
+
+        rows.iter().map(received_batch_from_row).collect()
+    }
+
     /// [`EventLedger::read_ids_for_tenant`]: one query for the whole id set.
     pub fn read_ids_for_tenant(
         &self,
@@ -359,6 +392,37 @@ impl PostgresEventLedger {
         set_tenant_local_pg(&mut tx, tenant_id).map_err(pg_op_to_result)?;
         let rows = tx
             .query(&replay_events_sql(), &[&tenant_id, &offset])
+            .map_err(storage_error)?;
+        tx.commit().map_err(storage_error)?;
+
+        for row in &rows {
+            let event = event_from_row(row)?;
+            callback(&event)?;
+        }
+
+        Ok(())
+    }
+
+    /// [`EventLedger::replay_from_for_tenant_except`]: the skipped types are left out in the
+    /// query, so their rows are not fetched into memory with the rest.
+    pub fn replay_from_for_tenant_except(
+        &self,
+        tenant_id: &str,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        validate_tenant_id_ref(tenant_id)?;
+        let offset = event_id_to_i64(offset, "offset")?;
+        let skipped_names: Vec<&str> = skipped
+            .iter()
+            .map(|event_type| event_type_as_str(*event_type))
+            .collect();
+        let mut client = self.pool.get().map_err(storage_error)?;
+        let mut tx = client.transaction().map_err(storage_error)?;
+        set_tenant_local_pg(&mut tx, tenant_id).map_err(pg_op_to_result)?;
+        let rows = tx
+            .query(&replay_except_sql(), &[&tenant_id, &offset, &skipped_names])
             .map_err(storage_error)?;
         tx.commit().map_err(storage_error)?;
 
@@ -480,6 +544,16 @@ impl EventLedger for PostgresEventLedger {
         self.replay_from_for_tenant(tenant_id.as_str(), offset, callback)
     }
 
+    fn replay_from_for_tenant_except(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        skipped: &[EventType],
+        callback: &mut dyn FnMut(&Event) -> Result<()>,
+    ) -> Result<()> {
+        self.replay_from_for_tenant_except(tenant_id.as_str(), offset, skipped, callback)
+    }
+
     fn latest_offset_for_tenant(&self, tenant_id: &TenantId) -> Result<EventId> {
         self.latest_offset_for_tenant(tenant_id.as_str())
     }
@@ -504,6 +578,15 @@ impl EventLedger for PostgresEventLedger {
         limit: usize,
     ) -> Result<Vec<EventFields>> {
         self.read_fields_for_tenant(tenant_id.as_str(), event_type, payload_keys, offset, limit)
+    }
+
+    fn read_received_batches_for_tenant(
+        &self,
+        tenant_id: &TenantId,
+        offset: EventId,
+        limit: usize,
+    ) -> Result<Vec<ReceivedBatchFacts>> {
+        self.read_received_batches_for_tenant(tenant_id.as_str(), offset, limit)
     }
 
     fn read_ids_for_tenant(
@@ -823,6 +906,26 @@ fn fields_from_row(row: &Row, key_count: usize) -> Result<EventFields> {
     })
 }
 
+/// One received batch per row, in event order: the id and actor, and the payload as text.
+fn read_received_batches_sql() -> &'static str {
+    "SELECT event_id, actor_id, payload::text
+     FROM events
+     WHERE tenant_id = $1 AND event_type = $2 AND event_id > $3
+     ORDER BY event_id ASC
+     LIMIT $4"
+}
+
+fn received_batch_from_row(row: &Row) -> Result<ReceivedBatchFacts> {
+    let event_id: i64 = row.try_get(0).map_err(storage_error)?;
+    let actor_id: String = row.try_get(1).map_err(storage_error)?;
+    let payload: String = row.try_get(2).map_err(storage_error)?;
+    ReceivedBatchFacts::from_payload_text(
+        i64_to_event_id(event_id, "event_id")?,
+        actor_id,
+        &payload,
+    )
+}
+
 fn read_ids_sql() -> String {
     format!(
         "SELECT {} FROM events
@@ -836,6 +939,15 @@ fn replay_events_sql() -> String {
     format!(
         "SELECT {} FROM events
          WHERE tenant_id = $1 AND event_id > $2
+         ORDER BY event_id ASC",
+        event_columns_sql()
+    )
+}
+
+fn replay_except_sql() -> String {
+    format!(
+        "SELECT {} FROM events
+         WHERE tenant_id = $1 AND event_id > $2 AND event_type <> ALL($3::text[])
          ORDER BY event_id ASC",
         event_columns_sql()
     )

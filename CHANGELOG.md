@@ -731,6 +731,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `source_ref`. The skill no longer says the CLI files an unnamed tool as `codex` (it is
   `unknown`), and `hivemind mcp --help` describes `--session-id` with the order the README gives
   instead of "a generated id". (hivemind-9v7vu)
+- **The server's graph build no longer decodes every transcript it replays.** A cell ledger is
+  97% `ingest.batch_received` events, and the build decoded, validated and noted each transcript
+  whole to keep the four small facts a classification reads from it (which batch it was, which
+  session shipped it, with which agent tool, and when its newest turn was said), then dropped
+  the rest. The build now reads those four facts per batch straight from the stored payload,
+  without parsing the turn text, and projects whole only the newest received batch of each
+  actor, which is what gives the actor its node. A batch's facts are known before the
+  classification that names it, and every other event replays as before. On a copy of the cell
+  ledger (150,681 events, 146,742 of them received batches) a cold start to listening fell from
+  3.6-4.2 s to 1.8-2.1 s on SQLite (peak memory 108 to 93 MB) and from 4.1-4.7 s to 2.6-3.7 s
+  on Postgres (peak memory 271 to 107 MB), and `GET /v1/graph` came back byte-identical on
+  both. A received batch is no longer checked against the batch shape while the graph is built
+  unless it is the newest of its actor, so one batch of another shape no longer stops a build.
+  (hivemind-v79o2)
 - **`verify`, `why` and `--summary` count the days a superseded decision held to the link, not
   to the replacement's own date.** `still_holds.days_held` ended at the superseding decision's
   `occurred_at`, so linking a decision decided on 24 September as the replacement of one decided
