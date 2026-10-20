@@ -109,11 +109,12 @@ cargo test --features graph-kuzu kuzu -- --nocapture
 
 ## License & sign-off
 
-HiveMind is licensed under [AGPL-3.0-or-later](LICENSE). By contributing
+HiveMind is licensed under [AGPL-3.0-only](LICENSE). By contributing
 you agree your contribution is provided under the same license.
 
-We use the [Developer Certificate of Origin](https://developercertificate.org/)
-to track provenance. Sign off every commit with `-s`:
+Outside contributors use the
+[Developer Certificate of Origin](https://developercertificate.org/) to
+track provenance. Sign off every commit with `-s`:
 
 ```bash
 git commit -s -m "your message"
@@ -121,10 +122,12 @@ git commit -s -m "your message"
 
 This appends a `Signed-off-by: Your Name <your@email>` trailer, which is
 your assertion that you wrote the patch or otherwise have the right to
-submit it under the project's license. Commits without a sign-off will be
-asked to amend before merge.
+submit it under the project's license. Outside commits without a sign-off
+will be asked to amend before merge. Commits by the maintainer and the
+project's agents are exempt. A contributor license agreement check replaces
+the sign-off before outside pull requests are accepted.
 
 ## Reporting issues
 
 Open an issue on GitHub. For a security problem, do not put the details in a
-public issue.
+public issue; report it privately as [`SECURITY.md`](SECURITY.md) describes.

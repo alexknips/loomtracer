@@ -7,7 +7,7 @@ HiveMind is memory for decisions. You and your agents record what was decided,
 which options lost and why, and who decided, you or the agent. The next session
 does not reintroduce what you dropped or rewrite what you agreed. When a
 decision is contested or replaced, its status changes; nothing goes quietly
-stale. One person and their agents, local-first, AGPL-3.0, free to self-host.
+stale. One person and their agents, local-first, AGPL-3.0-only, free to self-host.
 
 It is not only for engineering. A decision record holds a title, a rationale,
 the options weighed, the evidence it rests on and who decided; nothing in it is
@@ -237,7 +237,7 @@ cargo install --git https://github.com/alexknips/hivemind --locked --features tu
 
 The crate is prepared for packaging but is not yet published to crates.io;
 `Cargo.toml` keeps `publish = false` until the project explicitly reserves
-the name and chooses a redistributable crate license.
+the name.
 
 ## Build And Test
 
