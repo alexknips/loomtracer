@@ -5,6 +5,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use crate::commands::normalize_topic_key;
+use crate::error::CommandError;
 use crate::projector::{GraphRow, GraphView, NodeKind};
 use crate::Result;
 
@@ -12,8 +13,8 @@ use super::decision::DecisionView;
 use super::project_label::ProjectLabels;
 use super::reexamine::{ReexamineMarker, ReexamineMarkers};
 use super::shared::{
-    node_rows, optional_string, optional_string_list, query_error, recorded_floor_of,
-    required_string, stored_topics_include, MAX_QUERY_RESULTS,
+    node_rows, optional_string, optional_string_list, recorded_floor_of, required_string,
+    stored_topics_include, MAX_QUERY_RESULTS,
 };
 use super::status::{derive_decision_status, DecisionStatus};
 use super::QueryResponse;
@@ -40,10 +41,16 @@ pub fn get_relevant_decisions(
     // Both sides are compared in `normalize_topic_key` form: the caller's `Release Plan` meets a
     // stored `release-plan`, and a key recorded as `Release.Plan` meets either spelling. A topic
     // with no letter or digit left names no key at all. Cypher cannot normalize the stored side,
-    // so the matching happens here over the decision rows, in id order.
+    // so the matching happens here over the decision rows, in id order. The topic is this
+    // lookup's only filter, so one that names no key is the caller's error (REST 400, CLI usage
+    // exit, MCP invalid params): dropping it, as the optional topic filters do, would answer with
+    // every decision as if they all matched.
     let normalized_topic = normalize_topic_key(topic);
     if normalized_topic.is_empty() {
-        return Err(query_error("topic must not be empty").into());
+        return Err(CommandError::Validation(
+            "topic must contain at least one letter or digit".to_owned(),
+        )
+        .into());
     }
 
     let mut decision_rows: Vec<GraphRow> = node_rows(graph, NodeKind::Decision)?

@@ -4770,6 +4770,29 @@ mod transport_parity {
         }
     }
 
+    #[tokio::test]
+    async fn get_relevant_decisions_refuses_a_topic_with_no_letter_or_digit_across_transports() {
+        for topic in ["---", "!!!"] {
+            let (stdio, http) = run(
+                "get_relevant_decisions",
+                "relevant-blank-topic",
+                json!({ "topic": topic }),
+            )
+            .await;
+            for (name, result) in [("stdio", &stdio), ("http", &http)] {
+                assert_eq!(
+                    result["isError"], true,
+                    "{name} {topic}: expected a refusal"
+                ); // ubs:ignore: test-only assertion
+                assert_eq!(
+                    error_text(result),
+                    "validation failed: topic must contain at least one letter or digit",
+                    "{name} {topic}: message"
+                ); // ubs:ignore: test-only assertion
+            }
+        }
+    }
+
     /// A misfiled-scan item is one decision, so like every other read of one it carries `binds`,
     /// `undo_cost` and the derived `floor` (hivemind-h2we6).
     #[tokio::test]

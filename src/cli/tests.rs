@@ -10230,6 +10230,33 @@ fn seed_decision(hivemind_dir: &std::path::Path, title: &str) -> String {
 }
 
 #[test]
+fn query_get_relevant_decisions_refuses_a_topic_with_no_letter_or_digit_with_exit_2() {
+    let hivemind_dir = unique_test_dir("relevant-blank-topic");
+    seed_decision(&hivemind_dir, "Adopt the new queue");
+
+    for topic in ["---", "!!!", "   "] {
+        let topic_arg = format!("--topic={topic}");
+        let error = run(&Cli::parse_from([
+            "hivemind",
+            "--hivemind-dir",
+            hivemind_dir.to_str().expect("utf-8 temp path"),
+            "query",
+            "get_relevant_decisions",
+            topic_arg.as_str(),
+        ]))
+        .expect_err("a topic that names no key is refused");
+
+        assert_eq!(exit_code_for_error(&error).code(), 2, "{topic:?}: {error}");
+        assert!(
+            error
+                .to_string()
+                .contains("topic must contain at least one letter or digit"),
+            "{topic:?}: {error}"
+        );
+    }
+}
+
+#[test]
 fn decision_capture_without_grounding_is_refused_with_exit_2_and_writes_nothing() {
     let hivemind_dir = unique_test_dir("capture-no-grounding");
 

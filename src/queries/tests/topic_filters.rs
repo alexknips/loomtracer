@@ -222,10 +222,22 @@ fn get_relevant_decisions_finds_the_decision_by_the_topic_as_typed() -> Result<(
 #[test]
 fn get_relevant_decisions_refuses_a_topic_with_no_letter_or_digit() {
     let f = fixture().expect("fixture");
-    for blank in ["", "   ", "!!!", "--"] {
+    for blank in ["", "   ", "!!!", "--", "---"] {
+        // The caller's error, not a failure of the query: REST answers 400 and the CLI exits 2.
+        let error = get_relevant_decisions(&f.graph, blank, None)
+            .expect_err(&format!("{blank:?} names no topic"));
         assert!(
-            get_relevant_decisions(&f.graph, blank, None).is_err(),
-            "{blank:?} names no topic"
+            matches!(
+                error,
+                crate::HivemindError::Command(crate::error::CommandError::Validation(_))
+            ),
+            "{blank:?}: {error:?}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("topic must contain at least one letter or digit"),
+            "{blank:?}: {error}"
         );
     }
 }
@@ -590,6 +602,99 @@ fn every_topic_filter_finds_a_key_recorded_un_normalized_and_returns_it_as_recor
                 .all(|path| export.files[*path].contains("org.incident")),
             "the export shows the recorded spelling for {typed:?}"
         );
+    }
+    Ok(())
+}
+
+const RAW_MCP_ID: &str = "decision:raw-mcp";
+
+/// The legacy fixture plus a second decision recorded under the raw key `MCP`, the way a
+/// classifier draft or an import records one.
+fn raw_key_fixture() -> Result<Fixture> {
+    let dir = tempfile::tempdir().map_err(query_error)?;
+    let ledger = AnyLedger::Sqlite(SqliteEventLedger::open(dir.path())?);
+    let commands = Commands::new(&ledger);
+    let option_id = commands.record_option("human:alex", "Do it", "Do it")?;
+    ledger.append(legacy_proposed_event(&option_id))?;
+    let mut mcp = legacy_proposed_event(&option_id);
+    mcp.event_uuid = Uuid::from_u128(0xdec2);
+    mcp.payload["decision_id"] = json!(RAW_MCP_ID);
+    mcp.payload["title"] = json!("Serve the MCP tools over HTTP");
+    mcp.payload["topic_keys"] = json!(["MCP"]);
+    ledger.append(mcp)?;
+    propose(&commands, "Charge per seat", "Billing")?;
+    let graph = MemoryGraph::default();
+    rebuild_graph(&ledger, &graph)?;
+    Ok(Fixture {
+        _dir: dir,
+        ledger,
+        graph,
+        release_plan: LEGACY_ID.to_owned(),
+    })
+}
+
+fn scan_for(f: &Fixture, foreign: &[&str]) -> Result<Vec<MisfiledDecisionCandidate>> {
+    Ok(scan_misfiled_decisions(
+        &f.graph,
+        &MisfiledScanRequest {
+            foreign_topic_keys: foreign.iter().map(|key| (*key).to_owned()).collect(),
+            project: None,
+            move_to: None,
+            limit: 100,
+            cursor: None,
+        },
+    )?
+    .data)
+}
+
+#[test]
+fn the_misfiled_scan_reports_a_decision_recorded_under_a_raw_key_with_the_key_as_recorded(
+) -> Result<()> {
+    let f = raw_key_fixture()?;
+
+    // The foreign key is the capture form; the stored key is `MCP` / `org.incident`.
+    let mcp = scan_for(&f, &["mcp"])?;
+    assert_eq!(mcp.len(), 1, "MCP is reported by the foreign key mcp");
+    assert_eq!(mcp[0].decision_id, RAW_MCP_ID);
+    assert_eq!(mcp[0].matched_topic_keys, ["MCP"], "the recorded spelling");
+
+    let incident = scan_for(&f, &["org-incident"])?;
+    assert_eq!(
+        incident.len(),
+        1,
+        "org.incident is reported by org-incident"
+    );
+    assert_eq!(incident[0].decision_id, LEGACY_ID);
+    assert_eq!(
+        incident[0].matched_topic_keys,
+        ["org.incident"],
+        "the recorded spelling, not the key the match was made on"
+    );
+
+    // Only the keys that matched are named; `Release.Plan` and `!!!` were not asked about.
+    let both = scan_for(&f, &["org-incident", "release-plan", "mcp"])?;
+    let by_id: BTreeMap<&str, &[String]> = both
+        .iter()
+        .map(|c| (c.decision_id.as_str(), c.matched_topic_keys.as_slice()))
+        .collect();
+    assert_eq!(by_id.len(), 2, "{both:?}");
+    assert_eq!(by_id[LEGACY_ID], ["org.incident", "Release.Plan"]);
+    assert_eq!(by_id[RAW_MCP_ID], ["MCP"]);
+    Ok(())
+}
+
+#[test]
+fn the_misfiled_scan_finds_a_raw_key_however_the_foreign_key_is_typed() -> Result<()> {
+    let f = raw_key_fixture()?;
+    for typed in LEGACY_TYPED {
+        let scan = scan_for(&f, &[typed])?;
+        let ids: Vec<&str> = scan.iter().map(|c| c.decision_id.as_str()).collect();
+        assert_eq!(ids, [LEGACY_ID], "scan for {typed:?}");
+    }
+    for typed in ["MCP", "mcp", " Mcp "] {
+        let scan = scan_for(&f, &[typed])?;
+        let ids: Vec<&str> = scan.iter().map(|c| c.decision_id.as_str()).collect();
+        assert_eq!(ids, [RAW_MCP_ID], "scan for {typed:?}");
     }
     Ok(())
 }

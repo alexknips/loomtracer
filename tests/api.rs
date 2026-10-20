@@ -1629,6 +1629,26 @@ async fn situational_requires_at_least_one_path() {
 }
 
 #[tokio::test]
+async fn relevant_refuses_a_topic_with_no_letter_or_digit_as_a_400_not_a_500() {
+    let dir = test_ledger_dir();
+    for topic in ["---", "!!!", "%20"] {
+        let (status, body) = call(
+            app(dir.clone()),
+            get_req(&format!("/v1/decisions/relevant?topic={topic}")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{topic}: {body}"); // ubs:ignore
+        assert_eq!(body["error"]["code"], "validation_error", "{topic}"); // ubs:ignore
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("topic must contain at least one letter or digit")),
+            "{topic}: {body}"
+        ); // ubs:ignore
+    }
+}
+
+#[tokio::test]
 async fn recall_route_returns_ranked_items_and_digest() {
     let dir = test_ledger_dir();
 

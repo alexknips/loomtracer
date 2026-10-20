@@ -7,8 +7,11 @@
 //! # What this is, and is not
 //!
 //! Deterministic and precision-biased: a decision is flagged only when one of its own
-//! (already-normalized) `topic_keys` exactly matches a caller-supplied
-//! "foreign" key — no fuzzy matching, no LLM, no inference about intent.
+//! `topic_keys`, in `normalize_topic_key` form, exactly matches a caller-supplied "foreign" key
+//! in the same form — no fuzzy matching, no LLM, no inference about intent. A key that reached
+//! the ledger outside the commands layer keeps its spelling (`MCP`, `org.incident` from a
+//! classifier draft, a blocker report or an import), so the stored side is normalized here, at
+//! comparison time, and the candidate still reports the key as recorded.
 //! HiveMind does not decide on its own what is foreign; the caller (a human
 //! reviewer, or a script that knows the city's rig names) supplies the list.
 //!
@@ -41,7 +44,8 @@ use super::QueryResponse;
 pub struct MisfiledDecisionCandidate {
     pub decision_id: String,
     pub title: String,
-    /// Which of the decision's own topic keys triggered the match.
+    /// Which of the decision's own topic keys triggered the match, as recorded (`org.incident`,
+    /// not the `org-incident` the match was made on).
     pub matched_topic_keys: Vec<String>,
     /// Actors on record for the decision (proposer plus any reviewers), for
     /// routing the review.
@@ -170,7 +174,7 @@ pub(crate) fn scan_in_pages(
                 .decision
                 .topic_keys
                 .iter()
-                .filter(|topic| foreign.contains(topic.as_str()))
+                .filter(|topic| foreign.contains(&normalize_topic_key(topic)))
                 .cloned()
                 .collect();
             if matched.is_empty() {
