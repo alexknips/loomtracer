@@ -1772,8 +1772,8 @@ pub(crate) fn retitle_decision<P: LedgerProvider>(
 
 /// Parsed, validated arguments for the `link_supersession` tool: two decision ids, both already
 /// recorded. They are named `old_decision_id` and `new_decision_id`, not `decision_id`, because
-/// `supersede_decision`'s `decision_id` is the OLD one and a caller who carried that habit over
-/// would record the link backwards.
+/// with two ids a bare `decision_id` would not say which way the link runs and a caller could
+/// record it backwards. `supersede_decision` names its old decision `old_decision_id` too.
 pub(crate) struct LinkSupersessionArgs {
     pub(crate) actor_id: String,
     pub(crate) old_decision_id: String,

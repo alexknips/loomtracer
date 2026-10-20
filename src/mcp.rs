@@ -671,7 +671,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "required": ["old_decision_id", "new_decision_id"],
                 "properties": {
                     "actor_id": { "type": "string", "description": "The actor who links the two decisions. Defaults to `agent:<tool>:<name>` when omitted (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`)." },
-                    "old_decision_id": { "type": "string", "description": "The recorded decision that is replaced. Note `supersede_decision`'s `decision_id` is this one too." },
+                    "old_decision_id": { "type": "string", "description": "The recorded decision that is replaced. `supersede_decision` names its old decision `old_decision_id` too." },
                     "new_decision_id": { "type": "string", "description": "The recorded decision that replaces it. It must already exist; this call does not create it and does not change who decided it." }
                 }
             }

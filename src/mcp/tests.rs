@@ -289,6 +289,41 @@ fn get_suggestions_takes_the_arguments_of_a_scan_and_exclude_acknowledged() {
 }
 
 #[test]
+fn link_supersession_names_the_argument_supersede_decision_takes_for_the_old_decision() {
+    let tools = crate::mcp::tool_definitions();
+    let properties = |name: &str| -> Value {
+        tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("tool {name} is listed"))["inputSchema"]["properties"]
+            .clone()
+    };
+
+    let supersede = properties("supersede_decision");
+    assert!(
+        supersede.get("old_decision_id").is_some(),
+        "supersede_decision takes the old decision as old_decision_id"
+    );
+    assert!(
+        supersede.get("decision_id").is_none(),
+        "supersede_decision has no decision_id argument"
+    );
+
+    let hint = properties("link_supersession")["old_decision_id"]["description"]
+        .as_str()
+        .expect("old_decision_id is described")
+        .to_owned();
+    assert!(
+        !hint.contains("`decision_id`"),
+        "link_supersession must not send agents to an argument supersede_decision lacks: {hint}"
+    );
+    assert!(
+        hint.contains("`old_decision_id`"),
+        "the cross-reference names the argument supersede_decision really takes: {hint}"
+    );
+}
+
+#[test]
 fn capture_and_supersede_tools_require_a_grounding_array() {
     let tools = crate::mcp::tool_definitions();
     for name in ["capture_decision", "supersede_decision"] {
