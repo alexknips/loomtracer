@@ -161,8 +161,8 @@ pub use status_events::{
 };
 pub use suggestion_acks::acknowledged_finding_ids;
 pub use supersession::{
-    get_supersession_chain, walk_supersession, SupersessionChain, SupersessionFork,
-    SupersessionLine, SupersessionSide,
+    get_supersession_chain, supersedes_path, walk_supersession, SupersessionChain,
+    SupersessionFork, SupersessionLine, SupersessionSide,
 };
 pub use terms::{
     content_query, overlap_score, overlapping_terms, path_terms, text_terms, ContentQuery,

@@ -123,7 +123,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
     );
     assert_eq!(responses.len(), 1); // ubs:ignore: test-only; index guaranteed by test setup
     let tools = responses[0]["result"]["tools"].as_array().expect("array"); // ubs:ignore: test-only; panicking is correct in tests
-    assert_eq!(tools.len(), 37, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
+    assert_eq!(tools.len(), 38, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
     let names: Vec<&str> = tools
         .iter()
         .map(|tool| tool["name"].as_str().expect("string name")) // ubs:ignore: test-only; panicking is correct in tests
@@ -134,6 +134,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
         "capture_hypothesis",
         "disagree_decision",
         "supersede_decision",
+        "link_supersession",
         "move_decision",
         "retitle_decision",
         "acknowledge_suggestion",
@@ -241,6 +242,7 @@ fn the_write_tools_are_the_tools_that_append_events() {
             "capture_hypothesis",
             "disagree_decision",
             "supersede_decision",
+            "link_supersession",
             "move_decision",
             "retitle_decision",
             "acknowledge_suggestion",

@@ -24,7 +24,13 @@
 //! - `POST /v1/hypotheses`                         — capture hypothesis
 //! - `POST /v1/decisions/{id}/disagreements`        — disagree
 //! - `POST /v1/decisions/{id}/supersessions`        — supersede
-//! - `POST /v1/decisions/{id}/reaffirmations`       — say `{id}` still holds after the body's
+//! - `POST /v1/decisions/{id}/supersession-links`   — record that `{id}` (already recorded)
+//!   supersedes the body's `supersedes_id` (already recorded), as the caller, without creating
+//!   either: `{id}` keeps whoever decided it. Here `{id}` is the NEWER decision; on
+//!   `/supersessions` it is the old one. An id that is not recorded, the same id twice and a link
+//!   that would close a loop are refused with 400 and nothing written; a pair already linked
+//!   writes nothing and replies `linked: false` (hivemind-4p0xd)
+//! - `POST /v1/decisions/{id}/reaffirmations`      — say `{id}` still holds after the body's
 //!   `premise_id` (a decision or hypothesis it rests on) changed, with a one-line `reason`, as the
 //!   caller; closes that premise's open re-examine item. An item that is not open (the premise
 //!   has not changed, it was already reaffirmed, `{id}` does not rest on it, `{id}` no longer
@@ -137,6 +143,7 @@ mod mcp_http;
 mod replay;
 mod restatements;
 mod slack;
+mod supersession_links;
 
 type ApiResult<T> = std::result::Result<T, ApiError>;
 /// Cache key: (tenant_id, ledger_offset, alpha.to_bits())
@@ -746,6 +753,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/v1/decisions/{id}/supersessions",
             post(handlers::supersede_handler),
+        )
+        .route(
+            "/v1/decisions/{id}/supersession-links",
+            post(supersession_links::link_supersession_handler),
         )
         .route(
             "/v1/decisions/{id}/reaffirmations",

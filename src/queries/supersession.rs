@@ -4,9 +4,10 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use crate::projector::{GraphParams, GraphValue, GraphView};
+use crate::projector::{GraphParams, GraphValue, GraphView, RelationKind};
 use crate::{HivemindError, Result};
 
+use super::follows_from::decision_path;
 use super::shared::{query_error, query_timer_start, required_string};
 use super::QueryResponse;
 
@@ -103,6 +104,19 @@ pub fn walk_supersession(
             forks: older_fork.into_iter().chain(newer_fork).collect(),
         },
     })
+}
+
+/// The chain of decisions that connects `from_id` to `to_id` over `SUPERSEDES` — `from_id`
+/// supersedes the second id, which supersedes the third, and so on until `to_id` — or `None`
+/// when `from_id` does not (transitively) supersede `to_id`. Ids run from `from_id` to `to_id`
+/// inclusive; `from_id == to_id` is the one-element chain. It follows every edge, so a fork on
+/// either side is no obstacle, and it ends on a graph that already holds a cycle.
+pub fn supersedes_path(
+    graph: &impl GraphView,
+    from_id: &str,
+    to_id: &str,
+) -> Result<Option<Vec<String>>> {
+    decision_path(graph, RelationKind::Supersedes, from_id, to_id)
 }
 
 /// The chain through `decision_id`, or an error when it forks. Callers that can say what a fork

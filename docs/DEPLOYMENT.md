@@ -238,6 +238,24 @@ A proposal is title words, not a finding, and a wrong link cannot be undone for 
 there is no route that links every proposal: read each pair and link the ones that are
 unmistakably the same decision.
 
+### Superseding with a decision that is already recorded
+
+`POST /v1/decisions/{id}/supersessions` records a NEW replacement for `{id}`, decided by the
+caller. When the replacement is someone else's own answer, capture it first with its real
+`decided_by`, then link the two; the MCP tool `link_supersession` does the same over `POST /mcp`.
+
+| Route | Does |
+|---|---|
+| `POST /v1/decisions/{id}/supersession-links` | Body `{"supersedes_id": "<older decision>"}`. Records that `{id}` (the newer decision) supersedes `supersedes_id`, as `decision.superseded` attributed to the token's actor. It creates nothing and `{id}` keeps whoever decided it. `linked: false` and no `event_id` when `{id}` already superseded it, directly or through other decisions. An id that is not a recorded decision, the same id twice, and a link that would close a loop are refused with 400, and nothing is written. |
+
+```bash
+curl -s -X POST "http://localhost:8080/v1/decisions/decision-b/supersession-links" \
+  -H "Authorization: Bearer $HIVEMIND_API_KEY" -H "Content-Type: application/json" \
+  -d '{"supersedes_id": "decision-a"}'
+```
+
+Here `{id}` is the newer decision; on `/supersessions` it is the old one.
+
 ## Multi-tenant usage
 
 Each request carries a tenant identifier via the `X-HiveMind-Tenant` header.

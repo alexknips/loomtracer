@@ -19,6 +19,18 @@ pub fn follows_from_path(
     from_id: &str,
     to_id: &str,
 ) -> Result<Option<Vec<String>>> {
+    decision_path(graph, RelationKind::FollowsFrom, from_id, to_id)
+}
+
+/// [`follows_from_path`] over any decision-to-decision relation: the chain of `relation` edges
+/// that leads from `from_id` to `to_id` following each edge from its source to its target, or
+/// `None` when there is none. Same walk, same guarantees.
+pub(super) fn decision_path(
+    graph: &impl GraphView,
+    relation: RelationKind,
+    from_id: &str,
+    to_id: &str,
+) -> Result<Option<Vec<String>>> {
     if from_id.trim().is_empty() || to_id.trim().is_empty() {
         return Err(query_error("decision ids must not be empty").into());
     }
@@ -43,7 +55,7 @@ pub fn follows_from_path(
                 graph,
                 NodeKind::Decision,
                 current,
-                RelationKind::FollowsFrom,
+                relation,
                 NodeKind::Decision,
                 Direction::Outgoing,
             )?

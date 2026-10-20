@@ -27,7 +27,7 @@ use crate::mcp::core::{
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
     GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
     GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GraphSource,
-    GroundDecisionArgs, LedgerHandle, LedgerProvider, MoveDecisionArgs,
+    GroundDecisionArgs, LedgerHandle, LedgerProvider, LinkSupersessionArgs, MoveDecisionArgs,
     RankDecisionsByImportanceArgs, ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs,
     RequestDecisionArgs, RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs,
     ScoreDecisionArgs, SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
@@ -215,6 +215,7 @@ fn mcp_tools_call_blocking(
         "capture_hypothesis" => mcp_capture_hypothesis(backend, ctx, &actor_id, args),
         "disagree_decision" => mcp_disagree(backend, ctx, &actor_id, args, cache),
         "supersede_decision" => mcp_supersede(backend, ctx, &actor_id, args, cache),
+        "link_supersession" => mcp_link_supersession(backend, ctx, &actor_id, args, cache),
         "move_decision" => mcp_move(backend, ctx, &actor_id, args, cache),
         "retitle_decision" => mcp_retitle(backend, ctx, &actor_id, args, cache),
         "acknowledge_suggestion" => mcp_acknowledge_suggestion(backend, ctx, &actor_id, args),
@@ -477,6 +478,23 @@ fn mcp_supersede(
         graph_cache: Some(cache),
     };
     let output = crate::mcp::core::supersede_decision(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn mcp_link_supersession(
+    backend: &ApiBackend,
+    ctx: &ApiRequestCtx,
+    actor_id: &str,
+    args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
+) -> McpToolResult {
+    let core_args = LinkSupersessionArgs::from_json(&args, actor_id.to_owned())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
+    };
+    let output = crate::mcp::core::link_supersession(&provider, core_args)?;
     Ok(output.into_value())
 }
 

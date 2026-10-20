@@ -139,6 +139,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A cell can link two decisions that are already recorded as superseded-by, so a person's
+  replacement is not recorded as the agent's.** The MCP tool `link_supersession`
+  (`old_decision_id`, `new_decision_id`; stdio and `POST /mcp`) and REST
+  `POST /v1/decisions/{id}/supersession-links` with `{"supersedes_id": "<older decision>"}`
+  (`{id}` is the newer one) append the same `decision.superseded` event the local
+  `emit decision.superseded --old A --new B` does, attributed to the caller, and create
+  nothing: capture the newer decision first with its real `decided_by`, then link. Afterwards
+  `get_decision` and `why` show the old decision as superseded, the new one keeps its decider,
+  and `get_supersession_chain` walks from one to the other. An id that is not a recorded
+  decision, the same id twice, and a link that would close a loop of supersessions (the old
+  decision already supersedes the new one, directly or through others) are refused (MCP
+  invalid-argument, REST 400) and nothing is written. A pair already linked, directly or
+  through other decisions, writes nothing and replies `linked: false` with
+  `already_linked_through`, so a retry after a timeout is safe. `supersede_decision` is
+  unchanged: it still records a new replacement decided by the caller. (hivemind-4p0xd)
 - **A supersede whose option label looks like a slug says so in its reply, like a capture.**
   `supersede_decision`, `POST /v1/decisions/{id}/supersessions` and `supersede --json` list each
   such label (`direct-cli`) under `warnings`, with the same `kind`, `option_label`, `suggestion`

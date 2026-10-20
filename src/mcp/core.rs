@@ -78,6 +78,7 @@ use crate::reaffirmation::{reaffirm, ReaffirmCall, ReaffirmOutcome};
 use crate::summarize::{
     RecallRequest, SummarizeMode, SummarizeRequest, RECALL_DEFAULT_LIMIT, RECALL_MAX_LIMIT,
 };
+use crate::supersession_link::{SupersessionLinkCall, SupersessionLinkOutcome};
 
 use super::args::{
     optional_bool, optional_bool_or, optional_datetime, optional_option_labels, optional_string,
@@ -241,6 +242,7 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("capture_hypothesis", ToolKind::Write),
     ("disagree_decision", ToolKind::Write),
     ("supersede_decision", ToolKind::Write),
+    ("link_supersession", ToolKind::Write),
     ("move_decision", ToolKind::Write),
     ("retitle_decision", ToolKind::Write),
     ("acknowledge_suggestion", ToolKind::Write),
@@ -1762,6 +1764,66 @@ pub(crate) fn retitle_decision<P: LedgerProvider>(
     serde_json::to_value(outcome)
         .map(ToolOutput)
         .map_err(|error| CoreError::Internal(error.to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// link_supersession (hivemind-4p0xd)
+// ---------------------------------------------------------------------------
+
+/// Parsed, validated arguments for the `link_supersession` tool: two decision ids, both already
+/// recorded. They are named `old_decision_id` and `new_decision_id`, not `decision_id`, because
+/// `supersede_decision`'s `decision_id` is the OLD one and a caller who carried that habit over
+/// would record the link backwards.
+pub(crate) struct LinkSupersessionArgs {
+    pub(crate) actor_id: String,
+    pub(crate) old_decision_id: String,
+    pub(crate) new_decision_id: String,
+}
+
+impl LinkSupersessionArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            actor_id,
+            old_decision_id: require_string(args, "old_decision_id")?.trim().to_owned(),
+            new_decision_id: require_string(args, "new_decision_id")?.trim().to_owned(),
+        })
+    }
+}
+
+/// The migrated core for the `link_supersession` MCP tool: one implementation consumed by both
+/// transports. Records `decision.superseded` for two decisions that are already recorded,
+/// attributed to `actor_id`, and creates nothing: the new decision keeps its own decider. An id
+/// that is not a recorded decision, the same id twice, and a link that would close a loop of
+/// replacements are refused as invalid arguments with nothing written; a pair already linked
+/// writes nothing and the reply says `linked: false`. The rules live in
+/// [`crate::supersession_link`].
+pub(crate) fn link_supersession<P: LedgerProvider>(
+    provider: &P,
+    args: LinkSupersessionArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let graph = handle.graph().map_err(CoreError::from)?;
+    let outcome = crate::supersession_link::link_supersession(
+        &handle.ledger,
+        &handle.tenant_id,
+        EventProvenance::agent(args.actor_id.clone()),
+        &graph,
+        SupersessionLinkCall {
+            actor_id: &args.actor_id,
+            old_decision_id: &args.old_decision_id,
+            new_decision_id: &args.new_decision_id,
+        },
+    )
+    .map_err(CoreError::from)?;
+    match outcome {
+        SupersessionLinkOutcome::Linked(reply) => serde_json::to_value(reply)
+            .map(ToolOutput)
+            .map_err(|error| CoreError::Internal(error.to_string())),
+        SupersessionLinkOutcome::Refused(text) => Err(CoreError::InvalidArgument(text)),
+    }
 }
 
 // ---------------------------------------------------------------------------

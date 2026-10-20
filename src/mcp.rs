@@ -40,10 +40,10 @@ use core::{
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
     GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
     GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs,
-    LedgerHandle, LedgerProvider, MoveDecisionArgs, RankDecisionsByImportanceArgs,
-    ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs,
-    RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs,
-    SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
+    LedgerHandle, LedgerProvider, LinkSupersessionArgs, MoveDecisionArgs,
+    RankDecisionsByImportanceArgs, ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs,
+    RequestDecisionArgs, RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs,
+    ScoreDecisionArgs, SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
 };
 
 /// MCP protocol revision this server speaks. Aligns with the modelcontextprotocol.io
@@ -379,6 +379,7 @@ fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, R
         "capture_hypothesis" => tool_capture_hypothesis(arguments, config),
         "disagree_decision" => tool_disagree_decision(arguments, config),
         "supersede_decision" => tool_supersede_decision(arguments, config),
+        "link_supersession" => tool_link_supersession(arguments, config),
         "move_decision" => tool_move_decision(arguments, config),
         "retitle_decision" => tool_retitle_decision(arguments, config),
         "acknowledge_suggestion" => tool_acknowledge_suggestion(arguments, config),
@@ -659,6 +660,19 @@ pub fn tool_definitions() -> Vec<Value> {
                     "project": { "type": "string", "description": "Registered project handle to file the superseding decision under. An unknown handle is refused with the register command. Omit it and the new decision inherits the project the old decision is filed in now (after a move, the project it was moved to) and `project_source` reads `inherited`; a decision in a personal project is replaced into the recording actor's own personal project. HiveMind never works out the project itself; an HTTP-served MCP cannot see the caller's working directory. A stdio server started with `--project-from-context` works it out from its own working directory when you omit it, and inherits only when that finds nothing." },
                     "project_source": { "type": "string", "enum": ["stated", "folder_marker", "rig", "current_project", "job"], "description": "How `project` was determined. Defaults to `stated`. Requires `project`." },
                     "declare_topics": { "type": "array", "items": { "type": "string" }, "description": "Topic keys from `topic_keys` that this call adds to the project's topic vocabulary. A call filed under a registered project may only use topic keys that project already declared (a personal project has no vocabulary), so name a new key here; the reply lists `declared_topics`. Each must be one of this call's topic keys." }
+                }
+            }
+        }),
+        json!({
+            "name": "link_supersession",
+            "description": "Record that one decision that is ALREADY recorded replaces another, creating neither. Use it when the replacement was captured on its own, with its real decider (a person's own answer, captured with `decided_by`): the replacement keeps that decider. `supersede_decision` instead records a NEW replacement decided by the calling actor, so it would put the caller's name on the person's answer. Capture the replacement first, then link. Appends one `decision.superseded` attributed to `actor_id`: it says who linked the two, not who decided. Nothing is deleted or rewritten; afterwards the old decision reads `superseded` in `get_decision` and `why`, and `get_supersession_chain` walks from it to the new one. Both ids must be recorded decisions, named by id (no description lookup). Refused as an invalid argument, with nothing written: an id that is not a recorded decision, the same id twice, and a link that would close a loop of replacements (the old decision already replaces the new one, directly or through others). A pair already linked, directly or through other replacements, writes nothing: the reply says `linked: false` and lists the ids from the new decision down to the old one in `already_linked_through`, so a retry after a timeout is safe. The reply is `{old_decision_id, new_decision_id, linked, event_id, already_linked_through?}`. The CLI's `emit decision.superseded --old <id> --new <id>` appends the same event, but only to a local ledger and without the loop and already-linked checks.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["old_decision_id", "new_decision_id"],
+                "properties": {
+                    "actor_id": { "type": "string", "description": "The actor who links the two decisions. Defaults to `agent:<tool>:<name>` when omitted (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`)." },
+                    "old_decision_id": { "type": "string", "description": "The recorded decision that is replaced. Note `supersede_decision`'s `decision_id` is this one too." },
+                    "new_decision_id": { "type": "string", "description": "The recorded decision that replaces it. It must already exist; this call does not create it and does not change who decided it." }
                 }
             }
         }),
@@ -1392,6 +1406,15 @@ fn tool_supersede_decision(
     let mut reply = core::supersede_decision(&provider, core_args)?.into_value();
     insert_project_reminder(&mut reply, resolved.as_ref());
     Ok(reply)
+}
+
+fn tool_link_supersession(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
+    let args = args.as_object().cloned().unwrap_or_default();
+    let actor_id = mcp_actor_id(&args, config)?;
+    let core_args = LinkSupersessionArgs::from_json(&args, actor_id)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::link_supersession(&provider, core_args)?;
+    Ok(output.into_value())
 }
 
 fn tool_move_decision(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {

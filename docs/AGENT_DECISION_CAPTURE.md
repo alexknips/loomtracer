@@ -1076,7 +1076,9 @@ used. Record to a cell over `POST /v1/decisions` (and `/v1/evidence`, `/v1/hypot
 MCP tools. So do `disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`, `import` (not
 `import prepare-documents`, which opens no ledger), `restatements`, `map` and `quality-scan`. The
 cell takes a disagreement at `POST /v1/decisions/{id}/disagreements`, a supersession at
-`POST /v1/decisions/{id}/supersessions`, a restatement link at
+`POST /v1/decisions/{id}/supersessions`, a link from a decision already recorded to the one it
+supersedes at `POST /v1/decisions/{id}/supersession-links` (MCP `link_supersession`), a
+restatement link at
 `POST /v1/decisions/{id}/restatements`, and the rest through its MCP tools (`move_decision`,
 `retitle_decision`, `ground_decision`, `request_decision`, `scan_decision_quality`).
 So do the `project` verbs, `ingest slack-thread`, `tui` and `tenant create` (the cell provisions

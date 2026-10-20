@@ -31,6 +31,7 @@ pub mod scorer;
 pub mod slack_app;
 pub mod suggest;
 pub mod summarize;
+pub(crate) mod supersession_link;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub(crate) mod util;

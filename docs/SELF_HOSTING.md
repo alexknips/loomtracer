@@ -418,7 +418,7 @@ JWT) the default is the MCP session's agent, `agent:mcp-http:<session>`, and not
 the person: an agent's write must not be recorded as `human:<email>`, where a
 chosen option would self-accept as that person. On top of that, `capture_decision`,
 `capture_evidence`, `capture_hypothesis`, `disagree_decision`, `supersede_decision`,
-and `move_decision` all accept an optional `actor_id` argument that, when present,
+`link_supersession`, and `move_decision` all accept an optional `actor_id` argument that, when present,
 overrides the default for that one call
 (`src/api/mcp_http.rs::mcp_resolve_actor`; verified against
 a running cell — a `tools/call capture_decision` with
