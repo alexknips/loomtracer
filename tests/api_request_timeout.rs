@@ -6,9 +6,12 @@
 //! does not stop. The client was told the write failed when it was recorded, and a client that
 //! retried recorded it twice.
 //!
-//! A held SQLite write lock makes both kinds of request slow the way a loaded host does: every
-//! ledger open runs `INSERT OR IGNORE INTO tenants`, a write statement, so it waits for the lock.
-//! The router under test cuts a read off after 250 ms instead of 30 s.
+//! A held SQLite lock makes a request slow the way a loaded host does. A write waits on the write
+//! lock: its append is a write statement. A read does not: opening an initialized ledger issues no
+//! write statement (hivemind-x9028), so a running append no longer queues it. The read tests take
+//! the whole file instead, with a connection in exclusive locking mode, which every other
+//! connection's first read waits behind. The router under test cuts a read off after 250 ms
+//! instead of 30 s.
 //!
 //! A write tool called through `POST /mcp` is a write like any other `POST`; a read tool called
 //! there is cut off like a `GET`.
@@ -135,6 +138,16 @@ fn hold_write_lock(hivemind_dir: &Path) -> rusqlite::Connection {
     lock
 }
 
+/// Takes the whole ledger file, readers included, and keeps it until the returned connection is
+/// dropped. In exclusive locking mode SQLite keeps its file lock past COMMIT, so closing the
+/// connection is the release.
+fn hold_ledger_exclusively(hivemind_dir: &Path) -> rusqlite::Connection {
+    let lock = rusqlite::Connection::open(ledger_path(hivemind_dir)).expect("open ledger");
+    lock.execute_batch("PRAGMA locking_mode=EXCLUSIVE; BEGIN IMMEDIATE")
+        .expect("take the ledger");
+    lock
+}
+
 #[tokio::test]
 async fn a_write_slower_than_the_read_timeout_is_not_cut_off_and_is_recorded_once() {
     let dir = test_ledger_dir();
@@ -194,9 +207,9 @@ async fn a_read_slower_than_the_read_timeout_answers_408() {
     let (status, health) = call(default_app(&dir), get_req("/v1/health")).await;
     assert_eq!(status, StatusCode::OK, "warm-up health: {health}");
 
-    let lock = hold_write_lock(&dir);
+    let lock = hold_ledger_exclusively(&dir);
     let (status, body) = call(short_timeout_app(&dir), get_req("/v1/health")).await;
-    lock.execute_batch("COMMIT").expect("release lock");
+    drop(lock);
 
     assert_eq!(
         status,
@@ -332,14 +345,14 @@ async fn a_read_tool_over_mcp_slower_than_the_read_timeout_answers_a_timeout_err
     assert_eq!(status, StatusCode::OK, "warm-up read: {warm}");
     assert_eq!(warm["result"]["isError"], false, "warm-up read: {warm}");
 
-    let lock = hold_write_lock(&dir);
+    let lock = hold_ledger_exclusively(&dir);
     let (status, body) = tokio::time::timeout(
         Duration::from_secs(10),
         call(short_timeout_app(&dir), post_json("/mcp", read)),
     )
     .await
     .expect("a read tool is cut off at the read timeout, not left running");
-    lock.execute_batch("COMMIT").expect("release lock");
+    drop(lock);
 
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["result"]["isError"], true, "{body}");
