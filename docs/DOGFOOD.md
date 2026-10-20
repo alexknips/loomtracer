@@ -79,12 +79,14 @@ Every event has an actor. Dogfood captures use these actor id prefixes:
 - `agent:codex:<name>` for Codex sessions.
 - `human:<email-or-name>` for manual terminal writes by a human.
 
-`<name>` is a **stable** identity, not a raw session id: a Gas City agent
+`<name>` is stable only where something stable names it: a Gas City agent
 resolves it from `GC_AGENT`/`GC_ALIAS` (a fixed crew/polecat/refinery slot
-name that survives process restarts) before ever falling back to a raw
-per-run session id. Folding a raw session id in here would make the same
-physical agent appear as a different actor on every restart
-(hivemind-zdsh.9).
+name that survives process restarts), and `HIVEMIND_AGENT_SESSION` or
+`--session-id` pins any other name. Without one of those it falls back to the
+raw per-run session id, which makes the same physical agent appear as a
+different actor on every restart (hivemind-zdsh.9); the MCP server makes up
+`mcp-<uuid>` when the client passes no session id at all. Outside Gas City, set
+`HIVEMIND_AGENT_SESSION` to keep one actor.
 
 The actor identifies who took the action. The event source identifies the
 capture surface:
@@ -245,8 +247,9 @@ client can pass a stable session id, add it after the `mcp` subcommand:
 ["--hivemind-dir", "/data/projects/hivemind/hivemind/", "mcp", "--agent-tool", "codex", "--session-id", "session-123"]
 ```
 
-If no session id is supplied, the MCP server generates one for that server
-process. The MCP `capture_decision`, `capture_evidence`, and
+If no session id is supplied (flag, `HIVEMIND_AGENT_SESSION`, Gas City's
+`GC_AGENT`/`GC_ALIAS` or the client's own session variable), the MCP server
+generates one for that server process, so each process is its own actor. The MCP `capture_decision`, `capture_evidence`, and
 `capture_hypothesis` tools default `actor_id` to
 `agent:<tool>:<name>` and write with `source=agent`.
 

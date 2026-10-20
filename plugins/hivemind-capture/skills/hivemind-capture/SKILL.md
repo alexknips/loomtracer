@@ -453,18 +453,19 @@ ledger write must stay explicit and deterministic.
    ```
 
    The helper records `source=agent` and derives `actor_id=agent:<tool>:<name>`.
-   The `<name>` is a **stable identity**, not a raw session id: Gas City's
-   `GC_AGENT` (mirrored in `GC_ALIAS`) is checked first, because it names a
-   fixed crew/polecat/refinery slot that survives process restarts. Only when
+   The `<name>` is stable only inside Gas City: `GC_AGENT` (mirrored in
+   `GC_ALIAS`) is checked first, because it names a fixed
+   crew/polecat/refinery slot that survives process restarts. Only when
    neither is set does the helper fall back to a raw per-run session id
    (`CODEX_THREAD_ID`/`CODEX_SESSION_ID`/`CODEX_TASK_ID` for Codex,
    `CLAUDE_SESSION_ID`/`CLAUDE_CODE_SESSION_ID` for Claude Code), then Gas
-   City's session-instance variables, then `manual-session`. Folding a raw
-   session id into `actor_id` would make the same physical agent appear as a
-   different actor on every restart (hivemind-zdsh.9) -- `source_ref` is where
-   that per-run session id belongs instead: the helper sets it to the raw
-   session id when one exists, or to `actor_id` only when it doesn't, unless
-   explicitly overridden.
+   City's session-instance variables, then `manual-session`, so outside Gas
+   City each session is its own actor; pass `--agent-session <name>` to keep
+   one. Folding a raw session id into `actor_id` makes the same physical agent
+   appear as a different actor on every restart (hivemind-zdsh.9) --
+   `source_ref` is where that per-run session id belongs instead: the helper
+   sets it to the raw session id when one exists, or to `actor_id` only when
+   it doesn't, unless explicitly overridden.
 
    The CLI applies the same stable-identity-first resolution for Codex and
    Claude unless `--actor-id` is explicitly provided. Use

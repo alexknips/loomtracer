@@ -96,7 +96,7 @@ before graph reads.
 `actor_id` remains the provenance identity recorded on events. Existing agent
 naming conventions stay valid:
 
-- `agent:codex:<name>` (a stable identity, not a raw session id)
+- `agent:codex:<name>` (a name that stays the same from one session to the next)
 - `agent:claude:<name>`
 - `human:<stable-human-label>`
 - `service:<service-name>`

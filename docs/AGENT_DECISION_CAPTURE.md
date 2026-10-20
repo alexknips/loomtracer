@@ -179,10 +179,14 @@ fan-out relation events carry:
 
 - `source=agent`
 - `actor_id=agent:<tool>:<name>` unless `--actor-id` is provided. `<name>` is
-  a stable identity, not a raw session id: Gas City's `GC_AGENT`/`GC_ALIAS`
-  is checked before Claude or Codex session variables (which are freshly
-  generated on every run and would otherwise make the same physical agent
-  look like a different actor after every restart, hivemind-zdsh.9);
+  stable only where something stable names it: `HIVEMIND_AGENT_SESSION`, then
+  Gas City's `GC_AGENT`/`GC_ALIAS`, are checked before Claude or Codex session
+  variables (which are freshly generated on every run and would otherwise make
+  the same physical agent look like a different actor after every restart,
+  hivemind-zdsh.9). With none of them set, `<name>` is that per-run session id
+  (with no session id either, the CLI uses `manual-session` and the MCP server
+  makes up `mcp-<uuid>`), so each session is its own actor; set
+  `HIVEMIND_AGENT_SESSION` to keep one.
   `--agent-tool` and `--agent-session` are explicit overrides. `<tool>` is the
   `--agent-tool` flag, else `HIVEMIND_AGENT_TOOL`/`HIVEMIND_TOOL` or the Claude
   or Codex session variables, else `unknown` -- never a guessed `codex`. The MCP
@@ -752,8 +756,8 @@ This repository also ships a project-local Claude Code command:
 The command calls `.claude/scripts/capture-decision.sh`. By default it records
 manual slash-command captures as `actor_id=human:<git-user>` with
 `source=human`. Pass `--source agent` when Claude Code is recording an
-autonomous agent decision; that uses `agent:claude:<name>` (a stable
-identity, not a raw session id) and `source=agent`.
+autonomous agent decision; that uses `agent:claude:<name>` (stable under Gas City
+or `HIVEMIND_AGENT_SESSION`, otherwise the per-run session id) and `source=agent`.
 
 ### Claude Code Distribution Bundle
 
@@ -774,8 +778,9 @@ enables `hivemind-capture@hivemind` so trusted checkouts prompt contributors to
 install it. The plugin includes:
 
 - `/hivemind-capture:capture-decision`, which defaults to
-  `actor_id=agent:claude:<name>` (a stable identity, not a raw session id)
-  and prints a one-line confirmation plus a query suggestion.
+  `actor_id=agent:claude:<name>` (stable under Gas City or
+  `HIVEMIND_AGENT_SESSION`, otherwise the per-run session id) and prints a
+  one-line confirmation plus a query suggestion.
 - `/hivemind-capture:query-decisions`, which answers "what did we decide
   about X?" via the fluent `query recall` verb — free text first, never a
   decision id. For single-decision follow-up (rationale, still-holds check,
@@ -839,8 +844,9 @@ This repository ships `plugins/hivemind-capture`, exposed through
 `$hivemind-capture` skill, which keeps the direct CLI as the write path, asks the
 same "what does this rest on?" and "what does it bind, and what would undoing it
 cost?" questions as the Claude skill, and uses the same
-actor-id convention as Claude: `agent:codex:<name>` and `agent:claude:<name>` (a
-stable identity, not a raw session id).
+actor-id convention as Claude: `agent:codex:<name>` and `agent:claude:<name>`
+(`<name>` is stable under Gas City or `HIVEMIND_AGENT_SESSION`, otherwise the
+per-run session id).
 
 Install from a HiveMind checkout by starting Codex in the repository, opening
 `/plugins`, choosing `HiveMind Plugins`, and installing `HiveMind Capture`.

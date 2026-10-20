@@ -129,8 +129,8 @@ There is no decision-request kind to capture either: a request goes to your
 tracker.
 
 Default to `--source agent`, which records `actor_id=agent:claude:<name>`
-(a stable identity, preferring Gas City's `GC_AGENT`/`GC_ALIAS` over a raw
-session id) and `source=agent`. Use `--source human` only when the user
+(Gas City's `GC_AGENT`/`GC_ALIAS` when set, otherwise the raw session id, so
+outside Gas City each session is its own actor) and `source=agent`. Use `--source human` only when the user
 explicitly asks you to record their write as human-authored.
 
 A decision's confirmation also names its project (`project: billing

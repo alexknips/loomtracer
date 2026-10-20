@@ -134,7 +134,8 @@ Codex users can install the HiveMind capture bundle from
 `.agents/plugins/marketplace.json` or copy
 `plugins/hivemind-capture/skills/hivemind-capture` into `$HOME/.agents/skills/`.
 The bundle points Codex at `hivemind emit decision.capture` and preserves the
-actor format `agent:codex:<name>` (a stable identity, not a raw session id).
+actor format `agent:codex:<name>` (the name is stable under Gas City or
+`HIVEMIND_AGENT_SESSION`, otherwise the session id).
 
 A new human contributor should be able to read this file, [`VISION.md`](VISION.md), [`PRINCIPLES.md`](PRINCIPLES.md), [`STRATEGY.md`](STRATEGY.md), and the currently-ready beads, and understand the project's direction and architecture in **under an hour**. If they can't, the documentation is wrong.
 

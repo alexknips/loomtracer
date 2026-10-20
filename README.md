@@ -42,8 +42,8 @@ cargo run -- --actor human:alice quickstart
 
 Every write carries actor provenance. Use `--actor` to override the actor with
 a stable human id such as `human:alice` or an agent id such as
-`agent:codex:<name>` (a stable identity, not a raw session id). If `--actor`
-is omitted, the CLI falls back to
+`agent:codex:<name>` (a name that stays the same from one session to the next).
+If `--actor` is omitted, the CLI falls back to
 `HIVEMIND_ACTOR`, then `human:<git config user.email>`, then a local user name. When
 the environment shows an agent (an agent tool or session variable, or a Gas City
 identity), the fallback is that agent's `agent:<tool>:<name>` instead of the git
@@ -491,12 +491,19 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `summarize_decisions` | layer-3 | decision digest |
 
 `actor_id` is optional on every capture tool. Left out, it defaults to
-`agent:<tool>:<name>` (a stable identity, not a raw session id), where the tool
-is `--agent-tool` if given, else taken from the environment, else from the MCP
-client's own name (`claude` for Claude Code, `codex` for Codex). Pass `actor_id`
-to record a different actor. The server records `source=agent` for every write;
-pass `--session-id` to override the generated session default. Anonymous writes
-are still impossible: the underlying `Commands` API requires a non-empty actor.
+`agent:<tool>:<name>`, where the tool is `--agent-tool` if given, else taken from
+the environment, else from the MCP client's own name (`claude` for Claude Code,
+`codex` for Codex). The `<name>` stays the same across sessions only when
+something names it, first match wins: `--session-id`, `HIVEMIND_AGENT_SESSION`,
+or a Gas City agent's `GC_AGENT`/`GC_ALIAS`. With none of those it is the
+client's own session id (`CLAUDE_CODE_SESSION_ID` under Claude Code), or a fresh
+`mcp-<uuid>` for each server process when the client passes none, so every
+session records under a new actor and one person's agent shows up as many. To
+keep one actor outside Gas City, start your client with `HIVEMIND_AGENT_SESSION`
+set (say `alice-laptop`), or pass `actor_id` on every call. Pass `actor_id` to
+record a different actor. The server records `source=agent` for every write.
+Anonymous writes are still impossible: the underlying `Commands` API requires a
+non-empty actor.
 
 `HIVEMIND_DIR` selects the ledger directory if `--hivemind-dir` is not set.
 

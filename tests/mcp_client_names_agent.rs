@@ -213,6 +213,92 @@ fn the_environment_wins_over_the_client_handshake() -> TestResult<()> {
     Ok(())
 }
 
+// hivemind-oyr8n: the README says how the `<name>` of the default actor is chosen and that
+// outside Gas City, with nothing to name it, every session is its own actor. These pin
+// both claims against the real binary.
+
+#[test]
+fn with_nothing_naming_the_session_each_mcp_server_is_its_own_actor() -> TestResult<()> {
+    let client = || Some(json!({"name": "claude-code", "version": "2.0.0"}));
+    let first = mcp_capture_actor("fresh-a", &[], &[], client())?;
+    let second = mcp_capture_actor("fresh-b", &[], &[], client())?;
+    for actor in [&first, &second] {
+        assert!(
+            actor.starts_with("agent:claude:mcp-"),
+            "expected a made-up per-process session name, got {actor}"
+        ); // ubs:ignore: test-only assertion
+    }
+    assert_ne!(first, second);
+    Ok(())
+}
+
+/// One case: a label, the server's extra arguments, its environment, and the actor expected.
+type SessionCase<'a> = (&'a str, &'a [&'a str], &'a [(&'a str, &'a str)], &'a str);
+
+#[test]
+fn the_mcp_session_name_comes_from_the_first_of_flag_env_pin_gas_city_then_client_session(
+) -> TestResult<()> {
+    let client = || Some(json!({"name": "claude-code", "version": "2.0.0"}));
+    let cases: [SessionCase; 6] = [
+        (
+            "client-session",
+            &[],
+            &[("CLAUDE_CODE_SESSION_ID", "run-1")],
+            "agent:claude:run-1",
+        ),
+        (
+            "gc-alias",
+            &[],
+            &[("CLAUDE_CODE_SESSION_ID", "run-1"), ("GC_ALIAS", "slot-a")],
+            "agent:claude:slot-a",
+        ),
+        (
+            "gc-agent",
+            &[],
+            &[
+                ("CLAUDE_CODE_SESSION_ID", "run-1"),
+                ("GC_ALIAS", "slot-a"),
+                ("GC_AGENT", "slot-b"),
+            ],
+            "agent:claude:slot-b",
+        ),
+        (
+            "env-pin",
+            &[],
+            &[
+                ("CLAUDE_CODE_SESSION_ID", "run-1"),
+                ("GC_AGENT", "slot-b"),
+                ("HIVEMIND_AGENT_SESSION", "alice-laptop"),
+            ],
+            "agent:claude:alice-laptop",
+        ),
+        (
+            "flag",
+            &["--session-id", "from-flag"],
+            &[
+                ("CLAUDE_CODE_SESSION_ID", "run-1"),
+                ("GC_AGENT", "slot-b"),
+                ("HIVEMIND_AGENT_SESSION", "alice-laptop"),
+            ],
+            "agent:claude:from-flag",
+        ),
+        (
+            "env-pin-alone",
+            &[],
+            &[("HIVEMIND_AGENT_SESSION", "alice-laptop")],
+            "agent:claude:alice-laptop",
+        ),
+    ];
+    for (label, server_args, envs, expected) in cases {
+        let first = mcp_capture_actor(label, server_args, envs, client())?;
+        assert_eq!(first, expected, "{label}");
+        // A second server with the same pin is the same actor, which is the point of a pin.
+        let second = mcp_capture_actor(label, server_args, envs, client())?;
+        assert_eq!(second, expected, "{label}, second server");
+    }
+    Ok(())
+}
+
 #[test]
 fn a_plain_cli_agent_capture_with_nothing_to_go_on_is_not_filed_as_codex() -> TestResult<()> {
     let scratch = Scratch::new("cli")?;
