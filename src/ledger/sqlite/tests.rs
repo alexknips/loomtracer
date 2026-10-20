@@ -355,14 +355,17 @@ fn opening_a_ledger_stamped_before_the_event_id_index_adds_it() -> Result<()> {
     Ok(())
 }
 
-/// `EXPLAIN QUERY PLAN` of `sql` with its parameters unbound, one line per plan step.
+/// `EXPLAIN QUERY PLAN` of `sql` with every parameter NULL, one line per plan step.
 fn query_plan(ledger: &SqliteEventLedger, sql: &str) -> Result<String> {
     let mut statement = ledger
         .connection
         .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
         .map_err(storage_error)?;
+    let unbound = (0..statement.parameter_count()).map(|_| rusqlite::types::Value::Null);
     let steps = statement
-        .query_map([], |row| row.get::<_, String>(3))
+        .query_map(rusqlite::params_from_iter(unbound), |row| {
+            row.get::<_, String>(3)
+        })
         .map_err(storage_error)?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(storage_error)?;
