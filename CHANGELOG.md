@@ -728,6 +728,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   link when concurrent supersessions both survive): 28 days in that example. A supersession
   recorded without a time keeps the replacement's date; a link recorded before the decision it
   replaces still leaves the figure out. (hivemind-ot2gf)
+- **One tenant's graph refresh no longer stalls every other tenant's reads, and a SQLite
+  refresh no longer scans the whole tenant for one new event.** The server kept every tenant's
+  graph behind one lock, and a refresh after a write cloned the tenant's graph, replayed into
+  it and freed the old one with that lock held, so on a cell-sized ledger about a quarter of
+  another tenant's reads waited 2 ms or more, up to 99 ms. Each tenant now has its own refresh
+  lock: the clone and the replay run with no cache lock held, the cache is locked only to swap
+  the new graph in, and the replaced one is freed after the locks are released. Two refreshes
+  of one tenant still run one after the other, so no event is applied twice. On SQLite the read
+  of the events after the last one applied, and the read of the latest offset, planned as a scan
+  of the tenant's whole type index and a sort (22 ms on 150,000 events on a quiet host); a new
+  index on `(tenant_id, event_id)` makes both a search. The index is built the first time a
+  ledger is opened by this release; no event changes. (hivemind-cfiff)
 - **Nine MCP tools are written once, so stdio and `POST /mcp` refuse a bad argument in the
   same words, and stdio no longer lists tools it cannot run.** `capture_evidence`,
   `capture_hypothesis`, `get_decision`, `get_relevant_decisions`, `search_decisions`,

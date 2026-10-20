@@ -2,13 +2,14 @@
 //! [`MemoryGraph`] cache shared by every read handler across the API
 //! (avoids replaying the whole ledger on each request).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
-use crate::events::TenantId;
+use crate::events::{EventId, TenantId};
 use crate::ledger::EventLedger;
 use crate::projector::{
     memory::MemoryGraph, project_from_ledger_for_tenant_reporting, GraphParams, GraphRow,
@@ -17,9 +18,7 @@ use crate::projector::{
 use crate::queries::{oriented_edges, reaffirmation_arrows, DecisionStandings};
 
 use super::auth::extract_ctx;
-use super::{
-    respond, ApiBackend, ApiError, ApiLedger, ApiRequestCtx, ApiResult, AppState, GraphCache,
-};
+use super::{respond, ApiBackend, ApiError, ApiLedger, ApiRequestCtx, ApiResult, AppState};
 
 /// A single node in the decision graph, as returned by GET /v1/graph.
 #[derive(Debug, serde::Serialize)]
@@ -283,6 +282,68 @@ fn graph_value_to_json(v: &GraphValue) -> serde_json::Value {
 // Graph cache — shared by every handler that needs a projected MemoryGraph.
 // ---------------------------------------------------------------------------
 
+/// The projected graph of every tenant that has been read, shared by every read handler.
+///
+/// Each tenant has a slot of its own, so one tenant's refresh never holds up another tenant's
+/// reads: the map of slots is locked for a lookup, and a slot is locked to read or swap the graph
+/// it publishes, never while a graph is cloned, replayed into or freed (hivemind-cfiff).
+#[derive(Default)]
+pub(super) struct GraphCache {
+    slots: RwLock<HashMap<TenantId, Arc<TenantGraph>>>,
+}
+
+#[derive(Default)]
+struct TenantGraph {
+    /// Held for a whole refresh, so the refreshes of one tenant run one after another and each
+    /// starts from the graph the one before it published: no event is applied twice.
+    refresh: Mutex<()>,
+    /// The graph the last refresh published and the last event it applied.
+    published: RwLock<Option<(EventId, Arc<MemoryGraph>)>>,
+}
+
+impl GraphCache {
+    fn slot(&self, tenant_id: &TenantId) -> ApiResult<Arc<TenantGraph>> {
+        {
+            let slots = self.slots.read().map_err(|_| cache_poisoned())?;
+            if let Some(slot) = slots.get(tenant_id) {
+                return Ok(Arc::clone(slot));
+            }
+        }
+        let mut slots = self.slots.write().map_err(|_| cache_poisoned())?;
+        Ok(Arc::clone(slots.entry(tenant_id.clone()).or_default()))
+    }
+}
+
+impl TenantGraph {
+    fn published(&self) -> ApiResult<Option<(EventId, Arc<MemoryGraph>)>> {
+        let published = self.published.read().map_err(|_| cache_poisoned())?;
+        Ok(published
+            .as_ref()
+            .map(|(offset, graph)| (*offset, Arc::clone(graph))))
+    }
+
+    /// The published graph when it has applied every event up to `latest`.
+    fn published_through(&self, latest: EventId) -> ApiResult<Option<Arc<MemoryGraph>>> {
+        let published = self.published.read().map_err(|_| cache_poisoned())?;
+        Ok(published
+            .as_ref()
+            .filter(|(offset, _)| *offset >= latest)
+            .map(|(_, graph)| Arc::clone(graph)))
+    }
+
+    /// Swaps in `graph`. The write lock is held for the swap only, and what it replaces is not
+    /// freed here: the caller still holds it and frees it after the refresh lock is released.
+    fn publish(&self, applied_through: EventId, graph: Arc<MemoryGraph>) -> ApiResult<()> {
+        let mut published = self.published.write().map_err(|_| cache_poisoned())?;
+        *published = Some((applied_through, graph));
+        Ok(())
+    }
+}
+
+fn cache_poisoned() -> ApiError {
+    graph_err("graph cache poisoned")
+}
+
 /// Return a projected graph for `tenant_id`, served from the in-memory cache
 /// when the ledger offset is unchanged, or rebuilt incrementally otherwise.
 pub(super) fn get_cached_graph(
@@ -293,43 +354,42 @@ pub(super) fn get_cached_graph(
     let latest = ledger
         .latest_offset_for_tenant(tenant_id)
         .map_err(graph_err)?;
+    let slot = cache.slot(tenant_id)?;
 
-    // Fast path: read lock — no allocation when the offset matches.
-    {
-        let guard = cache
-            .read()
-            .map_err(|_| graph_err("graph cache poisoned"))?;
-        if let Some((cached_offset, graph)) = guard.get(tenant_id) {
+    // Fast path: no allocation when the offset matches.
+    if let Some(graph) = slot.published_through(latest)? {
+        return Ok(graph);
+    }
+
+    // Slow path: one refresh per tenant at a time. The replaced graph is freed once the refresh
+    // lock is released too, so the next refresh of this tenant does not wait for the free.
+    let (new_graph, _replaced) = {
+        let _refreshing = slot.refresh.lock().map_err(|_| cache_poisoned())?;
+
+        // The refresh that held the lock before this one may have applied what this one is for.
+        let published = slot.published()?;
+        if let Some((cached_offset, graph)) = &published {
             if *cached_offset >= latest {
                 return Ok(Arc::clone(graph));
             }
         }
-    }
 
-    // Slow path: acquire write lock, double-check, then project.
-    let mut guard = cache
-        .write()
-        .map_err(|_| graph_err("graph cache poisoned"))?;
-    if let Some((cached_offset, graph)) = guard.get(tenant_id) {
-        if *cached_offset >= latest {
-            return Ok(Arc::clone(graph));
-        }
-    }
-
-    let (base_graph, base_offset) = match guard.get(tenant_id) {
-        Some((cached_offset, cached_graph)) => (cached_graph.as_ref().clone(), *cached_offset),
-        None => (MemoryGraph::default(), 0),
+        let (base_graph, base_offset) = match &published {
+            Some((cached_offset, cached_graph)) => (cached_graph.as_ref().clone(), *cached_offset),
+            None => (MemoryGraph::default(), 0),
+        };
+        let report =
+            project_from_ledger_for_tenant_reporting(ledger, tenant_id, &base_graph, base_offset)
+                .map_err(graph_err)?;
+        base_graph.note_unreadable_annotations(report.unreadable_annotations);
+        let new_graph = Arc::new(base_graph);
+        // The last event the replay applied, not the `latest` read before it: the replay runs to
+        // the end of the ledger, so an event appended since that read is in this graph and the
+        // next refresh must not apply it again.
+        let applied_through = report.last_event_id.unwrap_or(base_offset);
+        slot.publish(applied_through, Arc::clone(&new_graph))?;
+        (new_graph, published)
     };
-    let report =
-        project_from_ledger_for_tenant_reporting(ledger, tenant_id, &base_graph, base_offset)
-            .map_err(graph_err)?;
-    base_graph.note_unreadable_annotations(report.unreadable_annotations);
-    let new_graph = Arc::new(base_graph);
-    // The last event the replay applied, not the `latest` read before it: the replay runs to the
-    // end of the ledger, so an event appended since that read is in this graph and the next
-    // refresh must not apply it again.
-    let applied_through = report.last_event_id.unwrap_or(base_offset);
-    guard.insert(tenant_id.clone(), (applied_through, Arc::clone(&new_graph)));
     Ok(new_graph)
 }
 

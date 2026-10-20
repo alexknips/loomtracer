@@ -24,7 +24,7 @@ const SQLITE_BUSY_TIMEOUT_MS: u64 = 30_000;
 const SQLITE_LOCK_RETRY_SLEEP_MS: u64 = 10;
 /// Stamped into the file's `PRAGMA user_version` once `initialize_schema` has brought it
 /// current. Bump it with any change to that function so existing ledgers run it again.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug)]
 pub struct SqliteEventLedger {
@@ -435,6 +435,13 @@ fn initialize_schema(connection: &Connection) -> Result<()> {
         connection.execute_batch(
             "CREATE INDEX IF NOT EXISTS events_tenant_type_idx
                  ON events (tenant_id, type, event_id);",
+        )?;
+        // Serves the reads that start after an event id (`read`, `replay_from`) and the latest
+        // offset: without it each plans as a scan of the tenant's whole type index and a sort, so
+        // a graph refresh for one new event read every event of the tenant.
+        connection.execute_batch(
+            "CREATE INDEX IF NOT EXISTS events_tenant_event_idx
+                 ON events (tenant_id, event_id);",
         )?;
         connection.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         Ok(())

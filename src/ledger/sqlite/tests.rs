@@ -27,7 +27,7 @@ use crate::util::require_agent_actor_id;
 use crate::Result;
 
 use super::super::backend_error::storage_error;
-use super::{SqliteEventLedger, SCHEMA_VERSION};
+use super::{replay_events_sql, SqliteEventLedger, SCHEMA_VERSION};
 
 #[test]
 fn append_assigns_monotonic_ids() -> Result<()> {
@@ -300,6 +300,73 @@ fn opening_a_ledger_from_before_the_schema_stamp_migrates_it_and_keeps_its_event
     assert_eq!(kept, 1);
     assert_eq!(stamped, SCHEMA_VERSION);
     Ok(())
+}
+
+#[test]
+fn a_read_after_an_event_id_searches_the_tenant_index_instead_of_scanning_the_tenant() -> Result<()>
+{
+    with_sqlite_ledger("event-id-index-plan", |ledger| {
+        for sql in [
+            replay_events_sql(),
+            "SELECT COALESCE(MAX(event_id), 0) FROM events WHERE tenant_id = ?1".to_owned(),
+        ] {
+            let plan = query_plan(ledger, &sql)?;
+            assert!(
+                plan.contains("events_tenant_event_idx"),
+                "`{sql}` should use the (tenant_id, event_id) index: {plan}"
+            );
+            assert!(
+                !plan.contains("SCAN") && !plan.contains("TEMP B-TREE"),
+                "`{sql}` should search, not scan and sort: {plan}"
+            );
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn opening_a_ledger_stamped_before_the_event_id_index_adds_it() -> Result<()> {
+    let dir = temp_hivemind_dir("event-id-index-migration");
+    let ledger = SqliteEventLedger::open(&dir)?;
+    ledger
+        .connection
+        .execute_batch("DROP INDEX events_tenant_event_idx; PRAGMA user_version = 1;")
+        .map_err(storage_error)?;
+    drop(ledger);
+
+    let ledger = SqliteEventLedger::open(&dir)?;
+    let indexes: i64 = ledger
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'events_tenant_event_idx'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    let stamped: i64 = ledger
+        .connection
+        .query_row("PRAGMA user_version;", [], |row| row.get(0))
+        .map_err(storage_error)?;
+    let _ = fs::remove_dir_all(&dir);
+
+    assert_eq!(indexes, 1);
+    assert_eq!(stamped, SCHEMA_VERSION);
+    Ok(())
+}
+
+/// `EXPLAIN QUERY PLAN` of `sql` with its parameters unbound, one line per plan step.
+fn query_plan(ledger: &SqliteEventLedger, sql: &str) -> Result<String> {
+    let mut statement = ledger
+        .connection
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .map_err(storage_error)?;
+    let steps = statement
+        .query_map([], |row| row.get::<_, String>(3))
+        .map_err(storage_error)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(storage_error)?;
+    Ok(steps.join("; "))
 }
 
 #[test]

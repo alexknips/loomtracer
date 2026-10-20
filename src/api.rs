@@ -120,14 +120,14 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing::warn;
 
 use crate::error::{CliError, CommandError, HivemindError, LedgerError};
-use crate::events::{EventId, TenantId};
+use crate::events::TenantId;
 use crate::ledger::{AnyLedger, SqliteEventLedger, SqliteUserStore};
 #[cfg(feature = "shared-backend-postgres")]
 use crate::ledger::{PostgresEventLedger, TenantStore};
-use crate::projector::memory::MemoryGraph;
 use crate::queries::{DecisionStatus, QueryResponse};
 
 use self::auth::{CachedJwks, WorkosConfig};
+use self::graph::GraphCache;
 
 mod auth;
 mod body_timeout;
@@ -142,7 +142,6 @@ type ApiResult<T> = std::result::Result<T, ApiError>;
 /// Cache key: (tenant_id, ledger_offset, alpha.to_bits())
 type MapCacheKey = (String, u64, u64);
 type MapCache = Arc<Mutex<HashMap<MapCacheKey, crate::map::MapResult>>>;
-type GraphCache = RwLock<HashMap<TenantId, (EventId, Arc<MemoryGraph>)>>;
 
 /// How long a read (GET, HEAD, OPTIONS, or a read tool over `POST /mcp`) may run before the
 /// server cuts it off, and how long a request body may go without a byte before the server
@@ -502,7 +501,7 @@ impl AppState {
                 tenant_store: Some(store),
                 workos_config: workos_config.clone(),
                 workos_jwks: Arc::clone(&workos_jwks),
-                graph_cache: Arc::new(RwLock::new(HashMap::new())),
+                graph_cache: Arc::new(GraphCache::default()),
                 spa_dir: config.spa_dir.clone(),
                 cors_origins: config.cors_origins.clone(),
                 map_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -530,7 +529,7 @@ impl AppState {
             tenant_store: None,
             workos_config,
             workos_jwks,
-            graph_cache: Arc::new(RwLock::new(HashMap::new())),
+            graph_cache: Arc::new(GraphCache::default()),
             spa_dir: config.spa_dir.clone(),
             cors_origins: config.cors_origins.clone(),
             map_cache: Arc::new(Mutex::new(HashMap::new())),
