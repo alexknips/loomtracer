@@ -26,7 +26,8 @@
 //! tool is added here, with a row in [`TOOL_KINDS`], and wired into both
 //! dispatch tables.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Map, Value};
@@ -300,6 +301,58 @@ pub(crate) fn tool_kind(name: &str) -> Option<ToolKind> {
 /// True for every tool that reads the ledger's decisions back.
 pub(crate) fn tool_reads_decisions(name: &str) -> bool {
     tool_kind(name) == Some(ToolKind::ReadDecisions)
+}
+
+/// The top-level argument names each tool's `inputSchema.properties` lists, by tool name.
+fn tool_argument_names() -> &'static HashMap<String, Vec<String>> {
+    static NAMES: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        super::tool_definitions()
+            .iter()
+            .filter_map(|tool| {
+                let name = tool.get("name")?.as_str()?;
+                let listed = tool
+                    .pointer("/inputSchema/properties")
+                    .and_then(Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect())
+                    .unwrap_or_default();
+                Some((name.to_owned(), listed))
+            })
+            .collect()
+    })
+}
+
+/// Refuse a `tools/call` that sends an argument the tool's schema does not list. A parser reads
+/// the keys it knows and skips the rest, so without this check a misspelt or wrong-tool argument
+/// (`query` for `q`, `decided_by` on `link_supersession`) runs as if it was never sent and the
+/// caller believes it took effect. Both transports call this before dispatch; a name that is not
+/// a tool passes, and the dispatch answers "unknown tool". Top-level keys only: the nested
+/// objects that must be closed say so in their own schema.
+pub(crate) fn reject_unknown_arguments(
+    tool: &str,
+    arguments: &Map<String, Value>,
+) -> Result<(), CoreError> {
+    let Some(listed) = tool_argument_names().get(tool) else {
+        return Ok(());
+    };
+    let unknown: Vec<String> = arguments
+        .keys()
+        .filter(|key| !listed.contains(key))
+        .map(|key| format!("`{key}`"))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let takes = if listed.is_empty() {
+        "takes no arguments".to_owned()
+    } else {
+        format!("takes: {}", listed.join(", "))
+    };
+    Err(CoreError::InvalidArgument(format!(
+        "unknown argument{} {}; {tool} {takes}",
+        if unknown.len() == 1 { "" } else { "s" },
+        unknown.join(", "),
+    )))
 }
 
 /// The tools that append events to the ledger, in [`TOOL_KINDS`] order. The site's reference

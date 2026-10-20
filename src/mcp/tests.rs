@@ -181,6 +181,45 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
 }
 
 #[test]
+fn every_tool_takes_the_arguments_its_schema_lists_and_refuses_any_other() {
+    // One call per tool made of only schema-listed keys passes the check; the same call plus a
+    // stray key is refused, and the refusal names the stray key and every real one.
+    use crate::mcp::core::reject_unknown_arguments;
+    let tools = crate::mcp::tool_definitions();
+    assert!(!tools.is_empty());
+    for tool in &tools {
+        let name = tool["name"].as_str().expect("string name"); // ubs:ignore: test-only; panicking is correct in tests
+        let listed: Vec<String> = tool["inputSchema"]["properties"]
+            .as_object()
+            .map(|properties| properties.keys().cloned().collect())
+            .unwrap_or_default();
+        let mut call: serde_json::Map<String, Value> = listed
+            .iter()
+            .map(|key| (key.clone(), Value::Null))
+            .collect();
+        assert!(
+            reject_unknown_arguments(name, &call).is_ok(),
+            "{name} refuses its own arguments"
+        ); // ubs:ignore: test-only assertion
+        call.insert("no_such_argument".to_owned(), json!(1));
+        let refusal = reject_unknown_arguments(name, &call)
+            .expect_err(name) // ubs:ignore: test-only; panicking is correct in tests
+            .into_message();
+        assert!(
+            refusal.starts_with("unknown argument `no_such_argument`; "),
+            "{name}: {refusal}"
+        ); // ubs:ignore: test-only assertion
+        assert!(
+            listed.iter().all(|key| refusal.contains(key.as_str())),
+            "{name}: {refusal} leaves out a real argument of {listed:?}"
+        ); // ubs:ignore: test-only assertion
+    }
+    // A name that is not a tool passes: the dispatch answers "unknown tool".
+    let stray: serde_json::Map<String, Value> = [("x".to_owned(), json!(1))].into_iter().collect();
+    assert!(reject_unknown_arguments("no_such_tool", &stray).is_ok()); // ubs:ignore: test-only assertion
+}
+
+#[test]
 fn the_http_only_tools_are_the_tools_whose_description_says_so() {
     // One list says which tools stdio leaves out, and the tools' own descriptions say it to the
     // reader of the reference. They must not name different tools.
@@ -2404,7 +2443,7 @@ mod transport_parity {
                 ("get_decision_neighborhood", json!({"decision_id": id})),
                 ("get_decision_outcome", json!({"decision_id": id})),
                 ("score_decision", json!({"decision_id": id})),
-                ("search_decisions", json!({"query": "sqlite"})),
+                ("search_decisions", json!({"q": "sqlite"})),
                 ("recent_decisions", json!({"since": "2020-01-01T00:00:00Z"})),
                 ("dump_graph", json!({})),
             ]
@@ -3734,6 +3773,88 @@ mod transport_parity {
             ); // ubs:ignore: test-only assertion
             let recorded = events_of(dir, crate::events::EventType::DecisionSuperseded);
             assert_eq!(recorded.len(), 1, "{name}: {recorded:?}"); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // An argument the tool does not list is refused (hivemind-smxrq)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn an_argument_the_tool_does_not_list_is_refused_naming_it_and_the_real_ones_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-unknown-argument");
+        let http_dir = unique_dir("parity-http-unknown-argument");
+        let pairs = seed_link_pair(&stdio_dir, &http_dir).await;
+
+        for (name, dir, old_id, new_id) in &pairs {
+            let offset_before = ledger_offset(dir);
+
+            // `query` is the natural guess for `q`; it used to run unfiltered with no error.
+            let recall = call_on(name, dir, "recall_decisions", json!({"query": "projects"})).await;
+            let result = &recall["result"];
+            assert_eq!(result["isError"], true, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let text = error_text(result);
+            assert!(
+                text.starts_with("unknown argument `query`; recall_decisions takes: "),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            for real in ["q", "limit", "topic", "project"] {
+                assert!(text.contains(real), "{name}: {text} lacks {real}"); // ubs:ignore: test-only assertion
+            }
+            let answered = call_on(name, dir, "recall_decisions", json!({"q": "projects"})).await;
+            assert_eq!(answered["result"]["isError"], false, "{name}: {answered:?}"); // ubs:ignore: test-only assertion
+
+            // `link_supersession` has no `decided_by`; the REST route refuses it, so must MCP.
+            let link = call_on(
+                name,
+                dir,
+                "link_supersession",
+                json!({
+                    "actor_id": LINKER,
+                    "old_decision_id": old_id,
+                    "new_decision_id": new_id,
+                    "decided_by": ALEX,
+                }),
+            )
+            .await;
+            let result = &link["result"];
+            assert_eq!(result["isError"], true, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                error_text(result),
+                "unknown argument `decided_by`; link_supersession takes: actor_id, new_decision_id, old_decision_id",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            // Every stray key is named, and a tool with no arguments says so.
+            let many = call_on(
+                name,
+                dir,
+                "get_decision",
+                json!({"decision_id": old_id, "b": 1, "a": 2}),
+            )
+            .await;
+            let text = error_text(&many["result"]).to_owned();
+            assert!(text.starts_with("unknown arguments `"), "{name}: {text}"); // ubs:ignore: test-only assertion
+            assert!(
+                text.contains("`a`") && text.contains("`b`"),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            let dump = call_on(name, dir, "dump_graph", json!({"limit": 5})).await;
+            assert_eq!(
+                error_text(&dump["result"]),
+                "unknown argument `limit`; dump_graph takes no arguments",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            assert_eq!(
+                ledger_offset(dir),
+                offset_before,
+                "{name}: a refused call writes nothing"
+            ); // ubs:ignore: test-only assertion
         }
 
         let _ = std::fs::remove_dir_all(&stdio_dir);

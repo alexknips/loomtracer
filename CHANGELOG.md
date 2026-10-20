@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Breaking changes
 
+- **An MCP tool call that sends an argument the tool does not take is refused.** A tool used to
+  read the keys it knew and skip the rest, so `recall_decisions` with `query` (it takes `q`) ran
+  unfiltered and `link_supersession` with `decided_by` succeeded without carrying it, while
+  `POST /v1/decisions/{id}/supersession-links` refused the same field with 400. Over stdio and
+  `POST /mcp` alike, a `tools/call` whose top-level `arguments` hold a key outside the tool's
+  `inputSchema.properties` now answers a tool error (`isError: true`) that names the key and
+  lists the tool's real arguments (`unknown argument `query`; recall_decisions takes: ...`), and
+  nothing is read or written. A client that sent a stray key and got a result must drop it.
+  (hivemind-smxrq)
 - **Every capture says what the decision binds and what undoing it would cost.** The CLI
   `emit decision.capture` and `supersede` take `--binds <what>` or `--binds-nothing`, and
   `--undo-cost <what>` or `--cheap-to-undo`: one of each pair is required. The MCP tools

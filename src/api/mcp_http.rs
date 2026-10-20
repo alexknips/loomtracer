@@ -207,6 +207,10 @@ fn mcp_tools_call_blocking(
         _ => return Err((-32602, "`arguments` must be an object".into())),
     };
 
+    if let Err(refused) = crate::mcp::core::reject_unknown_arguments(&name, &args) {
+        return Ok(mcp_tool_err(refused.into_message()));
+    }
+
     let actor_id = mcp_resolve_actor(&args, &ctx.actor_id, session_id);
 
     let outcome: McpToolResult = match name.as_str() {

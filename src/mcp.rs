@@ -373,6 +373,14 @@ fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, R
     };
     let arguments = obj.remove("arguments").unwrap_or(Value::Object(Map::new()));
 
+    // An argument the tool does not list is refused, not skipped: stdio answers an HTTP-only
+    // tool "unknown tool", which a stray argument must not pre-empt.
+    if let (Value::Object(given), false) = (&arguments, core::tool_is_http_only(&name)) {
+        if let Err(refused) = core::reject_unknown_arguments(&name, given) {
+            return Ok(tool_error(RpcError::from(refused).message));
+        }
+    }
+
     let outcome = match name.as_str() {
         "capture_decision" => tool_capture_decision(arguments, config),
         "capture_evidence" => tool_capture_evidence(arguments, config),
