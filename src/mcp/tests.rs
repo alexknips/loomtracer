@@ -3467,6 +3467,244 @@ mod transport_parity {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // link_supersession (hivemind-4p0xd)
+    // -----------------------------------------------------------------------
+
+    const LINKER: &str = "agent:claude:hivemind-crew";
+    const ALEX: &str = "human:alex.knips@gmail.com";
+
+    /// A decision the crew captured on its own (`decided_by` absent) or one a person decided
+    /// (`decided_by` set, which needs the option the person chose).
+    fn linkable_capture(title: &str, decided_by: Option<&str>) -> Value {
+        let mut args = json!({
+            "actor_id": LINKER,
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
+            "grounding": [{"kind": "bet"}],
+            "title": title,
+            "rationale": "seed for the link_supersession parity tests, long enough to read",
+            "topic_keys": ["parity"],
+            "options": [{"label": "only"}],
+        });
+        if let Some(decider) = decided_by {
+            args["chosen_option_label"] = json!("only");
+            args["decided_by"] = json!(decider);
+        }
+        args
+    }
+
+    /// Captures the crew's combined record and the person's own answer on each transport:
+    /// `[(name, dir, old_id, new_id)]`.
+    async fn seed_link_pair(
+        stdio_dir: &std::path::Path,
+        http_dir: &std::path::Path,
+    ) -> [(&'static str, std::path::PathBuf, String, String); 2] {
+        let id_of = |response: &Value| -> String {
+            response["result"]["structuredContent"]["decision_id"]
+                .as_str() // ubs:ignore: test-only; chain continues to expect
+                .expect("decision id") // ubs:ignore: test-only; panicking is correct in tests
+                .to_owned()
+        };
+        let old = linkable_capture("One combined projects record", None);
+        let new = linkable_capture("Eight answers on projects", Some(ALEX));
+        let stdio_old = id_of(&stdio_call(stdio_dir, "capture_decision", old.clone()));
+        let stdio_new = id_of(&stdio_call(stdio_dir, "capture_decision", new.clone()));
+        let http_old = id_of(&http_call(http_dir, "capture_decision", old).await);
+        let http_new = id_of(&http_call(http_dir, "capture_decision", new).await);
+        [
+            ("stdio", stdio_dir.to_path_buf(), stdio_old, stdio_new),
+            ("http", http_dir.to_path_buf(), http_old, http_new),
+        ]
+    }
+
+    async fn call_on(name: &str, dir: &std::path::Path, tool: &str, arguments: Value) -> Value {
+        if name == "stdio" {
+            stdio_call(dir, tool, arguments)
+        } else {
+            http_call(dir, tool, arguments).await
+        }
+    }
+
+    fn events_of(
+        dir: &std::path::Path,
+        event_type: crate::events::EventType,
+    ) -> Vec<crate::events::Event> {
+        let ledger = SqliteEventLedger::open(dir).expect("ledger opens"); // ubs:ignore: test-only; panicking is correct in tests
+        ledger
+            .read(0, 1000)
+            .expect("read events") // ubs:ignore: test-only; panicking is correct in tests
+            .into_iter()
+            .filter(|event| event.event_type == event_type)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn link_supersession_replaces_one_recorded_decision_with_another_and_keeps_the_decider_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-link-supersession");
+        let http_dir = unique_dir("parity-http-link-supersession");
+        let pairs = seed_link_pair(&stdio_dir, &http_dir).await;
+
+        for (name, dir, old_id, new_id) in &pairs {
+            let linked = call_on(
+                name,
+                dir,
+                "link_supersession",
+                json!({
+                    "actor_id": LINKER,
+                    "old_decision_id": old_id,
+                    "new_decision_id": new_id,
+                }),
+            )
+            .await;
+            let result = &linked["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let reply = &result["structuredContent"];
+            assert_eq!(reply["linked"], true, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["old_decision_id"], json!(old_id), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["new_decision_id"], json!(new_id), "{name}"); // ubs:ignore: test-only assertion
+
+            // One event, said by the linker, naming the two decisions; neither was captured again.
+            let recorded = events_of(dir, crate::events::EventType::DecisionSuperseded);
+            assert_eq!(recorded.len(), 1, "{name}: {recorded:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].actor_id, LINKER, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].payload["old_decision_id"],
+                json!(old_id),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].payload["new_decision_id"],
+                json!(new_id),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(reply["event_id"], json!(recorded[0].event_id), "{name}"); // ubs:ignore: test-only assertion
+            let proposed = events_of(dir, crate::events::EventType::DecisionProposed);
+            assert_eq!(proposed.len(), 2, "{name}: the link creates no decision"); // ubs:ignore: test-only assertion
+
+            // The old decision reads superseded, the new one still stands.
+            let old = call_on(name, dir, "get_decision", json!({"decision_id": old_id})).await;
+            assert_eq!(
+                old["result"]["structuredContent"]["data"]["status"], "superseded",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            let new = call_on(name, dir, "get_decision", json!({"decision_id": new_id})).await;
+            assert_eq!(
+                new["result"]["structuredContent"]["data"]["status"], "accepted",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            // The new decision keeps the person as its decider; the linker is not recorded as one.
+            let context = call_on(
+                name,
+                dir,
+                "get_decision_context",
+                json!({"decision_id": new_id}),
+            )
+            .await;
+            let data = &context["result"]["structuredContent"]["data"];
+            assert_eq!(
+                data["authorship"], "agent_proposed_human_accepted",
+                "{name}: {data:?}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(data["proposer_id"], LINKER, "{name}"); // ubs:ignore: test-only assertion
+
+            // The chain walks old -> new from either end.
+            for from in [old_id, new_id] {
+                let chain = call_on(
+                    name,
+                    dir,
+                    "get_supersession_chain",
+                    json!({"decision_id": from}),
+                )
+                .await;
+                assert_eq!(
+                    chain["result"]["structuredContent"]["data"]["decision_ids"],
+                    json!([old_id, new_id]),
+                    "{name}: chain from {from}"
+                ); // ubs:ignore: test-only assertion
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn link_supersession_refuses_unknown_same_and_looping_links_and_writes_nothing_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-link-supersession-refused");
+        let http_dir = unique_dir("parity-http-link-supersession-refused");
+        let pairs = seed_link_pair(&stdio_dir, &http_dir).await;
+
+        for (name, dir, old_id, new_id) in &pairs {
+            let link = |old: &str, new: &str| json!({"actor_id": LINKER, "old_decision_id": old, "new_decision_id": new});
+            let first = call_on(name, dir, "link_supersession", link(old_id, new_id)).await;
+            assert_eq!(first["result"]["isError"], false, "{name}: {first:?}"); // ubs:ignore: test-only assertion
+            let offset_after_link = ledger_offset(dir);
+
+            // Said again, the same link writes nothing and says why.
+            let again = call_on(name, dir, "link_supersession", link(old_id, new_id)).await;
+            let reply = &again["result"]["structuredContent"];
+            assert_eq!(again["result"]["isError"], false, "{name}: {again:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["linked"], false, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["event_id"], Value::Null, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                reply["already_linked_through"],
+                json!([new_id, old_id]),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            for (label, old, new, expected) in [
+                (
+                    "unknown old",
+                    "decision-nope",
+                    new_id.as_str(),
+                    "decision is not recorded",
+                ),
+                (
+                    "unknown new",
+                    old_id.as_str(),
+                    "decision-nope",
+                    "decision is not recorded",
+                ),
+                (
+                    "same id",
+                    old_id.as_str(),
+                    old_id.as_str(),
+                    "cannot supersede itself",
+                ),
+                (
+                    "reverse",
+                    new_id.as_str(),
+                    old_id.as_str(),
+                    "would close a loop",
+                ),
+            ] {
+                let refused = call_on(name, dir, "link_supersession", link(old, new)).await;
+                let result = &refused["result"];
+                assert_eq!(result["isError"], true, "{name} {label}: {result:?}"); // ubs:ignore: test-only assertion
+                let text = error_text(result);
+                assert!(text.contains(expected), "{name} {label}: {text}"); // ubs:ignore: test-only assertion
+                assert!(
+                    text.ends_with("nothing was written"),
+                    "{name} {label}: {text}"
+                ); // ubs:ignore: test-only assertion
+            }
+            assert_eq!(
+                ledger_offset(dir),
+                offset_after_link,
+                "{name}: refusals and repeats write nothing"
+            ); // ubs:ignore: test-only assertion
+            let recorded = events_of(dir, crate::events::EventType::DecisionSuperseded);
+            assert_eq!(recorded.len(), 1, "{name}: {recorded:?}"); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
     #[tokio::test]
     async fn supersede_decision_resolves_unique_description_across_transports() {
         let (stdio, http) = run_seeded(

@@ -2574,6 +2574,160 @@ async fn classify_queue_submit_links_a_restatement_and_does_not_record_the_same_
 }
 
 // ---------------------------------------------------------------------------
+// Linking two recorded decisions as superseded-by over HTTP (hivemind-4p0xd):
+// `POST /v1/decisions/{id}/supersession-links`, so a person's own answer can replace an earlier
+// record without being captured again under the caller's name.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_supersession_link_is_the_tokens_own_and_the_newer_decision_keeps_its_decider() {
+    use hivemind::events::{EventType, TenantId};
+    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+
+    let dir = test_ledger_dir();
+    let admin_key = "supersession-link-admin";
+    let app = app_with_admin_key(dir.clone(), admin_key);
+    let (status, minted) = call(
+        app.clone(),
+        admin_post(
+            "/v1/agent-tokens",
+            serde_json::json!({"agent_tool": "claude", "agent_name": "curator"}),
+            admin_key,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{minted}");
+    let token = minted["token_secret"].as_str().expect("token").to_owned();
+
+    // The crew's combined record, and the person's own answer captured with its real decider.
+    let old_id = capture_for_graph(
+        &dir,
+        "One combined projects record",
+        Some("Option one"),
+        None,
+    )
+    .await;
+    let new_id = capture_for_graph(
+        &dir,
+        "Eight answers on projects",
+        Some("Option one"),
+        Some("human:alex"),
+    )
+    .await;
+    let proposed = ledger_len(&dir);
+
+    let link = |newer: &str, older: &str| {
+        authed_post(
+            &format!("/v1/decisions/{newer}/supersession-links"),
+            serde_json::json!({ "supersedes_id": older }),
+            &token,
+        )
+    };
+
+    let (status, linked) = call(app.clone(), link(&new_id, &old_id)).await;
+    assert_eq!(status, StatusCode::OK, "{linked}");
+    assert_eq!(linked["linked"], true, "{linked}");
+    assert_eq!(linked["new_decision_id"], new_id, "{linked}");
+    assert_eq!(linked["old_decision_id"], old_id, "{linked}");
+    let event_id = linked["event_id"].as_u64().expect("the new event");
+    assert_eq!(event_id, proposed + 1, "{linked}");
+
+    // One `decision.superseded` by the token's actor (`authed_post` also sends a spoofed actor
+    // header, which must not be believed); no decision was captured again.
+    let ledger = SqliteEventLedger::open(&dir).expect("opens ledger");
+    let event = ledger
+        .read_for_tenant(&TenantId::local(), event_id - 1, 1)
+        .expect("reads")
+        .remove(0);
+    assert_eq!(event.event_id, Some(event_id));
+    assert_eq!(event.event_type, EventType::DecisionSuperseded);
+    assert_eq!(event.actor_id, "agent:claude:curator");
+    assert_eq!(event.payload["old_decision_id"], old_id);
+    assert_eq!(event.payload["new_decision_id"], new_id);
+
+    // The old decision reads superseded; the new one stands and keeps the person as decider.
+    let (status, old) = call(app.clone(), get_req(&format!("/v1/decisions/{old_id}"))).await;
+    assert_eq!(status, StatusCode::OK, "{old}");
+    assert_eq!(old["data"]["status"], "superseded", "{old}");
+    let (status, new) = call(app.clone(), get_req(&format!("/v1/decisions/{new_id}"))).await;
+    assert_eq!(status, StatusCode::OK, "{new}");
+    assert_eq!(new["data"]["status"], "accepted", "{new}");
+    let (status, graph) = call(app.clone(), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "{graph}");
+    assert_eq!(
+        graph_decision(&graph, &new_id)["deciders"],
+        serde_json::json!([{"id": "human:alex", "kind": "human"}]),
+        "the person stays the decider of the newer decision: {graph}"
+    );
+    assert_eq!(
+        graph_decision(&graph, &old_id)["deciders"],
+        serde_json::json!([{"id": "agent:test:session-1", "kind": "agent"}]),
+        "the link adds no decider to the older one: {graph}"
+    );
+    let (status, chain) = call(
+        app.clone(),
+        get_req(&format!("/v1/decisions/{old_id}/supersession-chain")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{chain}");
+    assert_eq!(
+        chain["data"]["decision_ids"],
+        serde_json::json!([old_id, new_id]),
+        "{chain}"
+    );
+
+    // A pair already linked writes nothing, and says it is linked.
+    let after_link = ledger_len(&dir);
+    let (status, again) = call(app.clone(), link(&new_id, &old_id)).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["linked"], false, "{again}");
+    assert_eq!(again["event_id"], Value::Null, "{again}");
+    assert_eq!(
+        again["already_linked_through"],
+        serde_json::json!([new_id, old_id]),
+        "{again}"
+    );
+
+    // An id that is not recorded (either side), a decision replacing itself, the reverse of a
+    // link that holds (a loop) and a body that is not just `supersedes_id` are refused, 4xx.
+    for (newer, older) in [
+        ("decision-nobody-recorded-this", old_id.as_str()),
+        (new_id.as_str(), "decision-nobody-recorded-this"),
+        (new_id.as_str(), new_id.as_str()),
+        (old_id.as_str(), new_id.as_str()),
+    ] {
+        let (status, refused) = call(app.clone(), link(newer, older)).await;
+        assert!(
+            status.is_client_error(),
+            "{newer} <- {older}: {status} {refused}"
+        );
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{newer} <- {older}: {refused}"
+        );
+        assert_eq!(ledger_len(&dir), after_link, "a refusal writes nothing");
+    }
+    for body in [
+        serde_json::json!({ "supersedes_id": old_id, "title": "a new replacement" }),
+        serde_json::json!({ "restates_id": old_id }),
+        serde_json::json!({}),
+    ] {
+        let (status, refused) = call(
+            app.clone(),
+            authed_post(
+                &format!("/v1/decisions/{new_id}/supersession-links"),
+                body.clone(),
+                &token,
+            ),
+        )
+        .await;
+        assert!(status.is_client_error(), "{body} -> {status} {refused}");
+        assert_eq!(ledger_len(&dir), after_link, "a refusal writes nothing");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Restatements over HTTP (hivemind-h4kr): `GET /v1/restatements/proposals` and
 // `POST /v1/decisions/{id}/restatements`, so a cell is curated with a token and nobody needs
 // its database password.
