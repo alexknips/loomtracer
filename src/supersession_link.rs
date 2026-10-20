@@ -86,12 +86,10 @@ pub(crate) fn link_supersession<L: EventLedger>(
             "decision {old_decision_id} cannot supersede itself; nothing was written"
         )));
     }
-    for id in [old_decision_id, new_decision_id] {
-        if get_decision(graph, id)?.data.is_none() {
-            return Ok(SupersessionLinkOutcome::Refused(format!(
-                "decision is not recorded: {id}; nothing was written"
-            )));
-        }
+    if let Some(id) = first_unrecorded(graph, [old_decision_id, new_decision_id])? {
+        return Ok(SupersessionLinkOutcome::Refused(format!(
+            "decision is not recorded: {id}; nothing was written"
+        )));
     }
 
     if let Some(chain) = supersedes_path(graph, old_decision_id, new_decision_id)? {
@@ -130,6 +128,16 @@ pub(crate) fn link_supersession<L: EventLedger>(
         event_id: Some(event_id),
         already_linked_through: None,
     }))
+}
+
+/// The first of `ids` that is not a recorded decision, in the order given.
+fn first_unrecorded<'a>(graph: &impl GraphView, ids: [&'a str; 2]) -> Result<Option<&'a str>> {
+    for id in ids {
+        if get_decision(graph, id)?.data.is_none() {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
 }
 
 /// `"<title>" (<id>)`, or just the id for a decision the graph has no title for.
