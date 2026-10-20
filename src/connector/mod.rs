@@ -1165,7 +1165,7 @@ fn split_markdown(text: &str) -> Vec<Statement> {
             let heading = line.trim().trim_start_matches('#').trim();
             if has_decision_keywords(heading) {
                 results.push(Statement {
-                    text: heading.to_owned(),
+                    text: heading.to_owned(), // ubs:ignore: Statement owns its text; one String per decision-stating heading
                     byte_span: (line_start, line_end),
                 });
             }
