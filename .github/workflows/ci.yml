@@ -146,6 +146,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/check_plugin_against_release.py --repo "$GITHUB_REPOSITORY"
 
+  # The web UI (web/) and the bundle format it reads (packages/reasoning/) are one npm workspace at
+  # the repository root. This builds and tests it; the browser tests (web/e2e) start a scratch
+  # `hivemind serve` and need a built binary and a Playwright Chromium, so they run locally.
+  web:
+    name: Web UI (build and unit tests)
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspace=web
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-latest

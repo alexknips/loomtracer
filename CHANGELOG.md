@@ -148,6 +148,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A web UI in `web/` reads a HiveMind server over its HTTP API.** It is Jeff Miao's Loomtracer
+  UI (a Next.js app, imported with its history from `TheChairmanMiao/neurofilament`), moved off
+  Supabase: `HIVEMIND_API_URL` and a bearer token in `HIVEMIND_API_KEY`, read on the server side
+  only, are all it needs. Pages: `/graph` (a project's decisions as a timeline, a trace map and
+  their records, replayed in ledger order, with status on every decision and `contested` its own),
+  `/search`, `/decisions/<id>`, `/review` (proposed, contested, unanswered, no stated ground) and
+  `/projects`, plus Jeff's local bundle inspector and landing page. It reads and does not write;
+  sign-in, teams, tokens and accepting or rejecting a decision are left out because the HTTP API
+  has no endpoint for them (`web/HIVEMIND_API_MAP.md` lists each, and what the server would need).
+  It has no login of its own: run it on a loopback address or behind your own access control.
+  `npm ci` at the repository root, then `npm run dev --workspace=web`; `web/README.md` has the
+  rest, and CI builds and tests the workspace. The Rust server is unchanged. (hivemind-hqbd9)
 - **A cell can link two decisions that are already recorded as superseded-by, so a person's
   replacement is not recorded as the agent's.** The MCP tool `link_supersession`
   (`old_decision_id`, `new_decision_id`; stdio and `POST /mcp`) and REST
