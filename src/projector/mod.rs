@@ -1,7 +1,7 @@
 //! Projector trait and graph types: replays ledger events into a live in-memory graph view.
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde::Serialize;
 
@@ -2552,20 +2552,38 @@ fn project_capture_decision(
         )?;
     }
     // Options: project Option nodes + HAS_OPTION/CHOSE edges.
+    let mut weighed: BTreeSet<String> = BTreeSet::new();
     if let Some(options) = &capture.options {
         for option_label in options {
             let opt_id = option_node_id(node_id, option_label);
-            let mut opt_props = origin_properties.clone(); // ubs:ignore: per-option props copy; each Option node needs a fresh map with a distinct "label" entry
-            opt_props.insert("label".to_owned(), GraphValue::String(option_label.clone())); // ubs:ignore: per-option label; key alloc + value clone differ per iteration — unavoidable with BTreeMap<String,…>
-            graph.upsert_node(NodeKind::Option, &opt_id, &opt_props)?;
+            upsert_option_label(graph, &opt_id, option_label, origin_properties)?;
             graph.upsert_edge(RelationKind::HasOption, node_id, &opt_id, origin_properties)?;
+            weighed.insert(opt_id);
         }
     }
     if let Some(chosen) = &capture.chosen_option {
         let opt_id = option_node_id(node_id, chosen);
+        // The classifier may name a chosen label that is not one of the weighed options, or name
+        // a choice and no options at all. The CHOSE edge still needs its option: a line to a node
+        // the graph does not hold reads as no choice. The option is not weighed, so no HAS_OPTION.
+        if !weighed.contains(&opt_id) {
+            upsert_option_label(graph, &opt_id, chosen, origin_properties)?;
+        }
         graph.upsert_edge(RelationKind::Chose, node_id, &opt_id, origin_properties)?;
     }
     Ok(())
+}
+
+/// The Option node `opt_id`, labelled with the words the capture recorded.
+fn upsert_option_label(
+    graph: &impl GraphView,
+    opt_id: &str,
+    label: &str,
+    origin_properties: &GraphProperties,
+) -> Result<()> {
+    let mut opt_props = origin_properties.clone(); // ubs:ignore: per-option props copy; each Option node needs a fresh map with a distinct "label" entry
+    opt_props.insert("label".to_owned(), GraphValue::String(label.to_owned())); // ubs:ignore: per-option label; key alloc + value copy differ per call — unavoidable with BTreeMap<String,…>
+    graph.upsert_node(NodeKind::Option, opt_id, &opt_props)
 }
 
 fn project_capture_evidence(

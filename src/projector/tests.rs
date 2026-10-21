@@ -3064,6 +3064,118 @@ fn classified_batch_decision_projects_node_and_actor_edges() -> Result<()> {
     Ok(())
 }
 
+/// A classifier draft can name a chosen label that is not one of the options it weighed, or a
+/// choice and no options at all. Its CHOSE edge still ends at an Option node, so no reader finds
+/// an edge to a node the graph does not hold (docs/GRAPH_CONTRACT.md: every page edge has both
+/// ends in `nodes[]`), and only the weighed options are HAS_OPTION.
+#[test]
+fn classified_decision_chosen_option_outside_the_weighed_ones_is_an_option_node() -> Result<()> {
+    let capture = |title: &str, options: serde_json::Value, chosen: &str| {
+        let mut capture = classified_decision_capture(Some("human:alice"), &[], &[]);
+        capture["title"] = json!(title);
+        capture["options"] = options;
+        capture["chosen_option"] = json!(chosen);
+        capture
+    };
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(event(
+        EventType::IngestBatchClassified,
+        "agent:claude:classifier",
+        json!({
+            "batch_id": "batch:1",
+            "classifier_model": "claude-haiku-4-5-20251001",
+            "schema_version": "2",
+            "captures": [
+                capture("Weighed choice", json!(["slop", "cooper"]), "cooper"),
+                capture("Both benchmarks", json!(["slop", "cooper"]), "slop and cooper"),
+                capture("Choice alone", json!(null), "ship it Friday"),
+            ]
+        }),
+    ))?;
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let nodes = graph.nodes();
+    let edges = graph.edges();
+    let decision_id = |title: &str| {
+        nodes
+            .iter()
+            .find(|((kind, _), props)| {
+                *kind == NodeKind::Decision
+                    && props.get("title") == Some(&GraphValue::String(title.to_owned()))
+            })
+            .map(|((_, id), _)| id.clone())
+            .expect("decision node from capture") // ubs:ignore
+    };
+    let chose = |decision: &str| -> Vec<String> {
+        edges
+            .keys()
+            .filter(|(relation, from, _)| *relation == RelationKind::Chose && from == decision)
+            .map(|(_, _, to)| to.clone())
+            .collect()
+    };
+    let weighed = |decision: &str| -> Vec<String> {
+        edges
+            .keys()
+            .filter(|(relation, from, _)| *relation == RelationKind::HasOption && from == decision)
+            .map(|(_, _, to)| to.clone())
+            .collect()
+    };
+    let label = |option: &str| {
+        nodes
+            .get(&(NodeKind::Option, option.to_owned()))
+            .and_then(|props| props.get("label").cloned())
+    };
+
+    for (relation, _, to) in edges.keys() {
+        if *relation == RelationKind::Chose {
+            assert!(
+                // ubs:ignore
+                nodes.contains_key(&(NodeKind::Option, to.clone())),
+                "CHOSE edge to {to} has no Option node"
+            );
+        }
+    }
+
+    let off_list = decision_id("Both benchmarks");
+    let [off_list_choice] = chose(&off_list).try_into().expect("one CHOSE edge"); // ubs:ignore
+    assert_eq!(
+        // ubs:ignore
+        label(&off_list_choice),
+        Some(GraphValue::String("slop and cooper".to_owned()))
+    );
+    assert_eq!(weighed(&off_list).len(), 2);
+    assert!(
+        // ubs:ignore
+        !weighed(&off_list).contains(&off_list_choice),
+        "an option nobody weighed is not HAS_OPTION"
+    );
+
+    let alone = decision_id("Choice alone");
+    let [alone_choice] = chose(&alone).try_into().expect("one CHOSE edge"); // ubs:ignore
+    assert_eq!(
+        // ubs:ignore
+        label(&alone_choice),
+        Some(GraphValue::String("ship it Friday".to_owned()))
+    );
+    assert!(weighed(&alone).is_empty()); // ubs:ignore
+
+    // A weighed choice is the one node both edges end at, labelled as it was weighed.
+    let weighed_choice = decision_id("Weighed choice");
+    let [chosen] = chose(&weighed_choice).try_into().expect("one CHOSE edge"); // ubs:ignore
+    assert!(
+        // ubs:ignore
+        weighed(&weighed_choice).contains(&chosen),
+        "a weighed choice is HAS_OPTION too"
+    );
+    assert_eq!(
+        // ubs:ignore
+        label(&chosen),
+        Some(GraphValue::String("cooper".to_owned()))
+    );
+    Ok(())
+}
+
 /// One `decision` capture as the classifier writes it, naming `actor_id`, `accepted_by` and
 /// `rejected_by` and nothing else about who decided.
 fn classified_decision_capture(

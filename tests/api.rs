@@ -4199,6 +4199,154 @@ async fn graph_of_one_project_is_a_bounded_page_that_the_cursor_walks() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A classifier draft whose chosen label is not one of the options it weighed, or that names a
+/// choice and no options, has its chosen option in `nodes[]` like any other: every edge of a
+/// project's page, of a decision's page and of the whole graph has both its ends in it, and the
+/// option nobody weighed is not `HAS_OPTION`.
+#[tokio::test]
+async fn graph_of_a_draft_that_chose_an_option_it_did_not_weigh_holds_the_chosen_option() {
+    use hivemind::commands::{CommandContext, Commands};
+    use hivemind::events::{CaptureItem, EventProvenance, TenantId};
+    use hivemind::ledger::SqliteEventLedger;
+
+    let dir = test_ledger_dir();
+    {
+        let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+        let commands = Commands::new_with_context(
+            &ledger,
+            CommandContext::new(TenantId::local(), EventProvenance::agent("agent:test")),
+        );
+        let batch_event_id = commands
+            .record_ingest_batch("agent:test", "session-x:0-4", "claude", "session-x", vec![])
+            .expect("records the batch");
+        let draft = |title: &str, options: Option<Vec<&str>>, chosen: &str| CaptureItem {
+            kind: "decision".to_owned(),
+            title: title.to_owned(),
+            rationale: "A stated, self-contained reason that reads without the conversation"
+                .to_owned(),
+            topic_keys: vec!["benchmarks".to_owned()],
+            evidence_ids: vec![],
+            options: options.map(|labels| labels.into_iter().map(str::to_owned).collect()),
+            chosen_option: Some(chosen.to_owned()),
+            extraction_confidence: 0.85,
+            expressed_confidence: None,
+            supersedes_id: None,
+            premised_on_ids: vec![],
+            supports_ids: vec![],
+            refutes_ids: vec![],
+            actor_id: None,
+            accepted_by: vec![],
+            rejected_by: vec![],
+            blocked_actor_id: None,
+            decision_id: None,
+            participants: vec![],
+            restates_id: None,
+            source_turn_id: None,
+            source_ts: None,
+            question: None,
+            session_initiator: None,
+        };
+        commands
+            .record_ingest_batch_classified(
+                "agent:hivemind:classifier",
+                &["session-x:0-4".to_owned()],
+                "claude-haiku-4-5-20251001",
+                "1",
+                vec![
+                    draft(
+                        "Run both benchmark suites",
+                        Some(vec!["slopcodebench", "cooperbench"]),
+                        "slopcodebench and cooperbench",
+                    ),
+                    draft("Ship the report on Friday", None, "ship on Friday"),
+                ],
+                Some(batch_event_id),
+            )
+            .expect("records the classification");
+    }
+
+    let (status, whole) = call(app(dir.clone()), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "{whole}"); // ubs:ignore
+    assert_graph_is_closed_and_edges_once(&whole);
+    let drafts: Vec<(String, String)> = ["Run both benchmark suites", "Ship the report on Friday"]
+        .into_iter()
+        .map(|title| {
+            let decision = whole["decisions"]
+                .as_array()
+                .expect("decisions array")
+                .iter()
+                .find(|decision| decision["title"] == title)
+                .unwrap_or_else(|| panic!("{title} is in the graph: {whole}"));
+            (
+                decision["id"].as_str().expect("id").to_owned(),
+                decision["project"].as_str().expect("project").to_owned(),
+            )
+        })
+        .collect();
+    let project = drafts[0].1.clone();
+    assert_eq!(drafts[1].1, project, "both drafts are one project's"); // ubs:ignore
+
+    let chosen_option = |page: &Value, decision: &str| -> Value {
+        let edge = page["edges"]
+            .as_array()
+            .expect("edges array")
+            .iter()
+            .find(|edge| {
+                edge["relation"] == "CHOSE" && edge["from"] == format!("Decision:{decision}")
+            })
+            .unwrap_or_else(|| panic!("{decision} has a CHOSE edge: {page}"));
+        page["nodes"]
+            .as_array()
+            .expect("nodes array")
+            .iter()
+            .find(|node| node["id"] == edge["to"])
+            .unwrap_or_else(|| panic!("the chosen option of {decision} is in nodes[]: {page}"))
+            .clone()
+    };
+    let weighs = |page: &Value, decision: &str, option: &Value| {
+        page["edges"]
+            .as_array()
+            .expect("edges array")
+            .iter()
+            .any(|edge| {
+                edge["relation"] == "HAS_OPTION"
+                    && edge["from"] == format!("Decision:{decision}")
+                    && edge["to"] == option["id"]
+            })
+    };
+
+    let (status, page) = call(
+        app(dir.clone()),
+        get_req(&format!("/v1/graph?project={project}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page}"); // ubs:ignore
+    assert_graph_is_closed_and_edges_once(&page);
+    let (off_list, _) = &drafts[0];
+    let option = chosen_option(&page, off_list);
+    assert_eq!(option["kind"], "Option", "{option}"); // ubs:ignore
+    assert_eq!(option["title"], "slopcodebench and cooperbench", "{option}"); // ubs:ignore
+    assert!(
+        !weighs(&page, off_list, &option),
+        "nobody weighed it: {page}"
+    ); // ubs:ignore
+    let (alone, _) = &drafts[1];
+    let option = chosen_option(&page, alone);
+    assert_eq!(option["title"], "ship on Friday", "{option}"); // ubs:ignore
+
+    for (decision, _) in &drafts {
+        let (status, page) = call(
+            app(dir.clone()),
+            get_req(&format!("/v1/graph?decision={decision}")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{page}"); // ubs:ignore
+        assert_graph_is_closed_and_edges_once(&page);
+        chosen_option(&page, decision);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A decision of another project at the far end of an edge is named, with its own row, and is
 /// not followed.
 #[tokio::test]

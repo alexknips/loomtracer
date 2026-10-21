@@ -800,6 +800,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `/v1/decisions/capture%3A105186%3A3`, and `/decisions/capture:105186:3` written out with its
   colons opens the same page. A `decision-<uuid>` page is unchanged. The Rust server is
   unchanged. (hivemind-4ruxj)
+- **A classifier draft's chosen option is always in the graph, so a page edge never ends at a node
+  `nodes[]` lacks.** A draft whose chosen label was not one of the options it weighed (or that
+  named a choice and no options) was projected with a `CHOSE` edge to an Option node nobody
+  created. On the cell that left 34 `CHOSE` edges of `GET /v1/graph` ending at nothing, so the
+  page of a project (`?project=`), which promises both ends of every edge in `nodes[]`, broke the
+  promise, and the web UI dropped those edges: a draft like `capture:106622:0` showed no chosen
+  option. The projector now creates the chosen Option node, labelled with the words the capture
+  recorded; it is not `HAS_OPTION`, as nobody weighed it. The server's graph is rebuilt from the
+  ledger on start, so a restart carries existing drafts across; nothing is rewritten.
+  (hivemind-yeb7a)
 - **`GET /v1/graph` returns each edge once.** A capture asserts its option, chosen and assumption
   edges twice in the ledger (inside `decision.proposed` and again as `relation.added`), and the
   in-memory graph the server answers from kept both, so a ledger of 1,845 decisions answered 796

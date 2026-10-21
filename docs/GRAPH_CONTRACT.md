@@ -107,7 +107,9 @@ a reader needs without reconstructing them from edges:
   recorded). A label recorded as a slug or a lettered code (`name-a-upheld`) is read as words
   (`Upheld`) when the ledger is replayed; the node then also carries `recorded_as`, the text the
   capture recorded, so a page that shows the words can show what the record says beside them. It
-  is absent when the label reads as it was recorded.
+  is absent when the label reads as it was recorded. Every `CHOSE` edge ends at such a node. A
+  classifier draft can choose a label it did not weigh, or name a choice and no options: that
+  option is a node labelled with the recorded words, with a `CHOSE` edge and no `HAS_OPTION`.
 - **`nodes[]` with `kind: "Question"`, `"Ask"`, `"Blocker"` or `"DecisionRequest"`** carry a
   `label`: the words that were asked for a question and an ask (`text`), the one-line `reason`
   for a blocker and a decision request. A `Reaffirmation` reads as its `reason` the same way.
