@@ -2176,6 +2176,146 @@ fn fluent_search_adds_no_subject_to_a_question_mostly_about_what_the_ledger_lack
     Ok(())
 }
 
+/// The question a person asks about the leftover of a forecast, in ten words: "jobs" and "anything"
+/// are held by nobody, "seen" by one decision, "finish" by two, "longer" by three, "beadline" by
+/// eight, "draw" by six, "time" by seventeen, "run" by twenty-two and "need" by nineteen. Three
+/// decisions hold four, four and three of them in a rationale, so they pass the pair test; the
+/// decision titled for the leftover holds three, two of them ("beadline" and "draw") in its
+/// title. `draw_in_rival` puts "draws" in the title of the first of the three too.
+const LEFTOVER_QUESTION: &str = "jobs run longer anything seen finish beadline draw time need";
+
+fn leftover_ledger(draw_in_rival: bool) -> Result<Scenario> {
+    let rival_title = if draw_in_rival {
+        "Beadline forecaster draws one shared schedule per run"
+    } else {
+        "Beadline forecaster: one shared schedule per run"
+    };
+    let mut decisions = vec![
+        (
+            "d:leftover".to_owned(),
+            "Beadline leftover mass draws beyond the biggest completed duration".to_owned(),
+            "Each run takes the remainder from the observed durations.".to_owned(),
+        ),
+        (
+            "d:schedule".to_owned(),
+            rival_title.to_owned(),
+            "Items compete for the same agents, so each sampled schedule reads every item's \
+             finish in time."
+                .to_owned(),
+        ),
+        (
+            "d:repeats".to_owned(),
+            "Classifier repeats of a decision are linked as the same decision".to_owned(),
+            "A run seen twice at one time asks no need to ask again.".to_owned(),
+        ),
+        (
+            "d:harness".to_owned(),
+            "Screenshot harness freezes the render loop".to_owned(),
+            "A frame must finish before the time limit, so we need to freeze it.".to_owned(),
+        ),
+    ];
+    // Decisions that say two everyday words each in a rationale, so that "run", "time", "need",
+    // "beadline", "draw" and "longer" are held by as many decisions as above and none of them
+    // holds enough of the question to be a rival.
+    let pairs: Vec<(&str, &str)> = [
+        (("run", "longer"), 3),
+        (("run", "draw"), 5),
+        (("time", "beadline"), 6),
+        (("run", "need"), 11),
+        (("time", "need"), 6),
+    ]
+    .into_iter()
+    .flat_map(|(pair, count)| std::iter::repeat_n(pair, count))
+    .collect();
+    for (index, (left, right)) in pairs.iter().enumerate() {
+        decisions.push((
+            format!("d:pair-{index:02}"),
+            format!("The page lists option {index} for the tool"),
+            format!("Generic wording about {left} and {right} shown."),
+        ));
+    }
+    for index in 0..2 {
+        decisions.push((
+            format!("d:time-{index}"),
+            format!("The page lists option t{index} for the tool"),
+            "Generic wording about time shown.".to_owned(),
+        ));
+    }
+    while decisions.len() < 69 {
+        let index = decisions.len();
+        decisions.push((
+            format!("d:generic-{index:02}"),
+            format!("The page lists option g{index} for the tool"),
+            "Generic wording about the query output and the text shown.".to_owned(),
+        ));
+    }
+    let borrowed: Vec<(&str, &str, &str)> = decisions
+        .iter()
+        .map(|(id, title, rationale)| (id.as_str(), title.as_str(), rationale.as_str()))
+        .collect();
+    titled_decisions(&borrowed)
+}
+
+#[test]
+fn fluent_search_answers_the_decision_whose_title_holds_two_words_when_everyday_ones_outnumber_them(
+) -> Result<()> {
+    let scenario = leftover_ledger(false)?;
+
+    // Every decision is below the bar of five of the ten words. The three that hold four, four and
+    // three of them in a rationale pass the pair test, whereas the decision titled for the leftover
+    // holds three, "beadline" and "draw" in its title, and carries 0.198 of the question's weight,
+    // not the 0.2 that the pair test asks, because "jobs" and "anything" weigh in the total. Asked
+    // in the shorter words, it is found first.
+    let (short, _) = fluent_answer(&scenario, "how does beadline draw the leftover", 10)?;
+    assert_eq!(short.first().map(|(id, _)| id.as_str()), Some("d:leftover"));
+
+    let (items, _) = fluent_answer(&scenario, LEFTOVER_QUESTION, 10)?;
+
+    assert_eq!(
+        items.first().map(|(id, _)| id.as_str()),
+        Some("d:leftover"),
+        "the decision whose title says two of the words is more about the question than the \
+         three whose rationale says more: {items:?}"
+    );
+    let missing = &items[0].1;
+    for term in [
+        "jobs", "longer", "anything", "seen", "finish", "time", "need",
+    ] {
+        assert!(
+            missing.iter().any(|lacking| lacking == term),
+            "{term} is labelled as lacking: {missing:?}"
+        );
+    }
+    for rival in ["d:schedule", "d:repeats", "d:harness"] {
+        assert!(
+            items.iter().any(|(id, _)| id == rival),
+            "the decisions the question's everyday words find are still answered: {items:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn fluent_search_leaves_the_answer_alone_when_a_decision_in_it_says_more_of_the_question_in_its_title(
+) -> Result<()> {
+    let scenario = leftover_ledger(true)?;
+
+    let (items, _) = fluent_answer(&scenario, LEFTOVER_QUESTION, 10)?;
+
+    assert_eq!(
+        items.first().map(|(id, _)| id.as_str()),
+        Some("d:schedule"),
+        "the decision whose title says \"beadline\", \"draws\" and \"run\" is the most about the \
+         question: {items:?}"
+    );
+    assert!(
+        items.iter().all(|(id, _)| id != "d:leftover"),
+        "a decision that says less of the question in its title than one of the answer is not \
+         added: {items:?}"
+    );
+    Ok(())
+}
+
 #[test]
 fn fluent_search_in_a_small_ledger_answers_the_decision_whose_title_holds_the_word() -> Result<()> {
     let scenario = titled_decisions(&[

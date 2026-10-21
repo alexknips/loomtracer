@@ -790,6 +790,32 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`recall`, `why` and `verify` find the decision whose title holds two words of a long question,
+  when everyday words outnumber them.** "For jobs that run longer than anything we have seen
+  finish, how does beadline draw the time they still need?" listed three decisions that say
+  "run", "finish", "time" or "need" in a rationale and left out the one titled "beadline ADR-2:
+  Kaplan-Meier leftover mass draws beyond longest completed duration ...", which "how does
+  beadline draw the time a long job still needs" finds first; `why` answered the first of the
+  three as a close match. Every decision was below the bar of five of the ten words. The titled
+  one carried 0.198 of the question's weight (two words nobody holds weigh in the total) where
+  the pair test asks 0.2, and the three-decision cap ranks by the weight of every word held, so
+  the rationales outweighed it. A decision below the bar is now also answered when its title or
+  topic keys hold two of the question's words, the words it holds weigh at least 1.25 times
+  `ln(searched + 1)` as the pair test asks, and it is more about the question than every
+  decision in the answer; it is tried when no subject (the shelf rule below) is found, at most
+  one is added, and an empty answer adds nothing. It comes where its title puts it, first
+  here, and carries `missing_terms` like any close match. Through the debug build of this
+  change on a copy of the crew ledger (534 events, 69 decisions), 643 questions plus 35 written
+  blind for this fix: the checker's 439 go from 350 to 352 in the recall top three (first 293
+  to 295) and `why` from 210 to 211 right answers, one question listing the right decision
+  first where it missed; the bead's question moves from absent to first, and `why` lists it
+  first instead of answering the wrong decision; the shelf question and "what order does the
+  main list of decisions show, and which filters are left?" stay first, every unrelated
+  control answers as before ("do we need a licence to play music in the office?" among them),
+  and the other published sets are unchanged. No question loses a right answer or moves one
+  from its place, and no wrong answer is added. `docs/AGENT_FLUENT_QUERYING.md` states the
+  rule. (hivemind-pobj2)
+
 - **`recall`, `why` and `verify` find the decision titled for the one rare word a question names,
   when the question adds everyday words that other decisions hold.** "Which shelf do we want
   people to put us on?" listed three decisions that say "people" and "put" and left out the one

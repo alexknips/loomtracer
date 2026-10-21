@@ -1584,8 +1584,9 @@ const BELOW_BAR_LIMIT: usize = 3;
 /// At most `BELOW_BAR_LIMIT` of them, those holding the most weight, are added; they all lack more
 /// terms than any decision at the bar and each is labelled with the terms it lacks. Where they
 /// stand among the others is the search's own order, by where the question's words sit. One more
-/// is added when it is the question's subject (`subject_below_bar`). No word list, nothing
-/// learned: the counts are the ledger's own.
+/// is added when it is the question's subject (`subject_below_bar`) or, failing that, the one its
+/// title or topic keys hold two words of (`titled_below_bar`). No word list, nothing learned: the
+/// counts are the ledger's own.
 /// `scored` and `holdings` are in the same order; the terms are the question's, `term_count` of
 /// them, and the holdings name them by position.
 fn admit_below_bar(
@@ -1653,10 +1654,11 @@ fn admit_below_bar(
         .take(BELOW_BAR_LIMIT)
         .map(|(_, _, index)| index)
         .collect();
-    if let Some(subject) =
+    if let Some(extra) =
         subject_below_bar(&scored, &holdings, &admitted, weights, term_count, total)
+            .or_else(|| titled_below_bar(&scored, &holdings, &admitted, weights))
     {
-        admitted.insert(subject);
+        admitted.insert(extra);
     }
     scored
         .into_iter()
@@ -1711,28 +1713,88 @@ fn subject_below_bar(
     if weights.weight_of(subject_word) < SUBJECT_RARITY * weights.ledger().ln() {
         return None;
     }
-    let mut outranked: Option<About> = None;
-    for (index, holding) in holdings.iter().enumerate() {
-        if holding.below_bar && !admitted.contains(&index) {
-            continue;
-        }
-        if holding.headline.contains(&subject_word) {
-            return None;
-        }
-        let about = holding.about(weights);
-        if outranked.is_none_or(|best| about.cmp_about(&best).is_gt()) {
-            outranked = Some(about);
-        }
+    if holdings.iter().enumerate().any(|(index, holding)| {
+        answered(holding, index, admitted) && holding.headline.contains(&subject_word)
+    }) {
+        return None;
     }
-    let outranked = outranked?;
+    let outranked = answer_about(holdings, admitted, weights)?;
+    outranking_below_bar(scored, holdings, admitted, weights, outranked, |holding| {
+        holding.headline.contains(&subject_word)
+    })
+}
+
+/// The decision below the bar that the question's words sit in the title of, if there is one: a
+/// person who asks "for jobs that run longer than anything we have seen finish, how does beadline
+/// draw the time they still need?" adds to "beadline" and "draw", which the decision's title holds,
+/// everyday words that other decisions hold, and the share test of the pair (`SHARED_WORDS_SHARE`)
+/// loses it by a hair because two words nobody holds weigh in the total.
+///
+/// A decision below the bar, not already admitted, is it when
+///
+/// - its title or topic keys hold `SHARED_HEADLINE_WORDS_MIN` or more of the question's words, and
+/// - the words it holds weigh, together, at least `SHARED_WORDS_RARITY` times `ln(searched + 1)`,
+///   as the pair asks, and
+/// - it is more about the question (`About`) than every decision of the answer, which is what the
+///   share test is for: two rare words that sit in a title are not chance when nothing the
+///   question's other words found says as much of it.
+///
+/// A question whose answer is empty has no decision to outrank, so nothing is added. At most one
+/// decision is added; of two, the one more about the question.
+fn titled_below_bar(
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+) -> Option<usize> {
+    let outranked = answer_about(holdings, admitted, weights)?;
+    outranking_below_bar(scored, holdings, admitted, weights, outranked, |holding| {
+        let shared: f64 = holding
+            .held
+            .iter()
+            .map(|term| weights.weight_of(*term))
+            .sum();
+        holding.headline.len() >= SHARED_HEADLINE_WORDS_MIN
+            && shared >= SHARED_WORDS_RARITY * weights.ledger().ln()
+    })
+}
+
+/// Whether the decision at `index` is in the answer: at the bar, or admitted below it.
+fn answered(holding: &Holding, index: usize, admitted: &BTreeSet<usize>) -> bool {
+    !holding.below_bar || admitted.contains(&index)
+}
+
+/// How much the answer is about the question: what its most-about decision is (`About`); nothing
+/// when the answer is empty.
+fn answer_about(
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+) -> Option<About> {
+    holdings
+        .iter()
+        .enumerate()
+        .filter(|(index, holding)| answered(holding, *index, admitted))
+        .map(|(_, holding)| holding.about(weights))
+        .max_by(About::cmp_about)
+}
+
+/// Of the decisions below the bar, not admitted, that `fits`, the one more about the question than
+/// `outranked`; of two, the more about it, then the lower id.
+fn outranking_below_bar(
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+    outranked: About,
+    fits: impl Fn(&Holding) -> bool,
+) -> Option<usize> {
     scored
         .iter()
         .zip(holdings)
         .enumerate()
         .filter(|(index, (_, holding))| {
-            holding.below_bar
-                && !admitted.contains(index)
-                && holding.headline.contains(&subject_word)
+            holding.below_bar && !admitted.contains(index) && fits(holding)
         })
         .map(|(index, (decision, holding))| (holding.about(weights), decision.id.as_str(), index))
         .filter(|(about, _, _)| about.cmp_about(&outranked).is_gt())

@@ -543,11 +543,22 @@ decision below the bar is returned when
   title puts it, usually first, labelled with the words it lacks. The words some decision
   holds must carry at least two thirds of the weight of all the question's words, so a
   question mostly about what nobody holds ("did we decide to move the UI from React to
-  Svelte?") has no subject and an empty answer stays empty.
+  Svelte?") has no subject and an empty answer stays empty, or
+- failing a subject, its title or topic keys hold two of the question's words, the words
+  it holds weigh at least 1.25 times `ln(n + 1)` as the first item asks, and the decision
+  is more about the question than every decision in the answer. The share of the first
+  item is what this replaces: "for jobs that run longer than anything we have seen
+  finish, how does beadline draw the time they still need?" holds two words nobody does
+  ("jobs", "anything"), which weigh in the total, so the decision titled for how
+  beadline draws the leftover ("beadline" and "draws" in its title, "run" in its
+  rationale) carries 0.198 of it, and the three decisions that say "run", "finish",
+  "time" or "need" in a rationale outweigh it. It is the most about the question of
+  them all, so it comes first, labelled with the words it lacks. An empty answer has no
+  decision to outrank, and nothing is added.
 
 At most three such decisions are added (the ones holding the most weight, then
-decision id), and the subject on top of them, each carrying `missing_terms` like any
-close match. `why` and `verify` read the same list. There is no word list and nothing learned: the counts
+decision id), and the subject or the titled one on top of them, each carrying
+`missing_terms` like any close match. `why` and `verify` read the same list. There is no word list and nothing learned: the counts
 are the ledger's own, so this part of recall, unlike the ordering of close
 candidates above, does count words across the ledger. A question that shares no
 rare words with a decision is still an empty answer.
