@@ -19,7 +19,7 @@ hivemind --hivemind-dir /tmp/scratch-ledger emit decision.capture \
   --title "Price per seat" --rationale "A fixed seat count is easy to budget for" \
   --options "Per seat,Usage based" --chose "Per seat" \
   --rests-on-assumption "Teams prefer a bill they can predict" \
-  --binds "The first pricing experiment" --cheap-to-undo
+  --binds "The first pricing experiment" --cheap-to-undo --topic-keys pricing
 hivemind --hivemind-dir /tmp/scratch-ledger serve --port 18736
 
 # 2. The UI, from the repository root:
@@ -27,14 +27,15 @@ npm ci
 HIVEMIND_API_URL=http://127.0.0.1:18736 npm run dev --workspace=web
 ```
 
-Open <http://localhost:3000/graph>. Against a server that has a `HIVEMIND_API_KEY`, set the same
+Open <http://127.0.0.1:3000/graph>. Against a server that has a `HIVEMIND_API_KEY`, set the same
 value as `HIVEMIND_API_KEY` for the UI. `.env.example` lists every variable. The token is read
 on the server side only; a test (`lib/hivemind/boundary.test.ts`) fails if a client component
 could reach it.
 
-**The UI has no login of its own.** Whoever can open it sees what its token can read. Run it on
-a loopback address, or behind your own access control. Do not put it on the open internet with a
-token for a ledger you would not publish.
+**The UI has no login of its own.** Whoever can open it sees what its token can read. `npm run
+dev` and `npm run start` therefore listen on `127.0.0.1` only (`next -H 127.0.0.1`); keep it that
+way, or put your own access control in front before you bind another address. Do not put it on
+the open internet with a token for a ledger you would not publish.
 
 ## Pages
 

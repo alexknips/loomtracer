@@ -52,7 +52,7 @@ export function PublicDemo() {
   return <>
     <section className="public-demo-intro public-container">
       <div><p className="public-eyebrow"><span /> One question. Two investigations.</p><h1>See the connections.</h1><p>Two agents explore different ways to price a collaboration app. A third connects their findings into a proposal to test a team plan.</p></div>
-      <Link className="public-button public-button-dark" href="/#request-access">Try it with your work <span aria-hidden="true">↗</span></Link>
+      <Link className="public-button public-button-dark" href="/graph">Try it with your work <span aria-hidden="true">↗</span></Link>
     </section>
     <div className="public-demo-notice public-container"><span className="public-demo-tag">Fictional pricing study</span><p>The scenario and findings are invented to show the workflow. This read-only sample is separate from every private workspace.</p></div>
     <section className="public-demo-workspace public-container" aria-label="Sample decision explorer">
@@ -89,6 +89,6 @@ export function PublicDemo() {
         </section>
       </div>
     </section>
-    <section className="public-demo-takeaway public-container"><span className="public-mini-label">Build on your explorations.</span><p>The next agent can follow both pricing branches, see the shared criteria, and understand why a team-plan test is proposed. The candidate keeps its supporting evidence in view for human review and further experiments.</p><Link className="public-text-link" href="/#request-access">Request private beta access <span aria-hidden="true">→</span></Link></section>
+    <section className="public-demo-takeaway public-container"><span className="public-mini-label">Build on your explorations.</span><p>The next agent can follow both pricing branches, see the shared criteria, and understand why a team-plan test is proposed. The candidate keeps its supporting evidence in view for human review and further experiments.</p></section>
   </>;
 }

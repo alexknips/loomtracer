@@ -17,7 +17,7 @@ All reads go through the UI's own server (`lib/hivemind/client.ts`) with
 | Original page | Now | HiveMind endpoint | What the server would need |
 |---|---|---|---|
 | `/` landing | **Kept.** The "Request access" form and the "Sign in" link are gone; the full app links to the workspace instead. | none | Nothing. The page's copy still says "invite-only pilot" and "Request access": that is a decision for Alex and Jeff, not made here. |
-| `/demo` | **Kept**, unchanged (fictional data in the page). | none | Nothing. |
+| `/demo` | **Kept** (fictional data in the page). "Try it with your work" opens `/graph`; the "Request private beta access" link is removed, since there is no request form. | none | Nothing. |
 | `/graph` (reasoning workspace) | **Rewired.** One project's decisions as a timeline, trace map and sources. | `GET /v1/graph`, `GET /v1/whoami` | See "Notes for the server" below: a per-project graph, and the fields the graph leaves out. |
 | `/inspect` (local file inspector) | **Kept.** Opens an exported bundle in the browser; nothing is uploaded. | none | Nothing. |
 | `/review` (redirected to `/graph`) | **Rewired**, as a read-only queue: proposed, contested, unanswered questions, decisions with no stated ground. | `GET /v1/decisions/search?status=proposed`, `GET /v1/attention/contested`, `/waiting`, `/open-why` | **Accept and reject.** There is no REST endpoint to accept a decision or to reject one outright (`decision.accepted` and `decision.rejected` are CLI events). Disagreement exists (`POST /v1/decisions/{id}/disagreements`) and could back a "reject with a reason" button once the UI can say who is acting. |
