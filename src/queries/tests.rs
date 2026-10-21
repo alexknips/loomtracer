@@ -2065,6 +2065,117 @@ fn fluent_search_reads_an_adverb_as_the_word_a_title_says() -> Result<()> {
     Ok(())
 }
 
+/// Sixty generic decisions, the decision titled for the public shelf, and decisions that hold the
+/// everyday words of a question about it: "people", "want" and "put" are each held by five or more
+/// decisions, "shelf" by three, and only d:shelf says it in its title.
+fn shelf_ledger(extra: &[(&str, &str, &str)]) -> Result<Scenario> {
+    let mut named = vec![
+        ("d:shelf", "The public shelf is agent memory", "Wording."),
+        (
+            "d:deck",
+            "The pitch deck opens with the value",
+            "The shelf we sit on is a page of its own.",
+        ),
+        (
+            "d:graph",
+            "The graph draws no people",
+            "We want who decided shown and put the relation words at rest.",
+        ),
+        (
+            "d:interview",
+            "Interviews open with who decided",
+            "People want one answer, so we put it first.",
+        ),
+        (
+            "d:onboarding",
+            "Onboarding takes five minutes",
+            "People want to start fast and we put one command up front.",
+        ),
+        (
+            "d:digest",
+            "The weekly digest lists new decisions",
+            "People want a short list and we put the newest at the top.",
+        ),
+        (
+            "d:docs",
+            "The docs lead with one example",
+            "People want to copy it; put it above the fold.",
+        ),
+    ];
+    named.extend_from_slice(extra);
+    generic_ledger(60, &named)
+}
+
+#[test]
+fn fluent_search_answers_the_decision_whose_title_holds_the_rarest_word_among_everyday_ones(
+) -> Result<()> {
+    let scenario = shelf_ledger(&[])?;
+
+    // Asked on its own, the shelf is found. Asked the way a person asks ("which shelf do we want
+    // people to put us on?"), "people", "want" and "put" are held by five decisions each, which hold three of the four words and so pass the bar,
+    // whereas the decision titled for the shelf holds one: it is below the bar and its share of the
+    // question is small.
+    let (brief, _) = fluent_answer(&scenario, "shelf", 10)?;
+    assert_eq!(brief.first().map(|(id, _)| id.as_str()), Some("d:shelf"));
+
+    let (items, _) = fluent_answer(&scenario, "shelf want people put", 10)?;
+
+    let position = items.iter().position(|(id, _)| id == "d:shelf");
+    assert!(
+        position.is_some_and(|position| position < 3),
+        "the one decision that says the rare word in its title is in the top three: {items:?}"
+    );
+    let missing = &items[position.unwrap_or_default()].1;
+    for term in ["want", "people", "put"] {
+        assert!(
+            missing.iter().any(|lacking| lacking == term),
+            "{term} is labelled as lacking: {missing:?}"
+        );
+    }
+    assert!(
+        items.iter().all(|(id, _)| id != "d:deck"),
+        "a decision that says the word only in its rationale is not the subject: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_leaves_the_answer_alone_when_a_decision_says_more_of_the_question_in_its_title(
+) -> Result<()> {
+    let scenario = shelf_ledger(&[("d:both", "People want it put first", "Wording.")])?;
+
+    let (items, _) = fluent_answer(&scenario, "shelf want people put", 10)?;
+
+    assert!(
+        items.iter().any(|(id, _)| id == "d:both"),
+        "the decision whose title says three of the words is answered: {items:?}"
+    );
+    assert!(
+        items.iter().all(|(id, _)| id != "d:shelf"),
+        "it is more about the question than the shelf decision, which stays out: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_subject_to_a_question_mostly_about_what_the_ledger_lacks() -> Result<()> {
+    let scenario = shelf_ledger(&[])?;
+
+    // Two words nobody holds weigh as much as all the rest: the question is about something the
+    // ledger does not say, and the one rare title word is chance.
+    let (items, _) = fluent_answer(&scenario, "shelf want people put kubernetes helm", 10)?;
+
+    assert!(
+        items.iter().any(|(id, _)| id == "d:graph"),
+        "the decisions that hold three of the six words are still answered: {items:?}"
+    );
+    assert!(
+        items.iter().all(|(id, _)| id != "d:shelf"),
+        "a question mostly about what nobody holds names no subject: {items:?}"
+    );
+    Ok(())
+}
+
 #[test]
 fn fluent_search_in_a_small_ledger_answers_the_decision_whose_title_holds_the_word() -> Result<()> {
     let scenario = titled_decisions(&[

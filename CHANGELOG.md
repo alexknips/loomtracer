@@ -790,6 +790,31 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`recall`, `why` and `verify` find the decision titled for the one rare word a question names,
+  when the question adds everyday words that other decisions hold.** "Which shelf do we want
+  people to put us on?" listed three decisions that say "people" and "put" and left out the one
+  titled "HiveMind's public shelf is agent memory", which `recall "shelf"` finds first; `why`
+  with the same words listed those three as ambiguous and the target was absent. A decision
+  below the bar is now also answered when it is the question's subject: its title or topic keys
+  hold the rarest word that any decision holds, no decision in the answer holds that word in its
+  title or topic keys, it is more about the question than every decision in the answer, and the
+  words some decision holds carry at least two thirds of the weight of the question (a question
+  mostly about what nobody holds, such as "did we decide to move the UI from React to Svelte?",
+  has no subject). At most one decision is added this way. It comes where its title puts it,
+  usually first, and carries `missing_terms` like any close match. Through the debug build of
+  this change on a copy of the crew ledger (534 events, 69 decisions), 643 questions: the
+  checker's 439 go from 348 to 350 in the recall top three (the shelf question and "what order
+  does the main list of decisions show, and which filters are left?" are first) and `why`
+  lists the shelf decision first; no question loses a right answer from its top three,
+  every unrelated control answers as before ("do we need a licence to play music in the
+  office?" among them), and the other published sets are unchanged. Four right answers move
+  from first to second behind the new decision, where it is the only decision to hold a word
+  in its title (`why` lists them instead of answering with the first): "how do we get the graph
+  to draw a decision's options A, B, C in order ...", "how are features that are built but not
+  yet released drawn on the marketing site's graphs?", "when the auto-classifier sees a ruling it
+  has already logged, does it write a duplicate?" and "since joining forces with a designer, what
+  brand does the homepage carry?". `docs/AGENT_FLUENT_QUERYING.md` states the rule.
+  (hivemind-oq2ae)
 - **The web UI opens a classifier draft's decision page.** A decision the classifier read out of
   a session has an id with colons in it (`capture:105186:3`), and a result of `/search` linked to
   it as `/decisions/capture%3A105186%3A3`. The page took that segment as it came, still

@@ -531,11 +531,23 @@ decision below the bar is returned when
   against `FileStore`, "data base" against `database`), and that pair is as rare as a
   subject word is above: two words that join into a word of the ledger are no chance
   meeting, so the other words of the question do not matter ("how does the file store
-  throw away expired entries?"). A rationale that spells them together does not count.
+  throw away expired entries?"). A rationale that spells them together does not count, or
+- it is the question's subject: its title or topic keys hold the rarest word that any
+  decision holds (a word weighing at least 0.6 times `ln(n + 1)`), no decision in the answer
+  holds that word in its title or topic keys, and the decision is more about the question
+  than every decision in the answer (the weight of the question's words that its title,
+  topic keys and recorded question carry). "Which shelf do we want people to put us on?"
+  adds to "shelf" the everyday words "want", "people" and "put", which five decisions hold
+  each; those decisions hold three of the four words and pass the bar, while the one
+  titled for the shelf holds one and its share of the question is small. It comes where its
+  title puts it, usually first, labelled with the words it lacks. The words some decision
+  holds must carry at least two thirds of the weight of all the question's words, so a
+  question mostly about what nobody holds ("did we decide to move the UI from React to
+  Svelte?") has no subject and an empty answer stays empty.
 
 At most three such decisions are added (the ones holding the most weight, then
-decision id), each carrying `missing_terms` like any close match. `why` and
-`verify` read the same list. There is no word list and nothing learned: the counts
+decision id), and the subject on top of them, each carrying `missing_terms` like any
+close match. `why` and `verify` read the same list. There is no word list and nothing learned: the counts
 are the ledger's own, so this part of recall, unlike the ordering of close
 candidates above, does count words across the ledger. A question that shares no
 rare words with a decision is still an empty answer.

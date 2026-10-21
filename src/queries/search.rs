@@ -1539,6 +1539,10 @@ const SHARED_HEADLINE_WORDS_MIN: usize = 2;
 const SUBJECT_RARITY: f64 = 0.6;
 /// ... and carry at least this share of the weight of all the question's words.
 const SUBJECT_SHARE: f64 = 0.4;
+/// The question's subject word, the rarest word any decision holds, rules only when the words
+/// some decision holds carry at least this share of the weight of all the question's words (the
+/// rest is words nobody holds), see `subject_below_bar`.
+const SUBJECT_WORD_KNOWN_SHARE: f64 = 2.0 / 3.0;
 /// A pair of words is rare when no more than this many decisions hold each of them, see
 /// `admit_below_bar`: a decision holding two words of the question that nearly nobody else holds,
 /// one of them in its title or topic keys.
@@ -1578,8 +1582,10 @@ const BELOW_BAR_LIMIT: usize = 3;
 ///   entries?").
 ///
 /// At most `BELOW_BAR_LIMIT` of them, those holding the most weight, are added; they all lack more
-/// terms than any decision at the bar, so they come after those and each is labelled with the
-/// terms it lacks. No word list, nothing learned: the counts are the ledger's own.
+/// terms than any decision at the bar and each is labelled with the terms it lacks. Where they
+/// stand among the others is the search's own order, by where the question's words sit. One more
+/// is added when it is the question's subject (`subject_below_bar`). No word list, nothing
+/// learned: the counts are the ledger's own.
 /// `scored` and `holdings` are in the same order; the terms are the question's, `term_count` of
 /// them, and the holdings name them by position.
 fn admit_below_bar(
@@ -1642,11 +1648,16 @@ fn admit_below_bar(
         }
     }
     below.sort_by(|left, right| right.0.total_cmp(&left.0).then_with(|| left.1.cmp(right.1)));
-    let admitted: BTreeSet<usize> = below
+    let mut admitted: BTreeSet<usize> = below
         .into_iter()
         .take(BELOW_BAR_LIMIT)
         .map(|(_, _, index)| index)
         .collect();
+    if let Some(subject) =
+        subject_below_bar(&scored, &holdings, &admitted, weights, term_count, total)
+    {
+        admitted.insert(subject);
+    }
     scored
         .into_iter()
         .zip(holdings)
@@ -1655,6 +1666,78 @@ fn admit_below_bar(
             (!holding.below_bar || admitted.contains(&index)).then_some(decision)
         })
         .collect()
+}
+
+/// The decision below the bar that is the question's subject, if it has one: a person who asks
+/// "which shelf do we want people to put us on?" names one thing and adds everyday words that
+/// several decisions hold, so the decisions that hold "people" and "put" outrank the one titled for
+/// the shelf, and the half-of-the-terms bar and the share of `SUBJECT_SHARE` both lose it.
+///
+/// The subject word is the rarest word that any decision holds. A decision below the bar, not
+/// already admitted, is the subject when
+///
+/// - its title or topic keys hold that word, and the word weighs at least `SUBJECT_RARITY` times
+///   `ln(searched + 1)`, and
+/// - no decision of the answer holds it in its title or topic keys (one that does is the subject
+///   already), and
+/// - the decision is more about the question (`About`) than every decision of the answer: it says
+///   the word in its title or topic keys, whereas they hold the question's other words in a
+///   rationale or say more common ones, and
+/// - the words some decision holds carry at least `SUBJECT_WORD_KNOWN_SHARE` of the weight of all
+///   the question's words: a question mostly about what the ledger lacks ("did we decide to move
+///   the UI from React to Svelte?") has no subject here, and nothing is added to what it answers.
+///
+/// A question whose answer is empty has no decision to outrank, so nothing is added either. At most
+/// one decision is the subject; of two, the one more about the question.
+fn subject_below_bar(
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+    term_count: usize,
+    total: f64,
+) -> Option<usize> {
+    let known: f64 = (0..term_count).map(|term| weights.weight_of(term)).sum();
+    if known < SUBJECT_WORD_KNOWN_SHARE * total {
+        return None;
+    }
+    let subject_word = (0..term_count)
+        .filter(|term| weights.weight_of(*term) > 0.0)
+        .max_by(|left, right| {
+            weights
+                .weight_of(*left)
+                .total_cmp(&weights.weight_of(*right))
+        })?;
+    if weights.weight_of(subject_word) < SUBJECT_RARITY * weights.ledger().ln() {
+        return None;
+    }
+    let mut outranked: Option<About> = None;
+    for (index, holding) in holdings.iter().enumerate() {
+        if holding.below_bar && !admitted.contains(&index) {
+            continue;
+        }
+        if holding.headline.contains(&subject_word) {
+            return None;
+        }
+        let about = holding.about(weights);
+        if outranked.is_none_or(|best| about.cmp_about(&best).is_gt()) {
+            outranked = Some(about);
+        }
+    }
+    let outranked = outranked?;
+    scored
+        .iter()
+        .zip(holdings)
+        .enumerate()
+        .filter(|(index, (_, holding))| {
+            holding.below_bar
+                && !admitted.contains(index)
+                && holding.headline.contains(&subject_word)
+        })
+        .map(|(index, (decision, holding))| (holding.about(weights), decision.id.as_str(), index))
+        .filter(|(about, _, _)| about.cmp_about(&outranked).is_gt())
+        .max_by(|left, right| left.0.cmp_about(&right.0).then_with(|| right.1.cmp(left.1)))
+        .map(|(_, _, index)| index)
 }
 
 /// One decision candidate for the resolve-by-description primitive (`resolve.rs`): the same
