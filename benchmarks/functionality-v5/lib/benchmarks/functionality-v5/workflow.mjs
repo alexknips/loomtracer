@@ -1,13 +1,23 @@
 import { createWorld, applyAction, publicWorldContract } from './world.mjs';
-import { createMemoryView, lookup, accountHistoricalDelivery, validateCitation, replayPackets,
+import { createMemoryView, lookupForView, prepareNativeView, accountHistoricalDelivery, validateCitation, replayPackets,
   migrateLegacyMemoryView, REPLAY_POLICY_ID } from './memory.mjs';
 import { sha256 } from './artifacts.mjs';
+import { nativeDeliveredArtifactText } from './native.mjs';
 
-export const WORKFLOW_VERSION = 'functionality-v5-workflow-1.1.0';
+export const WORKFLOW_VERSION = 'functionality-v5-workflow-1.2.0';
 const clone = structuredClone;
 const bytes = value => Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value));
 const isDone = world => world && !['running','active'].includes(world.status);
 const cutoff = sources => Math.max(0,...sources.map((s,i)=>s.order??s.sourceOrder??i+1));
+
+// IDs must appear as complete references, not prefixes of another artifact.
+const hasArtifactReference = (text, id) => new RegExp(`(?:^|[^A-Za-z0-9_-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^A-Za-z0-9_-])`).test(text);
+export function deliveredArtifactIds(view, artifactIds) {
+  const deliveredText = view.deliveredEvidence.map(evidence => evidence.kind === 'native'
+    ? nativeDeliveredArtifactText(JSON.parse(evidence.text), view.frozen.revision.records)
+    : evidence.text);
+  return artifactIds.filter(id => deliveredText.some(text => hasArtifactReference(text, id)));
+}
 
 export function taskPrompt({scenario,task,world,history,trace,operationsUsed}) {
   const acquisition = task.kind === 'acquisition', reasoning = task.kind === 'H';
@@ -20,9 +30,13 @@ export function taskPrompt({scenario,task,world,history,trace,operationsUsed}) {
   ];
   if (!acquisition) {
     const sourceControl=['oracle','withheld'].includes(task.control);
-    instructions.push(sourceControl ?
-      'This diagnostic view already provides its complete eligible original-source evidence. No notes search/open or archive search is available. Assertions not established by this evidence remain unresolved. Citations: source:<source-id>.' :
-      'Memory access: {"op":"lookup","kind":"search","query":"..."}, {"op":"lookup","kind":"open","path":"...","startLine":1,"endLine":40}, or {"op":"lookup","kind":"source","id":"..."}. Each lookup response may deliver at most 8192 UTF-8 bytes of its serialized participant payload, including reference metadata. Controller-only audit evidence is excluded. Source expansion is restricted to eligible references already delivered. Citations: source:<source-id> or note:<revision>:<path>:L<first>-L<last>.');
+    const access = sourceControl ?
+      'This diagnostic view already provides its complete eligible original-source evidence. No notes search/open or archive search is available. Assertions not established by this evidence remain unresolved. Citations: source:<source-id>.' : task.arm === 'stock-history' ?
+      'Available conversation history is delivered chronologically through this checkpoint, including intervening work. If the allowance is exceeded, only a contiguous suffix of complete messages is available; omittedOldestMessages records the cutoff. There is no hidden archive search or memory maintenance. Citations: source:<source-id>.' : task.arm === 'loomtracer-native' ?
+      'Memory access: {"op":"lookup","kind":"recall","query":"...","limit":3}, {"op":"lookup","kind":"expand","id":"native record ID"}, or {"op":"lookup","kind":"source","id":"source ID"}. Recall queries the native synthetic ledger; expand inspects an eligible returned record. Citations: source:<source-id> or the exact native:<revision>:<lookup-hash> reference supplied with a passage.' :
+      'Memory access: {"op":"lookup","kind":"search","query":"..."}, {"op":"lookup","kind":"open","path":"...","startLine":1,"endLine":40}, or {"op":"lookup","kind":"source","id":"..."}. Citations: source:<source-id> or note:<revision>:<path>:L<first>-L<last>.';
+    instructions.push(access);
+    instructions.push('Each lookup response may deliver at most 8192 UTF-8 bytes of its serialized participant payload, including reference metadata. Source expansion is restricted to eligible references already delivered. No archive search, future evidence, or unrelated projects are available.');
     instructions.push('Exact serialized historical payloads are deduplicated; overlapping nonidentical passages count separately toward distinct exposure. All retained requested payloads are replayed without controller summaries or answer-based selection. Every actual replay remains recorded in cumulative delivery bytes and CLI-reported token usage; cumulative replay bytes are not a stopping threshold. Historical artifact references must be established in delivered retained evidence before reuse; current tool names alone do not grant access to historical work. Identity-dependent execution requires delivered retained evidence for its scoped mapping/authority, but no particular outward statement format is required.');
   }
   if (reasoning) instructions.push('Final operation: {"op":"answer","answers":[{"questionId":"...","text":"...","citations":["..."]}],"uncertainty":[]}. Give concise stated explanations, not private internal deliberation.');
@@ -56,15 +70,16 @@ export function migrateDeliveryLimitedWorkflow(original) {
 }
 
 /** A replayable workflow. Only obtain() can dispatch a model invocation. */
-export async function performWorkflow({scenario,task,acquisition=null,memory=null,sources=[],obtain,save,restore=null,onProgress=()=>{}}) {
+export async function performWorkflow({scenario,task,acquisition=null,memory=null,sources=[],obtain,save,restore=null,onProgress=()=>{},nativeConfig=null,taskRoot=null}) {
   let state = restore ? clone(restore) : {
-    id:task.id,caseId:scenario.id,kind:task.kind,mode:task.mode,control:task.control??'primary',replayPolicyId:REPLAY_POLICY_ID,
+    id:task.id,caseId:scenario.id,arm:task.control==='primary'?(task.arm??'stock-maintained-notes'):null,kind:task.kind,mode:task.mode,control:task.control??'primary',replayPolicyId:REPLAY_POLICY_ID,
     status:'running',world:task.kind==='H'?null:createWorld(scenario,{phase:task.kind==='acquisition'?'acquisition':'action',acquisition,withheld:task.control==='withheld'}),
-    view:task.kind==='acquisition'?null:createMemoryView(memory,sources,{mode:task.control==='primary'?'notes':task.control,withheldIds:task.control==='withheld'?scenario.withheldSourceIds:[],sourceCutoff:cutoff(sources)}),
+    view:task.kind==='acquisition'?null:createMemoryView(memory,sources,{mode:task.control==='primary'?(task.arm==='stock-history'?'history':task.arm==='loomtracer-native'?'native':'notes'):task.control,withheldIds:task.control==='withheld'?scenario.withheldSourceIds:[],sourceCutoff:cutoff(sources)}),
     packets:task.kind==='acquisition'?[{payload:{sources}}]:[],trace:[],callIds:[],operationsUsed:0,answer:null,citations:[],errors:[],deliveries:[],
   };
   if (state.status !== 'running') return state;
   if (state.id !== task.id || state.caseId !== scenario.id) throw new Error('Restored workflow identity differs from the requested task');
+  if (state.view?.mode === 'native') await prepareNativeView(state.view, {nativeConfig,taskRoot});
   if (!state.packets.length && state.view?.initialPacket) state.packets.push(state.view.initialPacket);
   while(state.status==='running' && state.operationsUsed<16) {
     const id=`${task.id}-step-${state.callIds.length+1}`;
@@ -79,7 +94,7 @@ export async function performWorkflow({scenario,task,acquisition=null,memory=nul
     const delivery={id,historicalBytes:bytes(historicalText),promptBytes:bytes(prompt),promptHash:sha256(prompt),packetHashes:state.packets.map(p=>p.sha256??sha256(p)),sourceCutoff:state.view?.frozen.sourceCutoff??cutoff(sources),memoryRevision:state.view?.frozen.revision?.id??memory?.id??null,memoryHash:state.view?.frozen.revision?.sha256??memory?.sha256??null,replayPolicyId:REPLAY_POLICY_ID,uniqueExposureBytes:state.view?.uniqueExposureBytes??null,cumulativeHistoricalBytes:state.view?.historicalBytes??null};
     await save(`deliveries/${id}.json`,{...delivery,historicalDelivery:historical});
     const stage=task.kind==='acquisition'?'acquisition':task.control==='oracle'?'oracle':task.control==='withheld'?'withheld':task.kind==='H'?'reasoning':'action';
-    const r=await obtain(id,prompt,{stage,arm:task.control==='primary'?'stock-maintained-notes':null,caseId:scenario.id,scenarioId:scenario.id,kind:task.kind,mode:task.mode,control:task.control,workflowId:task.id,step:state.callIds.length+1});
+    const r=await obtain(id,prompt,{stage,arm:task.control==='primary'?(task.arm??'stock-maintained-notes'):null,caseId:scenario.id,scenarioId:scenario.id,kind:task.kind,mode:task.mode,control:task.control,workflowId:task.id,trialId:task.id,checkpointGroup:task.control==='primary'?`${scenario.id}:${task.arm??'stock-maintained-notes'}`:null,step:state.callIds.length+1});
     state.callIds.push(id);state.deliveries.push(delivery);
     if(r.call.status!=='completed' || !r.call.usage) throw new Error(`Invocation failed or usage unknown: ${id}`);
     if(r.parseError || !r.value || typeof r.value!=='object' || Array.isArray(r.value)) {
@@ -97,7 +112,7 @@ export async function performWorkflow({scenario,task,acquisition=null,memory=nul
           let receipt;
           try {
             if(action?.op==='lookup' && state.view) {
-              const packet=lookup(state.view,{...action,op:action.kind??action.operation});
+              const packet=await lookupForView(state.view,{...action,op:action.kind??action.operation});
               const updated=replayPackets(state.view,[...state.packets,packet]);
               const retained=updated.find(p=>sha256(p.payload)===sha256(packet.payload));
               receipt={ok:true,packetHash:retained.sha256,exactRepeat:updated.length===state.packets.length,delivery:'Requested passage will be in historicalDelivery on the next invocation.'};
@@ -108,15 +123,15 @@ export async function performWorkflow({scenario,task,acquisition=null,memory=nul
               for(const answer of action.answers) for(const citation of answer.citations??[]) state.citations.push({citation,...validateCitation(state.view,citation)});
               receipt={ok:true,terminal:true};
             } else if(state.world) {
-              const visibleArtifactIds=task.kind==='acquisition'?null:Object.keys(state.world.priorArtifacts??{}).filter(id=>state.view.deliveredEvidence.some(e=>e.text.includes(id)));
+              const visibleArtifactIds=task.kind==='acquisition'?null:deliveredArtifactIds(state.view,Object.keys(state.world.priorArtifacts??{}));
               receipt=applyAction(state.world,action,{batchStart,eligibleSourceIds:state.view?.eligibleSourceIds??[],visibleArtifactIds});
               if(isDone(state.world)) {state.status=state.world.status==='complete'?'completed':state.world.status;state.answer=clone(state.world.result??state.world.terminal??action);}
             } else throw new Error('Operation not available in this fork');
           } catch(error) {receipt={ok:false,error:error.message};}
           if(state.view && task.kind!=='H') {
-            for(const citation of [...(action?.citations??[]),...(action?.evidence??[])]) state.citations.push({citation,...validateCitation(state.view,typeof citation==='string'&&!citation.startsWith('source:')&&!citation.startsWith('note:')?`source:${citation}`:citation)});
+            for(const citation of [...(action?.citations??[]),...(action?.evidence??[])]) state.citations.push({citation,...validateCitation(state.view,typeof citation==='string'&&!citation.startsWith('source:')&&!citation.startsWith('note:')&&!citation.startsWith('native:')?`source:${citation}`:citation)});
           }
-          state.trace.push({operation:clone(action),receipt:clone(receipt),index:state.operationsUsed});
+          state.trace.push({operation:clone(action),receipt:clone(receipt),index:state.operationsUsed,invocation:state.callIds.length});
         }
       }
     }

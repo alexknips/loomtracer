@@ -105,3 +105,23 @@ test('offline validation requires a nonzero actual test count in either Node out
   assert.throws(() => parseTestCount('# tests 0'), /nonzero/);
   assert.throws(() => parseTestCount('no test summary'), /nonzero/);
 });
+
+test('comparison freeze rejects missing or mismatched real-native offline proof before creating a run', async()=>{
+  const { mkdir }=await import('node:fs/promises');
+  const { saveImmutable, exists }=await import('./artifacts.mjs');
+  const root=await mkdtemp(join(tmpdir(),'v5-native-proof-'));
+  try {
+    const binary=join(root,'mock-native');await writeFile(binary,'offline fake binary');
+    const config={executable:binary,sha256:sha256('offline fake binary'),version:'hivemind 0.7.0',backend:'hivemind-rust-cli',adapterVersion:'offline-test'};
+    const auth=join(root,'authorization.json');await writeFile(auth,JSON.stringify({...approval(),profile:'comparison'}));
+    for(const [name,nativeValidation] of [['absent',{status:'not-run'}],['wrong',{status:'passed',sha256:'f'.repeat(64),version:config.version,skippedTests:0}],['skipped',{status:'passed',...config,skippedTests:1}]]) {
+      const offline=join(root,name);await mkdir(offline);
+      const validation={passed:true,providerInvocations:0,nativeValidation};
+      await saveImmutable(offline,'validation.json',validation);await saveImmutable(offline,'validation.sha256.json',{sha256:sha256(validation)});
+      const run=join(root,`run-${name}`);
+      await assert.rejects(prepareScreen({root:run,offlineRoot:offline,authorizationPath:auth,profile:'comparison',nativeBinary:binary,testOnly:true,nativeInspector:async()=>config}),/real-native offline tests/);
+      assert.equal(await exists(run),false);
+    }
+    await assert.rejects(prepareScreen({root:join(root,'live-invalid'),offlineRoot:root,authorizationPath:auth,profile:'comparison',nativeBinary:binary,nativeInspector:async()=>config}),/non-overlapping|offline-test-only/);
+  } finally {await rm(root,{recursive:true,force:true});}
+});

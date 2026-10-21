@@ -26,7 +26,8 @@ export function usageReport(calls = []) {
     const rows = calls.filter(c => caseId(c) === id);
     return [id, { total: accounting(rows), stages: Object.fromEntries([...new Set(rows.map(c => canonicalStage(c.stage)))].map(stage =>
       [stage, accounting(rows.filter(c => canonicalStage(c.stage) === stage))])),
-    arms: Object.fromEntries(armIds.map(arm => [arm, accounting(rows.filter(c => primary(c) && c.arm === arm))])) }];
+    arms: Object.fromEntries(armIds.map(arm => [arm, accounting(rows.filter(c => primary(c) && c.arm === arm))])),
+    episodes: Object.fromEntries([...new Set(rows.map(c=>c.episode).filter(Number.isInteger))].sort((a,b)=>a-b).map(episode=>[episode,{total:accounting(rows.filter(c=>c.episode===episode)),arms:Object.fromEntries(armIds.map(arm=>[arm,accounting(rows.filter(c=>c.episode===episode&&c.arm===arm))]))}])) }];
   }));
   const acquisition = accounting(calls.filter(c => c.stage === 'acquisition'));
   return { measurementScope: MEASUREMENT_SCOPE, label: LABEL, total, stages, arms, scenarios,
@@ -59,7 +60,7 @@ export function compareOverhead({ calls = [], planned = [], results = [], candid
     const trials = planned.filter(p => p.arm === arm), groups = new Set(trials.map(p => p.checkpointGroup).filter(Boolean));
     selected[arm] = calls.filter(c => primary(c) && c.arm === arm &&
       (c.stage === 'maintenance' ? groups.has(c.checkpointGroup) : trials.some(p => p.id === c.trialId)));
-    if (!trials.length || trials.some(p => resultById.get(p.id)?.status !== 'completed')) errors.push(`${arm}:incomplete-workload`);
+    if (!trials.length || trials.some(p => !['completed', 'blocked'].includes(resultById.get(p.id)?.status))) errors.push(`${arm}:incomplete-workload`);
     if (trials.some(p => !selected[arm].some(c => c.trialId === p.id && ['reasoning', 'H', 'action'].includes(c.stage)))) errors.push(`${arm}:missing-task-invocation`);
     if (trials.some(p => p.maintenanceRequired && !selected[arm].some(c => c.stage === 'maintenance' && c.checkpointGroup === p.checkpointGroup))) errors.push(`${arm}:missing-maintenance`);
     if (selected[arm].some(c => c.status !== 'completed')) errors.push(`${arm}:failed-invocation`);
@@ -78,7 +79,8 @@ export function compareOverhead({ calls = [], planned = [], results = [], candid
     scope: 'matched-post-handoff-maintenance-plus-H-and-QWD', errors, candidate: left, baseline: right,
     differences: errors.length ? null : tokenDifference(left.completeTotalTokens, right.completeTotalTokens),
     exploratory: rows.some(c => !c.returnedModel),
-    quality: planned.map(p => ({ trialId: p.id, status: resultById.get(p.id)?.status ?? 'missing', quality: resultById.get(p.id)?.quality ?? 'pending' })),
+    quality: planned.map(p => ({ trialId: p.id, status: resultById.get(p.id)?.status ?? 'missing', quality: resultById.get(p.id)?.quality ?? 'pending', humanAudit:resultById.get(p.id)?.humanAudit??'pending' })),
+    equivalentSuccessfulWork: planned.every(p=>resultById.get(p.id)?.quality==='pass'&&resultById.get(p.id)?.humanAudit==='passed'),
     caveat: 'Equal completed execution scope does not establish equal quality. Read strict component ratings and completion beside expenditure.' };
 }
 

@@ -2,7 +2,7 @@ import { buildCorpus, bindAcquisition, eligibleSources, selectedScreenIds } from
 import { DIMENSIONS } from './scoring.mjs';
 import { LIMITS } from './common.mjs';
 
-export const VALIDATION_VERSION = 'functionality-v5-offline-validation-1.0.1';
+export const VALIDATION_VERSION = 'functionality-v5-offline-validation-1.0.2';
 const unique = xs => new Set(xs).size === xs.length;
 const expectedUnits = { easy: 12, intermediate: 16, demanding: 20 };
 const textBytes = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -128,8 +128,11 @@ export function validateCorpus(corpus = buildCorpus(), { worldAdapter = null } =
           const withheldWorld = worldAdapter.createWorld(bound.scenario, { phase: 'action', acquisition, withheld: true, ...access(reduced) });
           for (const action of worldAdapter.validActionPlan(bound.scenario, { withheld: true }).filter(action => action.op !== 'lookup')) worldAdapter.applyAction(withheldWorld, action);
           const withheldChecks = worldAdapter.deterministicChecks(bound.scenario, withheldWorld);
-          verify(withheldChecks.complete === true && withheldChecks.correctlyBlocked === true,
-            `${scenario.id}: regenerated withheld plan completes safe work and blocks dependent completion`, withheldChecks.errors);
+          const withheldIdentity = bound.scenario.withheldSourceIds.includes('src-0011') ? 'unresolved' : bound.scenario.identity;
+          const blockedRequestedWork = bound.scenario.worldDefinition.fresh.some(x =>
+            (withheldIdentity === 'unresolved' && x.identityDependent) || bound.scenario.controlExpectation.operationBlock.includes(x.operation));
+          verify(withheldChecks.complete === true && withheldChecks.correctlyBlocked === blockedRequestedWork && withheldChecks.resolvedWork === !blockedRequestedWork,
+            `${scenario.id}: regenerated withheld plan completes its requested safe scope and blocks only required dependent work`, withheldChecks.errors);
           row.oracleBytes = textBytes(bound.sources); row.withheldBytes = textBytes(reduced);
           verify(row.oracleBytes <= LIMITS.historicalPerTask, `${scenario.id}: compact oracle evidence can fit historical allowance`);
         } catch (error) { verify(false, `${scenario.id}: world validation exception`, error.message); }

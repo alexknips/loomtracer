@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 
-export const VERSIONS = Object.freeze({ corpus: 'functionality-v5-corpus-1.0.2',
-  protocol: 'functionality-v5-isolated-workflows-1.1.1', rubric: 'functionality-v5-strict-units-1.0.1',
-  report: 'functionality-v5-report-1.0.2' });
+export const VERSIONS = Object.freeze({ corpus: 'functionality-v5-corpus-1.0.3',
+  protocol: 'functionality-v5-isolated-workflows-1.2.0', rubric: 'functionality-v5-strict-units-1.0.2',
+  report: 'functionality-v5-report-1.1.0' });
 export const LEVELS = Object.freeze(['easy', 'intermediate', 'demanding']);
 export const IDENTITIES = Object.freeze(['same', 'distinct', 'unresolved']);
 export const FAMILIES = Object.freeze(['incident', 'experiment', 'release']);

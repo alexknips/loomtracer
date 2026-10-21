@@ -1,5 +1,5 @@
 /** Independently authored v5 synthetic workflows. No provider is called here. */
-export const CORPUS_VERSION = 'functionality-v5-corpus-1.0.2';
+export const CORPUS_VERSION = 'functionality-v5-corpus-1.0.3';
 export const selectedScreenIds = Object.freeze([
   'v5-incident-demanding-same',
   'v5-experiment-demanding-distinct',
@@ -166,7 +166,7 @@ function hDefinitions(family) {
       relationships: [
         ['Explain that the pool and DNS observations jointly support the queue-contention explanation rather than treating either as the complete stated case.', ['src-0002', 'acq-pool_profile', 'acq-dns_probe']],
         ['Identify retrying DNS as the rejected alternative and the explicit normal-DNS reason; if DNS was never observed, qualify that evidential gap.', ['src-0002', 'acq-dns_probe']],
-        ['Explain that the fresh current-load canary depends on the actual current configuration; the old canary does not meet this dependency.', ['src-0005', 'src-0006']],
+        ['Explain that the fresh current-load canary depends on the actual current configuration; the old canary does not meet this dependency.', ['src-0005', 'src-0006', 'src-0012']],
         ['Explain why schema and rollback checks remain portable despite the changed batch size, preserving their unchanged-input scope.', ['src-0004', 'src-0006']],
         ['Explain that current trial recording needs both a current canary and alert/rollback verification; proposal text is not an execution receipt.', ['src-0012']],
       ],
@@ -249,6 +249,8 @@ function buildScenario(family, level, identity) {
     'Identity is determined by the authoritative registry mapping, never by wording, matching numbers, shared assets, or portable checks alone. Unresolved identity prohibits identity-dependent execution, but not genuinely independent checks.',
     'A proposed test, draft, attribution correction or unanswered question does not establish execution, approval or a reversal. Scope-specific approval cannot be generalized.',
     'The required final record must be supported by actual artifact receipts and authorized scope. A safe blocked outcome must name the missing condition and include completed independent work.',
+    'Complete only the operations requested in this handoff. When all requested operations are identity-independent, unresolved identity does not prevent finishing that limited subtask; it still grants no authority for unrequested identity-dependent work.',
+    'Do not repeat a successful current operation when its inputs and prerequisites are unchanged. Repeated portable-check mistakes are scored under their artifact-specific reuse obligation; the extraneous-work guard covers other unnecessary work.',
   ];
   const workflowDescription = fresh.map(x => `${x.operation}: ${x.publicDescription ?? x.description} Required prior artifacts: ${x.prerequisites.join(', ')}. Required supplied fields: ${x.fields.join(', ') || 'none'}. ${x.identityDependent ? 'Needs established current identity and its scoped authorization.' : 'Identity-independent.'}`).join('\n') + (activeConditional ? `\nConditional clarification: ${activeConditional.rule}` : '');
   change.push(source('src-0012', 'Workflow maintainer', 'tool-rules', workflowDescription));
@@ -270,7 +272,7 @@ function buildScenario(family, level, identity) {
     if (identity === 'unresolved' && x.identityDependent) continue;
     wUnits.push({ id: `w-fresh-${x.artifactId}`, kind: 'fresh', artifactId: x.artifactId, operation: x.operation, criterion: `Execute ${x.operation} with actual correct inputs after required prerequisites. ${x.description}`, prerequisites: x.prerequisites });
   }
-  wUnits.push({ id: 'w-no-extraneous-work', kind: 'reuse', guard: true, artifactId: null, criterion: 'No unneeded recomputation of portable valid checks, inactive branch execution, or unrelated substantive work.' });
+  wUnits.push({ id: 'w-no-extraneous-work', kind: 'reuse', guard: true, artifactId: null, criterion: 'No unnecessary repeated current operations, inactive branch execution, unrelated substantive work, or recomputation outside the separately scored portable-artifact reuse obligations. Do not penalize the same portable-artifact recomputation again in this guard.' });
   const hs = hDefinitions(family);
   const hUnits = H_DIMENSIONS.flatMap(dimension => hs[dimension].slice(0, count).map(([criterion, sourceIds], i) => unit(dimension, i + 1, criterion, sourceIds)));
   if (family !== 'release') hUnits.find(x => x.id === 'h-relationships-1').dependsOn = ['h-premises-1', 'h-premises-2'];

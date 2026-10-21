@@ -1,6 +1,6 @@
 /** Strict semantic units remain binary; granularity changes aggregation, not correctness. */
-export const SCORING_VERSION = 'functionality-v5-strict-units-1.0.1';
-export const REPORT_VERSION = 'functionality-v5-report-1.0.2';
+export const SCORING_VERSION = 'functionality-v5-strict-units-1.0.2';
+export const REPORT_VERSION = 'functionality-v5-report-1.1.0';
 export const DIMENSIONS = ['premises', 'relationships', 'attribution', 'changes'];
 export const LEVELS = ['easy', 'intermediate', 'demanding'];
 export const IDENTITY_CLASSES = ['same', 'distinct', 'unresolved'];

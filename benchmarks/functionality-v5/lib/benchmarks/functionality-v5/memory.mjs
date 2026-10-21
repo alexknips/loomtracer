@@ -1,11 +1,13 @@
+import { realpath } from 'node:fs/promises';
+import { nativeMaintenancePrompt, applyNativeMemory, createNativeTaskView, verifyNativeTaskView, nativeLookup } from './native.mjs';
 import { hash, LIMITS, check, clone } from './common.mjs';
 
-export const MEMORY_VERSION = 'functionality-v5-selective-markdown-1.1.0';
+export const MEMORY_VERSION = 'functionality-v5-memory-adapters-1.2.0';
 export const REPLAY_POLICY_ID = 'functionality-v5-distinct-exposure-active-context-1.0.0';
 export const REPLAY_POLICY = Object.freeze({ id: REPLAY_POLICY_ID, distinctHistoricalBytes: 32768,
   activeHistoricalBytes: 32768, lookupBytes: 8192, deduplication: 'Exact serialized participant payload; overlapping nonidentical passages count separately',
   cumulativeDeliveryBytes: 'Recorded without a cumulative stop; every actual replay and all CLI-reported tokens remain charged' });
-const LEGACY_VERSIONS = ['functionality-v5-selective-markdown-1.0.0', 'functionality-v5-selective-markdown-1.0.1'];
+const LEGACY_VERSIONS = ['functionality-v5-selective-markdown-1.1.0', 'functionality-v5-selective-markdown-1.0.0', 'functionality-v5-selective-markdown-1.0.1'];
 const size = value => Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value), 'utf8');
 // The participant receives packet.payload. The immutable controller envelope
 // also retains an evidence copy, but that copy is not a second delivery.
@@ -75,6 +77,30 @@ export function applyMemoryEdits(previous, response, { eligibleSources, revision
     files: Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) });
 }
 
+/** Shared adapter boundary; the controller owns dispatch and its immutable ledger. */
+export function maintenancePromptForArm(arm, previous, episode) {
+  if (arm === 'stock-maintained-notes') return maintenancePrompt(previous, episode);
+  if (arm === 'stock-history') throw new Error('Conversation history has no model maintenance invocation');
+  if (arm === 'loomtracer-native') return nativeMaintenancePrompt(previous, episode);
+  throw new Error('Unknown memory condition');
+}
+
+export async function applyMaintenanceForArm(arm, previous, response, options) {
+  if (arm === 'stock-maintained-notes') return applyMemoryEdits(previous, response, options);
+  if (arm === 'loomtracer-native') return applyNativeMemory(previous, response, options);
+  check(arm === 'stock-history', 'Unknown memory condition');
+  if (previous) verify(previous);
+  check(response == null, 'History baseline cannot receive agent-curated memory');
+  const { revision, eligibleSources, sourceCutoff } = options;
+  check(safeId(revision) && revision !== previous?.id, 'New immutable history revision required');
+  check(Number.isSafeInteger(sourceCutoff) && sourceCutoff >= (previous?.sourceCutoff ?? 0), 'History cutoff must not move backwards');
+  const sources = normalizeSources(eligibleSources).filter(source => source.order <= sourceCutoff);
+  check((previous?.sources ?? []).every(prior => sources.some(source => hash(source) === hash(prior))), 'History cannot rewrite a previous source occurrence');
+  return seal({ version: MEMORY_VERSION, format: 'history', id: revision, parentHash: previous?.sha256 ?? null,
+    sourceCutoff, sourceIds: sources.map(source => source.id), sources,
+    projectionPolicy: 'Contiguous chronological suffix of complete source messages within the shared 32 KiB active allowance; no semantic selection or archive lookup.' });
+}
+
 function sourceEvidence(source) { return { id: `source:${source.id}`, kind: 'source', sourceId: source.id,
   sourceOrder: source.order, text: source.text, sourceIds: [source.id] }; }
 function passage(revision, path, text, startLine, endLine) {
@@ -100,6 +126,19 @@ function verifyPacket(view, packet) {
     if (evidence.kind === 'source') {
       check(visible.has(evidence.sourceId), 'Evidence source is outside the frozen cutoff');
       expected = sourceEvidence(visible.get(evidence.sourceId));
+    } else if (evidence.kind === 'native') {
+      check(view.mode === 'native' && evidence.revision === view.frozen.revision.id, 'Native evidence is outside the frozen revision');
+      const payloadHash = hash(packet.payload.native);
+      check(view.nativeTask?.queries.some(row => row.payloadHash === payloadHash), 'Native evidence has no actual lookup receipt');
+      const references = packet.payload.native.retainedReferences ?? [];
+      const recordIds = references.map(row => row.recordId);
+      const sourceIds = [...new Set(references.flatMap(row => row.sourceRefs.map(ref => ref.slice(7))))];
+      for (const row of references) {
+        const record = view.frozen.revision.records.find(r => r.id === row.recordId);
+        check(record && hash(row.sourceRefs) === hash(record.sourceIds.map(id => `source:${id}`)), 'Native source refs differ from the frozen captured record');
+      }
+      expected = { id: `native:${evidence.revision}:${payloadHash}`, kind: 'native', revision: evidence.revision,
+        payloadHash, recordIds, text: JSON.stringify(packet.payload.native), sourceIds };
     } else {
       const revision = view.frozen.revision;
       check(evidence.kind === 'markdown' && revision && evidence.revision === revision.id && Object.hasOwn(revision.files, evidence.path), 'Evidence note is outside the frozen revision');
@@ -128,14 +167,23 @@ export function replayPackets(view, packets) {
 
 /** Controller state is serializable. Create a separate view for every successor fork. */
 export function createMemoryView(revision, sources, { mode = 'notes', withheldIds = [], sourceCutoff } = {}) {
-  check(['notes', 'oracle', 'withheld'].includes(mode), 'Unknown memory view mode');
+  check(['notes', 'history', 'native', 'oracle', 'withheld'].includes(mode), 'Unknown memory view mode');
   if (revision) verify(revision);
-  check(mode !== 'notes' || revision, 'Notes view requires a saved revision');
+  check(!['notes','history','native'].includes(mode) || revision, 'Primary view requires a saved revision');
   const normalized = normalizeSources(sources);
   sourceCutoff ??= revision?.sourceCutoff ?? Math.max(0, ...normalized.map(source => source.order));
   const removed = new Set(withheldIds);
-  const visible = normalized.filter(source => source.order <= sourceCutoff && !(mode === 'withheld' && removed.has(source.id)));
-  const frozen = { mode, revision: mode === 'notes' ? clone(revision) : null, sources: visible,
+  let visible = normalized.filter(source => source.order <= sourceCutoff && !(mode === 'withheld' && removed.has(source.id)));
+  let historyOmitted = 0;
+  if (mode === 'history') {
+    check(revision.format === 'history' && hash(revision.sources) === hash(visible), 'History differs from its immutable checkpoint');
+    visible = [...visible].sort((a,b) => a.order-b.order);
+    // Drop only an oldest prefix. Never select by task, relevance, gold, or actor.
+    while (size([{ sources: visible, omittedOldestMessages: historyOmitted, access: 'Chronological conversation history. No hidden archive search is available.' }]) > REPLAY_POLICY.activeHistoricalBytes) {
+      check(visible.length > 0, 'History envelope exceeds allowance'); visible.shift(); historyOmitted++;
+    }
+  }
+  const frozen = { mode, revision: ['notes','history','native'].includes(mode) ? clone(revision) : null, sources: visible,
     sourceCutoff, withheldIds: mode === 'withheld' ? [...removed].sort() : [] };
   const view = { version: MEMORY_VERSION, mode, frozen, checkpointHash: hash(frozen), historicalBytes: 0,
     replayPolicyId: REPLAY_POLICY_ID, uniqueExposureBytes: 0, exposureLedger: [],
@@ -149,6 +197,11 @@ export function createMemoryView(revision, sources, { mode = 'notes', withheldId
     payload = { revision: revision.id, files: Object.entries(revision.files).map(([path, text]) => ({ path,
       lines: lines(text).length, headings: lines(text).flatMap((line, index) => /^#{1,6}\s/.test(line) ? [{ line: index + 1, text: line }] : []) })),
       access: 'Use lookup search/open to inspect notes. Source expansion requires [source:ID] in a delivered passage.' };
+  } else if (mode === 'native') {
+    payload = { revision: revision.id, access: 'Use bounded native recall and expand to retrieve retained records. Original-source expansion requires a source reference already delivered by native retrieval.' };
+  } else if (mode === 'history') {
+    evidence = visible.map(sourceEvidence);
+    payload = { sources: visible, omittedOldestMessages: historyOmitted, access: 'Chronological conversation history. No hidden archive search is available.' };
   } else {
     evidence = visible.map(sourceEvidence);
     payload = { sources: visible, access: 'Frozen original source evidence; unavailable assertions must remain unresolved.' };
@@ -202,6 +255,34 @@ export function lookup(view, action) {
   }
   const packet = makePacket(view, { passages }, passages);
   check(lookupPayloadBytes(packet) <= LIMITS.lookupBytes, 'Markdown passage exceeds lookup allowance; request fewer lines');
+  return packet;
+}
+
+/** Native storage stays outside model tools; only this bounded broker calls it. */
+export async function prepareNativeView(view, options) {
+  assertView(view);
+  if (view.mode === 'native') {
+    if (view.nativeTask) {
+      await verifyNativeTaskView(view.nativeTask);
+      check(view.nativeTask.memory.sha256 === view.frozen.revision.sha256 && hash(view.nativeTask.nativeConfig) === hash(options.nativeConfig) && view.nativeTask.taskRoot === await realpath(options.taskRoot), 'Restored native fork identity differs');
+    } else view.nativeTask = await createNativeTaskView(view.frozen.revision, options);
+  }
+  return view;
+}
+
+export async function lookupForView(view, action) {
+  if (view.mode !== 'native' || action.op === 'source') return lookup(view, action);
+  assertView(view);
+  check(['recall','expand'].includes(action.op), 'Native view permits recall, expand, or retained-source inspection');
+  check(view.nativeTask, 'Native task fork has not been prepared');
+  if (action.op === 'expand') check(view.deliveredEvidence.some(row => row.kind === 'native' && row.recordIds.includes(action.id)), 'Native expansion requires a record already delivered to this fork');
+  const request = action.op === 'recall' ? { kind: 'recall', query: action.query, ...(action.limit === undefined ? {} : {limit:action.limit}), ...(action.cursor === undefined ? {} : {cursor:action.cursor}) } : { kind: 'expand', id: action.id, ...(action.view === undefined ? {} : {view:action.view}) };
+  const result = await nativeLookup(view.nativeTask, request);
+  const evidence = { id: `native:${view.frozen.revision.id}:${result.payloadHash}`, kind: 'native', revision: view.frozen.revision.id,
+    payloadHash: result.payloadHash, recordIds: result.recordIds, text: JSON.stringify(result.payload), sourceIds: result.sourceIds };
+  const packet = makePacket(view, { native: result.payload, citation: evidence.id }, [evidence]);
+  check(lookupPayloadBytes(packet) <= LIMITS.lookupBytes, 'Native retrieval exceeds lookup allowance; request fewer records');
+  verifyPacket(view, packet);
   return packet;
 }
 
@@ -287,6 +368,11 @@ export function validateCitation(view, citation) {
       const sourceId = citation.slice(7);
       check(view.deliveredSourceIds.includes(sourceId), 'Source citation was not delivered to this fork');
       return { valid: true, kind: 'source', sourceId };
+    }
+    if (citation.startsWith('native:')) {
+      const evidence = view.deliveredEvidence.find(row => row.kind === 'native' && row.id === citation);
+      check(evidence, 'Native citation was not delivered at this immutable revision');
+      return { valid: true, kind: 'native', revision: evidence.revision, recordIds: evidence.recordIds };
     }
     const match = /^note:(.+?):([^:]+):L(\d+)-L(\d+)$/.exec(citation);
     check(match, 'Invalid citation syntax');

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCorpus, selectedScreenIds, bindAcquisition } from './corpus.mjs';
 import { createWorld, applyAction, validAcquisitionPlan, validActionPlan } from './world.mjs';
-import { performWorkflow, taskPrompt } from './workflow.mjs';
+import { performWorkflow, taskPrompt, deliveredArtifactIds } from './workflow.mjs';
 import { controlSources } from './run-screen.mjs';
 import { applyMemoryEdits } from './memory.mjs';
 
@@ -108,4 +108,10 @@ test('maintained-note fork must deliver references before using historical artif
   assert.equal(result.status,'operation-limit');
   assert.equal(result.world.reused.length,0);
   assert.ok(result.trace.every(r=>!r.receipt.ok));
+});
+
+
+test('artifact visibility requires a complete delivered artifact reference', () => {
+  const view = { deliveredEvidence: [{ kind: 'markdown', text: 'Completed artifact-build-v2; artifact-other. (artifact-final), [artifact-markdown] and `artifact-code`.' }] };
+  assert.deepEqual(deliveredArtifactIds(view, ['artifact-build', 'artifact-build-v2', 'artifact-other', 'artifact-final', 'artifact-markdown', 'artifact-code']), ['artifact-build-v2', 'artifact-other', 'artifact-final', 'artifact-markdown', 'artifact-code']);
 });

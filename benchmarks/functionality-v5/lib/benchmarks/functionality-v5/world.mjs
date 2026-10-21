@@ -38,6 +38,9 @@ const equivalentValue = (field, actual, expected) => {
 const stateFor = world => world._scenario.worldDefinition;
 const effectiveIdentity = world => world.withheld && world._scenario.withheldSourceIds.includes('src-0011') ? 'unresolved' : world._scenario.identity;
 const neededFresh = world => stateFor(world).fresh.filter(x => effectiveIdentity(world) !== 'unresolved' || !x.identityDependent);
+const blockedRequestedWork = world => stateFor(world).fresh.filter(x =>
+  (effectiveIdentity(world) === 'unresolved' && x.identityDependent) ||
+  (world.withheld && world._scenario.controlExpectation.operationBlock.includes(x.operation)));
 const operation = (world, name) => [...stateFor(world).acquisitionChecks, stateFor(world).original, stateFor(world).acquisitionFinal, ...stateFor(world).fresh].filter(Boolean).find(x => x.operation === name);
 
 export function createWorld(scenario, { phase = 'action', acquisition = null, withheld = false, eligibleSourceIds = [], visibleArtifactIds = [] } = {}) {
@@ -47,7 +50,7 @@ export function createWorld(scenario, { phase = 'action', acquisition = null, wi
     scenarioId: scenario.id, phase, withheld, status: 'active', step: 0,
     actions: [], receipts: [], artifacts: {}, priorArtifacts: clone(prior),
     available: {}, questionAnswers: {}, questionEvents: [], reused: [], repeated: [],
-    identityDecision: null, outwardStatements: [], firstSubstantiveStep: null,
+    identityDecision: null, identityDecisions: [], outwardStatements: [], firstSubstantiveStep: null,
     terminal: null, errors: [], _scenario: clone(scenario),
     eligibleSourceIds: [...eligibleSourceIds], visibleArtifactIds: [...visibleArtifactIds],
   };
@@ -61,7 +64,7 @@ export function publicWorldContract(scenario, phase = 'action') {
     : d.fresh.map(x => ({ operation: x.operation, prerequisites: x.prerequisites, fields: x.fields,
       description: x.publicDescription ?? (x.operation === 'verify_operator' ? SHIFT_INPUT_DESCRIPTION : x.description), identityDependent: x.identityDependent }));
   return {
-    protocol: 'functionality-v5-world-1.0.2', phase,
+    protocol: 'functionality-v5-world-1.0.3', phase,
     rules: scenario.contract.rules,
     operations,
     conditionalClarification: phase === 'action' ? d.conditional?.rule || null : null,
@@ -166,6 +169,7 @@ export function applyAction(world, action, { batchStart = null, eligibleSourceId
     if (!['same', 'distinct', 'unresolved'].includes(action.classification) || !Array.isArray(action.evidence) || !action.explanation?.trim()) fail(world, receipt, 'invalid_assessment', 'Supply classification, source evidence identifiers and an explanation');
     else {
       world.identityDecision = { classification: action.classification, evidence: clone(action.evidence), explanation: action.explanation, atStep: world.step };
+      (world.identityDecisions ??= []).push(clone(world.identityDecision));
       receipt.assessmentRecorded = true;
     }
   } else if (op === 'ask') {
@@ -229,6 +233,7 @@ export function applyAction(world, action, { batchStart = null, eligibleSourceId
         addArtifact(world, receipt, repeat, `Fresh repetition of unchanged check: ${spec.observation}`);
       } else {
         const observation = world.phase === 'acquisition' ? spec.observation : actualCurrentObservation(world, spec, action.inputs || {});
+        if (world.phase === 'action' && world.artifacts[spec.artifactId]) world.repeated.push({ artifactId: spec.artifactId, operation: spec.operation, step: world.step, kind: 'current-operation-repeat' });
         addArtifact(world, receipt, spec, observation, action.inputs || {}, prerequisites);
       }
     }
@@ -237,7 +242,7 @@ export function applyAction(world, action, { batchStart = null, eligibleSourceId
     const invalid = !Array.isArray(refs) || refs.some(ref => !artifactReference(world, ref) && !world.reused.some(x => x.artifactId === (typeof ref === 'string' ? ref : ref?.artifactId)));
     const expected = world.phase === 'acquisition' ? [...d.acquisitionChecks, d.original, d.acquisitionFinal].filter(Boolean) : neededFresh(world).filter(x => !world.withheld || !world._scenario.controlExpectation.operationBlock.includes(x.operation));
     const missing = expected.filter(x => !world.available[x.artifactId]).map(x => x.artifactId);
-    const mustBlock = world.phase === 'action' && (effectiveIdentity(world) === 'unresolved' || world.withheld);
+    const mustBlock = world.phase === 'action' && blockedRequestedWork(world).length > 0;
     if (invalid) fail(world, receipt, 'invalid_final_reference', 'All output artifact references must identify successful actual receipts');
     else if (!(action.summary || action.reason)?.trim()) fail(world, receipt, 'missing_summary', 'A concise result summary or block reason is required');
     else if (missing.length) fail(world, receipt, 'incomplete_work', `Applicable work is incomplete: ${missing.join(', ')}`);
@@ -282,12 +287,24 @@ export function deterministicChecks(scenario, world) {
   });
   const W = scenario.wUnits.map(unit => {
     let pass;
-    if (unit.guard) pass = world.repeated.length === 0 && !world.errors.some(x => ['stale_operation', 'identity_unresolved', 'unknown_operation'].includes(x.code));
+    if (unit.guard) pass = !world.repeated.some(x => !scenario.wUnits.some(u => !u.guard && u.kind === 'reuse' && u.artifactId === x.artifactId)) && !world.errors.some(x => ['stale_operation', 'identity_unresolved', 'unknown_operation'].includes(x.code));
     else if (unit.kind === 'reuse') pass = world.reused.some(x => x.artifactId === unit.artifactId) && !world.repeated.some(x => x.artifactId === unit.artifactId) && Object.values(world.artifacts).some(x => x.prerequisites?.includes(unit.artifactId));
     else pass = !!world.artifacts[unit.artifactId];
     return { id: unit.id, kind: unit.kind, status: pass ? 'pass' : 'fail', receiptIds: world.receipts.filter(x => x.ok && (x.usedArtifactId === unit.artifactId || x.artifact?.id === unit.artifactId)).map(x => x.id) };
   });
-  const D = { observed: !!world.identityDecision || world.outwardStatements.length > 0, classification: world.identityDecision?.classification || null, atStep: world.identityDecision?.atStep || null, firstSubstantiveStep: world.firstSubstantiveStep, late: !!world.identityDecision && world.firstSubstantiveStep !== null && world.identityDecision.atStep >= world.firstSubstantiveStep, statements: clone(world.outwardStatements), semanticStatus: 'pending' };
+  // Preserve every candidate. A later restatement cannot erase an earlier
+  // complete assessment. These are timing candidates, not semantic passes:
+  // review must still reject an early ambiguous/incorrect statement followed
+  // only by a later supported decision.
+  const decisions = world.identityDecisions?.length ? world.identityDecisions : world.identityDecision ? [world.identityDecision] : [];
+  const candidates = [
+    ...decisions.map(x => ({ kind: 'recognize', step: x.atStep, beforeOperation: true, ...clone(x) })),
+    ...world.outwardStatements.map(x => ({ kind: 'statement', ...clone(x) })),
+  ].sort((a, b) => a.step - b.step);
+  const timelyCandidates = candidates.filter(x => world.firstSubstantiveStep === null || x.step < world.firstSubstantiveStep || (x.step === world.firstSubstantiveStep && x.beforeOperation));
+  const D = { observed: candidates.length > 0, classification: world.identityDecision?.classification || null, atStep: world.identityDecision?.atStep || null, firstSubstantiveStep: world.firstSubstantiveStep,
+    late: candidates.length > 0 && world.firstSubstantiveStep !== null && timelyCandidates.length === 0,
+    candidates, timelyCandidateCount: timelyCandidates.length, statements: clone(world.outwardStatements), semanticStatus: 'pending' };
   return { Q, W, D, terminal: clone(world.terminal), complete: ['complete', 'blocked'].includes(world.status) && world.errors.length === 0, resolvedWork: world.status === 'complete' && world.errors.length === 0, correctlyBlocked: world.status === 'blocked' && world.errors.length === 0, errors: clone(world.errors) };
 }
 
@@ -308,14 +325,16 @@ export function validActionPlan(scenario, { withheld = false } = {}) {
   const initial = fields.filter(f => f !== d.conditional?.field);
   const conditional = fields.filter(f => f === d.conditional?.field);
   const plan = [{ op: 'lookup', query: scenario.family }];
-  const message = `The authoritative mapping establishes ${effective}; ${effective === 'unresolved' ? 'the missing discriminator prevents an identity link' : 'this identifies the underlying scoped target, not just matching wording or values'}. Evidence: src-0011.`;
+  const message = withheld && scenario.withheldSourceIds.includes('src-0011')
+    ? 'The reduced eligible record does not establish the authoritative mapping. Identity remains unresolved; no absent registry occurrence is treated as evidence.'
+    : `The authoritative mapping establishes ${effective}; ${effective === 'unresolved' ? 'the missing discriminator prevents an identity link' : 'this identifies the underlying scoped target, not just matching wording or values'}. Evidence: src-0011.`;
   if (initial.length) plan.push({ op: 'ask', fields: initial, message });
   else plan.push({ op: 'message', text: message });
   if (conditional.length) plan.push({ op: 'ask', fields: conditional });
   for (const x of reuse) plan.push({ op: 'reuse', artifactId: x.artifactId });
   if (withheld) for (const name of scenario.controlExpectation.recoverableBy || []) plan.push({ op: 'run', operation: name });
   for (const x of fresh) plan.push({ op: 'run', operation: x.operation, inputs: Object.fromEntries(x.fields.map(f => [f, Object.hasOwn(d.knownFields, f) ? d.knownFields[f] : d.unknownFields[f]])) });
-  const blocked = effective === 'unresolved' || withheld;
+  const blocked = d.fresh.some(x => (effective === 'unresolved' && x.identityDependent) || (withheld && scenario.controlExpectation.operationBlock.includes(x.operation)));
   plan.push({ op: blocked ? 'block' : 'finish', ...(blocked ? { reason: 'Missing historical discriminator or check; independent work is complete and dependent execution remains blocked.' } : { summary: 'Applicable current work completed with actual receipts and limited authorization.' }), artifacts: fresh.map(x => x.artifactId).concat(reuse.map(x => x.artifactId)) });
   return plan;
 }

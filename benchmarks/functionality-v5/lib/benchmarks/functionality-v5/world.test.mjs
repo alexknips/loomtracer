@@ -4,6 +4,7 @@ import { buildCorpus, selectedScreenIds, bindAcquisition } from './corpus.mjs';
 import { createWorld, applyAction, applyBatch, validAcquisitionPlan, validActionPlan, alternateActionPlan, deterministicChecks, publicWorldContract } from './world.mjs';
 import { performWorkflow, taskPrompt } from './workflow.mjs';
 import { controlSources } from './run-screen.mjs';
+import { scoreAction } from './scoring.mjs';
 
 const corpus = buildCorpus();
 function acquire(s) {
@@ -39,8 +40,10 @@ test('all 27 current plans fit twelve operations including lookup and pass stric
     const checks = execute(w, plan);
     assert.equal(checks.complete, true, s.id);
     assert.ok([...checks.Q, ...checks.W].every(x => x.status === 'pass'), s.id);
-    assert.equal(checks.correctlyBlocked, s.identity === 'unresolved');
-    assert.equal(checks.resolvedWork, s.identity !== 'unresolved');
+    const onlyIndependentReleaseSubtask = s.family === 'release' && s.level !== 'demanding';
+    const blocked = s.identity === 'unresolved' && !onlyIndependentReleaseSubtask;
+    assert.equal(checks.correctlyBlocked, blocked);
+    assert.equal(checks.resolvedWork, !blocked);
   }
 });
 test('all alternate independent reuse orders are accepted without a golden transcript', () => {
@@ -51,7 +54,10 @@ test('all withheld witnesses preserve unknown historical evidence and safely com
     const w = actionWorld(s, { withheld: true });
     const p = validActionPlan(s, { withheld: true });
     assert.ok(p.length <= 12);
-    assert.equal(execute(w, p).correctlyBlocked, true, s.id);
+    const checks = execute(w, p);
+    const onlyIndependentReleaseSubtask = s.family === 'release' && s.level !== 'demanding';
+    assert.equal(checks.correctlyBlocked, !onlyIndependentReleaseSubtask, s.id);
+    assert.equal(checks.resolvedWork, onlyIndependentReleaseSubtask, s.id);
   }
 });
 test('no-memory guessed artifact names and undelivered mapping cannot complete a workflow', () => {
@@ -224,7 +230,7 @@ test('complete five-call experiment witness accepts reordered shift within uncha
   assert.ok([...deterministicChecks(scenario, result.world).Q, ...deterministicChecks(scenario, result.world).W].every(x => x.status === 'pass'));
   t.diagnostic(`Five mocked calls, ${result.operationsUsed} operations, ${result.view.historicalBytes} cumulative historical UTF-8 bytes; zero provider calls.`);
 });
-test('an unnecessary rerun after recognition passes timing but fails work reuse', () => {
+test('an unnecessary portable rerun fails its reuse unit once without duplicating the guard penalty', () => {
   const s = selected[0];
   const w = actionWorld(s);
   applyAction(w, { op: 'recognize', classification: 'same', evidence: ['src-0011'], explanation: 'Registry maps this request to the original OPS-184 failure episode.' });
@@ -232,7 +238,26 @@ test('an unnecessary rerun after recognition passes timing but fails work reuse'
   const checks = execute(w, validActionPlan(s));
   assert.equal(checks.D.late, false);
   assert.equal(checks.W.find(x => x.id === 'w-reuse-pool-profile').status, 'fail');
+  assert.equal(checks.W.find(x => x.id === 'w-no-extraneous-work').status, 'pass');
+  assert.equal(checks.W.filter(x => x.status === 'fail').length, 1);
+});
+test('unlisted recomputation still fails the extraneous-work guard', () => {
+  const s = corpus.find(x => x.id === 'v5-incident-easy-same'), w = actionWorld(s);
+  applyAction(w, { op: 'run', operation: 'schema_check' });
+  const checks = execute(w, validActionPlan(s));
   assert.equal(checks.W.find(x => x.id === 'w-no-extraneous-work').status, 'fail');
+  assert.equal(checks.W.filter(x => x.status === 'fail').length, 1);
+});
+test('repeating a successful current operation remains extraneous even after all fresh milestones succeed', () => {
+  const s = corpus.find(x => x.id === 'v5-incident-easy-same'), w = actionWorld(s);
+  const plan = validActionPlan(s);
+  const config = plan.findIndex(x => x.operation === 'configure_trial');
+  plan.splice(config + 1, 0, structuredClone(plan[config]));
+  const checks = execute(w, plan);
+  assert.equal(checks.W.find(x => x.id === 'w-fresh-current-config').status, 'pass');
+  assert.equal(checks.W.find(x => x.id === 'w-fresh-current-canary').status, 'pass');
+  assert.equal(checks.W.find(x => x.id === 'w-no-extraneous-work').status, 'fail');
+  assert.equal(checks.W.filter(x => x.status === 'fail').length, 1);
 });
 test('stale old results cannot substitute for current execution', () => {
   const w = actionWorld(selected[0]);
@@ -256,6 +281,43 @@ test('late and unsupported identity declarations are retained, never validated b
   assert.equal(r.assessmentRecorded, true);
   assert.equal(deterministicChecks(s, w).D.late, true);
   assert.equal(deterministicChecks(s, w).D.semanticStatus, 'pending');
+});
+test('a supported early assessment is not erased by a later restatement', () => {
+  const s = selected[0], w = actionWorld(s);
+  const decision = { op: 'recognize', classification: 'same', evidence: ['src-0011'], explanation: 'The authoritative bridge maps this request to OPS-184, the same service and failure episode.' };
+  applyAction(w, decision);
+  applyAction(w, { op: 'reuse', artifactId: 'pool-profile' });
+  applyAction(w, decision);
+  const checked = deterministicChecks(s, w);
+  assert.equal(checked.D.candidates.length, 2);
+  assert.equal(checked.D.timelyCandidateCount, 1);
+  assert.equal(checked.D.late, false);
+  assert.equal(checked.D.semanticStatus, 'pending');
+  // This is a stipulated semantic judgment of the quoted complete assertion,
+  // not a keyword-based semantic evaluator.
+  const semantic = { identity: { status: 'pass', observed: true, late: false, supported: true, completeUnambiguous: true } };
+  assert.equal(scoreAction(s, semantic, { deterministic: checked }).D.status, 'pass');
+});
+test('early ambiguity followed by supported late recognition still fails strict D', () => {
+  const s = selected[0], w = actionWorld(s);
+  applyAction(w, { op: 'message', text: 'These numbers look similar; perhaps this is the old problem.' });
+  applyAction(w, { op: 'reuse', artifactId: 'pool-profile' });
+  applyAction(w, { op: 'recognize', classification: 'same', evidence: ['src-0011'], explanation: 'The authoritative bridge maps this request to OPS-184, the same service and failure episode.' });
+  const checked = deterministicChecks(s, w);
+  assert.equal(checked.D.timelyCandidateCount, 1, 'A candidate is not a semantic success');
+  assert.equal(checked.D.semanticStatus, 'pending');
+  const semantic = { identity: { status: 'fail', observed: true, late: true, category: 'late', supported: true, completeUnambiguous: true } };
+  const scored = scoreAction(s, semantic, { deterministic: checked });
+  assert.equal(scored.D.status, 'fail');
+  assert.equal(scored.D.late, true);
+});
+test('a complete scoped statement before the first work operation can establish timely recognition', () => {
+  const s = selected[0], w = actionWorld(s);
+  applyAction(w, { op: 'reuse', artifactId: 'pool-profile', message: 'The authoritative bridge identifies OPS-184, the same service and failure episode under the new label.' });
+  applyAction(w, { op: 'recognize', classification: 'same', evidence: ['src-0011'], explanation: 'Restating the scoped identity already stated before reuse.' });
+  const checked = deterministicChecks(s, w);
+  assert.equal(checked.D.timelyCandidateCount, 1);
+  assert.equal(checked.D.late, false);
 });
 test('dependent run, question and finish operations must await the next invocation receipt', () => {
   const a = createWorld(selected[0], { phase: 'acquisition' });
@@ -282,6 +344,17 @@ test('correctly blocked unresolved case completes safe work without creating rel
   assert.equal(checks.resolvedWork, false);
   assert.ok(w.artifacts['validation-signoff']);
   assert.ok(!w.artifacts['release-manifest']);
+});
+test('unresolved release identity does not block completion of a requested identity-independent subtask', () => {
+  for (const level of ['easy', 'intermediate']) {
+    const s = corpus.find(x => x.id === `v5-release-${level}-unresolved`), w = actionWorld(s);
+    const checks = execute(w, validActionPlan(s));
+    assert.equal(checks.resolvedWork, true);
+    assert.equal(checks.correctlyBlocked, false);
+    assert.ok(w.artifacts['validation-signoff']);
+    assert.ok(!w.artifacts['release-manifest']);
+    assert.ok(publicWorldContract(s).rules.some(rule => rule.includes('unresolved identity does not prevent finishing that limited subtask')));
+  }
 });
 test('withheld historical license result can be rechecked now without fabricating its past', () => {
   const s = selected[2];

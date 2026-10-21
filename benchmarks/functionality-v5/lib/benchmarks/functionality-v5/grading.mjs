@@ -1,13 +1,29 @@
 import { createHash } from 'node:crypto';
 import { SCORING_VERSION, scoreH, scoreAction } from './scoring.mjs';
+import { publicWorldContract } from './world.mjs';
 
-export const GRADING_VERSION = 'functionality-v5-blinded-review-1.0.0';
+export const GRADING_VERSION = 'functionality-v5-blinded-review-1.0.1';
 const hash = v => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const clone = v => structuredClone(v);
 const unique = xs => new Set(xs).size === xs.length;
+function deliveredPassages(workflow) {
+  return (workflow.view?.deliveredEvidence ?? []).map(evidence => {
+    // Whitelist participant-visible passage fields. The view also contains the
+    // full eligible archive and native private workspace state; neither belongs
+    // in a blinded participant record.
+    const allowed = ['id', 'kind', 'text', 'sourceId', 'sourceIds', 'sourceOrder', 'revision', 'startLine', 'endLine', 'recordIds', 'payloadHash'];
+    if (evidence.kind === 'markdown') allowed.push('path');
+    const passage = Object.fromEntries(allowed.filter(key => Object.hasOwn(evidence, key)).map(key => [key, clone(evidence[key])]));
+    const hashes = new Set((workflow.packets ?? []).filter(p => p.evidence?.some(e => e.id === evidence.id)).map(p => p.sha256));
+    const first = (workflow.view?.deliveries ?? []).findIndex(d => d.packetHashes?.some(h => hashes.has(h)));
+    return { ...passage, firstDeliveredInvocation: first < 0 ? null : first + 1 };
+  });
+}
 const visible = workflow => ({ kind: workflow.kind, mode: workflow.mode ?? 'prompted', status: workflow.status,
   answer: clone(workflow.answer ?? null), trace: clone(workflow.trace ?? []),
-  errors: clone(workflow.errors ?? []), citations: clone(workflow.citations ?? []) });
+  errors: clone(workflow.errors ?? []), citations: clone(workflow.citations ?? []),
+  execution: { operationsUsed: workflow.operationsUsed ?? workflow.trace?.length ?? 0, operationLimit: 16 },
+  deliveredEvidence: deliveredPassages(workflow) });
 const sourcesOf = sources => clone(Array.isArray(sources) ? sources : sources?.sources ?? []);
 function basePacket(scenario, workflow, sources, kind) {
   const participant = visible(workflow), eligibleSources = sourcesOf(sources);
@@ -15,7 +31,8 @@ function basePacket(scenario, workflow, sources, kind) {
   return { version: GRADING_VERSION, scoringVersion: SCORING_VERSION,
     blindId: `review-${hash([scenario.id, workflow.id, kind]).slice(0, 20)}`, kind,
     sourceTruth: { sources: eligibleSources, publicQuestions: clone(scenario.hQuestions ?? scenario.questions ?? []),
-      publicContract: clone(scenario.publicContract ?? scenario.contract ?? null) }, participant,
+      publicTask: scenario.task ?? null,
+      publicContract: scenario.worldDefinition && workflow.kind !== 'H' ? publicWorldContract(scenario, workflow.kind === 'acquisition' ? 'acquisition' : 'action') : clone(scenario.publicContract ?? scenario.contract ?? null) }, participant,
     snapshot: { sourceHash: hash(eligibleSources), participantHash: hash(participant),
       requirementHash: hash({ h: scenario.hUnits, q: scenario.qUnits, w: scenario.wUnits, identity: scenario.identityEvidence }) },
     reviewStatus: 'ungraded', humanAudit: 'pending',
@@ -73,6 +90,10 @@ Apply strict binary grading to exactly the frozen public obligations. PASS requi
 H: grade each listed unit once. Preserve all essential qualifications and the explicitly stated joint relationship: two isolated facts do not automatically express joint support. Do not grade incidental facts absent from a frozen unit. Check the entire answer for contradictions, including statements outside the current partition. An omitted unit fails locally; a false premise invalidates only the affected frozen dependencies. Identify unsupported material claims and affectedUnitIds, including cross-partition IDs where supported.
 
 Action: Q requires necessary questions with correct scope/timing/use and avoidance of answered/inactive/unneeded questions. W requires actual valid reuse and actual required fresh work with prerequisite receipts; final prose alone does not establish execution. Multiple valid operation orders are allowed. D requires an unambiguous scoped same/distinct/unresolved judgment supported before substantive work. Lookup/evidence inspection/necessary clarification may precede recognition. Reuse, matching numbers, or a later claim of recognition alone is insufficient. Ordinary mode has no obligation to volunteer D for complete-task success; silent recognition still fails behavioral D. Prompted D is an explicit task obligation. Correct safe blocking is distinct from completing identity-dependent work.
+
+For Q/W guards, do not duplicate a penalty already assigned to its separately scored field or portable-artifact reuse obligation. Other unnecessary work, including repeating a successful current operation without changed inputs, still fails the work guard. For D, inspect the full chronological trace and identify the earliest complete, unambiguous, supported identity decision. A late restatement does not erase an earlier supported decision. An early ambiguous, incorrect or unsupported suggestion followed only by a correct decision after substantive work still FAILS as late. Structural assessment candidates establish timing only, not semantic correctness. Honor the exact requested subtask: completing every requested identity-independent operation can finish safely despite unresolved identity; unrequested identity-dependent work remains prohibited.
+
+The participant record includes only passages actually delivered, with firstDeliveredInvocation where established, and trace invocation numbers where recorded. Evidence requested by a lookup becomes available on the next invocation. Check identity support against evidence available at the claimed recognition time, not a later lookup. Missing timing information is not proof that evidence was available; mark a consequential unresolved timing question uncertain.
 
 Withheld: judge only the regenerated control expectations against the reduced evidence. Never import the original answer or infer the removed discriminator. Do not assign a full H score.
 
@@ -193,7 +214,9 @@ export function humanAuditSelection(packets, grades = [], { families = {}, forkK
     if (!strata.has(key)) { strata.set(key, index); required.add(index); }
     const review = grades[index]?.grade ?? grades[index]?.value;
     if (!review || review.uncertainties?.length || review.unsupportedClaims?.some(c => c.material) ||
-      [...(review.hUnits ?? []), ...(review.qUnits ?? []), ...(review.wUnits ?? [])].some(j => j.status === 'uncertain' || j.materialContradiction)) required.add(index);
+      [...(review.hUnits ?? []), ...(review.qUnits ?? []), ...(review.wUnits ?? []), ...(review.controlUnits ?? []),
+        ...(review.identity ? [review.identity] : []), ...(review.completion ? [review.completion] : [])]
+        .some(j => ['uncertain', 'disputed'].includes(j.status) || j.materialContradiction)) required.add(index);
   });
   const target = Math.ceil(packets.length * 0.25);
   for (let i = 0; required.size < target && i < packets.length; i++) required.add(i);

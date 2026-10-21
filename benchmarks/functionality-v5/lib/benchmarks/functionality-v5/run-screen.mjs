@@ -8,25 +8,15 @@ import { check } from './common.mjs';
 import { createRuntimeExecution } from './runtime-execution.mjs';
 import { bindAcquisition, eligibleSources } from './corpus.mjs';
 import { deterministicChecks } from './world.mjs';
-import { maintenancePrompt, applyMemoryEdits } from './memory.mjs';
+import { maintenancePromptForArm, applyMaintenanceForArm } from './memory.mjs';
+import { armsForProfile, primaryTasksFor, sharedTasksFor } from './package-support.mjs';
 import { performWorkflow } from './workflow.mjs';
 import { prepareScreen, verifyScreen } from './freeze.mjs';
 import { saveImmutable, parse, loadState, saveState, sha256 } from './artifacts.mjs';
 import { buildHPackets, buildActionPacket, buildWithheldPacket, gradePrompt, validateGrade, mergeHGrades, qualificationFixture, qualifyGrader, humanAuditSelection } from './grading.mjs';
 import { screenReport } from './report.mjs';
 
-export function tasksFor(scenario) {
-  const prefix=scenario.id;
-  return [
-    {id:`${prefix}-H`,kind:'H',mode:'prompted',control:'primary'},
-    {id:`${prefix}-ordinary`,kind:'action',mode:'ordinary',control:'primary'},
-    {id:`${prefix}-prompted`,kind:'action',mode:'prompted',control:'primary'},
-    {id:`${prefix}-oracle-H`,kind:'H',mode:'prompted',control:'oracle'},
-    {id:`${prefix}-oracle-action`,kind:'action',mode:'ordinary',control:'oracle'},
-    {id:`${prefix}-withheld-H`,kind:'H',mode:'prompted',control:'withheld'},
-    {id:`${prefix}-withheld-action`,kind:'action',mode:'ordinary',control:'withheld'},
-  ];
-}
+export function tasksFor(scenario, profile = 'notes') { return [...primaryTasksFor(scenario, profile), ...sharedTasksFor(scenario)]; }
 
 /** Frozen evidence selection for controls, fixed before any originating run.
  * Action controls need current facts, authority and original artifact receipts;
@@ -44,6 +34,7 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
   check(execute,'Explicit execution required');
   check(Boolean(invoke) || process.platform === 'darwin', 'Live execution requires macOS, the pinned Codex CLI and caffeinate; other platforms are offline-only');
   const manifest=await verifyScreen(root), corpus=await parse(join(root,'corpus.controller.json'));
+  const profile=manifest.profile??'notes', arms=armsForProfile(profile);
   check(!manifest.testOnly||invoke,'Offline-only manifest cannot dispatch live');
   check(!skipCaffeinate||invoke,'Live screen requires owned caffeinate');
   let saved=await loadState(root),state=structuredClone(saved.value),stopReason=null,caffeinate=null;
@@ -73,7 +64,7 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
   };
   async function perform(s,task,acquisition,memory,sources) {
     if(state.workflows[task.id]?.status && state.workflows[task.id].status!=='running') return state.workflows[task.id];
-    const result=await performWorkflow({scenario:s,task,acquisition,memory,sources,obtain,save,restore:state.workflows[task.id],onProgress});
+    const result=await performWorkflow({scenario:s,task,acquisition,memory,sources,obtain,save,restore:state.workflows[task.id],onProgress,nativeConfig:manifest.nativeConfig,taskRoot:join(root,'native','tasks',task.id)});
     if(result.world) result.deterministic=deterministicChecks(s,result.world);
     state.workflows[task.id]=result;await persist();
     await save(`completed-workflows/${task.id}.json`,result);
@@ -83,16 +74,16 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
     if(state.grades[packet.blindId])return state.grades[packet.blindId];
     await save(`review/${packet.blindId}.json`,packet);
     const forks=workflow?(Array.isArray(workflow)?workflow:[workflow]):[];
-    await save(`review-private/${packet.blindId}.json`,{caseId:scenario.id,workflowIds:forks.map(w=>w.id),
-      memoryCheckpoints:scenario.episodes.map(e=>`checkpoints/${scenario.id}/episode-${e.number}.json`),
+    await save(`review-private/${packet.blindId}.json`,{caseId:scenario.id,workflowIds:forks.map(w=>w.id),arms:forks.map(w=>w.arm??null),
+      memoryCheckpoints:[...new Set(forks.filter(w=>w.control==='primary').flatMap(w=>scenario.episodes.map(e=>`checkpoints/${scenario.id}/${profile==='notes'?'':`${w.arm}/`}episode-${e.number}.json`)))],
       workflowArtifacts:forks.map(w=>`completed-workflows/${w.id}.json`),
       firstObservedLoss:'not established; inspect actual source, retained notes, delivered passages and answer before attributing loss'});
     await save(`review-stage-evidence/${packet.blindId}.json`,{blindId:packet.blindId,firstObservedLoss:{status:'pending',stage:'not established'},
       forks:forks.map(w=>({kind:w.kind,mode:w.mode,acquisitionOutcome:scenario.acquisitionOutcome,
-        retainedRepresentation:w.view?.frozen.revision?.files??null,memoryRevision:w.view?.frozen.revision?.id??null,
+        retainedRepresentation:w.view?.frozen.revision??null,memoryRevision:w.view?.frozen.revision?.id??null,
         deliveredEvidence:w.view?.deliveredEvidence??[],deliveryLedger:w.view?.deliveries??[],
         answer:w.answer,trace:w.trace,citations:w.citations}))});
-    state.reviewPackets[packet.blindId]={packet,caseId:scenario.id,family:scenario.family};await persist();
+    state.reviewPackets[packet.blindId]={packet,caseId:scenario.id,family:scenario.family,arm:forks[0]?.arm??null,control:forks[0]?.control??null,workflowIds:forks.map(w=>w.id)};await persist();
     const r=await obtain(`grade-${packet.blindId}`,gradePrompt(packet),{stage:'grading',caseId:scenario.id,scenarioId:scenario.id,blindId:packet.blindId});
     const parsed=validateGrade(packet,r.call.answer);
     state.grades[packet.blindId]=parsed;await save(`grades/${packet.blindId}.json`,parsed);await persist();
@@ -110,24 +101,33 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
       state.bound[original.id]=bound;await persist();
     }
     const bound=state.bound[original.id],s=bound.scenario;
-    let memory=null,seen=[];
-    for(const episode of s.episodes) {
-      seen.push(...episode.sources);
-      const id=`${s.id}-maintenance-${episode.number}`;
-      if(state.memory[id]) {memory=state.memory[id];continue;}
-      const prompt=maintenancePrompt(memory,episode);
-      const r=await obtain(id,prompt,{stage:'maintenance',arm:'stock-maintained-notes',caseId:s.id,scenarioId:s.id,episode:episode.number,checkpointGroup:s.id});
-      check(!r.parseError,`Invalid notes maintenance JSON: ${id}`);
-      memory=applyMemoryEdits(memory,r.value,{eligibleSources:seen,revision:`revision-${episode.number}`,sourceCutoff:Math.max(...seen.map(x=>x.order))});
-      await save(`checkpoints/${s.id}/episode-${episode.number}.json`,{memory,sourceCutoff:memory.sourceCutoff,sourceHash:sha256(seen),implementationHash:manifest.implementationHash,invocation:id});
-      state.memory[id]=memory;await persist();
-      onProgress({kind:'maintenance',caseId:s.id,episode:episode.number});
+    const memories={};
+    for(const arm of arms) {
+      let memory=null,seen=[];
+      for(const episode of s.episodes) {
+        seen.push(...episode.sources);
+        const id=`${s.id}-${profile==='notes'?'':`${arm}-`}maintenance-${episode.number}`;
+        if(state.memory[id]) {memory=state.memory[id];continue;}
+        let response=null, invocation=null;
+        if(arm!=='stock-history') {
+          const prompt=maintenancePromptForArm(arm,memory,episode);
+          const r=await obtain(id,prompt,{stage:'maintenance',arm,caseId:s.id,scenarioId:s.id,episode:episode.number,checkpointGroup:`${s.id}:${arm}`});
+          check(!r.parseError,`Invalid ${arm} maintenance JSON: ${id}`);
+          response=r.value;invocation=id;
+        }
+        memory=await applyMaintenanceForArm(arm,memory,response,{eligibleSources:seen,revision:profile==='notes'?`revision-${episode.number}`:`revision-${sha256([s.id,arm,episode.number]).slice(0,20)}`,sourceCutoff:Math.max(...seen.map(x=>x.order)),
+          nativeConfig:manifest.nativeConfig,checkpointRoot:join(root,'native','checkpoints',s.id,`episode-${episode.number}`)});
+        await save(`checkpoints/${s.id}/${profile==='notes'?'':`${arm}/`}episode-${episode.number}.json`,{arm,memory,sourceCutoff:memory.sourceCutoff,sourceHash:sha256(seen),implementationHash:manifest.implementationHash,invocation});
+        state.memory[id]=memory;await persist();
+        onProgress({kind:'maintenance',arm,caseId:s.id,episode:episode.number,invocation});
+      }
+      memories[arm]=memory;
     }
-    const tasks=tasksFor(s),executions=[];
+    const tasks=tasksFor(s,profile),executions=[];
     for(const task of tasks) {
-      // Oracle controls contain original relevant occurrences, never generated answers.
+      // Controls are shared once and receive only their predeclared original evidence.
       const sources=task.control==='primary'?eligibleSources(s):controlSources(s,task);
-      executions.push(await perform(s,task,acq.world,memory,sources));
+      executions.push(await perform(s,task,acq.world,task.control==='primary'?memories[task.arm]:null,sources));
     }
     for(const workflow of executions.filter(w=>w.control!=='withheld')) {
       if(state.results[workflow.id]) continue;
@@ -138,7 +138,7 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
         for(const packet of packets) grades.push(await gradePacket(packet,s,workflow));
         grade=mergeHGrades(s,packets,grades);check(grade.status==='model-reviewed','H partitions require review');
       } else grade=await gradePacket(buildActionPacket(s,workflow,sources),s,workflow);
-      const result={id:workflow.id,caseId:s.id,scenarioId:s.id,arm:workflow.control==='primary'?'stock-maintained-notes':null,
+      const result={id:workflow.id,caseId:s.id,scenarioId:s.id,arm:workflow.control==='primary'?workflow.arm:null,
         kind:workflow.kind,mode:workflow.mode,control:workflow.control,status:workflow.status,grade:grade.grade,deterministic:workflow.deterministic??null,humanAudit:'pending'};
       state.results[workflow.id]=result;await save(`results/${workflow.id}.json`,result);await persist();
     }
@@ -169,7 +169,7 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
       check(state.graderQualification.passed,'Grader qualification failed');
       for(const s of corpus) await runCase(s);
       const packets=Object.values(state.reviewPackets).map(row=>row.packet);
-      const families=Object.fromEntries(Object.values(state.reviewPackets).map(row=>[row.packet.blindId,row.family]));
+      const families=Object.fromEntries(Object.values(state.reviewPackets).map(row=>[row.packet.blindId,`${row.family}:${row.arm??'shared'}`]));
       state.auditSelection=humanAuditSelection(packets,packets.map(p=>state.grades[p.blindId]),{families});await persist();
     }
   } catch(error) {
@@ -185,11 +185,11 @@ export async function executeScreen({root,execute=false,invoke,skipCaffeinate=fa
   return {root,status:report.status,stopReason,reportPath:`reports/report-${suffix}.json`,tokens:report.usage.total.reportedTokens,unknownUsage:report.usage.total.unknownUsageCalls,calls:runtime.calls.length};
 }
 
-export const HELP = `V5 maintained-notes calibration screen
+export const HELP = `V5 memory comparison calibration screen
 
 Usage:
   npm run screen -- --output /absolute/new/run --offline-root /absolute/offline \
-    --authorization /absolute/operator-authorization.json [--execute] [--canaries-only]
+    --authorization /absolute/operator-authorization.json [--profile notes|comparison] [--native-binary /absolute/hivemind] [--execute] [--canaries-only]
 
 Preparation requires a provider-free offline freeze with a source-bound independent
 authoring review and a NEW explicit operator authorization JSON containing:
@@ -198,12 +198,17 @@ authoring review and a NEW explicit operator authorization JSON containing:
   purpose: purpose of this fresh run
   approvedAt: ISO timestamp
   budgetTokens: positive integer up to 4250000
+  profile: notes (default) or comparison (must match --profile)
 
 Without --execute, creates an immutable run only and makes NO provider calls.
 With --execute, first runs a fresh two-call isolation canary and grader qualification;
-only successful checks permit the three demanding maintained-notes cases.
+only successful checks permit the three demanding cases. The notes profile uses
+maintained notes only. The comparison profile uses maintained notes, stock history
+and the native Rust HiveMind CLI, with shared acquisition and source controls.
+Comparison requires --native-binary; its path, version and hash are frozen.
 --canaries-only requires --execute and stops after the canary; its new run remains
-a canary diagnostic rather than a complete screen. Every call counts toward budget.
+a canary diagnostic rather than a complete screen and cannot be continued through
+this CLI. Every call counts toward budget.
 
 Live execution is deliberately pinned to macOS, ChatGPT subscription authentication,
 Codex CLI 0.163.0-alpha.10.2 at the ChatGPT.app bundled path, gpt-6.1-sol, medium
@@ -218,14 +223,14 @@ The budget is a subsequent-dispatch threshold, not a hard provider token cap.
 `;
 const main=()=>{try{return realpathSync(process.argv[1])===fileURLToPath(import.meta.url);}catch{return false;}};
 if(main()) {
-  const {values}=parseArgs({options:{output:{type:'string'},'offline-root':{type:'string'},authorization:{type:'string'},execute:{type:'boolean',default:false},'canaries-only':{type:'boolean',default:false},help:{type:'boolean',short:'h'}}});
+  const {values}=parseArgs({options:{output:{type:'string'},'offline-root':{type:'string'},authorization:{type:'string'},profile:{type:'string',default:'notes'},'native-binary':{type:'string'},execute:{type:'boolean',default:false},'canaries-only':{type:'boolean',default:false},help:{type:'boolean',short:'h'}}});
   if(values.help) console.log(HELP);
   else {
     check(values.output && values['offline-root'] && values.authorization, 'Fresh output, reviewed offline root and new operator authorization required; use --help');
     check(!values['canaries-only'] || values.execute, '--canaries-only requires --execute');
-    const prepared=await prepareScreen({root:values.output,offlineRoot:values['offline-root'],authorizationPath:values.authorization});
+    const prepared=await prepareScreen({root:values.output,offlineRoot:values['offline-root'],authorizationPath:values.authorization,profile:values.profile,nativeBinary:values['native-binary']});
     const {root,manifest}=prepared;
-    console.log(JSON.stringify({kind:'prepared',root,budgetTokens:manifest.budgetTokens,providerCalls:0}));
+    console.log(JSON.stringify({kind:'prepared',root,profile:manifest.profile,arms:manifest.arms,budgetTokens:manifest.budgetTokens,providerCalls:0}));
     if(values.execute) {
       const frozen=pathToFileURL(join(root,'snapshot/benchmarks/functionality-v5/run-screen.mjs')).href;
       const run=frozen===import.meta.url?executeScreen:(await import(frozen)).executeScreen;

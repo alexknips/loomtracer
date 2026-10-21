@@ -1,8 +1,8 @@
 # Reasoning continuity benchmark v5
 
-A development benchmark for testing whether agents preserve earlier reasoning and use it correctly after a handoff. The intended comparison is a stock model with maintained notes, a stock model with conversation history, and the same model with structured memory. This package currently runs the **maintained-notes calibration condition only**; it does not yet integrate with this repository's native HiveMind implementation.
+A development benchmark for testing whether agents preserve earlier reasoning and use it correctly after a handoff. The comparison uses the same stock model with agent-maintained notes, chronological conversation history, and agent-maintained native Loomtracer memory. The native adapter calls this repository's Rust **HiveMind CLI** against a disposable synthetic database; it never connects to a production account.
 
-**Ready now:** provider-free tests, all 27 synthetic scenarios, deterministic simulated tasks, immutable evidence snapshots, strict scoring, token accounting, and a gated three-case live calibration runner. **Not yet established:** calibrated difficulty, an audited leaderboard, or a measured advantage over either stock baseline. Offline success verifies the harness, not model performance.
+**Ready now:** provider-free tests, all 27 synthetic scenarios, deterministic simulated tasks, immutable evidence snapshots, strict scoring, token accounting, and a gated three-case calibration runner supporting all three conditions. **Not yet established:** calibrated difficulty, an audited leaderboard, or a measured advantage over either stock baseline. Offline success verifies the harness, not model performance. The [recorded offline validation](provenance/offline-validation-1.1.0.json) passed 191 tests and 786 corpus checks with the real native CLI, zero skips, and zero evaluated provider calls.
 
 ## Start with offline testing
 
@@ -14,6 +14,15 @@ npm ci
 npm test
 npm run validate
 ```
+
+To validate the comparison, also provide a built or official-release native CLI:
+
+```sh
+npm run validate -- --native-binary /absolute/path/to/hivemind \
+  --review authoring-review.json --output /absolute/new/three-condition-validation
+```
+
+This exercises real native capture, recall, source expansion, independent database forks, and a complete controller run using scripted model responses. It makes zero provider calls. Native tests are explicitly skipped without the binary; such a validation cannot unlock the comparison profile. The binary path, version, and SHA-256 are frozen and checked before dispatch. A release binary is identified by its own build identity, not misreported as the checkout head.
 
 `npm ci` installs the pinned `js-tiktoken@1.0.21` dependency using the included lockfile. Tests and validation make **zero model/provider calls** and need no subscription credentials. Validation creates a new, ignored `.artifacts/offline-*` directory containing test output, the generated corpus, source hashes, a frozen implementation, and an independent-review template. Existing output directories are refused.
 
@@ -53,12 +62,13 @@ npm run screen -- --help
 npm run validate -- --help
 ```
 
-Before live preparation, an independent reviewer must inspect the authored sources and complete the generated `authoring-review.template.json`. Validate again into a **new directory**, supplying that review with `--review`. Hash checks bind approval to the exact reviewed sources. Passing unit tests does not supply semantic approval.
+Before live preparation, an independent reviewer must inspect the authored sources and complete the generated `authoring-review.template.json`. The completed repository review is documented in [semantic-review.md](semantic-review.md), with a reusable [source-bound receipt](authoring-review.json); it reviews authored criteria and adapters, not model outcomes. Any change to a reviewed source invalidates that receipt and requires a new review. Validate again into a **new directory**, supplying that review with `--review`. Hash checks bind approval to the exact reviewed sources. Passing unit tests does not supply semantic approval.
 
-The operator must separately authorize one fresh run in a local JSON file with `operator`, `approved: true`, `purpose`, `approvedAt` (ISO timestamp), and `budgetTokens`. The maximum accepted ceiling is **4,250,000 CLI-reported tokens**, covering acquisition, maintenance, task execution, controls, grading, and canaries. Choose the actual budget deliberately; the ceiling is not permission to spend it, and no earlier project's approval carries over.
+The operator must separately authorize one fresh run in a local JSON file with `operator`, `approved: true`, `purpose`, `approvedAt` (ISO timestamp), and `budgetTokens`. For all three conditions, set `profile: "comparison"`; the default `notes` profile preserves the earlier maintained-notes mode. The maximum accepted ceiling is **4,250,000 CLI-reported tokens**, covering acquisition, maintenance, task execution, controls, grading, and canaries. Choose the actual budget deliberately; the ceiling is not permission to spend it, and no earlier project's approval carries over.
 
 ```sh
-npm run screen -- --output /absolute/new/run-directory \
+npm run screen -- --profile comparison --native-binary /absolute/path/to/hivemind \
+  --output /absolute/new/run-directory \
   --offline-root /absolute/reviewed/offline-directory \
   --authorization /absolute/operator-authorization.json
 ```
@@ -73,9 +83,9 @@ Every live screen begins with fresh isolation canaries and grader qualification.
 
 The export is additive. It contains no prior private transcripts, credentials, results, or token ledgers, and does not modify v1–v4 or earlier v5 runs. [CHANGES.md](CHANGES.md) describes its versioned repairs. [Source provenance](provenance/source-snapshot.json) records the upstream files used for the export; each validation also hashes the actual exported implementation.
 
-Earlier calibration exposed a missing producer-role premise, a duplicate question penalty, and a late-recognition display issue. Those are repaired here with regression tests. Earlier ratings are not republished as corrected measurements of this new corpus.
+Authoring review repaired a missing producer-role premise, duplicate Q/W penalties, a D timing overwrite, and a lower-difficulty completion mismatch. Each repair has regression coverage. The review preserves strict failure for an ambiguous early answer followed by a correct but late one. Earlier ratings are not republished as corrected measurements of this new corpus.
 
-This remains a small development screen. Human semantic audit is required; uncertain judgments remain pending. H previously showed ceiling effects, and ordinary versus prompted D showed extreme separation, so the screen does not yet demonstrate useful discrimination across all four components. The native-memory and conversation-history conditions, held-out evaluation, repeated runs, and a long-history expansion need their own integration and validation before comparative claims.
+This remains a small development screen. Human semantic audit is required; uncertain judgments remain pending. H previously showed ceiling effects, and ordinary versus prompted D showed extreme separation, so the screen does not yet demonstrate useful discrimination across all four components. Native-memory and conversation-history integration is validated offline. Fresh live canaries, the three-condition screen, outcome grading and human audit, held-out evaluation, repeated runs, and a long-history expansion remain before comparative claims.
 
 The controller knows the hidden criteria; evaluated agents must not receive them. Publishing the synthetic corpus makes offline inspection possible, but running an agent inside this repository with unrestricted access would invalidate the evaluation.
 

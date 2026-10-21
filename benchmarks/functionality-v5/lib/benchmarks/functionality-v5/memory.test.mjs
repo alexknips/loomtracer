@@ -123,7 +123,7 @@ const textView = text => createMemoryView(applyMemoryEdits(null,
   { eligibleSources: [], revision: 'r1' }), []);
 
 test('lookup correction is separately versioned and preserves the existing allowances', () => {
-  assert.equal(MEMORY_VERSION, 'functionality-v5-selective-markdown-1.1.0');
+  assert.equal(MEMORY_VERSION, 'functionality-v5-memory-adapters-1.2.0');
   assert.equal(LIMITS.lookupBytes, 8192);
   assert.equal(LIMITS.historicalPerTask, 32768);
 });

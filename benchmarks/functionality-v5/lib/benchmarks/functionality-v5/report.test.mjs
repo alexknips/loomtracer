@@ -38,7 +38,7 @@ function fixture() {
 
 test('clean completed work distinguishes dispatch completion, strict outcomes and pending human audit',()=>{
   const input=fixture(),r=screenReport(input);
-  assert.equal(r.version,REPORT_INTERPRETATION_VERSION);assert.equal(r.evaluationReportVersion,'functionality-v5-report-1.0.2');
+  assert.equal(r.version,REPORT_INTERPRETATION_VERSION);assert.equal(r.evaluationReportVersion,'functionality-v5-report-1.1.0');
   assert.equal(r.version,VERSIONS.report);assert.equal(r.version,REPORT_VERSION);
   for(const mode of ['ordinary','prompted']) {
     assert.equal(r.modes[mode].version,REPORT_VERSION);
@@ -53,7 +53,7 @@ test('clean completed work distinguishes dispatch completion, strict outcomes an
 test('a new report projection preserves the evaluation version of older saved inputs',()=>{
   const input=fixture();input.manifest.versions.report='functionality-v5-report-1.0.0';
   const before=structuredClone(input),r=screenReport(input);
-  assert.equal(r.version,'functionality-v5-report-1.0.2');
+  assert.equal(r.version,'functionality-v5-report-1.1.0');
   assert.equal(r.evaluationReportVersion,'functionality-v5-report-1.0.0');
   assert.deepEqual(input,before);
   assert.deepEqual(r.usage,usageReport(input.calls));
@@ -110,4 +110,110 @@ test('report interpretation leaves strict component ratings and the invocation l
   assert.equal(r.usage.total.reportedTokens,200);assert.equal(r.usage.total.failedCalls,1);
   assert.equal(r.modes.ordinary.perLevel.demanding.components.H.rating,100);
   assert.equal(r.modes.prompted.perLevel.demanding.components.W.rating,100);
+});
+
+function comparisonFixture() {
+  const input=fixture(),original=structuredClone(input.state),arms=['stock-maintained-notes','stock-history','loomtracer-native'];
+  input.manifest.profile='comparison';input.manifest.arms=arms;
+  input.state={workflows:{},results:{},reviewPackets:{},grades:{}};
+  for(const [id,workflow] of Object.entries(original.workflows)) {
+    if(workflow.control!=='primary') {input.state.workflows[id]=workflow;if(original.results[id])input.state.results[id]=original.results[id];continue;}
+    for(const arm of arms) {
+      const nextId=id.replace(workflow.caseId,`${workflow.caseId}-${arm}`);
+      input.state.workflows[nextId]={...structuredClone(workflow),id:nextId,arm};
+      input.state.results[nextId]={...structuredClone(original.results[id]),id:nextId,arm};
+    }
+  }
+  for(const [id,result] of Object.entries(original.results))if(result.kind==='withheld-pair')input.state.results[id]=result;
+  for(const scenario of input.scenarios) {
+    const kinds=[...Array(8).fill('H'),...Array(7).fill('action'),'withheld'];
+    for(const [index,kind] of kinds.entries()) {
+      const blindId=`${scenario.id}-comparison-review-${index}`;
+      input.state.reviewPackets[blindId]={caseId:scenario.id,packet:{blindId,kind}};
+      input.state.grades[blindId]={status:'model-reviewed',errors:[],grade:{blindId,hUnits:[pass('fixture')],uncertainties:[],unsupportedClaims:[]}};
+    }
+  }
+  const meta={status:'completed',evaluationConditionsHash:'same-evaluation',requestedModel:'same-model',returnedModel:null,reasoning:'medium',cliVersion:'same-cli',measurementScope:'functionality-v5-cli-reported-invocations-1'};
+  input.calls=[];
+  for(const scenario of input.scenarios) for(const arm of arms) {
+    const tokenCount=arm==='stock-maintained-notes'?5:arm==='stock-history'?20:10;
+    const usage={input_tokens:tokenCount-1,output_tokens:1,total_tokens:tokenCount,cached_input_tokens:0,reasoning_output_tokens:0};
+    const checkpointGroup=`${scenario.id}:${arm}`;
+    if(arm!=='stock-history')for(let episode=1;episode<=4;episode++)input.calls.push({...meta,id:`${checkpointGroup}-maintenance-${episode}`,arm,caseId:scenario.id,checkpointGroup,episode,stage:'maintenance',usage});
+    for(const suffix of ['H','ordinary','prompted']) {
+      const trialId=`${scenario.id}-${arm}-${suffix}`;
+      input.calls.push({...meta,id:`${trialId}-call`,trialId,checkpointGroup,arm,caseId:scenario.id,stage:suffix==='H'?'reasoning':'action',usage});
+    }
+  }
+  input.calls.push({...meta,id:'shared-control-cost',stage:'oracle',usage:{total_tokens:100000}});
+  return input;
+}
+
+test('three-arm report counts acquisition and controls once and compares matched arm costs',()=>{
+  const input=comparisonFixture(),before=structuredClone(input),r=screenReport(input);
+  assert.deepEqual(input,before);
+  assert.equal(r.profile,'comparison');assert.equal(r.completion.plannedWorkflows,42);
+  assert.equal(r.completion.strictPassedWorkflows,42);assert.equal(r.completion.plannedResultRecords,36);
+  assert.equal(r.grading.planned,48);assert.equal(r.grading.reviewedGrades,48);
+  assert.equal(r.humanAudit.minimumPackets,12);assert.equal(r.status,'completed');
+  for(const arm of input.manifest.arms)assert.equal(r.arms[arm].modes.ordinary.perLevel.demanding.components.H.rating,100);
+  const notes=r.overheadComparisons['stock-maintained-notes'],history=r.overheadComparisons['stock-history'];
+  assert.equal(notes.status,'available');assert.equal(notes.differences.ratio,2);
+  assert.equal(notes.candidate.reportedTokens,210);assert.equal(notes.baseline.reportedTokens,105);
+  assert.equal(history.baseline.reportedTokens,180);assert.equal(history.differences.difference,30);
+  assert.equal(history.exploratory,true);assert.equal(history.equivalentSuccessfulWork,false);
+  assert.equal(r.usage.total.reportedTokens,100495);assert.match(r.markdown,/stock-history/);
+});
+
+test('comparison cannot offer definitive overhead for incomplete native work or unknown usage',()=>{
+  const input=comparisonFixture(),native=input.calls.find(c=>c.arm==='loomtracer-native'&&c.stage==='action');
+  input.state.workflows[native.trialId].status='operation-limit';
+  let report=screenReport(input);
+  for(const comparison of Object.values(report.overheadComparisons)) {
+    assert.equal(comparison.status,'unavailable');assert.equal(comparison.differences,null);
+    assert.ok(comparison.errors.includes('loomtracer-native:incomplete-workload'));
+  }
+  input.state.workflows[native.trialId].status='completed';native.usage=null;
+  report=screenReport(input);
+  assert.equal(report.usage.total.unknownUsageCalls,1);
+  for(const comparison of Object.values(report.overheadComparisons))assert.ok(comparison.errors.includes('loomtracer-native:unknown-usage'));
+});
+
+test('unresolved global semantic uncertainty suppresses definitive headline ratings without changing judgments or usage',()=>{
+  const input=fixture(),id=Object.keys(input.state.grades)[0];
+  input.state.grades[id].grade.uncertainties=['The required role is not clearly established by the source.'];
+  const before=structuredClone(input),report=screenReport(input);
+  assert.equal(report.status,'incomplete');assert.equal(report.grading.pendingSemanticGrades,1);
+  assert.equal(report.completion.strictPassedWorkflows,23);
+  assert.equal(report.workflowOutcomes.find(w=>w.id===`${input.scenarios[0].id}-H`).strictSuccess,null);
+  for(const mode of ['ordinary','prompted']) {
+    const band=report.modes[mode].perLevel.demanding;
+    assert.equal(band.components.H.rating,null);assert.equal(band.components.H.provisionalRating,100);
+    assert.equal(band.overall.rating,null);assert.equal(band.overall.semanticStatus,'pending');
+    assert.ok(report.modes[mode].semanticReview.packetIds.includes(id));
+    for(const row of report.modes[mode].cases) {
+      assert.equal(row.semanticStatus,'pending');assert.ok(row.pendingPacketIds.includes(id));
+      for(const component of ['H','Q','W']) {assert.equal(row[component].rating,null);assert.equal(row[component].provisionalRating,100);}
+      assert.equal(row.D.status,'pending');assert.equal(row.D.provisionalStatus,'pass');
+      assert.equal(row.H.completeChain,'pending');assert.equal(row.H.provisionalCompleteChain,'pass');
+      assert.equal(row.completeTask,'pending');assert.equal(row.provisionalCompleteTask,'pass');
+      assert.equal(row.H.counts.pass,row.H.counts.planned);
+    }
+  }
+  assert.match(report.markdown,/provisional pending/);assert.deepEqual(input,before);
+  assert.deepEqual(report.usage,usageReport(input.calls));
+});
+
+
+test('provisional case displays preserve known failures and original unit judgments',()=>{
+  const input=fixture(),id=Object.keys(input.state.grades)[0],scenario=input.scenarios[1];
+  input.state.grades[id].grade.uncertainties=['An unresolved issue requires review.'];
+  const h=input.state.results[`${scenario.id}-H`];h.grade.hUnits[0].status='fail';
+  const action=input.state.results[`${scenario.id}-ordinary`];action.grade.identity.status='fail';action.grade.completion.status='fail';
+  const before=structuredClone(input),report=screenReport(input),row=report.modes.ordinary.cases.find(c=>c.id===scenario.id);
+  assert.equal(row.H.completeChain,'fail');assert.equal(row.H.provisionalCompleteChain,'fail');
+  assert.equal(row.H.counts.fail,1);assert.equal(row.D.status,'fail');assert.equal(row.D.provisionalStatus,'fail');
+  assert.equal(row.completeTask,'fail');assert.equal(row.provisionalCompleteTask,'fail');
+  assert.equal(row.H.semanticStatus,'pending');assert.deepEqual(input,before);
+  assert.deepEqual(report.usage,usageReport(input.calls));
 });

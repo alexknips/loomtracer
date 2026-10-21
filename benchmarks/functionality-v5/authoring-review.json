@@ -1,0 +1,85 @@
+{
+  "status": "passed",
+  "independent": true,
+  "reviewer": "Independent agent-assisted semantic authoring reviewer /root/briefing_factcheck",
+  "providerCalls": 0,
+  "evaluatedAgentCalls": 0,
+  "reviewedAt": "2026-10-21T16:03:05.486Z",
+  "reviewKind": "agent-assisted prospective semantic authoring review; not retrospective human audit",
+  "summary": "Reviewed all 27 generated cases and 432 H requirement instances, all Q/W obligations, D ordinary/prompted timing, withheld controls, delivered-evidence boundaries, three-arm workflow contracts, strict scoring and invocation accounting. Confirmed authoring defects were corrected prospectively and tested. Mixed current-context Q controls, missing full-bank opposing strata, always-active demanding branches and limited family/noise coverage remain explicit limitations. Initial review was independent of the implementation owners; this reviewer subsequently implemented confirmed corrections and focused tests. This is agent-assisted authoring review, not independent human certification or a retrospective outcome audit. No provider calls, evaluated sessions, prior-result rescoring or token-ledger changes occurred.",
+  "files": {
+    "common.mjs": "749a44242ed6419fb3fcdd52b4d898b6fb267aa6ee9b1fcd87d2027e1a77a3dd",
+    "corpus.mjs": "c49bc432658dd1204e291899b4696d54fbaf018a6772047ec94943b569842836",
+    "world.mjs": "73cf9c87b16eda1848a724a525cc3cd9de9503a128578de4583ff8ec40a485d9",
+    "validation.mjs": "7b6a697e40100d6c83936ffad9db631e2f1aad7c98418015211db3e9f1c2b561",
+    "scoring.mjs": "6e138bb6f90622deec5986f6e8eed421f7876d7c5dc51ee44a3d2946c1ed8ec8",
+    "grading.mjs": "acb5249dad1771eac5aaee39b2b7e28dd174ca7b7080528e84c3d93365873e6a",
+    "workflow.mjs": "015ef85faa01754a3bea3b33ff9f9003d53d2be58c7214781c68dac4d136643c",
+    "memory.mjs": "b043d39ad497ea39c7b6d24e0620c6a1dac205b99aa8dc4c25a26fecb5ea2d20",
+    "native.mjs": "eff3d4d4898f9b1a60167cc8581213548def586b78fd9648b64829d402ef4f77",
+    "run-screen.mjs": "b7f0a00a81faea282337a6711efc05091e253dae64eb94e865554284ac7b6603",
+    "freeze.mjs": "6cef3a9b47414b8f9c8ccc3b5d5fd1d58c77a2ed0295a47d30c505a599f9682e",
+    "package-support.mjs": "76e45865aae4aed295c261d787f8078944c81c60ad2ab6d0ac5512fbe5a2aed9",
+    "report.mjs": "a4c356cf59294de82765efa646725c5e1a22de7dfae07349a79edbfc7e2cf0b6",
+    "accounting.mjs": "4f0b7fb016dce7dfe27313b936dc02d41bdfadfbf79833e27c6084f4a302008b"
+  },
+  "scopeLimitations": [
+    {
+      "id": "L1",
+      "scope": "Q memory dependence",
+      "text": "Incident q-avoid-environment (staging) and experiment q-avoid-instrument (K4), where present, can be answered from current task/contract. Exact affected case IDs are listed in matrix[].memoryReliance.QCurrentContextControls. These are behavior controls, not independent evidence of memory retention. Other historical Q fields still require memory; overall task use also depends on delivered mapping/artifact prerequisites."
+    },
+    {
+      "id": "L2",
+      "scope": "Unavailable strata",
+      "text": "Easy unresolved incident and experiment have no active necessary questions or fresh-work milestones. Q/W balanced ratings are unavailable there; do not invent pass credit or silently drop cases. Current strict full-bank aggregation will remain unavailable for those metrics unless a new authoring/scoring version explicitly defines the relevant strata."
+    },
+    {
+      "id": "L3",
+      "scope": "Conditional branch calibration",
+      "text": "Demanding conditional discriminator values activate the dependent branch in every authored case. Tests cover timing and unrelated inactive-field exclusion, not a balanced study of active and inactive conditional outcomes."
+    },
+    {
+      "id": "L4",
+      "scope": "Memory controls",
+      "text": "Identity-withheld controls isolate D/identity-dependent work. Release unresolved instead removes historical license result and all originating echoes, allowing a new current check without inventing historical execution. These narrow controls do not prove every H/Q/W requirement independently relies on memory."
+    },
+    {
+      "id": "L5",
+      "scope": "Difficulty and generalization",
+      "text": "Noise is explicitly marked unrelated; 27 cells reuse three causal families. Structural validation and local witnesses establish feasibility, not live difficulty, held-out generalization, model semantic reliability or product benefit."
+    },
+    {
+      "id": "L6",
+      "scope": "Review authority",
+      "text": "This is an agent-assisted authoring review and focused deterministic testing. It is not the pending human audit of saved v5 results and does not rescore, replace or validate prior outcomes."
+    }
+  ],
+  "reviewEvidence": {
+    "path": "semantic-review-evidence.json",
+    "sha256": "ed684ea829e55f4ecb3e08526c400c57b8e6aa978ed53d6673590f175aae42d9",
+    "caseCount": 27,
+    "hRequirementInstances": 432
+  },
+  "reviewDocument": {
+    "path": "semantic-review.md",
+    "sha256": "851fedbe497c497773edb8e631d7d6827ba1c86c5fa23333f5e180b6ef9d6a89"
+  },
+  "validation": {
+    "semanticFocusedTests": {
+      "passed": 83,
+      "failed": 0,
+      "skipped": 0
+    },
+    "reportTests": {
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    "corpusWorldChecks": {
+      "passed": true,
+      "checks": 786
+    }
+  },
+  "authorization": "This review is not operator authorization to dispatch evaluated agents."
+}

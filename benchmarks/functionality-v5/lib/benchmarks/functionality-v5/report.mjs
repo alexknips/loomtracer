@@ -1,8 +1,9 @@
 import { ratings, scoreH, scoreAction } from './scoring.mjs';
-import { usageReport } from './accounting.mjs';
+import { usageReport, compareOverhead } from './accounting.mjs';
+import { armsForProfile, primaryTasksFor, sharedTasksFor } from './package-support.mjs';
 
-export const REPORT_INTERPRETATION_VERSION = 'functionality-v5-report-1.0.2';
-const renderRating=x=>x?.rating??(x?.lower!==null&&x?.lower!==undefined?`${Math.round(x.lower)}–${Math.round(x.upper)} pending`:'unavailable');
+export const REPORT_INTERPRETATION_VERSION = 'functionality-v5-report-1.1.0';
+const renderRating=x=>x?.semanticStatus==='pending'?(x.provisionalRating===null?'pending':`${x.provisionalRating} provisional pending`):x?.rating??(x?.lower!==null&&x?.lower!==undefined?`${Math.round(x.lower)}–${Math.round(x.upper)} pending`:'unavailable');
 const rowsOf = value => Object.values(value ?? {});
 const caseId = row => row.caseId ?? row.scenarioId;
 const hasPendingJudgments = grade => !grade || (grade.uncertainties ?? []).length > 0 ||
@@ -13,10 +14,11 @@ const statusFromBoolean = value => value === true ? 'pass' : value === false ? '
 const escapeCell = value => String(value ?? '—').replaceAll('|', '\\|').replaceAll('\n', ' ');
 
 /** Frozen plan coverage, including packets not yet constructed at an early stop. */
-export function gradingCoverage(scenarios, state) {
+export function gradingCoverage(scenarios, state, { profile = 'notes' } = {}) {
+  const armCount = armsForProfile(profile).length;
   const entries = Object.entries(state.reviewPackets ?? {});
   const cases = scenarios.map(scenario => {
-    const expectedByKind = { H: 2 * Math.ceil(scenario.hUnits.length / 10), action: 3, withheld: 1 };
+    const expectedByKind = { H: (armCount + 1) * Math.ceil(scenario.hUnits.length / 10), action: 2 * armCount + 1, withheld: 1 };
     const selected = entries.filter(([, row]) => caseId(row) === scenario.id);
     const counts = { planned: Object.values(expectedByKind).reduce((n, v) => n + v, 0), recordedPackets: 0,
       missingPackets: 0, missingGradeRecords: 0, invalidGrades: 0, pendingSemanticGrades: 0, reviewedGrades: 0, unexpectedPackets: 0 };
@@ -47,13 +49,11 @@ export function gradingCoverage(scenarios, state) {
   return { ...totals, cases, status: totals.pendingGradePackets || totals.unexpectedPackets ? 'incomplete' : 'model-review-complete', humanAudit: 'pending' };
 }
 
-function plannedWorkflows(scenarios) {
+export function plannedWorkflows(scenarios, profile = 'notes') {
   return scenarios.flatMap(s => [
-    ['acquisition','acquisition','ordinary','shared'], ['H','H','prompted','primary'],
-    ['ordinary','action','ordinary','primary'], ['prompted','action','prompted','primary'],
-    ['oracle-H','H','prompted','oracle'], ['oracle-action','action','ordinary','oracle'],
-    ['withheld-H','H','prompted','withheld'], ['withheld-action','action','ordinary','withheld']
-  ].map(([suffix,kind,mode,control]) => ({ id:`${s.id}-${suffix}`, caseId:s.id, kind, mode, control })));
+    {id:`${s.id}-acquisition`,kind:'acquisition',mode:'ordinary',control:'shared',arm:null},
+    ...primaryTasksFor(s, profile), ...sharedTasksFor(s)
+  ].map(task => ({...task, caseId:s.id})));
 }
 
 function workflowOutcome(plan, workflow, scenario, results) {
@@ -90,17 +90,61 @@ function workflowOutcome(plan, workflow, scenario, results) {
     firstLoss: 'not established' };
 }
 
+function pendingSemanticProjection(value, packetIds) {
+  if (!packetIds.length) return value;
+  const result=structuredClone(value);
+  const mark=rating=>({...rating,provisionalRating:rating.rating, rating:null, semanticStatus:'pending',
+    boundStatus:'provisional-before-global-uncertainty-resolution',pendingPacketIds:[...packetIds]});
+  result.components=Object.fromEntries(Object.entries(result.components).map(([name,r])=>[name,mark(r)]));
+  result.overall=mark(result.overall);
+  for(const band of Object.values(result.perLevel)) {
+    band.components=Object.fromEntries(Object.entries(band.components).map(([name,r])=>[name,mark(r)]));band.overall=mark(band.overall);
+  }
+  for(const row of result.cases) {
+    row.semanticStatus='pending';row.pendingPacketIds=[...packetIds];
+    for(const component of ['H','Q','W'])row[component]=mark(row[component]);
+    row.H.provisionalCompleteChain=row.H.completeChain;
+    if(row.H.completeChain==='pass')row.H.completeChain='pending';
+    row.D={...row.D,provisionalStatus:row.D.status,semanticStatus:'pending',pendingPacketIds:[...packetIds],
+      status:row.D.status==='pass'?'pending':row.D.status};
+    row.provisionalCompleteTask=row.completeTask;
+    if(row.completeTask==='pass')row.completeTask='pending';
+  }
+  result.semanticReview={status:'pending',packetIds:[...packetIds],reason:'At least one contributing grading packet contains unresolved global semantic uncertainty. Arm and case displays are conservatively provisional; raw unit judgments and established failures remain preserved.'};
+  return result;
+}
+function uncertainPrimaryPackets(state, arm, profile, workflow = null) {
+  return Object.entries(state.reviewPackets??{}).filter(([id,row])=>{
+    if(row.control && row.control!=='primary')return false;
+    if(workflow) {
+      if(row.workflowIds?.length && !row.workflowIds.includes(workflow.id))return false;
+      if(caseId(row)!==workflow.caseId || (row.packet??row).kind!==workflow.kind)return false;
+      if(workflow.kind==='action' && row.packet?.participant?.mode && row.packet.participant.mode!==workflow.mode)return false;
+    }
+    if(row.arm?row.arm!==arm:profile!=='notes')return false;
+    const grade=state.grades?.[id]?.grade??state.grades?.[id]?.value;
+    return Boolean(grade?.uncertainties?.length);
+  }).map(([id])=>id);
+}
+
 export function screenReport({manifest,scenarios,state,calls,stopReason=null}) {
-  const results=rowsOf(state.results), usage=usageReport(calls);
-  const modes=Object.fromEntries(['ordinary','prompted'].map(mode=>[mode,ratings({scenarios,results,mode})]));
-  const workflows=rowsOf(state.workflows), plans=plannedWorkflows(scenarios);
+  const results=rowsOf(state.results), usage=usageReport(calls), profile=manifest.profile??'notes', armIds=armsForProfile(profile);
+  const arms=Object.fromEntries(armIds.map(arm=>[arm,{arm,modes:Object.fromEntries(['ordinary','prompted'].map(mode=>[mode,pendingSemanticProjection(ratings({scenarios,results,mode,arm}),uncertainPrimaryPackets(state,arm,profile))]))}]));
+  const modes=arms['stock-maintained-notes'].modes;
+  const workflows=rowsOf(state.workflows), plans=plannedWorkflows(scenarios,profile);
   const outcomes=plans.map(plan=>workflowOutcome(plan,workflows.find(w=>w.id===plan.id),scenarios.find(s=>s.id===plan.caseId),results));
-  const grading=gradingCoverage(scenarios,state);
+  for(const outcome of outcomes) {
+    const result=results.find(r=>r.id===outcome.id), directGrade=result?.grade?.grade??result?.grade?.value??result?.grade;
+    if(outcome.control==='primary' && outcome.strictSuccess===true && (directGrade?.uncertainties?.length || uncertainPrimaryPackets(state,outcome.arm,profile,outcome).length)) {
+      outcome.strictSuccess=null;outcome.strictOutcome='pending';outcome.pendingReason='Unresolved contributing semantic grading uncertainty';
+    }
+  }
+  const grading=gradingCoverage(scenarios,state,{profile});
   const primary=workflows.filter(w=>w.control==='primary'&&w.kind!=='acquisition');
   const controls=results.filter(r=>['oracle','withheld'].includes(r.control)).map(r=>({id:r.id,caseId:r.caseId,kind:r.kind,control:r.control,status:r.status,grade:r.grade}));
   const unexpectedWorkflows=workflows.filter(w=>!plans.some(p=>p.id===w.id)).map(w=>w.id);
   const dispatchEnded=outcomes.filter(w=>w.dispatchEnded).length;
-  const plannedResults=scenarios.length*6;
+  const plannedResults=scenarios.length*(3*armIds.length+3);
   const recordedResults=results.filter(r=>scenarios.some(s=>s.id===caseId(r))).length;
   const pendingResults=Math.max(0,plannedResults-recordedResults);
   const cycleComplete=dispatchEnded===plans.length&&!unexpectedWorkflows.length&&grading.status==='model-review-complete'&&!pendingResults;
@@ -109,7 +153,10 @@ export function screenReport({manifest,scenarios,state,calls,stopReason=null}) {
   const rawSelection=state.auditSelection, selection=Array.isArray(rawSelection)?rawSelection:rawSelection?.selected??[];
   const humanAuditStatus=selection.length?'pending-human-review':'selection-pending';
   const componentFlags=Object.fromEntries(Object.entries(modes).map(([mode,r])=>[mode,Object.fromEntries(Object.entries(r.perLevel.demanding.components).map(([name,s])=>[name,s.rating===100?'ceiling':s.rating===0?'floor':s.rating===null?'pending':'mixed']))]));
-  const report={version:REPORT_INTERPRETATION_VERSION,evaluationReportVersion:manifest.versions.report,manifestHash:manifest.evaluationConditionsHash,
+  const overheadPlan=plans.filter(p=>p.control==='primary').map(p=>({...p,checkpointGroup:`${p.caseId}:${p.arm}`,maintenanceRequired:p.arm!=='stock-history'}));
+  const overheadResults=outcomes.filter(o=>o.control==='primary').map(o=>({id:o.id,status:o.executionComplete?'completed':o.executionStatus,quality:o.strictOutcome==='fail'?'fail':uncertainPrimaryPackets(state,o.arm,profile).length?'pending':o.strictOutcome,humanAudit:o.humanAudit}));
+  const overheadComparisons=profile==='comparison'?Object.fromEntries(['stock-maintained-notes','stock-history'].map(baseline=>[baseline,compareOverhead({calls,planned:overheadPlan.filter(p=>p.arm==='loomtracer-native'||p.arm===baseline),results:overheadResults.filter(r=>overheadPlan.some(p=>p.id===r.id&&(p.arm==='loomtracer-native'||p.arm===baseline))),candidate:'loomtracer-native',baseline})])):{status:'not-run',reason:'Notes profile contains maintained notes and shared controls only.'};
+  const report={profile,arms,version:REPORT_INTERPRETATION_VERSION,evaluationReportVersion:manifest.versions.report,manifestHash:manifest.evaluationConditionsHash,
     status,dispatchCycleStatus:stopReason?'stopped':cycleComplete?'completed':'incomplete',
     stopReason,budgetTokens:manifest.budgetTokens,usage,remainingKnownTokens:manifest.budgetTokens-usage.total.reportedTokens,
     completion:{plannedWorkflows:plans.length,recordedWorkflows:workflows.length,endedDispatches:dispatchEnded,
@@ -122,9 +169,9 @@ export function screenReport({manifest,scenarios,state,calls,stopReason=null}) {
     citationCompliance:workflows.map(w=>({id:w.id,emitted:w.citations?.length??0,valid:w.citations?.filter(c=>c.valid).length??0})),
     humanAudit:{status:humanAuditStatus,minimumFraction:.25,minimumPackets:Math.ceil(grading.planned*.25),selection,
       selectionStatus:selection.length?'selected':'pending',allUncertainDisputedAndConsequentialRequired:true},
-    overheadComparisons:{status:'not-run',reason:'This approved screen contains maintained notes and controls only; no matched native/history arm exists.'},
+    overheadComparisons,
     exploratory:calls.some(c=>!c.returnedModel),fullSuiteRatings:null,
-    caveats:['Three demanding development cases, one repetition. No full-suite, held-out, stock/native or version-benefit claim.',
+    caveats:['Three demanding development cases, one repetition. No full-suite or held-out claim. Paired differences are exploratory until semantic audit and repetition.',
       'A completed dispatch/review cycle does not mean every workflow succeeded. Execution status, terminal state and strict outcome are reported separately.',
       'Delivery-limited forks retain strict bounded-workflow failures. Their unexecuted milestones do not by themselves establish reasoning or memory loss.',
       'Strict semantic grades are model-reviewed and await stratified human audit. Missing, invalid and uncertain grades remain pending.',
@@ -133,21 +180,21 @@ export function screenReport({manifest,scenarios,state,calls,stopReason=null}) {
       'CLI-reported token usage includes instructions, framing, schemas and replay. Cached input and reasoning output are subsets.',
       'Failed and unknown-usage calls remain in the ledger; overlapping checkpoint views are not added.']};
   const table=[];
-  for(const [mode,r] of Object.entries(modes)) {
+  for(const [arm,data] of Object.entries(arms)) for(const [mode,r] of Object.entries(data.modes)) {
     const band=r.perLevel.demanding;
-    table.push(`| ${mode} | ${['H','Q','W','D'].map(k=>renderRating(band.components[k])).join(' | ')} | ${renderRating(band.overall)} |`);
+    table.push(`| ${arm} | ${mode} | ${['H','Q','W','D'].map(k=>renderRating(band.components[k])).join(' | ')} | ${renderRating(band.overall)} |`);
   }
   const cases=[];
-  for(const [mode,r] of Object.entries(modes)) for(const c of r.cases) {
-    const execution=outcomes.find(w=>w.caseId===c.id&&w.kind==='action'&&w.control==='primary'&&w.mode===mode);
-    cases.push(`| ${c.id} | ${mode} | ${c.H.counts.pass}/${c.H.counts.planned} | ${renderRating(c.H)} | ${renderRating(c.Q)} | ${renderRating(c.W)} | ${c.D.status} | ${c.H.completeChain} | ${c.completeTask} | ${execution.executionStatus} | ${execution.terminalState??'none'} |`);
+  for(const [arm,data] of Object.entries(arms)) for(const [mode,r] of Object.entries(data.modes)) for(const c of r.cases) {
+    const execution=outcomes.find(w=>w.caseId===c.id&&w.kind==='action'&&w.control==='primary'&&w.mode===mode&&w.arm===arm);
+    cases.push(`| ${c.id} | ${arm} | ${mode} | ${c.H.counts.pass}/${c.H.counts.planned} | ${renderRating(c.H)} | ${renderRating(c.Q)} | ${renderRating(c.W)} | ${c.D.status} | ${c.H.completeChain} | ${c.completeTask} | ${execution.executionStatus} | ${execution.terminalState??'none'} |`);
   }
-  report.markdown=['# V5 maintained-notes calibration','',`Report status: ${report.status}${stopReason?` — ${stopReason}`:''}. Dispatch/review cycle: ${report.dispatchCycleStatus}. Human audit: ${report.humanAudit.status}.`,
+  report.markdown=[`# V5 ${profile} calibration`,'',`Report status: ${report.status}${stopReason?` — ${stopReason}`:''}. Dispatch/review cycle: ${report.dispatchCycleStatus}. Human audit: ${report.humanAudit.status}.`,
     '',`${report.completion.strictPassedWorkflows}/${plans.length} workflows have provisional strict passes; ${failed} strict failures and ${pending} pending outcomes. ${report.completion.deliveryLimitedWorkflows} stopped at the delivery allowance.`,
-    '', '| Mode | H | Q | W | D | Overall |','|---|---:|---:|---:|---:|---:|',...table,
+    '', '| Arm | Mode | H | Q | W | D | Overall |','|---|---|---:|---:|---:|---:|---:|',...table,
     '', 'Ratings describe the demanding screen under its delivery and operation bounds. A failure to execute the remaining work is not, by itself, a finding of lost memory. Semantic results await human audit.',
-    '', '| Case | Mode | H units passed | H | Q | W | D decision | Complete chain | Complete task | Action execution | Terminal state |',
-    '|---|---|---:|---:|---:|---:|---|---|---|---|---|',...cases,
+    '', '| Case | Arm | Mode | Recorded H unit passes | H | Q | W | D decision | Complete chain | Complete task | Action execution | Terminal state |',
+    '|---|---|---|---:|---:|---:|---:|---|---|---|---|---|',...cases,
     '', '## Workflow execution and completion','', '| Workflow | Execution | Terminal state | Strict outcome | Operations | Historical bytes | Recorded errors |',
     '|---|---|---|---|---:|---:|---|',
     ...outcomes.map(w=>`| ${w.id} | ${w.executionStatus} | ${w.terminalState??'none'} | ${w.strictOutcome} | ${w.operationsUsed??'—'} | ${w.historicalBytes??'—'} | ${escapeCell(w.errors.join('; ')||'none')} |`),
@@ -156,7 +203,11 @@ export function screenReport({manifest,scenarios,state,calls,stopReason=null}) {
     '', '## CLI-reported token usage','', '| Stage | Calls | Known tokens | Unknown calls |','|---|---:|---:|---:|',
     ...Object.entries(usage.stages).map(([stage,u])=>`| ${stage} | ${u.calls} | ${u.reportedTokens.toLocaleString('en-US')} | ${u.unknownUsageCalls} |`),
     '',`Whole screen: **${usage.total.reportedTokens.toLocaleString('en-US')} known tokens / ${manifest.budgetTokens.toLocaleString('en-US')} approved ceiling**, ${usage.total.unknownUsageCalls} calls with unknown usage.`,
-    '',`Post-handoff primary workload: ${usage.primary.reportedTokens.toLocaleString('en-US')} known tokens. No native/history overhead ratio is available from this notes-only screen.`,
+    '',`Post-handoff primary workload: ${usage.primary.reportedTokens.toLocaleString('en-US')} known tokens. Shared acquisition, controls, grading and canaries are excluded from arm overhead and retained in whole-screen expenditure.`,
+    '', '| Arm | Calls | Known input | Known output | Known total | Known cached input | Known reasoning output | Known uncached input | Unknown total calls |', '|---|---:|---:|---:|---:|---:|---:|---:|---:|',
+    ...armIds.map(arm=>{const u=usage.arms[arm];return `| ${arm} | ${u?.calls??0} | ${u?.tokens.input.knownSubtotal??0} | ${u?.tokens.output.knownSubtotal??0} | ${u?.reportedTokens??0} | ${u?.tokens.cachedInput.knownSubtotal??0} | ${u?.tokens.reasoningOutput.knownSubtotal??0} | ${u?.tokens.uncachedInput.knownSubtotal??0} | ${u?.unknownUsageCalls??0} |`;}),
+    '', '## Matched token overhead', '',
+    ...(profile==='comparison'?['| Loomtracer relative to | Status | Additional tokens | Usage ratio | Percentage overhead |', '|---|---|---:|---:|---:|', ...Object.entries(overheadComparisons).map(([baseline,c])=>`| ${baseline} | ${c.status}${c.exploratory?' exploratory':''} | ${c.differences?.difference??'unavailable'} | ${c.differences?.ratio??'unavailable'} | ${c.differences?.percentageDifference??'unavailable'} |`), ...Object.entries(overheadComparisons).filter(([,c])=>c.errors.length).map(([baseline,c])=>`${baseline}: ${c.errors.join('; ')}.`), 'These are matched execution costs, not claims of equal successful work. Read strict quality and completion above; human review remains pending.']:['No paired overhead is available in the notes-only profile.']),
     '', '## Interpretation limits','',...report.caveats.map(c=>`- ${c}`),''].join('\n');
   return report;
 }

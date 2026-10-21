@@ -106,9 +106,16 @@ test('known questions require actually using history, and dependent questions ha
     }
   }
 });
-test('shift contract correction preserves every frozen rubric unit and denominator', () => {
+test('portable corpus 1.0.3 freezes the reviewed guard scope and explicit canary dependency source binding', () => {
   const rubric = corpus.map(s => ({ id: s.id, hUnits: s.hUnits, qUnits: s.qUnits, wUnits: s.wUnits }));
-  assert.equal(createHash('sha256').update(JSON.stringify(rubric)).digest('hex'), '42f58e7e73d302cbf770387a1e4cf06d1f94a1d880143422cdbc7b8f8403f3fc');
+  // Earlier rubric hash 42f58e7e73d302cbf770387a1e4cf06d1f94a1d880143422cdbc7b8f8403f3fc
+  // remains in preserved prior snapshots. This prospective version changes the
+  // W guard to avoid a duplicate artifact penalty and adds the explicit tool-rule
+  // occurrence to the incident current-configuration dependency; no old run is rescored.
+  assert.ok(corpus.every(s => s.corpusVersion === 'functionality-v5-corpus-1.0.3'));
+  assert.equal(createHash('sha256').update(JSON.stringify(rubric)).digest('hex'), '67129638cb5dab39e6cd44592ed04a119535214d2846e8ffe0cfb1d61a8edc1f');
+  assert.ok(corpus.every(s => s.wUnits.find(u => u.guard).criterion.includes('Do not penalize the same portable-artifact recomputation again')));
+  for (const s of corpus.filter(s => s.family === 'incident')) assert.ok(s.hUnits.find(u => u.id === 'h-relationships-3').sourceIds.includes('src-0012'));
   for (const s of corpus.filter(s => s.family === 'experiment')) assert.equal(s.worldDefinition.knownFields.shift, 'one technician, daytime');
 });
 test('public operator contract requires both shift components without supplying their answer', () => {
