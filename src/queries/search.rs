@@ -749,6 +749,11 @@ impl About {
     pub(crate) fn is_named(&self) -> bool {
         self.weight.is_infinite()
     }
+
+    /// Whether this is at least `ratio` of what `other` weighs.
+    pub(crate) fn weighs_at_least(&self, ratio: f64, other: &Self) -> bool {
+        self.weight >= ratio * other.weight
+    }
 }
 
 /// What `out_heading` needs of one candidate.
@@ -1055,6 +1060,9 @@ struct ScoredDecisionSearchResult {
     about: About,
     /// A close match that `out_heading` puts ahead of the full ones (set when sorting).
     promoted: bool,
+    /// Admitted below the bar as a peer of the answer's best-titled decision
+    /// (`peers_below_bar`): listed with the answer, and never named alone.
+    peer: bool,
     result: DecisionSearchResult,
     fields: Vec<SearchField>,
 }
@@ -1352,6 +1360,7 @@ fn collect_graph_search_results(
             headline_any_mask,
             about: About::default(),
             promoted: false,
+            peer: false,
             fields,
             result: DecisionSearchResult {
                 decision,
@@ -1549,6 +1558,9 @@ const SUBJECT_WORD_KNOWN_SHARE: f64 = 2.0 / 3.0;
 const RARE_PAIR_HOLDERS: usize = 2;
 /// At most this many decisions below the bar are added to an answer.
 const BELOW_BAR_LIMIT: usize = 3;
+/// Two words of a title that the question does not say side by side are a pair for
+/// `titled_below_bar` only when the decision holds this many of the question's words in all.
+const FAR_PAIR_WORDS_MIN: usize = 5;
 
 /// Which decisions that lack too many of the terms (`SearchMatchInfo::below_bar`) are still
 /// answered. A long question names one thing among generic words ("CLI query xpath css text
@@ -1660,11 +1672,14 @@ fn admit_below_bar(
     {
         admitted.insert(extra);
     }
+    let peers = peers_below_bar(&scored, &holdings, &admitted, weights);
+    admitted.extend(peers.iter().copied());
     scored
         .into_iter()
         .zip(holdings)
         .enumerate()
-        .filter_map(|(index, (decision, holding))| {
+        .filter_map(|(index, (mut decision, holding))| {
+            decision.peer = peers.contains(&index);
             (!holding.below_bar || admitted.contains(&index)).then_some(decision)
         })
         .collect()
@@ -1743,7 +1758,12 @@ fn subject_below_bar(
 ///
 /// A decision below the bar, not already admitted, is it when
 ///
-/// - its title or topic keys hold `SHARED_HEADLINE_WORDS_MIN` or more of the question's words, and
+/// - its title or topic keys hold `SHARED_HEADLINE_WORDS_MIN` or more of the question's words, two
+///   of them side by side in the question (`side_by_side`: "beadline draw"), or the decision holds
+///   `FAR_PAIR_WORDS_MIN` of the words in all: two words that sit in a title and that the question
+///   says far apart, with fewer other words to support them, are chance ("lint" and "sizes" of "is
+///   there a lint that checks nobody makes up their own colours and sizes?" in the title "Box the
+///   large Payload enum variant to fix clippy size lint"), and
 /// - the words it holds weigh, together, at least `SHARED_WORDS_RARITY` times `ln(searched + 1)`,
 ///   as the pair asks, and
 /// - it is more about the question (`About`) than every decision of the answer, which is what the
@@ -1766,8 +1786,96 @@ fn titled_below_bar(
             .map(|term| weights.weight_of(*term))
             .sum();
         holding.headline.len() >= SHARED_HEADLINE_WORDS_MIN
+            && (side_by_side(&holding.headline) || holding.held.len() >= FAR_PAIR_WORDS_MIN)
             && shared >= SHARED_WORDS_RARITY * weights.ledger().ln()
     })
+}
+
+/// One decision is about the question as much as another when it weighs (`About`) at least this
+/// share of what the other does, see `peers_below_bar` and `close_candidate_leads`.
+pub(crate) const SAYS_AS_MUCH_SHARE: f64 = 0.9;
+
+/// The decisions below the bar that are peers of the answer's best-titled decision: their title or
+/// topic keys say as much of the question as its does, `SHARED_HEADLINE_WORDS_MIN` words at least,
+/// two of them the words the question says side by side, and they are about the question as much
+/// (`SAYS_AS_MUCH_SHARE`). "does the graph draw anyone in it at all, or do we tell you who made the
+/// call?" is answered by the decision whose title says "graph" and "made", whereas the two
+/// decisions whose titles say "graph draw" are the ones asked about: one rare word does not tell
+/// them apart when "graph" is held by a decision in three, so the weight test of `titled_below_bar`
+/// (that many decisions do not say two such words by chance) cannot hold for them. A pair the
+/// question says as a phrase ("graph draw", "link ... graph") and a title says is not chance either
+/// way, which two words the question says far apart ("people" and "graph" of "what do people get told
+/// when a link to the graph points at nothing?") are. They join the answer, most about the question
+/// first, so a search that lists them does not leave them for a decision that holds more of the
+/// words in a rationale. An answer none of whose decisions says a word of the question in its title
+/// or topic keys has no best-titled decision to be a peer of (it found the decision by a rare word
+/// in a rationale, "how do visitors know the animated graph is showing sample data?"), and an empty
+/// one has nothing, so nothing is added. At most `BELOW_BAR_LIMIT` are added; of two, the one more
+/// about the question, then the one that names a word it holds in both its title and its topic
+/// keys, then the lower id.
+fn peers_below_bar(
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+) -> Vec<usize> {
+    let Some(best) = answer_about(holdings, admitted, weights) else {
+        return Vec::new();
+    };
+    let titled = holdings
+        .iter()
+        .enumerate()
+        .filter(|(index, holding)| answered(holding, *index, admitted))
+        .map(|(_, holding)| holding.headline.len())
+        .max()
+        .filter(|titled| *titled > 0)
+        .map_or(0, |titled| titled.max(SHARED_HEADLINE_WORDS_MIN));
+    if titled == 0 {
+        return Vec::new();
+    }
+    let mut peers: Vec<(About, usize, &str, usize)> = scored
+        .iter()
+        .zip(holdings)
+        .enumerate()
+        .filter(|(index, (_, holding))| {
+            holding.below_bar
+                && !admitted.contains(index)
+                && holding.headline.len() >= titled
+                && side_by_side(&holding.headline)
+                && holding
+                    .about(weights)
+                    .weighs_at_least(SAYS_AS_MUCH_SHARE, &best)
+        })
+        .map(|(index, (decision, holding))| {
+            (
+                holding.about(weights),
+                decision.headline_hits,
+                decision.id.as_str(),
+                index,
+            )
+        })
+        .collect();
+    peers.sort_by(|left, right| {
+        right
+            .0
+            .cmp_about(&left.0)
+            .then_with(|| right.1.cmp(&left.1))
+            .then_with(|| left.2.cmp(right.2))
+    });
+    peers
+        .into_iter()
+        .take(BELOW_BAR_LIMIT)
+        .map(|(.., index)| index)
+        .collect()
+}
+
+/// Whether two of the question's terms in `terms` are neighbours in the question: it says them as
+/// a phrase, whatever small words it puts between them.
+fn side_by_side(terms: &BTreeSet<usize>) -> bool {
+    terms
+        .iter()
+        .zip(terms.iter().skip(1))
+        .any(|(left, right)| right - left == 1)
 }
 
 /// Whether the decision at `index` is in the answer: at the bar, or admitted below it.
@@ -1871,6 +1979,9 @@ pub(crate) struct ResolverCandidateRow {
     /// A close match that `out_heading` puts ahead of the full ones; set by the resolver once
     /// the records of one decision are folded together.
     pub(crate) promoted: bool,
+    /// Admitted below the bar as a peer of the answer's best-titled decision, see
+    /// `peers_below_bar`; it is listed with the answer and is never the one named alone.
+    pub(crate) peer: bool,
 }
 
 impl ResolverCandidateRow {
@@ -1922,6 +2033,7 @@ pub(crate) fn collect_resolver_candidates(
             headline_hits: scored.headline_hit_count,
             about: scored.about,
             promoted: false,
+            peer: scored.peer,
         })
         .collect())
 }

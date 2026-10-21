@@ -96,6 +96,7 @@ use crate::Result;
 use super::same_as::{fold_linked, RecordedCopy};
 use super::search::{
     collect_resolver_candidates, out_heading, CloseMatch, ResolverCandidateRow, Standing,
+    SAYS_AS_MUCH_SHARE,
 };
 use super::shared::{
     normalized_topic_filter_values, optional_int, optional_string, query_error, query_timer_start,
@@ -541,12 +542,27 @@ fn close_candidate_leads(term_count: usize, rows: &[ResolverCandidateRow]) -> bo
     };
     let shared = term_count.saturating_sub(first.missing_terms.len());
     !first.polarity_mismatch
+        && !first.peer
         && shared >= MIN_WORDS_TO_ANSWER_CLOSE
         && first.headline_words >= MIN_HEADLINE_WORDS_TO_ANSWER_CLOSE
         && (!first.promoted || promoted_leader_is_about_it(term_count, rows, first))
         && rows.get(1).is_none_or(|next| {
             (first.promoted && !next.promoted) || closeness(first) < closeness(next)
         })
+        && rows
+            .get(1)
+            .is_none_or(|next| !says_as_much_in_its_title(first, next))
+}
+
+/// Whether `next`, a close candidate, says as much of the question in its own title and topic keys
+/// as `first` does: no fewer of its words, and as much of the question (`SAYS_AS_MUCH_SHARE` of
+/// what `first` weighs, `About`). Lacking fewer words is then all `first` has over it, and a decision
+/// that holds more of the words in a rationale is not the one asked about when a title says as
+/// much (the graph that "draws" and the one that "makes" the call, hivemind-wdxx0).
+fn says_as_much_in_its_title(first: &ResolverCandidateRow, next: &ResolverCandidateRow) -> bool {
+    next.is_close()
+        && next.headline_words >= first.headline_words
+        && next.about.weighs_at_least(SAYS_AS_MUCH_SHARE, &first.about)
 }
 
 fn full_match_count(rows: &[ResolverCandidateRow]) -> usize {

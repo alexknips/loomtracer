@@ -260,7 +260,15 @@ differences from a writer, both for a description no decision matches in full
   missing_terms}` beside `data` in `--json`, the HTTP routes and MCP. Equally
   close candidates stay an `Ambiguous` list (rank and recency say nothing about
   which of two decisions was meant), and a candidate that shares one term is
-  listed, not answered with.
+  listed, not answered with. So does a first that lacks fewer words than a next that is
+  also a close candidate, when the next says as many of the question's words in its own
+  title and topic keys and is about the question (`About`) at least nine tenths as much:
+  lacking fewer words is then all the first has over it, and holding more of the words in
+  a rationale does not make it the decision asked about ("does the graph draw anyone in
+  it at all, or do we tell you who made the call?" is not answered with the graph list
+  view whose title says "graph" and "made" while two decisions whose titles say "graph"
+  and "draws" are as much about the question, hivemind-wdxx0). A decision added beside the
+  answer as a peer (§1.1, the decisions below the bar) is listed with it and never named alone.
 
 *Closer* is two counts, compared in order. A candidate that lacks fewer terms is
 closer. Between candidates that lack the same number, the one whose title or topic
@@ -549,9 +557,12 @@ decision below the bar is returned when
   them: "does the command-line binary get a new name along with the new company?" is
   answered by the decision whose title says "new" and "name", and the one whose title
   says only "along", which seven decisions hold, is not added, or
-- failing a subject, its title or topic keys hold two of the question's words, the words
-  it holds weigh at least 1.25 times `ln(n + 1)` as the first item asks, and the decision
-  is more about the question than every decision in the answer. The share of the first
+- failing a subject, its title or topic keys hold two of the question's words, two of
+  them side by side in the question (or the decision holds five of the question's words
+  in all: two title words said far apart are chance, unless more of the question
+  stands behind them), the words it holds weigh at least 1.25 times `ln(n + 1)` as the
+  first item asks, and the decision is more about the question than every decision in
+  the answer. The share of the first
   item is what this replaces: "for jobs that run longer than anything we have seen
   finish, how does beadline draw the time they still need?" holds two words nobody does
   ("jobs", "anything"), which weigh in the total, so the decision titled for how
@@ -561,8 +572,27 @@ decision below the bar is returned when
   them all, so it comes first, labelled with the words it lacks. An empty answer has no
   decision to outrank, and nothing is added.
 
+Then the peers of the answer's best-titled decision, which the first two items cannot reach
+when one word of the question is common. "Does the graph draw anyone in it at all, or do we
+tell you who made the call?" is answered by the decision whose title says "graph" and
+"made", while the two decisions whose titles say "graph" and "draws" are the ones asked
+about; "graph" is held by twenty-nine of sixty-nine decisions, so no pair with it weighs
+the 1.25 times `ln(n + 1)` the titled test asks. A decision below the bar is a peer when its
+title or topic keys hold at least as many of the question's words as the answer's best does
+(two at least), two of them words the question says side by side (neighbours among its
+terms, whatever small words sit between them: "graph draw", "link ... graph"), and it is
+about the question at least nine tenths as much as the answer is. Two common words that
+sit in one title and far apart in the question are chance, a phrase is not. At most three
+peers are added (the most about the question first, then the one that names a word in both
+its title and its topic keys, then the lower id), they carry `missing_terms` like any
+close match, and `why` lists them with the answer, never naming one alone. An answer
+none of whose decisions says a word of the question in its title or topic keys has no
+best-titled decision to be a peer of ("how do visitors know the animated graph is showing
+sample data?" finds its decision by "animated" in a rationale), and an empty one has
+nothing: nothing is added.
+
 At most three such decisions are added (the ones holding the most weight, then
-decision id), and the subject or the titled one on top of them, each carrying
+decision id), and the subject or the titled one, then the peers, on top of them, each carrying
 `missing_terms` like any close match. Of two that fit the subject or the titled test,
 the more about the question is added; between two equally about it, the one that
 holds a word of the question in both its title and its topic keys (the decision

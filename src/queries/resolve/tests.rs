@@ -2422,6 +2422,7 @@ fn headline_candidate(id: &str, said_as_word: u64, said_in_any_form: u64) -> Res
         headline_hits: 0,
         about: Default::default(),
         promoted: false,
+        peer: false,
     }
 }
 
@@ -2477,5 +2478,145 @@ fn a_description_costs_the_same_reads_whatever_else_the_ledger_holds() -> Result
     };
 
     assert_eq!(reads(2)?, reads(200)?);
+    Ok(())
+}
+
+const DRAW_QUESTION: &str =
+    "does the graph draw anyone in it at all, or do we tell you who made the call?";
+
+/// A ledger where "graph" is common (a decision in two holds it), and the one decision at the bar
+/// of the question says "graph" and "made" in its title, whereas two others say "graph" and "draw"
+/// and lack more of the words. `made_title` is the title of the first.
+fn draw_graph(made_title: &str) -> Result<MemoryGraph> {
+    let mut events = vec![
+        decision_proposed_because(
+            1,
+            "d:made",
+            made_title,
+            "The list names each decision once. All the call details stay in the side panel.",
+            &["ui"],
+        ),
+        decision_proposed_because(
+            2,
+            "d:draws",
+            "The graph draws no people; who decided shows under the title",
+            "A node shows no person. The decision title carries who decided it.",
+            &["ui"],
+        ),
+        decision_proposed_because(
+            3,
+            "d:site",
+            "Site graphs label the supersedes edge and draw parts solid",
+            "Readers of the site see replaced decisions in a lighter line.",
+            &["site"],
+        ),
+    ];
+    let mut sequence = 10;
+    let mut add = |title: String, rationale: &str, topic: &str| {
+        sequence += 1;
+        events.push(decision_proposed_because(
+            sequence,
+            &format!("d:filler-{sequence}"),
+            &title,
+            rationale,
+            &[topic],
+        ));
+    };
+    for index in 0..18 {
+        add(
+            format!("Graph option {index} lists the decision nodes"),
+            "Generic wording about node layout shown.",
+            "ui",
+        );
+    }
+    for index in 0..3 {
+        add(
+            format!("Chart tool {index} reads the saved file"),
+            "We draw the chart from the saved file.",
+            "tools",
+        );
+    }
+    for index in 0..3 {
+        add(
+            format!("Import step {index} reads the export"),
+            "The importer made a copy of the export.",
+            "tools",
+        );
+    }
+    for index in 0..4 {
+        add(
+            format!("API route {index} returns the record"),
+            "The call returns the saved record to the client.",
+            "api",
+        );
+    }
+    for index in 0..5 {
+        add(
+            format!("Report page {index} lists the totals"),
+            "All of the totals are listed on the page.",
+            "reports",
+        );
+    }
+    for index in 0..6 {
+        add(
+            format!("Plain note {index} on the build"),
+            "Generic wording about the build output.",
+            "build",
+        );
+    }
+    graph_from_events(events)
+}
+
+#[test]
+fn a_close_candidate_is_listed_with_the_decisions_whose_titles_say_as_many_of_the_words(
+) -> Result<()> {
+    let graph = draw_graph("Graph list view kept and made readable, with people on a byline")?;
+
+    // d:made holds "graph", "made", "call" and "all" and lacks "draw", "anyone" and "tell", so it
+    // lacks fewer words than the two decisions whose titles say "graph" and "draw", which weigh
+    // about the same as its own two title words: "graph" is held by a decision in two, so no word
+    // of the pair tells them apart. Naming d:made as the decision asked about hides them.
+    match reading(&graph, DRAW_QUESTION)?.data {
+        ResolveOutcome::Ambiguous { candidates } => {
+            let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+            assert_eq!(ids.first(), Some(&"d:made"), "{ids:?}");
+            assert!(ids.contains(&"d:draws"), "{ids:?}");
+            assert!(ids.contains(&"d:site"), "{ids:?}");
+        }
+        other => panic!("expected the three decisions listed, not one named: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_peer_admitted_below_the_bar_is_never_named_alone() {
+    // Four words asked; the candidate says two of them in its title and lacks two.
+    let candidate = |peer: bool| {
+        let mut row = headline_candidate("d:peer", 0b0011, 0b0011);
+        row.missing_terms = vec!["c".to_owned(), "d".to_owned()];
+        row.peer = peer;
+        row
+    };
+
+    assert!(close_candidate_leads(4, &[candidate(false)]));
+    assert!(
+        !close_candidate_leads(4, &[candidate(true)]),
+        "a decision admitted beside the answer is listed, not named as the one asked about"
+    );
+}
+
+#[test]
+fn a_close_candidate_whose_title_says_more_of_the_words_than_the_others_is_still_answered(
+) -> Result<()> {
+    let graph = draw_graph("Graph list view kept and made readable, with who draws on a byline")?;
+
+    // d:made's title now says "graph", "draw" and "made": three of the words where the others say
+    // two, so they are no peers of it and nothing is listed beside it.
+    match reading(&graph, DRAW_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:made");
+        }
+        other => panic!("expected the decision whose title says the most: {other:?}"),
+    }
     Ok(())
 }

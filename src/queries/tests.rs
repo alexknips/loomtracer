@@ -2471,6 +2471,145 @@ fn fluent_search_adds_the_subject_when_the_title_in_the_answer_says_one_of_the_w
     Ok(())
 }
 
+const DRAW_QUESTION: &str = "graph draw anyone all tell made call";
+
+/// A ledger where "graph" is common, a decision in two holds it. The one decision at the bar of
+/// `DRAW_QUESTION` is `made` (title, rationale); two others say "graph" and "draw" in their titles
+/// and lack more of the words.
+fn draw_ledger(made: (&str, &str)) -> Result<Scenario> {
+    let mut decisions: Vec<(String, String, String)> = vec![
+        ("d:made".to_owned(), made.0.to_owned(), made.1.to_owned()),
+        (
+            "d:draws".to_owned(),
+            "The graph draws no people; who decided shows under the title".to_owned(),
+            "A node shows no person. The decision title carries who decided it.".to_owned(),
+        ),
+        (
+            "d:site".to_owned(),
+            "Site graphs label the supersedes edge and draw parts solid".to_owned(),
+            "Readers of the site see replaced decisions in a lighter line.".to_owned(),
+        ),
+    ];
+    let fillers: [(&str, &str, usize); 6] = [
+        (
+            "Graph option {} lists the decision nodes",
+            "Generic wording about node layout shown.",
+            18,
+        ),
+        (
+            "Chart tool {} reads the saved file",
+            "We draw the chart from the saved file.",
+            3,
+        ),
+        (
+            "Import step {} reads the export",
+            "The importer made a copy of the export.",
+            3,
+        ),
+        (
+            "API route {} returns the record",
+            "The call returns the saved record to the client.",
+            4,
+        ),
+        (
+            "Report page {} lists the totals",
+            "All of the totals are listed on the page.",
+            5,
+        ),
+        (
+            "Plain note {} on the build",
+            "Generic wording about the build output.",
+            6,
+        ),
+    ];
+    for (title, rationale, count) in fillers {
+        for index in 0..count {
+            decisions.push((
+                format!("d:filler-{}-{index}", decisions.len()),
+                title.replace("{}", &index.to_string()),
+                rationale.to_owned(),
+            ));
+        }
+    }
+    let borrowed: Vec<(&str, &str, &str)> = decisions
+        .iter()
+        .map(|(id, title, rationale)| (id.as_str(), title.as_str(), rationale.as_str()))
+        .collect();
+    titled_decisions(&borrowed)
+}
+
+#[test]
+fn fluent_search_adds_the_decisions_whose_titles_say_as_many_words_as_the_answer_when_one_is_common(
+) -> Result<()> {
+    let scenario = draw_ledger((
+        "Graph list view kept and made readable, with people on a byline",
+        "The list names each decision once. All the call details stay in the side panel.",
+    ))?;
+
+    // d:made holds four of the seven words, in its title "graph" and "made". The two decisions
+    // that say "graph" and "draw" in theirs are below the bar and weigh a hair less than it ("made"
+    // is held by fewer decisions than "draw"), and a word held by a decision in two cannot make
+    // the pair rarer than a chance meeting (`titled_below_bar`). They say as much of the question
+    // in their titles, so they are answered after it, most about the question first.
+    let (items, _) = fluent_answer(&scenario, DRAW_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids.first(), Some(&"d:made"), "{ids:?}");
+    assert!(ids[1..].contains(&"d:draws"), "{ids:?}");
+    assert!(ids[1..].contains(&"d:site"), "{ids:?}");
+    assert_eq!(ids.len(), 3, "nothing else is added: {ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_peer_to_a_decision_whose_title_says_more_of_the_words() -> Result<()> {
+    let scenario = draw_ledger((
+        "Graph list view kept and made readable, with who draws on a byline",
+        "The list names each decision once. All the call details stay in the side panel.",
+    ))?;
+
+    // d:made says "graph", "draw" and "made" in its title now: three words where the others say
+    // two, so none of them is a peer of the best-titled decision of the answer.
+    let (items, _) = fluent_answer(&scenario, DRAW_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["d:made"], "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_peer_whose_title_words_the_question_says_far_apart() -> Result<()> {
+    let scenario = draw_ledger((
+        "Graph list view kept and made readable, with people on a byline",
+        "The list names each decision once. All the call details stay in the side panel.",
+    ))?;
+
+    // The same seven words, "graph" and "draw" three words apart: the two titles that hold both
+    // hold them as chance does, two common words that sit in one title.
+    let (items, _) = fluent_answer(&scenario, "graph anyone all tell draw made call", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["d:made"], "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_peer_to_an_answer_that_says_none_of_the_words_in_its_title() -> Result<()>
+{
+    let scenario = draw_ledger((
+        "Readable list kept, with people on a byline",
+        "The graph list names who made each call. All the details stay in the side panel.",
+    ))?;
+
+    // d:made holds four of the seven words in its rationale and none in its title: no best-titled
+    // decision to be a peer of, so the two titles that say "graph draw" are not added.
+    let (items, _) = fluent_answer(&scenario, DRAW_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["d:made"], "{ids:?}");
+    Ok(())
+}
+
 #[test]
 fn fluent_search_in_a_small_ledger_answers_the_decision_whose_title_holds_the_word() -> Result<()> {
     let scenario = titled_decisions(&[

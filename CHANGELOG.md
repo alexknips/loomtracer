@@ -802,6 +802,62 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   decision with options and no choice shows them as open. The Rust server is unchanged.
   (hivemind-89vgq)
 
+- **`recall` and `why` list the decisions whose titles say two of a long question's words side by
+  side, when one of the words is held by a third of the ledger, and `why` no longer answers the
+  decision that says more of the words in a rationale.** "Does the graph draw anyone in it at
+  all, or do we tell you who made the call?" left out the decision titled "hu-8oa: the graph
+  draws no people ..." and `why` answered "Graph list view kept and made readable ..." as a close
+  match; "if somebody follows a link to the graph but it does not point at any one thing we
+  chose, what do they get told when it opens?" left out "A Graph link naming no decision says so
+  ...". Both titles hold two words of the question, but "graph" is held by 29 of the crew
+  ledger's 69 decisions, so the words weigh at most 2.4 where the pair test asks 5.3
+  (`1.25 * ln(searched + 1)`), and the decision whose title says "graph" and "made" lacked fewer
+  words, so it was named. Two things change. A decision below the bar is now also listed, with
+  the answer, when it is a peer of the answer's best-titled decision: its title or topic keys
+  hold as many of the question's words (two at least), two of them words the question says side
+  by side, and it is about the question (`About`) at least 0.9 times as much; at most three, most
+  about the question first, and only when the answer has a decision titled for one of the words
+  (an answer found by a rare word in a rationale has none). A peer is listed and never named
+  alone: `why` does not answer a peer. And `why` no longer answers a close match when the next
+  close match says as much of the question in its title and topic keys and is about it nearly as
+  much; it lists both, the way it lists two close matches that lack the same number of words.
+  The two-words rule for a title (hivemind-pobj2) now also needs the two words side by side in
+  the question, or five of the question's words held in all: on the cell's ledger "is there a
+  lint that checks nobody makes up their own colours and sizes?" had "lint" and "sizes" in the
+  title "Box the large Payload enum variant to fix clippy size lint" and put it ahead of the
+  lint decision that was asked about. Through the debug build of this change on a copy of the
+  crew ledger (534 events, 69 decisions), 690 questions: both questions above and their two
+  longer forms put the decisions asked about in the top three (`why` lists them, and does not
+  answer the graph decision), the controls ("do we need a licence to play music in the
+  office?" among them) stay empty, the checker's 439 go from 352 to 355 in the recall top
+  three and no question loses its place in it, and the `why` answers that are a decision other
+  than the recorded one fall from 23 to 18. Known cost: seven `why` answers that were right
+  become the first of a list (a peer is listed with the answer: "how does the browser turn the
+  server's graph into the drawing, and what about two arrows between the same pair?" among them)
+  and five recorded decisions move from first to second in `recall`, behind a peer that is as
+  much about the question. On a copy of the cell's ledger (about 150,000 events, 1,845
+  decisions), the same 694 questions: the checker's 439 stay at 305 in the recall top three
+  (first 199 to 200), seven recorded decisions leave the top three and nine enter it, and
+  `why`'s right answers go from 156 to 141 (first of a list from 50 to 67, a list from 123 to
+  141) while its confident wrong answers fall from 55 to 36; the controls are unchanged. The
+  long question about a link that points at nothing no longer answers "The UI graph sizes a
+  ranked decision ..." and lists the decision about the missing link third, and the question
+  about a lint that checks colours and sizes puts the decision about it first again. Known
+  cost on the cell: "why did the drawings in the animation stop using a fixed-size canvas that
+  got shrunk on phones?", whose decision neither build finds, listed two other decisions and now
+  answers one of them as a close match lacking six words, because the stricter two-words rule
+  drops the other.
+  Not fixed here, as they come from an older rule that admits a decision holding three of the
+  words and counts "job" and "jobs" twice: on the cell's ledger the decision about what the
+  graph draws is still not in the top three of the long question (a decision about the same
+  graph comes first), "how does beadline draw the time a long job still needs for jobs that
+  run longer than anything we have seen finish" still puts a note from a session first, and
+  "when the forecast runs out of finished examples, how far out does the survival curve put the
+  leftover chance?" still answers "beadline forecaster: one shared schedule per run ..." as a
+  close match lacking eight words, where the decision about the leftover mass is not listed.
+  `docs/AGENT_FLUENT_QUERYING.md` and the `recall_decisions` description state the rules.
+  (hivemind-wdxx0)
+
 - **On a ledger of the cell's size, `recall`, `why` and `verify` name the decision filed under the
   question's rare word, and a rare word no longer outweighs two words in a title.** Both rules
   below were measured on 69 decisions only. On 1,845 (a copy of the cell's ledger, 157,563
