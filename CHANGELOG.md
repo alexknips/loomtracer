@@ -790,6 +790,44 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **On a ledger of the cell's size, `recall`, `why` and `verify` name the decision filed under the
+  question's rare word, and a rare word no longer outweighs two words in a title.** Both rules
+  below were measured on 69 decisions only. On 1,845 (a copy of the cell's ledger, 157,563
+  events) "which shelf do we want people to put us on?" still missed "HiveMind's public shelf is
+  agent memory": several decisions say "shelf" in their title and tie on how much of the question
+  they carry, and the subject rule broke the tie by the lower id, which put a proposal about the
+  shelf (`capture:...`) ahead of the decision filed under `public-shelf`. The
+  tie now goes as the order of close candidates already has it: of two equally about the
+  question, the one that names a word it holds in both its title and its topic keys, then the
+  lower id. And "does the command-line binary get a new name along with the new company?" lost
+  its answer: "along", which seven decisions hold, weighs more than the two words ("new",
+  "name") in the title of the decision about the new name, so a merge note that says "along"
+  was added ahead of it and `why` listed four instead of answering. A subject is now added only
+  when its title or topic keys say at least as many of the question's words as any decision in
+  the answer does; two words in a title are no chance meeting. Through the debug build of this
+  change on a copy of the cell's ledger, 643 questions plus four for this fix: both questions
+  and the shelf question with "when they first hear what we make" put the shelf decision first
+  and `why` lists it first; the rename question puts the rename decision first and `why`
+  answers it; "what shelf do we put the product on publicly?" still answers it. The checker's
+  439 go from 304 to 305 in the recall top three (first 196 to 199), `why` right answers
+  from 154 to 156 and first-listed from 49 to 50; the other published sets and the licence and
+  music controls are unchanged, and no question loses a right answer. Two `why` answers
+  change to a decision that is not the one the question recorded: the rename question answers
+  the new-name decision where the set recorded the decision that keeps the tool's name
+  (second in `recall`), and "when the forecast runs out of finished examples, how far out does
+  the survival curve put the leftover chance?", which neither build answers right, listed the
+  forecaster decision with a benchmark note about a "threshold curve" and now answers the
+  forecaster decision alone as a close match that names the eight words it lacks. Known
+  cost: "will renaming the database break backups?" still puts "Registered Dolt backup for new
+  gas-city-setup rig manually" first, as it did before. It holds "backup", a form of "backups",
+  in its title, so it is shaped like the shelf decision, and no count of the ledger separates the
+  two. On the crew ledger (534 events, 69 decisions) the two questions this rule moves back to
+  first are the ones the subject rule below moved to second: "how do we get the graph to draw a
+  decision's options A, B, C in order ..." (`why` answers it again) and "how are features that
+  are built but not yet released drawn on the marketing site's graphs?" (`why` lists it first
+  again); the other two stay second, and the checker's recall top three stays at 352 of 439.
+  `docs/AGENT_FLUENT_QUERYING.md` states both rules. (hivemind-1p3tk)
+
 - **`recall`, `why` and `verify` find the decision whose title holds two words of a long question,
   when everyday words outnumber them.** "For jobs that run longer than anything we have seen
   finish, how does beadline draw the time they still need?" listed three decisions that say

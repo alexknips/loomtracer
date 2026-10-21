@@ -1682,6 +1682,11 @@ fn admit_below_bar(
 ///   `ln(searched + 1)`, and
 /// - no decision of the answer holds it in its title or topic keys (one that does is the subject
 ///   already), and
+/// - the decision says at least as many of the question's words in its title or topic keys as any
+///   decision of the answer does: two words that sit in a title are not chance, so a word that few
+///   decisions hold does not outweigh them ("does the command-line binary get a new name along
+///   with the new company?" is answered by the decision titled for the new name, not by the one
+///   that says "along", which seven decisions hold and one of them in a title), and
 /// - the decision is more about the question (`About`) than every decision of the answer: it says
 ///   the word in its title or topic keys, whereas they hold the question's other words in a
 ///   rationale or say more common ones, and
@@ -1718,9 +1723,15 @@ fn subject_below_bar(
     }) {
         return None;
     }
+    let titled = holdings
+        .iter()
+        .enumerate()
+        .filter(|(index, holding)| answered(holding, *index, admitted))
+        .map(|(_, holding)| holding.headline.len())
+        .max()?;
     let outranked = answer_about(holdings, admitted, weights)?;
     outranking_below_bar(scored, holdings, admitted, weights, outranked, |holding| {
-        holding.headline.contains(&subject_word)
+        holding.headline.contains(&subject_word) && holding.headline.len() >= titled
     })
 }
 
@@ -1780,7 +1791,9 @@ fn answer_about(
 }
 
 /// Of the decisions below the bar, not admitted, that `fits`, the one more about the question than
-/// `outranked`; of two, the more about it, then the lower id.
+/// `outranked`; of two, the more about it, then the one that names a word it holds in both its
+/// title and its topic keys (the search's own tie-break, `sort_scored`: a proposal that says
+/// "shelf" in its title is not the decision filed under the public shelf), then the lower id.
 fn outranking_below_bar(
     scored: &[ScoredDecisionSearchResult],
     holdings: &[Holding],
@@ -1796,10 +1809,22 @@ fn outranking_below_bar(
         .filter(|(index, (_, holding))| {
             holding.below_bar && !admitted.contains(index) && fits(holding)
         })
-        .map(|(index, (decision, holding))| (holding.about(weights), decision.id.as_str(), index))
-        .filter(|(about, _, _)| about.cmp_about(&outranked).is_gt())
-        .max_by(|left, right| left.0.cmp_about(&right.0).then_with(|| right.1.cmp(left.1)))
-        .map(|(_, _, index)| index)
+        .map(|(index, (decision, holding))| {
+            (
+                holding.about(weights),
+                decision.headline_hits,
+                decision.id.as_str(),
+                index,
+            )
+        })
+        .filter(|(about, ..)| about.cmp_about(&outranked).is_gt())
+        .max_by(|left, right| {
+            left.0
+                .cmp_about(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| right.2.cmp(left.2))
+        })
+        .map(|(.., index)| index)
 }
 
 /// One decision candidate for the resolve-by-description primitive (`resolve.rs`): the same

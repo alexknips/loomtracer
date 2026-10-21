@@ -2069,6 +2069,12 @@ fn fluent_search_reads_an_adverb_as_the_word_a_title_says() -> Result<()> {
 /// everyday words of a question about it: "people", "want" and "put" are each held by five or more
 /// decisions, "shelf" by three, and only d:shelf says it in its title.
 fn shelf_ledger(extra: &[(&str, &str, &str)]) -> Result<Scenario> {
+    shelf_ledger_of(60, extra)
+}
+
+/// `shelf_ledger` with `generic` decisions about nothing: a ledger big enough that "shelf" is rare
+/// when more than three decisions hold it.
+fn shelf_ledger_of(generic: usize, extra: &[(&str, &str, &str)]) -> Result<Scenario> {
     let mut named = vec![
         ("d:shelf", "The public shelf is agent memory", "Wording."),
         (
@@ -2103,7 +2109,7 @@ fn shelf_ledger(extra: &[(&str, &str, &str)]) -> Result<Scenario> {
         ),
     ];
     named.extend_from_slice(extra);
-    generic_ledger(60, &named)
+    generic_ledger(generic, &named)
 }
 
 #[test]
@@ -2312,6 +2318,155 @@ fn fluent_search_leaves_the_answer_alone_when_a_decision_in_it_says_more_of_the_
         items.iter().all(|(id, _)| id != "d:leftover"),
         "a decision that says less of the question in its title than one of the answer is not \
          added: {items:?}"
+    );
+    Ok(())
+}
+
+/// A decision whose title and topic keys are given, filed by a human.
+fn titled_proposal(scenario: &Scenario, id: &str, title: &str, topic_keys: &[&str]) -> Result<()> {
+    scenario.proposal(
+        "human:alice",
+        "2026-01-01T00:00:00Z",
+        json!({
+            "decision_id": id,
+            "title": title,
+            "rationale": "Wording.",
+            "topic_keys": topic_keys,
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+    )?;
+    Ok(())
+}
+
+#[test]
+fn fluent_search_names_the_decision_filed_under_the_word_when_titles_say_it_alike() -> Result<()> {
+    // Three decisions say "shelf" in their title and nothing else of the question, so they tie on
+    // how much of it they carry. A proposal about the search miss has the lowest id, and a decision
+    // that says nothing of a shelf in its topic keys comes next; the one filed under
+    // `public-shelf` is the one about the shelf.
+    let scenario = shelf_ledger_of(200, &[])?;
+    titled_proposal(
+        &scenario,
+        "capture:1:0",
+        "Treat shelf misses as a bug to fix now",
+        &["search-ranking"],
+    )?;
+    titled_proposal(
+        &scenario,
+        "d:shelf-filed",
+        "The public shelf is agent memory",
+        &["public-shelf"],
+    )?;
+
+    let (items, _) = fluent_answer(&scenario, "shelf want people put", 10)?;
+
+    let position = items.iter().position(|(id, _)| id == "d:shelf-filed");
+    assert!(
+        position.is_some_and(|position| position < 3),
+        "the decision filed under the shelf is in the top three: {items:?}"
+    );
+    for tied in ["capture:1:0", "d:shelf"] {
+        assert!(
+            items.iter().all(|(id, _)| id != tied),
+            "one decision is the subject, not every title that says the word: {items:?}"
+        );
+    }
+    Ok(())
+}
+
+/// The question of a person who asks for the new name of the binary: "binary", "get", "new",
+/// "name" and "company" are each held by about twenty-five of 143 decisions, "along" by two.
+const ALONG_QUESTION: &str = "binary get new name along company";
+
+/// Twenty-four decisions that say each of the common words in a rationale, twenty about nothing,
+/// one titled for something that merges "along" the branch, one that says "along" in a rationale,
+/// and `rename`: the decision about what the new name is. The common words weigh little each, so
+/// the two of them that `rename` holds in its title add up to less than "along" does, and
+/// "along" is under two fifths of the question's weight.
+fn along_ledger(rename: (&str, &str)) -> Result<Scenario> {
+    let mut decisions = vec![
+        (
+            "d:rename".to_owned(),
+            rename.0.to_owned(),
+            rename.1.to_owned(),
+        ),
+        (
+            "d:merge".to_owned(),
+            "Merge the first branch along with the second".to_owned(),
+            "Wording.".to_owned(),
+        ),
+        (
+            "d:aside".to_owned(),
+            "The graph draws its edges".to_owned(),
+            "Edges run along the page.".to_owned(),
+        ),
+    ];
+    for (word, count) in [
+        ("binary", 24),
+        ("get", 24),
+        ("new", 24),
+        ("name", 24),
+        ("company", 24),
+        ("generic", 20),
+    ] {
+        for index in 0..count {
+            decisions.push((
+                format!("d:{word}-{index:02}"),
+                format!("The page lists option {word}{index} for the tool"),
+                if word == "generic" {
+                    "Generic wording about the query output and the text shown.".to_owned()
+                } else {
+                    format!("Wording about the {word} output.")
+                },
+            ));
+        }
+    }
+    let borrowed: Vec<(&str, &str, &str)> = decisions
+        .iter()
+        .map(|(id, title, rationale)| (id.as_str(), title.as_str(), rationale.as_str()))
+        .collect();
+    titled_decisions(&borrowed)
+}
+
+#[test]
+fn fluent_search_adds_no_subject_when_a_title_in_the_answer_says_two_of_the_words() -> Result<()> {
+    // d:rename says "new" and "name" in its title and "binary" in its rationale: three of the six
+    // words, so it is at the bar. "along" is held by two decisions, one of them in a title, and
+    // outweighs the two common words together; it still is not what the question is about.
+    let scenario = along_ledger(("The new name is Loomtracer", "The binary keeps its look."))?;
+
+    let (items, _) = fluent_answer(&scenario, ALONG_QUESTION, 10)?;
+
+    assert_eq!(
+        items.first().map(|(id, _)| id.as_str()),
+        Some("d:rename"),
+        "the decision whose title says two of the words answers: {items:?}"
+    );
+    assert!(
+        items.iter().all(|(id, _)| id != "d:merge"),
+        "a rare word does not outweigh two words in a title: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_the_subject_when_the_title_in_the_answer_says_one_of_the_words() -> Result<()>
+{
+    // d:rename says "new" in its title and "binary" and "name" in its rationale: at the bar, but
+    // one word of its title, so the rare word in d:merge's title is the question's subject.
+    let scenario = along_ledger((
+        "The new tool is Loomtracer",
+        "The binary name changes with it.",
+    ))?;
+
+    let (items, _) = fluent_answer(&scenario, ALONG_QUESTION, 10)?;
+
+    assert!(
+        items.iter().any(|(id, _)| id == "d:merge"),
+        "one word in the answer's title leaves the subject rule as it was: {items:?}"
     );
     Ok(())
 }

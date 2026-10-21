@@ -534,16 +534,21 @@ decision below the bar is returned when
   throw away expired entries?"). A rationale that spells them together does not count, or
 - it is the question's subject: its title or topic keys hold the rarest word that any
   decision holds (a word weighing at least 0.6 times `ln(n + 1)`), no decision in the answer
-  holds that word in its title or topic keys, and the decision is more about the question
-  than every decision in the answer (the weight of the question's words that its title,
-  topic keys and recorded question carry). "Which shelf do we want people to put us on?"
+  holds that word in its title or topic keys, the decision says at least as many of the
+  question's words there as any decision in the answer does, and it is more about the
+  question than every decision in the answer (the weight of the question's words that its
+  title, topic keys and recorded question carry). "Which shelf do we want people to put us on?"
   adds to "shelf" the everyday words "want", "people" and "put", which five decisions hold
   each; those decisions hold three of the four words and pass the bar, while the one
   titled for the shelf holds one and its share of the question is small. It comes where its
   title puts it, usually first, labelled with the words it lacks. The words some decision
   holds must carry at least two thirds of the weight of all the question's words, so a
   question mostly about what nobody holds ("did we decide to move the UI from React to
-  Svelte?") has no subject and an empty answer stays empty, or
+  Svelte?") has no subject and an empty answer stays empty. Two words that sit in a
+  title are no chance meeting, so a word that few decisions hold does not outweigh
+  them: "does the command-line binary get a new name along with the new company?" is
+  answered by the decision whose title says "new" and "name", and the one whose title
+  says only "along", which seven decisions hold, is not added, or
 - failing a subject, its title or topic keys hold two of the question's words, the words
   it holds weigh at least 1.25 times `ln(n + 1)` as the first item asks, and the decision
   is more about the question than every decision in the answer. The share of the first
@@ -558,7 +563,10 @@ decision below the bar is returned when
 
 At most three such decisions are added (the ones holding the most weight, then
 decision id), and the subject or the titled one on top of them, each carrying
-`missing_terms` like any close match. `why` and `verify` read the same list. There is no word list and nothing learned: the counts
+`missing_terms` like any close match. Of two that fit the subject or the titled test,
+the more about the question is added; between two equally about it, the one that
+holds a word of the question in both its title and its topic keys (the decision
+filed under the word, as the order of close candidates above has it), then the lower id. `why` and `verify` read the same list. There is no word list and nothing learned: the counts
 are the ledger's own, so this part of recall, unlike the ordering of close
 candidates above, does count words across the ledger. A question that shares no
 rare words with a decision is still an empty answer.
