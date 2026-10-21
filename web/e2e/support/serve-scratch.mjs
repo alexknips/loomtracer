@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SEED_TOKEN, seedLedger } from "./seed-ledger.mjs";
+import { SEED_TOKEN, seedDraft, seedLedger } from "./seed-ledger.mjs";
 
 const port = Number(process.env.HIVEMIND_E2E_PORT ?? 18736);
 if (!Number.isInteger(port) || port < 18736 || port === 18732) {
@@ -20,6 +20,7 @@ const dir = mkdtempSync(join(tmpdir(), "loomtracer-e2e-"));
 const pidFile = join(dir, "hivemind.pid");
 const logFd = openSync(join(dir, "hivemind.log"), "a");
 seedLedger(dir);
+seedDraft(dir);
 
 const bin = process.env.HIVEMIND_BIN || "hivemind";
 const server = spawn(bin, ["serve", "--port", String(port), "--hivemind-dir", dir], {

@@ -52,6 +52,16 @@ export function decisionDetail(brief: DecisionBrief, timeline: Timeline, graph: 
   };
 }
 
+/**
+ * The decision id a `/decisions/[id]` path segment names. Next hands the segment over still percent-encoded, as the links
+ * wrote it (`capture%3A105186%3A3` for `capture:105186:3`), and the client escapes an id itself, so the segment is decoded
+ * once here; left as it is, the server is asked for `capture%253A105186%253A3`. A segment that does not decode names no
+ * decision, so it is `null` and the page answers not found.
+ */
+export function decisionIdFromSegment(segment: string): string | null {
+  try { return decodeURIComponent(segment); } catch { return null; }
+}
+
 /** What a decision page reads: the decision, its dated story and the graph around it, never the whole tenant graph. */
 export async function readDecision(client: Pick<HiveMindClient, "decision" | "timeline" | "decisionGraph">, id: string): Promise<DecisionDetail> {
   return decisionDetail(...await Promise.all([client.decision(id), client.timeline(id), client.decisionGraph(id)]));

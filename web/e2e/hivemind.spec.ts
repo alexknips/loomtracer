@@ -26,10 +26,10 @@ const test = base.extend<{ leaks: string[] }>({
 test("the graph shows the ledger's decisions with their statuses, and replays them in order", async ({ page }) => {
   const runtimeErrors: string[] = [];
   page.on("pageerror", error => runtimeErrors.push(error.message));
-  await page.goto("/graph");
+  await page.goto("/graph?project=pricing");
   await expect(page.getByTestId("workspace-identity")).toHaveText("local · service:api");
   await expect(page.getByLabel("Reasoning project")).toHaveValue("pricing");
-  await expect(page.getByLabel("Reasoning project").locator("option")).toHaveText(["Pricing study (3)", "Pricing study / Pricing experiments (1)"]);
+  await expect(page.getByLabel("Reasoning project").locator("option")).toHaveText(["claude agents' personal project (1)", "Pricing study (3)", "Pricing study / Pricing experiments (1)"]);
 
   const timeline = page.getByTestId("timeline");
   await expect(timeline.getByTestId("timeline-entry").filter({ hasText: "Price per seat" }).first()).toBeVisible();
@@ -129,7 +129,7 @@ test("search finds decisions by their words and opens each with its reasons", as
 
 test("search can be asked from one project, and says whose decisions it found", async ({ page }) => {
   await page.goto("/search");
-  await expect(page.getByLabel("Project").locator("option")).toHaveText(["Any project", "Pricing study", "Pricing study / Pricing experiments"]);
+  await expect(page.getByLabel("Project").locator("option")).toHaveText(["Any project", "claude agents' personal project", "Pricing study", "Pricing study / Pricing experiments"]);
   await page.getByLabel("Project").selectOption("pricing-experiments");
   await page.getByLabel("Search decisions").fill("price");
   await page.getByLabel("Search decisions").press("Enter");
@@ -144,6 +144,27 @@ test("search can be asked from one project, and says whose decisions it found", 
   // A handle nobody registered is not found, so a typo never reads as an empty project.
   await page.goto("/search?project=no-such-project");
   await expect(page.getByTestId("hivemind-problem")).toContainText("project not registered");
+});
+
+test("a classifier draft, whose id has colons in it, opens from a search result", async ({ page }) => {
+  await page.goto("/search?q=weekly+release+train");
+  const result = page.getByTestId("search-result");
+  await expect(result).toHaveCount(1);
+  const link = result.getByRole("link", { name: "Chose a weekly release train over releasing on demand" });
+  await expect(link).toHaveAttribute("href", /^\/decisions\/capture%3A\d+%3A\d+$/);
+  const href = await link.getAttribute("href");
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`${href}$`));
+  const detail = page.getByTestId("decision-detail");
+  await expect(detail.getByRole("heading", { name: "Chose a weekly release train over releasing on demand", level: 1 })).toBeVisible();
+  await expect(detail.getByTestId("decision-rationale")).toContainText("a late fix waits at most six days");
+  await expect(detail.getByTestId("decision-options").locator(".hm-chosen")).toHaveText("Weekly release train");
+  await expect(detail.getByTestId("decision-timeline")).toContainText("Recorded");
+  await shoot(page, "decision-draft");
+  // The id written out with its colons, as a person would paste it, reaches the same page.
+  const response = await page.goto(decodeURIComponent(href!));
+  expect(response?.status()).toBe(200);
+  await expect(page.getByTestId("decision-detail")).toContainText("Weekly release train");
 });
 
 test("a decision that is not in the ledger says so", async ({ page }) => {
@@ -170,14 +191,17 @@ test("review lists what needs a person: proposed, contested and unanswered", asy
 test("projects lists each project with its parent and its decisions by status", async ({ page }) => {
   await page.goto("/projects");
   const projects = page.getByTestId("project");
-  await expect(projects).toHaveCount(2);
-  await expect(projects.nth(0)).toContainText("Pricing study");
-  await expect(projects.nth(0)).toContainText("3 decisions");
-  await expect(projects.nth(1)).toHaveAttribute("data-depth", "1");
-  await expect(projects.nth(1)).toContainText("part of Pricing study");
-  await expect(projects.nth(1).locator(".hm-status-proposed")).toBeVisible();
+  await expect(projects).toHaveCount(3);
+  // The personal project holds the classifier draft; it comes first, then the study and the project under it.
+  await expect(projects.nth(0)).toContainText("claude agents' personal project");
+  await expect(projects.nth(0)).toContainText("1 decision");
+  await expect(projects.nth(1)).toContainText("Pricing study");
+  await expect(projects.nth(1)).toContainText("3 decisions");
+  await expect(projects.nth(2)).toHaveAttribute("data-depth", "1");
+  await expect(projects.nth(2)).toContainText("part of Pricing study");
+  await expect(projects.nth(2).locator(".hm-status-proposed")).toBeVisible();
   await shoot(page, "projects");
-  await projects.nth(0).getByRole("link", { name: "Pricing study" }).click();
+  await projects.nth(1).getByRole("link", { name: "Pricing study" }).click();
   await expect(page).toHaveURL(/\/graph\?project=pricing$/);
 });
 
@@ -187,7 +211,7 @@ test("the API serves the project and its bundle privately, and a missing project
   expect(await health.json()).toEqual({ ok: true, tenant: "local" });
   const projects = await request.get("/api/reasoning");
   expect(projects.headers()["cache-control"]).toContain("no-store");
-  expect((await projects.json()).projects).toEqual([{ ref: "pricing", name: "Pricing study", decisions: 3 }, { ref: "pricing-experiments", name: "Pricing study / Pricing experiments", decisions: 1 }]);
+  expect((await projects.json()).projects).toEqual([{ ref: "personal:agent:claude", name: "claude agents' personal project", decisions: 1 }, { ref: "pricing", name: "Pricing study", decisions: 3 }, { ref: "pricing-experiments", name: "Pricing study / Pricing experiments", decisions: 1 }]);
   const bundle = await (await request.get("/api/reasoning?project_ref=pricing")).json();
   expect(Object.keys(bundle).sort()).toEqual(["bundle", "decisions", "head"]);
   expect(bundle.decisions).toEqual({ shown: 3, total: 3, truncated: false });

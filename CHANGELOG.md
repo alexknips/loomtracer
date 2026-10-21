@@ -790,6 +790,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The web UI opens a classifier draft's decision page.** A decision the classifier read out of
+  a session has an id with colons in it (`capture:105186:3`), and a result of `/search` linked to
+  it as `/decisions/capture%3A105186%3A3`. The page took that segment as it came, still
+  percent-encoded, and the server client escaped it a second time, so the server was asked for
+  `capture%253A105186%253A3`, answered "decision not found" and the page showed "This page could
+  not be found". On a ledger like the cell's, where most decisions are drafts, that was most
+  results. The page now decodes the id once, so the server is asked for
+  `/v1/decisions/capture%3A105186%3A3`, and `/decisions/capture:105186:3` written out with its
+  colons opens the same page. A `decision-<uuid>` page is unchanged. The Rust server is
+  unchanged. (hivemind-4ruxj)
 - **`GET /v1/graph` returns each edge once.** A capture asserts its option, chosen and assumption
   edges twice in the ledger (inside `decision.proposed` and again as `relation.added`), and the
   in-memory graph the server answers from kept both, so a ledger of 1,845 decisions answered 796

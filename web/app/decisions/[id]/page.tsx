@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { HiveMindProblem } from "@/components/hivemind-problem";
 import { StatusBadge } from "@/components/status-badge";
 import { hivemind } from "@/lib/hivemind/client";
-import { readDecision } from "@/lib/hivemind/decision";
+import { decisionIdFromSegment, readDecision } from "@/lib/hivemind/decision";
 import { load } from "@/lib/hivemind/load";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,8 @@ const decisionHref = (id: string) => `/decisions/${encodeURIComponent(id)}`;
 const EVENT_WORDS: Record<string, string> = { recorded: "Recorded", accepted: "Accepted", rejected: "Rejected", superseded: "Superseded" };
 
 export default async function DecisionPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const id = decisionIdFromSegment((await params).id);
+  if (id === null) notFound();
   const client = hivemind();
   const result = await load(() => readDecision(client, id));
   if (!result.ok && result.error.code === "not_found") notFound();

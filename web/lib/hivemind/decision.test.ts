@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { decisionDetail, readDecision } from "./decision";
+import { createHiveMindClient } from "./client";
+import { decisionDetail, decisionIdFromSegment, readDecision } from "./decision";
 import type { DecisionBrief, GraphResponse, Timeline } from "./types";
 import graphFixture from "./fixtures/graph.json";
 import detailFixture from "./fixtures/decisions.json";
@@ -63,6 +64,27 @@ describe("a decision's own graph", () => {
       expect(new Set(edges).size, title).toBe(edges.length);
       expect(own.edges.filter(edge => !nodes.has(edge.from) || !nodes.has(edge.to)), title).toEqual([]);
     }
+  });
+});
+
+describe("the decision id in a decision page's path", () => {
+  it.each(["capture:105186:3", "decision-01dcec47-2b6c-7f2e-8a5d-5b2f0c9e4a11", "capture:7:0"])("reads %s back out of the link a page wrote for it", id => {
+    expect(decisionIdFromSegment(encodeURIComponent(id))).toBe(id);
+  });
+
+  it("names no decision when the segment does not decode", () => {
+    expect(decisionIdFromSegment("capture%3A%E0%A4%A")).toBeNull();
+  });
+
+  it("asks the server for a classifier draft once-escaped, as the link to it was written", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: {} }), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createHiveMindClient({ HIVEMIND_API_URL: "http://127.0.0.1:18736" }, fetchImpl as unknown as typeof fetch);
+    await client.decision(decisionIdFromSegment("capture%3A105186%3A3")!);
+    await client.timeline(decisionIdFromSegment("capture%3A105186%3A3")!);
+    expect(fetchImpl.mock.calls.map(call => String((call as unknown as [URL])[0]))).toEqual([
+      "http://127.0.0.1:18736/v1/decisions/capture%3A105186%3A3",
+      "http://127.0.0.1:18736/v1/decisions/capture%3A105186%3A3/timeline",
+    ]);
   });
 });
 

@@ -3,6 +3,8 @@
 // e2e scratch server and to capture lib/hivemind/fixtures/graph.json. Needs `hivemind` on PATH
 // (or HIVEMIND_BIN).
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 export const SEED_TOKEN = "e2e-scratch-token";
 
@@ -59,4 +61,19 @@ export function seedLedger(dir, bin = process.env.HIVEMIND_BIN || "hivemind") {
   const evidence = json("human:alice", "emit", "evidence.recorded", "--content", "Interview notes: teams also invite people for reasons unrelated to price").value;
   json("human:alice", "emit", "relation.added", "--kind", "refutes", "--from", evidence, "--to", proxy);
   return { perSeat, teamPlan, experiment: experiment.value, invite, evidence, proxy };
+}
+
+// A classifier draft: a decision read out of a session, whose id nobody chose (`capture:<event>:<index>`, colons in it).
+// Most decisions in a real ledger are drafts, so the e2e server holds one. Kept apart from seedLedger: it lands in the
+// submitter's personal project, and lib/hivemind/fixtures is captured from the pricing study alone.
+export function seedDraft(dir, bin = process.env.HIVEMIND_BIN || "hivemind") {
+  const captures = join(dir, "draft-captures.json");
+  writeFileSync(captures, JSON.stringify([{
+    kind: "decision", title: "Chose a weekly release train over releasing on demand",
+    rationale: "A fixed weekly train gives support a date to plan around, and a late fix waits at most six days",
+    topic_keys: ["releases"], evidence_ids: [], options: ["Weekly release train", "Release on demand"],
+    chosen_option: "Weekly release train", extraction_confidence: 0.9,
+  }]));
+  execFileSync(bin, ["--hivemind-dir", dir, "--actor", "agent:hivemind:classifier", "emit", "ingest.batch_classified", "--captures", captures, "--source", "agent", "--json"],
+    { encoding: "utf8", env: { ...process.env, HIVEMIND_API_URL: "", HIVEMIND_DATABASE_URL: "" } });
 }
