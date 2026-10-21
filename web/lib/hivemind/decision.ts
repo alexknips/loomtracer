@@ -1,3 +1,4 @@
+import type { HiveMindClient } from "./client";
 import { nodeRawId, stored } from "./projects";
 import type { DecisionBrief, DecisionStatus, GraphResponse, Timeline, TimelineEntry } from "./types";
 
@@ -49,4 +50,9 @@ export function decisionDetail(brief: DecisionBrief, timeline: Timeline, graph: 
     supersededBy: claims("SUPERSEDES").filter(claim => claim.target === me).map(claim => ref(nodeRawId(claim.source))),
     timeline: timeline.entries,
   };
+}
+
+/** What a decision page reads: the decision, its dated story and the graph around it, never the whole tenant graph. */
+export async function readDecision(client: Pick<HiveMindClient, "decision" | "timeline" | "decisionGraph">, id: string): Promise<DecisionDetail> {
+  return decisionDetail(...await Promise.all([client.decision(id), client.timeline(id), client.decisionGraph(id)]));
 }

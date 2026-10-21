@@ -48,6 +48,12 @@ describe("HiveMind client requests", () => {
     expect(urls).toEqual(["http://127.0.0.1:18736/v1/graph?project=personal%3Aagent%3Aclaude&limit=50&cursor=12%3Ad1", "http://127.0.0.1:18736/v1/graph"]);
   });
 
+  it("asks for one decision's graph by its id, whatever the id holds", async () => {
+    const fetchImpl = vi.fn(async () => ok({ decisions: [], nodes: [], edges: [] }));
+    await createHiveMindClient(env, fetchImpl as unknown as typeof fetch).decisionGraph("capture:42:0");
+    expect(String((fetchImpl.mock.calls[0] as unknown as [URL])[0])).toBe("http://127.0.0.1:18736/v1/graph?decision=capture%3A42%3A0");
+  });
+
   it("lists the projects by following the server's pages to the end", async () => {
     const entry = (handle: string) => ({ handle, name: handle, personal: false, parent: null, decisions: { total: 1, proposed: 1, accepted: 0, contested: 0, rejected: 0, superseded: 0 } });
     const pages = [

@@ -155,6 +155,22 @@ like every arrow. A project nobody registered is 404 (a typo never reads as an e
 a personal address always resolves and may be empty. `limit` or `cursor` without `project`
 is 400. Without `project` the whole tenant is returned, unpaged, as before.
 
+## One decision's graph: `GET /v1/graph?decision=`
+
+A page about one decision needs that decision and what it is linked to, not a project's page or
+the tenant. `decision` is the decision's id. The response has the same `{decisions, nodes,
+edges}` shape as above and no paging fields, because nothing is cut off: it holds the
+decision and what hangs off it, chosen by the same rules as a project's page (every edge with
+the decision at either end and the node at the other end, what its options are premised on, one
+hop of `SUPPORTS` and `REFUTES` from the evidence and hypotheses reached, and a reaffirmation
+whose line ends at a node reached). A decision at the far end of an edge (the one it
+supersedes, the one that supersedes it, a premise) is a `nodes[]` and `decisions[]` entry with
+its own `status` and `deciders`, and shows no edges of its own beyond those to this decision.
+Each edge appears once and has both of its ends in `nodes[]`; every entry reads exactly as it
+does in the whole graph. The size follows what the decision is linked to, not the ledger. A
+decision the graph does not hold is 404; `project`, `limit` or `cursor` together with
+`decision` is 400, as is an empty `decision`.
+
 ## Projects: `GET /v1/projects`
 
 A picker or a tree needs the projects and how many decisions each holds, not the graph. The

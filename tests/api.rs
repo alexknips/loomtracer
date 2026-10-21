@@ -4285,6 +4285,122 @@ async fn graph_of_a_project_refuses_what_it_cannot_page_and_says_when_the_projec
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `GET /v1/graph?decision=` is one decision and what hangs off it, in the same shape as the
+/// whole graph, and says the same as the whole graph about everything it names.
+#[tokio::test]
+async fn graph_of_one_decision_is_that_decision_and_what_hangs_off_it() {
+    use hivemind::commands::Commands;
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    let old = file_decision(&dir, Some("billing"), "Price per seat");
+    let new = file_decision(&dir, Some("platform"), "Price per organisation");
+    let unrelated = file_decision(&dir, Some("billing"), "Bill monthly");
+    Commands::new(&hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens"))
+        .supersede_decision(&old, &new, "human:alex")
+        .expect("supersedes");
+
+    let (status, whole) = call(app(dir.clone()), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "{whole}"); // ubs:ignore
+    let (status, one) = call(
+        app(dir.clone()),
+        get_req(&format!("/v1/graph?decision={old}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{one}"); // ubs:ignore
+
+    // The same shape as the whole graph: no paging fields, because nothing is cut off.
+    for field in [
+        "truncated",
+        "next_cursor",
+        "total_matches",
+        "project",
+        "limit",
+    ] {
+        assert!(one.get(field).is_none(), "{field} on one decision: {one}"); // ubs:ignore
+    }
+    // The decision and the far end of its supersession, and not the project's other decision.
+    assert_eq!(
+        graph_ids(&one, "decisions")
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        [old.clone(), new.clone()].into_iter().collect(),
+        "{one}"
+    ); // ubs:ignore
+    assert!(!graph_ids(&one, "decisions").contains(&unrelated)); // ubs:ignore
+    assert_eq!(graph_decision(&one, &old)["status"], "superseded", "{one}"); // ubs:ignore
+    assert_eq!(graph_decision(&one, &new)["project"], "platform", "{one}"); // ubs:ignore
+    let relations: std::collections::BTreeSet<&str> = one["edges"]
+        .as_array()
+        .expect("edges")
+        .iter()
+        .filter_map(|edge| edge["relation"].as_str())
+        .collect();
+    for relation in ["HAS_OPTION", "CHOSE", "PROPOSED_BY", "SUPERSEDES"] {
+        assert!(relations.contains(relation), "{relation} missing: {one}"); // ubs:ignore
+    }
+    assert_graph_is_closed_and_edges_once(&one);
+
+    // Everything it says, the whole graph says too; and it leaves out no edge of the decision.
+    for id in [&old, &new] {
+        assert_eq!(graph_decision(&one, id), graph_decision(&whole, id)); // ubs:ignore
+    }
+    for collection in ["nodes", "edges"] {
+        let in_whole = whole[collection].as_array().expect("whole collection");
+        for entry in one[collection].as_array().expect("collection") {
+            assert!(
+                in_whole.contains(entry),
+                "{collection} entry not in the whole graph: {entry}"
+            ); // ubs:ignore
+        }
+    }
+    let node = format!("Decision:{old}");
+    let touching = |graph: &Value| -> Vec<Value> {
+        graph["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .filter(|edge| edge["from"] == node.as_str() || edge["to"] == node.as_str())
+            .cloned()
+            .collect()
+    };
+    assert_eq!(touching(&one), touching(&whole)); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn graph_of_one_decision_refuses_what_it_cannot_combine_and_says_when_the_decision_is_unknown(
+) {
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    let decision = file_decision(&dir, Some("billing"), "Price per seat");
+
+    for (uri, expected) in [
+        ("/v1/graph?decision=%20".to_owned(), StatusCode::BAD_REQUEST),
+        (
+            format!("/v1/graph?decision={decision}&project=billing"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            format!("/v1/graph?decision={decision}&limit=5"),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            format!("/v1/graph?decision={decision}&cursor=1:d"),
+            StatusCode::BAD_REQUEST,
+        ),
+        // A typo is not an empty graph.
+        (
+            "/v1/graph?decision=no-such-decision".to_owned(),
+            StatusCode::NOT_FOUND,
+        ),
+        (format!("/v1/graph?decision={decision}"), StatusCode::OK),
+    ] {
+        let (status, body) = call(app(dir.clone()), get_req(&uri)).await;
+        assert_eq!(status, expected, "GET {uri}: {body}"); // ubs:ignore
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn projects_lists_registered_and_personal_projects_with_parent_and_counts() {
     let dir = test_ledger_dir();

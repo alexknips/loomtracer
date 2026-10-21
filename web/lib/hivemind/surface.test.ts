@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = new URL("../..", import.meta.url).pathname;
-function sources(dir: string): string[] {
+function sources(dir: string, pattern = /\.tsx$/): string[] {
   return readdirSync(dir).flatMap(name => {
     const path = join(dir, name);
-    return statSync(path).isDirectory() ? sources(path) : /\.tsx$/.test(name) ? [path] : [];
+    return statSync(path).isDirectory() ? sources(path, pattern) : pattern.test(name) && !/\.test\./.test(name) ? [path] : [];
   });
 }
 
@@ -24,5 +24,12 @@ describe("no dead buttons", () => {
     const linked = [...text.matchAll(/href=["']\/?#([\w-]+)["']/g)].map(match => match[1]);
     const defined = new Set([...text.matchAll(/\bid=["']([\w-]+)["']/g)].map(match => match[1]));
     expect(linked.filter(id => !defined.has(id))).toEqual([]);
+  });
+});
+
+describe("no page reads the whole tenant graph", () => {
+  it("asks for a project's graph or a decision's, never graph() with no project", () => {
+    const text = ["app", "components"].flatMap(dir => sources(join(root, dir), /\.tsx?$/)).map(path => readFileSync(path, "utf8")).join("\n");
+    expect(text.match(/\.graph\(\s*\)/g) ?? []).toEqual([]);
   });
 });

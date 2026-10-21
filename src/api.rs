@@ -93,11 +93,13 @@
 //! - `GET  /v1/classify-queue/sessions[?limit=]`   — the sessions with pending batches, most
 //!   recently active first: batch count, oldest and newest submission time (no turn text),
 //!   `session_total`, `batch_total` and `truncated`
-//! - `GET  /v1/graph[?project=][?limit=][?cursor=]` — the decision graph (JSON); with `project`
-//!   (a registered handle or a personal address) one page of that project's newest decisions and
-//!   what hangs off them, `limit` of them (default 200, at most 1000), with `total_matches`,
-//!   `truncated` and `next_cursor` to continue to older ones (docs/GRAPH_CONTRACT.md); each edge
-//!   once. Without `project` the whole tenant, unpaged
+//! - `GET  /v1/graph[?project=][?limit=][?cursor=]` | `?decision=` — the decision graph (JSON);
+//!   with `project` (a registered handle or a personal address) one page of that project's
+//!   newest decisions and what hangs off them, `limit` of them (default 200, at most 1000), with
+//!   `total_matches`, `truncated` and `next_cursor` to continue to older ones
+//!   (docs/GRAPH_CONTRACT.md); each edge once. With `decision` (an id, on its own) that decision
+//!   and what hangs off it, unpaged, in the same shape; 404 for an id the graph does not hold.
+//!   Without either the whole tenant, unpaged
 //! - `GET  /v1/projects[?limit=][?cursor=]`        — every project with a registration or a
 //!   decision in it: handle, name, `parent` (`PART_OF`) and decision counts by status; personal
 //!   projects appear once a decision is filed in them; read only

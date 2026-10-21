@@ -116,7 +116,8 @@ pub use outcome::{
     OutcomeReason,
 };
 pub use project_graph::{
-    project_graph_page, ProjectGraphCursor, ProjectGraphPage, ProjectGraphRequest,
+    decision_graph, project_graph_page, GraphSlice, ProjectGraphCursor, ProjectGraphPage,
+    ProjectGraphRequest,
 };
 pub use project_scope::{MatchScope, ScopeNote, ScopeRelation, ScopedProject};
 pub use projects::{

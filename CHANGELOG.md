@@ -168,6 +168,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - **`GET /v1/decisions/search` takes `project`**, as the CLI and MCP search already did: the
   project's own decisions, those of the projects it is part of, and those it depends on, each
   labelled by `scope`. A handle that is not registered answers 404. (hivemind-d87pp)
+- **`GET /v1/graph?decision=<id>` reads one decision and what hangs off it, and the web UI's
+  decision page reads that instead of the whole tenant graph.** It answers `decisions`, `nodes`
+  and `edges` in the shape `GET /v1/graph` has, for the decision and every node it is linked
+  to (its options, the evidence and hypotheses behind them, who proposed and decided it, what it
+  follows from, replaced and was replaced by), each edge once, with no paging fields: the answer
+  is bounded by the decision's own links. An id the graph does not hold answers 404; a blank
+  `decision`, or one sent with `project`, `limit` or `cursor`, answers 400. The server still
+  walks the graph's edges to find them, so the saving is in what is sent and drawn. On a copy of
+  the cell's ledger (157,563 events, 1,845 decisions; a debug build on a loaded host), the three
+  reads of one decision page (the most-linked decision, 14 edges) went from 4.35 MB in 3.5 to
+  3.7 s to 18 KB in 0.7 to 0.9 s, the graph read itself from 4.35 MB to 15 KB; the timeline read
+  (about 1 s) is now most of what the page waits for. (hivemind-d2886)
 - **A web UI in `web/` reads a HiveMind server over its HTTP API.** It is Jeff Miao's Loomtracer
   UI (a Next.js app, imported with its history from `TheChairmanMiao/neurofilament`), moved off
   Supabase: `HIVEMIND_API_URL` and a bearer token in `HIVEMIND_API_KEY`, read on the server side

@@ -80,8 +80,9 @@ What building this against the API showed.
 2. **`GET /v1/graph` returned the whole tenant's graph, unbounded.** Fixed in hivemind-d87pp:
    `GET /v1/graph?project=<ref>&limit=&cursor=` is one project's newest decisions and what hangs
    off them, in the same shape, with `truncated` and `next_cursor`. `/graph` and `/projects` read
-   that. **`/decisions/<id>` still reads the whole tenant graph** (`GET /v1/graph` with no
-   `project`) to find one decision's edges; it wants a decision-scoped read.
+   that. `/decisions/<id>` read the whole tenant graph to find one decision's edges; fixed in
+   hivemind-d2886: it reads `GET /v1/graph?decision=<id>`, that decision and what hangs off it,
+   in the same shape. No page reads the whole tenant graph now.
 3. **No project endpoints over HTTP.** Listing is fixed in hivemind-d87pp: `GET /v1/projects`
    (handle, name, parent, decisions by status; personal projects included). Create, rename, move
    and link are still CLI-only.

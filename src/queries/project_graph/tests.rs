@@ -233,3 +233,144 @@ fn a_cursor_reads_back_and_a_garbled_one_does_not() {
         assert_eq!(ProjectGraphCursor::parse(garbled), None, "{garbled:?}");
     }
 }
+
+fn slice_of(scenario: &Scenario, decision_id: &str) -> Result<GraphSlice> {
+    Ok(decision_graph(&scenario.graph()?, decision_id)?.expect("the decision exists"))
+}
+
+#[test]
+fn one_decision_gets_what_a_page_of_its_project_gives_it_and_nothing_else() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.evidence("e:1", "Invoices lag by a day", None, &at(1))?;
+    scenario.evidence("e:2", "A survey found the opposite", None, &at(2))?;
+    scenario.hypothesis(
+        "h:1",
+        "Customers read invoices monthly",
+        "assumption",
+        None,
+        &at(3),
+    )?;
+    decision(&scenario, "d:1", "billing", 4, &["e:1"], &["h:1"])?;
+    scenario.relation("supports", "e:2", "h:1", "agent:tester", None, &at(5))?;
+    // Another decision of the same project, resting on the same evidence, is not what hangs off d:1.
+    decision(&scenario, "d:2", "billing", 6, &["e:1"], &[])?;
+
+    let one = slice_of(&scenario, "d:1")?;
+    let ids = |kind: NodeKind| -> Vec<&str> {
+        one.nodes
+            .iter()
+            .filter(|(node_kind, _)| *node_kind == kind)
+            .map(|(_, id)| id.as_str())
+            .collect()
+    };
+    assert_eq!(ids(NodeKind::Decision), vec!["d:1"]);
+    assert_eq!(ids(NodeKind::Option), vec!["d:1:opt"]);
+    assert_eq!(ids(NodeKind::Evidence), vec!["e:1", "e:2"]);
+    assert_eq!(ids(NodeKind::Hypothesis), vec!["h:1"]);
+    assert_eq!(ids(NodeKind::Actor), vec!["human:alex"]);
+    assert_eq!(
+        one.arrows
+            .iter()
+            .filter(|arrow| matches!(
+                arrow.relation,
+                RelationKind::HasOption
+                    | RelationKind::Chose
+                    | RelationKind::BasedOn
+                    | RelationKind::PremisedOn
+                    | RelationKind::Supports
+            ))
+            .count(),
+        5
+    );
+
+    // The same slice a page of a project holding only this decision is.
+    let only = Scenario::new();
+    only.evidence("e:1", "Invoices lag by a day", None, &at(1))?;
+    only.evidence("e:2", "A survey found the opposite", None, &at(2))?;
+    only.hypothesis(
+        "h:1",
+        "Customers read invoices monthly",
+        "assumption",
+        None,
+        &at(3),
+    )?;
+    decision(&only, "d:1", "billing", 4, &["e:1"], &["h:1"])?;
+    only.relation("supports", "e:2", "h:1", "agent:tester", None, &at(5))?;
+    let alone = page(&only, "billing", 10, None)?;
+    assert_eq!(
+        (one.nodes, one.arrows, one.derived),
+        (alone.nodes, alone.arrows, alone.derived)
+    );
+    Ok(())
+}
+
+#[test]
+fn the_graph_of_one_decision_names_the_far_end_of_a_supersession_and_does_not_follow_it(
+) -> Result<()> {
+    let scenario = Scenario::new();
+    decision(&scenario, "d:old", "billing", 1, &[], &[])?;
+    decision(&scenario, "d:new", "platform", 2, &[], &[])?;
+    scenario.supersede("d:old", "d:new", "human:alex", &at(3))?;
+
+    let old = slice_of(&scenario, "d:old")?;
+    assert!(old
+        .nodes
+        .contains(&(NodeKind::Decision, "d:new".to_owned())));
+    assert_eq!(
+        old.arrows
+            .iter()
+            .filter(|arrow| arrow.relation == RelationKind::Supersedes)
+            .count(),
+        1
+    );
+    assert!(
+        !old.nodes
+            .contains(&(NodeKind::Option, "d:new:opt".to_owned())),
+        "the replacement is named, and its own option is not part of the page"
+    );
+    // Seen from the replacement, the same supersession and the other end named.
+    let new = slice_of(&scenario, "d:new")?;
+    assert!(new
+        .nodes
+        .contains(&(NodeKind::Decision, "d:old".to_owned())));
+    assert!(!new
+        .nodes
+        .contains(&(NodeKind::Option, "d:old:opt".to_owned())));
+    for slice in [&old, &new] {
+        for arrow in &slice.arrows {
+            assert!(slice
+                .nodes
+                .contains(&(arrow.from_kind, arrow.from_id.clone())));
+            assert!(slice.nodes.contains(&(arrow.to_kind, arrow.to_id.clone())));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn the_graph_of_one_decision_draws_its_reaffirmation_and_a_decision_nobody_holds_has_none(
+) -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.hypothesis(
+        "h:1",
+        "Customers read invoices monthly",
+        "assumption",
+        None,
+        &at(1),
+    )?;
+    decision(&scenario, "d:1", "billing", 2, &[], &["h:1"])?;
+    decision(&scenario, "d:2", "billing", 3, &[], &[])?;
+    scenario.reaffirmed("d:1", "h:1", "Still true", "human:alex", &at(4))?;
+
+    let reaffirmed = slice_of(&scenario, "d:1")?;
+    assert_eq!(reaffirmed.derived.len(), 2);
+    assert!(reaffirmed
+        .nodes
+        .iter()
+        .any(|(kind, _)| *kind == NodeKind::Reaffirmation));
+    let other = slice_of(&scenario, "d:2")?;
+    assert!(other.derived.is_empty());
+
+    assert_eq!(decision_graph(&scenario.graph()?, "d:nobody")?, None);
+    Ok(())
+}

@@ -2,7 +2,8 @@
 //   graph.json                       GET /v1/graph (the whole tenant graph)
 //   graph-<project>.json             GET /v1/graph?project=<project>
 //   projects.json                    GET /v1/projects
-//   decisions.json                   for each decision title, GET /v1/decisions/{id} and its timeline
+//   decisions.json                   for each decision title, GET /v1/decisions/{id}, its timeline and
+//                                    GET /v1/graph?decision={id}
 // The ids are fresh on every run, so all of the files are rewritten together. Needs `hivemind` on PATH
 // (or HIVEMIND_BIN, the binary under test). Port: HIVEMIND_E2E_PORT, default 18741; never 8080 or 18732.
 //   node e2e/support/capture-fixtures.mjs
@@ -50,7 +51,11 @@ try {
   const details = {};
   for (const decision of whole.decisions) {
     const id = encodeURIComponent(decision.id);
-    details[decision.title] = { brief: (await get(`/v1/decisions/${id}`)).data, timeline: (await get(`/v1/decisions/${id}/timeline`)).data };
+    details[decision.title] = {
+      brief: (await get(`/v1/decisions/${id}`)).data,
+      timeline: (await get(`/v1/decisions/${id}/timeline`)).data,
+      graph: await get(`/v1/graph?decision=${id}`),
+    };
   }
   write("decisions.json", details);
   console.log(`Wrote fixtures for ${whole.decisions.length} decisions, ${whole.edges.length} edges, seeded ids ${Object.keys(seeded).join(", ")}`);

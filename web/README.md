@@ -43,7 +43,7 @@ the open internet with a token for a ledger you would not publish.
 |---|---|---|
 | `/graph` | `GET /v1/projects`, `GET /v1/graph?project=`, `GET /v1/whoami` | A project's newest decisions (200, or up to 1000 on request) as a timeline, a trace map and the records behind them. The cutoff slider replays them in ledger order. Status (`accepted`, `contested`, `superseded`...) is a word on every decision. |
 | `/search` | `GET /v1/decisions/search`, `GET /v1/projects` | Decisions by their words, filterable by status and project. |
-| `/decisions/<id>` | `GET /v1/decisions/{id}`, `.../timeline`, `GET /v1/graph` | One decision: why, what it weighed, what it rests on, who accepted or rejected it, what replaced it. |
+| `/decisions/<id>` | `GET /v1/decisions/{id}`, `.../timeline`, `GET /v1/graph?decision=` | One decision: why, what it weighed, what it rests on, who accepted or rejected it, what replaced it. |
 | `/review` | `GET /v1/decisions/search?status=proposed`, `GET /v1/attention/*` | What needs a person: proposed, contested, unanswered questions, decisions with no stated ground. |
 | `/projects` | `GET /v1/projects` | Projects, their hierarchy and their decisions by status. |
 | `/inspect` | none | Opens an exported reasoning bundle in the browser. Nothing is uploaded. |

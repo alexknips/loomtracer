@@ -1,4 +1,5 @@
 //! One project's page of the decision graph: its decisions, newest first, and what hangs off them.
+//! One decision's graph is the page of just that decision ([`decision_graph`]).
 //!
 //! `GET /v1/graph` answers for the whole tenant, which at tens of thousands of decisions is more
 //! than a page of one project needs. This answers for one project and is bounded: a page holds at
@@ -6,7 +7,7 @@
 //! reader can walk the whole project and a short answer never reads as a complete one
 //! (AGENTS.md §6). It selects nodes and edges; the caller shapes them.
 //!
-//! What hangs off a page's decisions:
+//! What hangs off a page's decisions (and off the one decision of [`decision_graph`]):
 //! - every edge that has a page decision at either end, whatever its relation, and the node at its
 //!   other end (an actor, an option, evidence, a hypothesis, a question, a request, a blocker, or
 //!   another decision, which may belong to another project);
@@ -26,7 +27,9 @@ use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::arrows::{reaffirmation_arrows_among, DerivedArrow, NodeTimes};
-use super::shared::{node_rows, optional_int, optional_string, relation_edges_by_kind};
+use super::shared::{
+    decision_node_exists, node_rows, optional_int, optional_string, relation_edges_by_kind,
+};
 
 /// A decision's place in a project's order, oldest first: the ledger offset that recorded it, then
 /// its id. As a cursor it names the oldest decision of the page just read, and the next page is
@@ -78,6 +81,17 @@ pub struct ProjectGraphPage {
     pub arrows: Vec<Arrow>,
     /// Lines drawn from a `Reaffirmation`'s own properties (see `reaffirmation_arrows`); the
     /// reaffirmation is among the nodes.
+    pub derived: Vec<DerivedArrow>,
+}
+
+/// Some decisions and what hangs off them: the nodes, arrows and derived lines a read selected.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraphSlice {
+    /// Every node by kind then id. The decisions asked for are among the `Decision`s, with the
+    /// far end of every edge that is a decision.
+    pub nodes: Vec<(NodeKind, String)>,
+    pub arrows: Vec<Arrow>,
+    /// Lines drawn from a `Reaffirmation`'s own properties; the reaffirmation is among the nodes.
     pub derived: Vec<DerivedArrow>,
 }
 
@@ -146,6 +160,33 @@ pub fn project_graph_page(
         .map(|key| key.decision_id.as_str())
         .collect();
 
+    let GraphSlice {
+        nodes,
+        arrows,
+        derived,
+    } = hanging_off(graph, &page)?;
+
+    Ok(ProjectGraphPage {
+        total_matches,
+        next_cursor,
+        nodes,
+        arrows,
+        derived,
+    })
+}
+
+/// The graph of one decision: it and what hangs off it, the same selection a project's page makes
+/// of its decisions. `None` when the graph holds no such decision. It is bounded by what the
+/// decision is linked to, not by the size of the graph.
+pub fn decision_graph(graph: &impl GraphView, decision_id: &str) -> Result<Option<GraphSlice>> {
+    if !decision_node_exists(graph, decision_id)? {
+        return Ok(None);
+    }
+    hanging_off(graph, &BTreeSet::from([decision_id])).map(Some)
+}
+
+/// `page` and what hangs off it (see the module doc), arrows oriented newer to older.
+fn hanging_off(graph: &impl GraphView, page: &BTreeSet<&str>) -> Result<GraphSlice> {
     let edges = relation_edges_by_kind(graph)?;
     let mut selection = Selection::default();
     selection
@@ -207,9 +248,7 @@ pub fn project_graph_page(
         }
     }
 
-    Ok(ProjectGraphPage {
-        total_matches,
-        next_cursor,
+    Ok(GraphSlice {
         nodes: selection.nodes.into_iter().collect(),
         arrows,
         derived,

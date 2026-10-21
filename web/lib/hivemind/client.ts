@@ -72,6 +72,8 @@ export function createHiveMindClient(env: HiveMindEnv = process.env, fetchImpl: 
     health: () => get<{ status: string }>("/v1/health"),
     /** One project's newest decisions and what hangs off them. The whole tenant graph (no `project`) is for the pages that still need it. */
     graph: (params: { project?: string; limit?: number; cursor?: string } = {}) => get<GraphResponse>("/v1/graph", params),
+    /** One decision and what hangs off it: its options, evidence, assumptions, who proposed and decided it, what it follows from, replaced and was replaced by. The same shape as `graph`, with no paging. */
+    decisionGraph: (id: string) => get<GraphResponse>("/v1/graph", { decision: id }),
     /** Every project the ledger holds, registered or personal, with its decision counts. Follows the server's pages to the end. */
     projects: async (): Promise<{ items: ProjectEntry[]; unfiled_decisions: number }> => {
       const items: ProjectEntry[] = [];

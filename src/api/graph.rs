@@ -1,6 +1,7 @@
-//! `GET /v1/graph` — the decision graph of a tenant, or with `?project=` one page of a project's
-//! decisions and what hangs off them, plus the projected [`MemoryGraph`] cache shared by every
-//! read handler across the API (avoids replaying the whole ledger on each request).
+//! `GET /v1/graph` — the decision graph of a tenant, with `?project=` one page of a project's
+//! decisions and what hangs off them, or with `?decision=` one decision and what hangs off it,
+//! plus the projected [`MemoryGraph`] cache shared by every read handler across the API (avoids
+//! replaying the whole ledger on each request).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -17,8 +18,8 @@ use crate::projector::{
     GraphValue, GraphView, NodeKind,
 };
 use crate::queries::{
-    oriented_edges, project_graph_page, reaffirmation_arrows, DecisionStandings, DerivedArrow,
-    ProjectGraphCursor, ProjectGraphRequest, MAX_QUERY_RESULTS,
+    decision_graph, oriented_edges, project_graph_page, reaffirmation_arrows, DecisionStandings,
+    DerivedArrow, ProjectGraphCursor, ProjectGraphRequest, MAX_QUERY_RESULTS,
 };
 
 use super::auth::extract_ctx;
@@ -29,8 +30,8 @@ use super::{respond, ApiBackend, ApiError, ApiLedger, ApiRequestCtx, ApiResult, 
 /// number: a page a UI draws at once. The most it returns is [`MAX_QUERY_RESULTS`].
 const PROJECT_GRAPH_DEFAULT_LIMIT: usize = 200;
 
-/// Query parameters of `GET /v1/graph`. Without `project` it answers for the whole tenant and
-/// takes no `limit` or `cursor`.
+/// Query parameters of `GET /v1/graph`. Without `project` or `decision` it answers for the whole
+/// tenant and takes no `limit` or `cursor`; `decision` takes none of the others.
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct GraphQuery {
     /// A project: a registered handle or a personal address (`personal:agent:claude`).
@@ -39,6 +40,19 @@ pub(super) struct GraphQuery {
     limit: Option<usize>,
     /// The `next_cursor` of the previous page.
     cursor: Option<String>,
+    /// One decision's id: it and what hangs off it, not a project's page.
+    decision: Option<String>,
+}
+
+/// What a request to `GET /v1/graph` asks the graph for.
+enum GraphScope {
+    Tenant,
+    Project {
+        project: String,
+        limit: usize,
+        cursor: Option<ProjectGraphCursor>,
+    },
+    Decision(String),
 }
 
 /// A single node in the decision graph, as returned by GET /v1/graph.
@@ -150,7 +164,27 @@ fn graph_blocking(
             project: None,
             limit: None,
             cursor: None,
-        } => None,
+            decision: None,
+        } => GraphScope::Tenant,
+        GraphQuery {
+            project: None,
+            limit: None,
+            cursor: None,
+            decision: Some(decision),
+        } => {
+            let decision = decision.trim();
+            if decision.is_empty() {
+                return Err(ApiError::validation("`decision` must name a decision"));
+            }
+            GraphScope::Decision(decision.to_owned())
+        }
+        GraphQuery {
+            decision: Some(_), ..
+        } => {
+            return Err(ApiError::validation(
+                "`decision` reads one decision's graph on its own: `project`, `limit` and `cursor` page a project's graph",
+            ))
+        }
         GraphQuery { project: None, .. } => {
             return Err(ApiError::validation(
                 "`limit` and `cursor` page one project's graph: name it with `project`",
@@ -160,6 +194,7 @@ fn graph_blocking(
             project: Some(project),
             limit,
             cursor,
+            decision: None,
         } => {
             let cursor = cursor
                 .map(|text| {
@@ -174,7 +209,11 @@ fn graph_blocking(
                 None | Some(0) => PROJECT_GRAPH_DEFAULT_LIMIT,
                 Some(limit) => limit.min(MAX_QUERY_RESULTS),
             };
-            Some((project, limit, cursor))
+            GraphScope::Project {
+                project,
+                limit,
+                cursor,
+            }
         }
     };
 
@@ -182,10 +221,17 @@ fn graph_blocking(
     let graph = get_cached_graph(&ledger, &ctx.tenant_id, cache)?;
     let standings = DecisionStandings::load(graph.as_ref()).map_err(graph_err)?;
     let data = match scope {
-        None => whole_graph(graph.as_ref(), &standings)?,
-        Some((project, limit, cursor)) => {
+        GraphScope::Tenant => whole_graph(graph.as_ref(), &standings)?,
+        GraphScope::Project {
+            project,
+            limit,
+            cursor,
+        } => {
             let address = named_project(graph.as_ref(), &project)?;
             project_graph(graph.as_ref(), &standings, address, limit, cursor)?
+        }
+        GraphScope::Decision(decision_id) => {
+            decision_graph_data(graph.as_ref(), &standings, &decision_id)?
         }
     };
     serde_json::to_value(data).map_err(graph_err)
@@ -250,9 +296,55 @@ fn project_graph(
     )
     .map_err(graph_err)?;
 
-    let mut nodes: Vec<GraphNode> = Vec::with_capacity(page.nodes.len());
+    shaped(
+        graph,
+        standings,
+        &page.nodes,
+        &page.arrows,
+        &page.derived,
+        Some(GraphPage {
+            project: address,
+            limit,
+            total_matches: page.total_matches,
+            truncated: page.next_cursor.is_some(),
+            next_cursor: page.next_cursor,
+        }),
+    )
+}
+
+/// One decision and what hangs off it: the same nodes, decisions and edges as the whole graph,
+/// for the decision and the nodes it is linked to. 404 when the graph holds no such decision.
+fn decision_graph_data(
+    graph: &impl GraphView,
+    standings: &DecisionStandings,
+    decision_id: &str,
+) -> ApiResult<GraphData> {
+    let slice = decision_graph(graph, decision_id)
+        .map_err(graph_err)?
+        .ok_or_else(|| ApiError::not_found(format!("decision not found: {decision_id}")))?;
+    shaped(
+        graph,
+        standings,
+        &slice.nodes,
+        &slice.arrows,
+        &slice.derived,
+        None,
+    )
+}
+
+/// The response for a selection of the graph: each node read from the graph, a decision also as
+/// an entry of `decisions`, each arrow as an edge.
+fn shaped(
+    graph: &impl GraphView,
+    standings: &DecisionStandings,
+    page_nodes: &[(NodeKind, String)],
+    arrows: &[Arrow],
+    derived: &[DerivedArrow],
+    page: Option<GraphPage>,
+) -> ApiResult<GraphData> {
+    let mut nodes: Vec<GraphNode> = Vec::with_capacity(page_nodes.len());
     let mut decisions: Vec<serde_json::Value> = Vec::new();
-    for (kind, id) in &page.nodes {
+    for (kind, id) in page_nodes {
         let rows = graph
             .query(
                 &graph_node_lookup(*kind),
@@ -270,24 +362,17 @@ fn project_graph(
         nodes.push(node);
         decisions.extend(decision);
     }
-    let edges: Vec<GraphEdge> = page
-        .arrows
+    let edges: Vec<GraphEdge> = arrows
         .iter()
         .map(graph_edge)
-        .chain(page.derived.iter().map(derived_edge))
+        .chain(derived.iter().map(derived_edge))
         .collect();
 
     Ok(GraphData {
         decisions,
         nodes,
         edges,
-        page: Some(GraphPage {
-            project: address,
-            limit,
-            total_matches: page.total_matches,
-            truncated: page.next_cursor.is_some(),
-            next_cursor: page.next_cursor,
-        }),
+        page,
     })
 }
 

@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { HiveMindProblem } from "@/components/hivemind-problem";
 import { StatusBadge } from "@/components/status-badge";
 import { hivemind } from "@/lib/hivemind/client";
-import { decisionDetail } from "@/lib/hivemind/decision";
+import { readDecision } from "@/lib/hivemind/decision";
 import { load } from "@/lib/hivemind/load";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +18,10 @@ const EVENT_WORDS: Record<string, string> = { recorded: "Recorded", accepted: "A
 export default async function DecisionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const client = hivemind();
-  const result = await load(() => Promise.all([client.decision(id), client.timeline(id), client.graph()]));
+  const result = await load(() => readDecision(client, id));
   if (!result.ok && result.error.code === "not_found") notFound();
   if (!result.ok) return <AppShell active="Search"><HiveMindProblem error={result.error} /></AppShell>;
-  const d = decisionDetail(...result.value);
+  const d = result.value;
   return <AppShell active="Search"><article className="content-page" data-testid="decision-detail">
     <header className="page-heading"><div><span className="eyebrow">Decision{d.project ? <> · <Link className="hm-link" href={`/graph?${new URLSearchParams({ project: d.project.ref })}`}>{d.project.label}</Link></> : null}</span><h1>{d.title}</h1></div><p><StatusBadge status={d.status} /></p></header>
     <div className="hm-decision">
