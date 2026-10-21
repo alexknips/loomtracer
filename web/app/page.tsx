@@ -100,7 +100,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="public-connect public-container"><p className="public-eyebrow">For the agents you already use</p><h2>Connect your agents today.</h2><p>The invite-only pilot includes setup for Codex and Claude Code. Connect an agent through MCP and have it retrieve the project&apos;s decisions, investigations, and findings at the start of a related task.</p><div className="public-connect-labels"><span>Possibilities to explore</span><span>Evidence to compare</span><span>Decisions with reasons</span></div></section>
+      <section className="public-connect public-container"><p className="public-eyebrow">For the agents you already use</p><h2>Connect your agents today.</h2><p>Connect an agent through MCP and have it retrieve the project&apos;s decisions, investigations, and findings at the start of a related task.</p><div className="public-connect-labels"><span>Possibilities to explore</span><span>Evidence to compare</span><span>Decisions with reasons</span></div></section>
 
     </main>
     <footer className="public-footer public-container"><BrandLogo className="footer-brand-logo" /><p>AI should reduce burden, not authorship.</p>{workspaceLink && <Link href="/graph">Open the workspace ↗</Link>}</footer>

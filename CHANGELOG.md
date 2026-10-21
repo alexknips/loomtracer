@@ -790,6 +790,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The web UI's landing page no longer promises an invite-only pilot.** Its "Connect your agents
+  today." section said "The invite-only pilot includes setup for Codex and Claude Code", but the
+  hqbd9 merge removed the "Request access" form and the "Sign in" link because the server has no
+  accounts or access requests, so there was no pilot a visitor could join. The sentence is gone
+  and the next one, which tells a visitor to connect an agent through MCP, stands on its own; no
+  other copy changed. `web/HIVEMIND_API_MAP.md` records the removal. The Rust server is
+  unchanged. (hivemind-21yg5)
+
 - **The web UI's decision page names the choice of a draft that chose words it never weighed as an
   option.** A classifier draft can choose a label that is not one of the options it listed (or
   name a choice and no options). The page marked the chosen option among "What it weighed", so

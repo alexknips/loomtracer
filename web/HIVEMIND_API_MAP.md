@@ -16,7 +16,7 @@ All reads go through the UI's own server (`lib/hivemind/client.ts`) with
 
 | Original page | Now | HiveMind endpoint | What the server would need |
 |---|---|---|---|
-| `/` landing | **Kept.** The "Request access" form and the "Sign in" link are gone; the full app links to the workspace instead. | none | Nothing. The page's copy still says "invite-only pilot" and "Request access": that is a decision for Alex and Jeff, not made here. |
+| `/` landing | **Kept.** The "Request access" form and the "Sign in" link are gone; the full app links to the workspace instead. | none | Nothing. The sentence that promised a pilot with setup for Codex and Claude Code was removed from the "Connect your agents today." section on Alex's ruling (hc-92f), because no pilot can be joined. The rest of the copy is Jeff's to rewrite. |
 | `/demo` | **Kept** (fictional data in the page). "Try it with your work" opens `/graph`; the "Request private beta access" link is removed, since there is no request form. | none | Nothing. |
 | `/graph` (reasoning workspace) | **Rewired.** One project's decisions as a timeline, trace map and sources: its newest 200 decisions, and "Draw up to 1000" when it holds more. | `GET /v1/projects`, `GET /v1/graph?project=`, `GET /v1/whoami` | The fields the graph leaves out (see "Notes for the server" below). |
 | `/inspect` (local file inspector) | **Kept.** Opens an exported bundle in the browser; nothing is uploaded. | none | Nothing. |
