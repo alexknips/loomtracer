@@ -4,10 +4,11 @@
 
 The next decade of knowledge work will be done by humans and AI agents together.
 The open question is whether humans stay in the loop or hand decision-making to
-AI wholesale. We bet on the former — and we believe that requires a substrate
-where every decision, by every actor, is recorded, queryable, and contestable.
+AI wholesale. We bet on the former — and we believe that requires a memory for
+decisions, where every decision, by every actor, is recorded, queryable, and
+contestable.
 
-HiveMind is that substrate.
+HiveMind is that memory.
 
 ## The pain
 
@@ -64,7 +65,7 @@ the wide list invites scope creep.
 - Disagreement is named, dated, and reviewable — not forgotten until it
   resurfaces.
 - "We don't remember why we decided that" stops being a normal answer.
-- Humans retain governance over agentic work because they can see, query, and
+- Humans keep the final say over agentic work because they can see, query, and
   contest every agent decision after the fact — at the speed of a query, not
   the speed of reading a transcript.
 
@@ -85,7 +86,7 @@ getting them right.
 - Not a chat archive — chat is conversation; HiveMind is conclusion.
 - Not a notes app — notes are personal; HiveMind is organizational.
 - Not a task tracker — tasks are work to do; HiveMind is what was decided.
-- Not agent memory — agent memory serves the agent's next prompt; HiveMind
-  serves the human who needs to govern the agent.
+- Not an agent's private memory: that serves the agent's next prompt. HiveMind
+  keeps what was decided, by whom and why, for you and for every later session.
 - Not a wiki replacement — wikis hold artifacts; HiveMind holds the structure
   of how those artifacts came to be.

@@ -38,12 +38,12 @@ intent-shaped queries, not by reading the ledger.
 A bead advances this front if it lets a user find a decision they remember
 without already knowing its ID.
 
-### Governance UX
+### Review and contest UX
 
-Make the governance moments visible: disagreeing with an agent, superseding
-an earlier decision, surfacing the `contested` status, walking a decision's
-history. The vision rests on humans staying in the loop; this front is what
-makes that loop usable.
+Make the moments when you push back visible: disagreeing with an agent,
+superseding an earlier decision, surfacing the `contested` status, walking a
+decision's history. The vision rests on humans staying in the loop; this front
+is what makes that loop usable.
 
 A bead advances this front if it shortens the path from "I want to push back
 on a decision" to "I have pushed back, and the push-back is in the ledger."

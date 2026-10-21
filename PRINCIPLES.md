@@ -46,8 +46,8 @@ Every event carries an actor. The actor is named, never anonymous. The actor's
 write or query paths. An agent's decision and a human's decision have the same
 shape, the same review surface, and the same standing.
 
-This is the principle that makes governance possible: humans can review agent
-decisions because the agent's decisions are first-class, not second-class.
+This is the principle that lets a human review and contest an agent's decision:
+the agent's decisions are first-class, not second-class.
 
 ## 4. Disagreement is information, not error
 
