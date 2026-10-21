@@ -165,9 +165,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   was 4.50 MB in 1.6 to 2.6 s of server time, and the page of its largest project (1,788
   decisions, the default 200) is 0.47 MB in about 0.6 s, with the project list another 1.8 KB.
   (hivemind-d87pp)
-- **`GET /v1/decisions/search` takes `project`**, as the CLI and MCP search already did: the
-  project's own decisions, those of the projects it is part of, and those it depends on, each
-  labelled by `scope`. A handle that is not registered answers 404. (hivemind-d87pp)
+- **`GET /v1/decisions/search` takes `project`**: the project's own decisions, those of the
+  projects it is part of, and those it depends on, each labelled by `scope`. A handle that is not
+  registered answers 404. The CLI and MCP scope a question by project through recall, not search:
+  `hivemind query recall --project <ref>` and the `recall_decisions` tool's `project` scope the
+  same way, with the same `scope` labels; `hivemind query search` and the `search_decisions` tool
+  take no `project`.
+  (hivemind-d87pp)
 - **`GET /v1/graph?decision=<id>` reads one decision and what hangs off it, and the web UI's
   decision page reads that instead of the whole tenant graph.** It answers `decisions`, `nodes`
   and `edges` in the shape `GET /v1/graph` has, for the decision and every node it is linked
