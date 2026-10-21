@@ -545,9 +545,10 @@ cannot be found this way: no word of the question is in the decision, and recall
 does not guess.
 
 `search` keeps every word, as a literal substring. When that finds nothing for a
-phrase of three or more words it asks again as `recall` does, and answers with the
-same list, so `search` and `recall` agree on a phrase written in an agent's own
-words; a shorter query stays exact. `data.query` is the query as it was given and
+phrase of three or more words, counted as it was written ("where does the website
+live" is five), it asks again as `recall` does, and answers with the same list, so
+`search` and `recall` agree on a phrase written in an agent's own words; a shorter
+query stays exact. `data.query` is the query as it was given and
 each item carries `missing_terms`.
 
 ### 1.2 Recency, for free

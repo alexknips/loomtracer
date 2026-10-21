@@ -2311,8 +2311,10 @@ pub enum QueryCommand {
     GetDecisionOutcome(QueryFluentDecisionArgs),
     /// Find decisions whose text contains every word of `--q` (literal substrings, no
     /// fuzziness), narrowed by topic, status, actor, source and date; paginated with --cursor.
-    /// When no decision has every word of a phrase of three or more, the answer is `recall`'s:
-    /// decisions holding some of the words, each with `missing_terms` naming what it lacks.
+    /// When no decision has every word of a phrase of three or more words (counted as you wrote
+    /// them, question words included: "where does the website live" is five), the answer is
+    /// `recall`'s: decisions holding some of the words, each with `missing_terms` naming what it
+    /// lacks.
     /// For a question in your own words use `recall`.
     #[command(name = "search")]
     Search(QuerySearchDecisionsArgs),

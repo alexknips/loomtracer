@@ -782,6 +782,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `query`, MCP and the REST reads agree with the shared backends, and a reader no longer has to
   collapse repeats. The capture still writes the pair twice; the ledger is not rewritten.
   (hivemind-d87pp)
+- **A question with few content words finds its decision through `search`, as the help says.**
+  `query search`, MCP `search_decisions` and `GET /v1/decisions/search` (the web UI's search page)
+  ask again the way `recall` asks when no decision has every word of a phrase of three or more
+  words, but counted the words after the question words ("where does the", "how should ... be")
+  were dropped. "where does the website live" and "how should interviews be framed" are five
+  words each and have two content words, so they stayed on the all-words path and answered 0
+  while `recall` ranked the decision first with nothing missing. The words are now counted as
+  they were written; a query of fewer words stays exact, and a phrase of nothing but question
+  words ("what did we decide") still lists nothing instead of every decision. The help, the MCP
+  tool text and `docs/SEARCH_DESIGN.md` say so. (hivemind-vpf4q)
 - **What changed since a date now lists the decisions passive capture recorded after it.** A
   classified capture's decision has no `decision.proposed` event, so `query
   get_decisions_changed_since` and `get_recent_activity` listed its classification as a

@@ -443,7 +443,10 @@ const PHRASE_WORDS: usize = 3;
 ///
 /// A phrase of at least `PHRASE_WORDS` words that no decision matches in full is asked again the
 /// way `recall` asks (`search_decisions_fluent`), so what an agent wrote in its own words still
-/// finds the decision that holds some of them. That answer says what each decision lacks
+/// finds the decision that holds some of them. The words are counted as the query was given:
+/// "where does the website live" is a phrase of five, though only "website live" is searched for
+/// once the question words are dropped. A phrase that is nothing but question words ("what did we
+/// decide") has nothing to search for and stays exact. That answer says what each decision lacks
 /// (`DecisionSearchResult::missing_terms`) and echoes the query as it was given; a query some
 /// decision matches in full, or of fewer words (a short query stays exact), is answered exactly
 /// as before.
@@ -466,7 +469,7 @@ pub fn search_decisions_any(
     let Some(content) = request.query.as_deref().map(content_query) else {
         return Ok(strict);
     };
-    if query_terms(content.query.as_deref()).len() < PHRASE_WORDS {
+    if content.query.is_none() || query_terms(request.query.as_deref()).len() < PHRASE_WORDS {
         return Ok(strict);
     }
     let fluent_request = SearchDecisionRequest {

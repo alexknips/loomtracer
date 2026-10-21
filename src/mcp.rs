@@ -902,7 +902,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "search_decisions",
-            "description": "Full-text search over decisions. Equivalent to `hivemind query search`. Every word of `q` must match. When no decision matches every word of a phrase of three or more words, the answer is the one `recall_decisions` gives for it: decisions that hold some of the words, each with `missing_terms` naming the words it lacks (read it before you rely on the item), and `data.query` is the query as you wrote it. A query that shares no rare word with any decision returns no items.",
+            "description": "Full-text search over decisions. Equivalent to `hivemind query search`. Every word of `q` must match. When no decision matches every word of a phrase of three or more words (counted as you wrote them, question words included), the answer is the one `recall_decisions` gives for it: decisions that hold some of the words, each with `missing_terms` naming the words it lacks (read it before you rely on the item), and `data.query` is the query as you wrote it. A query that shares no rare word with any decision returns no items.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

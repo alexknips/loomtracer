@@ -6297,4 +6297,5 @@ fn a_decision_below_the_floor_is_still_found_by_search_recall_and_topic_reads() 
 }
 
 mod project_naming;
+mod question_search;
 mod topic_filters;
