@@ -18,10 +18,10 @@ All reads go through the UI's own server (`lib/hivemind/client.ts`) with
 |---|---|---|---|
 | `/` landing | **Kept.** The "Request access" form and the "Sign in" link are gone; the full app links to the workspace instead. | none | Nothing. The page's copy still says "invite-only pilot" and "Request access": that is a decision for Alex and Jeff, not made here. |
 | `/demo` | **Kept** (fictional data in the page). "Try it with your work" opens `/graph`; the "Request private beta access" link is removed, since there is no request form. | none | Nothing. |
-| `/graph` (reasoning workspace) | **Rewired.** One project's decisions as a timeline, trace map and sources. | `GET /v1/graph`, `GET /v1/whoami` | See "Notes for the server" below: a per-project graph, and the fields the graph leaves out. |
+| `/graph` (reasoning workspace) | **Rewired.** One project's decisions as a timeline, trace map and sources: its newest 200 decisions, and "Draw up to 1000" when it holds more. | `GET /v1/projects`, `GET /v1/graph?project=`, `GET /v1/whoami` | The fields the graph leaves out (see "Notes for the server" below). |
 | `/inspect` (local file inspector) | **Kept.** Opens an exported bundle in the browser; nothing is uploaded. | none | Nothing. |
 | `/review` (redirected to `/graph`) | **Rewired**, as a read-only queue: proposed, contested, unanswered questions, decisions with no stated ground. | `GET /v1/decisions/search?status=proposed`, `GET /v1/attention/contested`, `/waiting`, `/open-why` | **Accept and reject.** There is no REST endpoint to accept a decision or to reject one outright (`decision.accepted` and `decision.rejected` are CLI events). Disagreement exists (`POST /v1/decisions/{id}/disagreements`) and could back a "reject with a reason" button once the UI can say who is acting. |
-| `/projects` | **Rewired**, read-only: projects, hierarchy, decisions by status. | `GET /v1/graph` (Project nodes, `PART_OF` edges, each decision's `project`) | **List, create, move and link projects over HTTP.** Today only the CLI does (`hivemind project list/register/link/...`). `GET /v1/projects` and `POST /v1/projects` would replace reading the whole graph. |
+| `/projects` | **Rewired**, read-only: projects, hierarchy, decisions by status. | `GET /v1/projects` | **Create, move and link projects over HTTP.** Today only the CLI does (`hivemind project register/link/...`). The listing is done. |
 | `/login` | **Left out.** | none | A login for people. `docs/AUTH_MODEL.md` plans OIDC-backed sessions; the server accepts bearer tokens and WorkOS JWTs, but the UI has no sign-in. Until then the UI has no login of its own. |
 | `/auth/callback`, `/auth/signout` | **Left out.** | none | The same. |
 | `/join` (accept an invitation) | **Left out.** | none | An invitation model: members, roles, invitations. |
@@ -38,15 +38,15 @@ All reads go through the UI's own server (`lib/hivemind/client.ts`) with
 
 | Original route | Now | HiveMind endpoint | What the server would need |
 |---|---|---|---|
-| `GET /api/reasoning` | **Rewired.** Projects; with `project_ref`, that project's bundle. Read-only. | `GET /v1/graph`, `GET /v1/whoami` | As for `/graph`. |
+| `GET /api/reasoning` | **Rewired.** Projects; with `project_ref` (and an optional `limit`, 1 to 1000), that project's bundle and how many of its decisions it draws. Read-only. | `GET /v1/projects`, `GET /v1/graph?project=`, `GET /v1/whoami` | As for `/graph`. |
 | `POST /api/reasoning` (save a bundle) | **Left out.** | none | HiveMind stores decisions, not bundles. Its writes are `POST /v1/decisions`, `/v1/evidence`, `/v1/hypotheses` and `/v1/ingest`; none takes a free-form "contribution". |
 | `POST /api/reasoning/commitments` (adopt, revise, withdraw) | **Left out.** | none | Accepting a decision over HTTP (above). HiveMind has no "revise a commitment" or "withdraw" action; replacing is `POST /v1/decisions/{id}/supersessions`. |
 | `POST`, `DELETE /api/reasoning/grants` (agent authority) | **Left out.** | none | HiveMind has no grant object: an agent's delegation is the `delegated_by` marker on a capture. A standing grant would be a new server concept. |
 | `GET /api/health` | **Rewired.** 200 when the server answers for the key; 503 naming why. | `GET /v1/whoami` | Nothing. |
 | `GET /api/session` | **Left out.** The workspace header shows the tenant and actor instead. | `GET /v1/whoami` | Nothing. |
-| `GET`, `POST /api/projects` | **Left out.** The page lists; it does not create. | `GET /v1/graph` | `GET`, `POST /v1/projects`. |
+| `GET`, `POST /api/projects` | **Left out.** The page lists; it does not create. | `GET /v1/projects` | `POST /v1/projects`. |
 | `PATCH /api/projects/[id]` (rename, move) | **Left out.** | none | Update and move over HTTP. |
-| `GET /api/search` (retired in the original) | **Replaced** by the `/search` page. | `GET /v1/decisions/search` | A `project` filter: the handler reads none (`project: None`). |
+| `GET /api/search` (retired in the original) | **Replaced** by the `/search` page, which has a project filter. | `GET /v1/decisions/search?project=` | Nothing. |
 | `GET /api/graph`, `PATCH /api/nodes/[id]/organization`, `POST /api/review/[id]/ratify`, `POST /api/review/[id]/reject`, `GET /api/export` | **Not imported.** Retired node-graph code (Jeff's own bead `nf-w56`); nothing called them. | `GET /v1/graph`, `POST /v1/decisions/{id}/disagreements`; `hivemind export` (CLI) | Ratify and reject: see `/review`. Export over HTTP: the CLI writes a Markdown tree; no endpoint does. |
 | `GET`, `POST`, `DELETE /api/mcp` | **Left out.** | `POST /mcp` (HiveMind's own MCP endpoint) | Nothing: the server already is an MCP server. |
 | `DELETE /api/connections/[id]` | **Left out.** | none | See `/settings/connections`. |
@@ -60,7 +60,7 @@ All reads go through the UI's own server (`lib/hivemind/client.ts`) with
 
 | Original feature | Now | What the server would need |
 |---|---|---|
-| Project picker | **Rewired**, with each project's decision count. | A project list endpoint (above). |
+| Project picker | **Rewired**, with each project's decision count. | Nothing. |
 | Saved-history picker, "Reload saved history" | **Left out**, one history per project. "Reload from the ledger" re-reads it. | Nothing. |
 | "Capture contribution" composer and "Save changes" | **Left out.** | A capture that takes a free-form contribution, or the UI composing a `POST /v1/decisions` (title, rationale, options, what it rests on, what it binds, what undoing it costs). |
 | "Commitments and authority" panel, "Agent commitment grants" | **Left out.** | See `/api/reasoning/commitments` and `/grants`. |
@@ -69,14 +69,22 @@ All reads go through the UI's own server (`lib/hivemind/client.ts`) with
 
 ## Notes for the server
 
-What building this against the API showed. None of it was changed here.
+What building this against the API showed.
 
-1. **`GET /v1/graph` repeats edges.** On a small ledger every `HAS_OPTION` edge and most others
-   appear twice, identically. The UI dedupes by (relation, source, target).
-2. **`GET /v1/graph` returns the whole tenant's graph, unbounded.** The UI builds one project's
-   view from it. At tens of thousands of decisions this wants a per-project graph with a limit
-   and a cursor.
-3. **No project endpoints over HTTP.** The UI derives projects from the graph.
+1. **`GET /v1/graph` repeated edges.** Fixed in hivemind-d87pp. A capture asserts each
+   option, chosen and assumption edge twice in the ledger (inside the proposal and again as
+   `relation.added`), and the in-memory graph the server answers from kept both; it now keeps
+   the first write of each (relation, source, target), as the Postgres and Kuzu graphs always
+   did. The UI no longer dedupes. The capture still writes the pair twice (write side, not
+   changed).
+2. **`GET /v1/graph` returned the whole tenant's graph, unbounded.** Fixed in hivemind-d87pp:
+   `GET /v1/graph?project=<ref>&limit=&cursor=` is one project's newest decisions and what hangs
+   off them, in the same shape, with `truncated` and `next_cursor`. `/graph` and `/projects` read
+   that. **`/decisions/<id>` still reads the whole tenant graph** (`GET /v1/graph` with no
+   `project`) to find one decision's edges; it wants a decision-scoped read.
+3. **No project endpoints over HTTP.** Listing is fixed in hivemind-d87pp: `GET /v1/projects`
+   (handle, name, parent, decisions by status; personal projects included). Create, rename, move
+   and link are still CLI-only.
 4. **The graph leaves out what a history view could use**: an `event_origin` and a time on
    options, evidence, hypotheses and questions (the UI orders them by the decision that
    introduced them); an option's description; a hypothesis's kind and status (a refuted one shows

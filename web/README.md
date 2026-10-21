@@ -41,11 +41,11 @@ the open internet with a token for a ledger you would not publish.
 
 | Page | Reads | What it shows |
 |---|---|---|
-| `/graph` | `GET /v1/graph`, `GET /v1/whoami` | A project's decisions as a timeline, a trace map and the records behind them. The cutoff slider replays them in ledger order. Status (`accepted`, `contested`, `superseded`...) is a word on every decision. |
-| `/search` | `GET /v1/decisions/search` | Decisions by their words, filterable by status. |
+| `/graph` | `GET /v1/projects`, `GET /v1/graph?project=`, `GET /v1/whoami` | A project's newest decisions (200, or up to 1000 on request) as a timeline, a trace map and the records behind them. The cutoff slider replays them in ledger order. Status (`accepted`, `contested`, `superseded`...) is a word on every decision. |
+| `/search` | `GET /v1/decisions/search`, `GET /v1/projects` | Decisions by their words, filterable by status and project. |
 | `/decisions/<id>` | `GET /v1/decisions/{id}`, `.../timeline`, `GET /v1/graph` | One decision: why, what it weighed, what it rests on, who accepted or rejected it, what replaced it. |
 | `/review` | `GET /v1/decisions/search?status=proposed`, `GET /v1/attention/*` | What needs a person: proposed, contested, unanswered questions, decisions with no stated ground. |
-| `/projects` | `GET /v1/graph` | Projects, their hierarchy and their decisions by status. |
+| `/projects` | `GET /v1/projects` | Projects, their hierarchy and their decisions by status. |
 | `/inspect` | none | Opens an exported reasoning bundle in the browser. Nothing is uploaded. |
 | `/`, `/demo` | none | Jeff's landing page and fictional demo. |
 
@@ -53,7 +53,8 @@ the open internet with a token for a ledger you would not publish.
 
 The history views read a *reasoning bundle*: records with their source text, and connections
 between them. `lib/hivemind/bundle.ts` renders one project of the HiveMind graph as such a bundle,
-as a pure function of `GET /v1/graph`:
+as a pure function of `GET /v1/graph?project=<ref>` (that project's newest decisions and what hangs
+off them; the server returns each edge once and bounds the page with `limit` and a cursor):
 
 - each Decision, Option, Evidence, Hypothesis and Question node is one record, whose source is
   the node's own words (a decision's title and rationale, plus its quote, binds and undo cost);

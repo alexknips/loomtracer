@@ -39,6 +39,41 @@ describe("HiveMind client requests", () => {
     expect((fetchImpl.mock.calls[0] as unknown as [URL, RequestInit])[1].headers).not.toHaveProperty("Authorization");
   });
 
+  it("asks for one project's graph page, and for the whole graph when it names none", async () => {
+    const fetchImpl = vi.fn(async () => ok({ decisions: [], nodes: [], edges: [], limit: 50, total_matches: 0, truncated: false, next_cursor: null }));
+    const client = createHiveMindClient(env, fetchImpl as unknown as typeof fetch);
+    await client.graph({ project: "personal:agent:claude", limit: 50, cursor: "12:d1" });
+    await client.graph();
+    const urls = fetchImpl.mock.calls.map(call => String((call as unknown as [URL])[0]));
+    expect(urls).toEqual(["http://127.0.0.1:18736/v1/graph?project=personal%3Aagent%3Aclaude&limit=50&cursor=12%3Ad1", "http://127.0.0.1:18736/v1/graph"]);
+  });
+
+  it("lists the projects by following the server's pages to the end", async () => {
+    const entry = (handle: string) => ({ handle, name: handle, personal: false, parent: null, decisions: { total: 1, proposed: 1, accepted: 0, contested: 0, rejected: 0, superseded: 0 } });
+    const pages = [
+      { items: [entry("a")], next_cursor: "1", unfiled_decisions: 4 },
+      { items: [entry("b")], next_cursor: null, unfiled_decisions: 4 },
+    ];
+    const fetchImpl = vi.fn(async () => ok({ result_count: 1, truncated: false, latency_ms: 1, data: pages.shift() }));
+    const result = await createHiveMindClient(env, fetchImpl as unknown as typeof fetch).projects();
+    expect(result.items.map(item => item.handle)).toEqual(["a", "b"]);
+    expect(result.unfiled_decisions).toBe(4);
+    const urls = fetchImpl.mock.calls.map(call => String((call as unknown as [URL])[0]));
+    expect(urls).toEqual(["http://127.0.0.1:18736/v1/projects?limit=100", "http://127.0.0.1:18736/v1/projects?limit=100&cursor=1"]);
+  });
+
+  it("refuses a project list that never ends instead of cutting it short", async () => {
+    const forever = async () => ok({ result_count: 0, truncated: false, latency_ms: 1, data: { items: [], next_cursor: "more", unfiled_decisions: 0 } });
+    const error = await failure(createHiveMindClient(env, forever as unknown as typeof fetch).projects());
+    expect(error).toMatchObject({ code: "bad_response" });
+  });
+
+  it("scopes a search to a project", async () => {
+    const fetchImpl = vi.fn(async () => ok({ result_count: 0, truncated: false, latency_ms: 1, data: { items: [] } }));
+    await createHiveMindClient(env, fetchImpl as unknown as typeof fetch).search({ q: "seat", project: "pricing" });
+    expect(String((fetchImpl.mock.calls[0] as unknown as [URL])[0])).toBe("http://127.0.0.1:18736/v1/decisions/search?q=seat&project=pricing");
+  });
+
   it("escapes a decision id into its path", async () => {
     const fetchImpl = vi.fn(async () => ok({ data: {} }));
     await createHiveMindClient(env, fetchImpl as unknown as typeof fetch).decision("decision-1/../../v1/graph");

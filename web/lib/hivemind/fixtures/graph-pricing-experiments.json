@@ -1,0 +1,152 @@
+{
+ "decisions": [
+  {
+   "binds": "The experiment design",
+   "binds_level": "something",
+   "decided_at": "2026-10-21T06:19:52.403525867+00:00",
+   "deciders": [],
+   "event_origin": 27,
+   "expressed_confidence": null,
+   "id": "decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "project": "pricing-experiments",
+   "project_source": "stated",
+   "question": null,
+   "quote": null,
+   "rationale": "The invite flow is where seat cost showed up, so it is where an included allowance would show up too",
+   "slug": "run-the-allowance-experiment-on-the-invite-flow",
+   "source": "agent",
+   "source_ref": "agent:claude:analyst",
+   "status": "proposed",
+   "tenant_id": "local",
+   "title": "Run the allowance experiment on the invite flow",
+   "topic_keys": [
+    "pricing",
+    "experiment"
+   ],
+   "undo_cost": null,
+   "undo_cost_level": "cheap"
+  },
+  {
+   "binds": "The next pricing experiment",
+   "binds_level": "something",
+   "decided_at": "2026-10-21T06:19:52.143069762+00:00",
+   "deciders": [
+    {
+     "id": "agent:claude:analyst",
+     "kind": "agent"
+    }
+   ],
+   "event_origin": 18,
+   "expressed_confidence": null,
+   "id": "decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "project": "pricing",
+   "project_source": "stated",
+   "question": null,
+   "quote": null,
+   "rationale": "Per-seat charges made occasional collaborators hard to invite, usage billing made bills hard to predict; an included allowance combines both",
+   "slug": "test-a-team-plan-with-included-usage",
+   "source": "agent",
+   "source_ref": "agent:claude:analyst",
+   "status": "accepted",
+   "tenant_id": "local",
+   "title": "Test a team plan with included usage",
+   "topic_keys": [
+    "pricing",
+    "team-plan"
+   ],
+   "undo_cost": "One experiment cycle",
+   "undo_cost_level": "costly"
+  }
+ ],
+ "edges": [
+  {
+   "from": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "label": "proposed by",
+   "relation": "PROPOSED_BY",
+   "reversed": false,
+   "to": "Actor:agent:claude:analyst"
+  },
+  {
+   "from": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-529fe44c-64a5-4394-9b9a-e8bdb26e3ebc"
+  },
+  {
+   "from": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-8132331e-efcd-473a-80b4-7038ff5da3de"
+  },
+  {
+   "from": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "label": "rests on",
+   "relation": "PREMISED_ON_DIRECT",
+   "reversed": false,
+   "to": "Hypothesis:hypothesis-f22f66a6-b349-407b-beba-91712d136108"
+  },
+  {
+   "from": "Evidence:evidence-ea0920ff-fb27-4874-9b0b-9560ce447eb7",
+   "label": "refutes",
+   "relation": "REFUTES",
+   "reversed": false,
+   "to": "Hypothesis:hypothesis-f22f66a6-b349-407b-beba-91712d136108"
+  },
+  {
+   "from": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "label": "follows from",
+   "relation": "FOLLOWS_FROM",
+   "reversed": false,
+   "to": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0"
+  }
+ ],
+ "limit": 200,
+ "next_cursor": null,
+ "nodes": [
+  {
+   "decided_at": "2026-10-21T06:19:52.403525867+00:00",
+   "id": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "kind": "Decision",
+   "label": "Run the allowance experiment on the invite flow",
+   "slug": "run-the-allowance-experiment-on-the-invite-flow"
+  },
+  {
+   "decided_at": "2026-10-21T06:19:52.143069762+00:00",
+   "id": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "kind": "Decision",
+   "label": "Test a team plan with included usage",
+   "slug": "test-a-team-plan-with-included-usage"
+  },
+  {
+   "id": "Actor:agent:claude:analyst",
+   "kind": "Actor"
+  },
+  {
+   "id": "Evidence:evidence-ea0920ff-fb27-4874-9b0b-9560ce447eb7",
+   "kind": "Evidence",
+   "label": "Interview notes: teams also invite people for reasons unrelated to price"
+  },
+  {
+   "id": "Option:option-529fe44c-64a5-4394-9b9a-e8bdb26e3ebc",
+   "kind": "Option",
+   "label": "Invite flow",
+   "title": "Invite flow"
+  },
+  {
+   "id": "Option:option-8132331e-efcd-473a-80b4-7038ff5da3de",
+   "kind": "Option",
+   "label": "Billing page",
+   "title": "Billing page"
+  },
+  {
+   "id": "Hypothesis:hypothesis-f22f66a6-b349-407b-beba-91712d136108",
+   "kind": "Hypothesis",
+   "label": "Invite behaviour is a fair proxy for willingness to collaborate"
+  }
+ ],
+ "project": "pricing-experiments",
+ "total_matches": 1,
+ "truncated": false
+}

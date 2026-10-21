@@ -204,8 +204,8 @@ pub(crate) fn relation_edges(
 
 /// Every `(from, to)` pair of one relation with the ledger offset of the event that first
 /// asserted it, sorted and distinct. Where a pair was asserted more than once the lowest offset
-/// wins: Postgres and Kuzu keep one edge per pair (the first write), memory keeps one per
-/// assertion, and the first assertion is what all three agree on. An offset the edge does not
+/// wins: the graphs keep one edge per pair (the first write), and the sort and dedup below hold
+/// that for a graph that hands back more than one row for a pair. An offset the edge does not
 /// carry reads as `None`.
 pub(crate) fn relation_edges_with_origin(
     graph: &impl GraphView,

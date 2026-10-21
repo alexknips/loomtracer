@@ -29,9 +29,8 @@ export function decisionDetail(brief: DecisionBrief, timeline: Timeline, graph: 
   const me = `Decision:${brief.id}`;
   const claims = (relation: string) => graph.edges.filter(edge => edge.relation === relation && !edge.derived).map(stored);
   const label = (kind: string, id: string) => nodes.get(`${kind}:${id}`)?.title ?? nodes.get(`${kind}:${id}`)?.label ?? id;
-  const unique = <T>(items: T[]) => [...new Set(items)];
-  const uniqueRefs = (items: DecisionRef[]) => [...new Map(items.map(item => [item.id, item])).values()];
-  const actors = (relation: string) => unique(claims(relation).filter(claim => claim.source === me).map(claim => nodeRawId(claim.target))).sort();
+  // The server returns each (relation, source, target) once, so nothing here collapses repeats.
+  const actors = (relation: string) => claims(relation).filter(claim => claim.source === me).map(claim => nodeRawId(claim.target)).sort();
   const proposedBy = actors("PROPOSED_BY")[0];
   const acceptedBy = actors("ACCEPTED_BY"), rejectedBy = actors("REJECTED_BY");
   return {
@@ -46,8 +45,8 @@ export function decisionDetail(brief: DecisionBrief, timeline: Timeline, graph: 
     premises: brief.premise_decision_ids.map(ref),
     binds: brief.binds ?? null, undoCost: brief.undo_cost ?? null,
     contest: acceptedBy.length && rejectedBy.length ? { acceptedBy, rejectedBy } : null,
-    supersedes: uniqueRefs(claims("SUPERSEDES").filter(claim => claim.source === me).map(claim => ref(nodeRawId(claim.target)))),
-    supersededBy: uniqueRefs(claims("SUPERSEDES").filter(claim => claim.target === me).map(claim => ref(nodeRawId(claim.source)))),
+    supersedes: claims("SUPERSEDES").filter(claim => claim.source === me).map(claim => ref(nodeRawId(claim.target))),
+    supersededBy: claims("SUPERSEDES").filter(claim => claim.target === me).map(claim => ref(nodeRawId(claim.source))),
     timeline: timeline.entries,
   };
 }

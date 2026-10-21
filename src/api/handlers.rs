@@ -41,6 +41,7 @@ use crate::summarize::{recall_decisions, RecallRequest, RECALL_DEFAULT_LIMIT};
 
 use super::auth::extract_ctx;
 use super::graph::{get_cached_graph, get_cached_graph_for_core, open_graph_from_ledger};
+use super::projects::named_project;
 use super::{
     parse_datetime, parse_status, respond, respond_envelope, to_api_error, ApiBackend, ApiError,
     ApiRequestCtx, ApiResult, AppState, GraphCache,
@@ -188,6 +189,10 @@ pub(super) struct IngestBatchRequest {
 pub(super) struct SearchParams {
     q: Option<String>,
     topic: Option<String>,
+    /// Ask from this project: a registered handle or a personal address. The answer looks in the
+    /// project, the project it is part of, and the projects it depends on (see
+    /// `SearchDecisionRequest::project`).
+    project: Option<String>,
     status: Option<String>,
     actor_id: Option<String>,
     source: Option<String>,
@@ -1310,7 +1315,7 @@ pub(super) async fn search_handler(
             .transpose()
             .map_err(|e| ApiError::validation(format!("invalid `until`: {e}")))?;
 
-        let request = SearchDecisionRequest {
+        let mut request = SearchDecisionRequest {
             query: params.q.filter(|s| !s.trim().is_empty()),
             topic_keys: params
                 .topic
@@ -1355,6 +1360,11 @@ pub(super) async fn search_handler(
 
         let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
         let graph = get_cached_graph(&ledger, &ctx.tenant_id, &cache)?;
+        request.project = params
+            .project
+            .as_deref()
+            .map(|requested| named_project(&*graph, requested))
+            .transpose()?;
         let query_ctx = QueryContext::new(ctx.tenant_id);
         let response =
             search_decisions_any(&query_ctx, &ledger, &*graph, &request).map_err(to_api_error)?;

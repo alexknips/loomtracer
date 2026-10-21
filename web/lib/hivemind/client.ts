@@ -3,7 +3,7 @@
  * environment and are read here only: client components never import this module, so the token
  * never reaches a browser (lib/hivemind/boundary.test.ts holds that line).
  */
-import type { AttentionPage, DecisionBrief, Envelope, GraphResponse, SearchPage, SupersessionChain, Timeline, WaitingPage, Whoami } from "./types";
+import type { AttentionPage, DecisionBrief, Envelope, GraphResponse, ProjectEntry, ProjectsPage, SearchPage, SupersessionChain, Timeline, WaitingPage, Whoami } from "./types";
 
 export type HiveMindErrorCode = "not_configured" | "unreachable" | "unauthorized" | "not_found" | "rejected" | "bad_response" | "server";
 
@@ -28,6 +28,9 @@ export function hivemindConfig(env: HiveMindEnv = process.env): HiveMindConfig {
 
 type Params = Record<string, string | number | undefined>;
 const TIMEOUT_MS = 15_000;
+const PROJECTS_PAGE = 100;
+/** A ledger with more projects than this is not a ledger this UI's picker is built for; it says so rather than cutting the list short. */
+const MAX_PROJECT_PAGES = 50;
 
 function errorMessage(body: unknown, fallback: string): string {
   const error = (body as { error?: unknown } | null)?.error;
@@ -67,8 +70,21 @@ export function createHiveMindClient(env: HiveMindEnv = process.env, fetchImpl: 
   return {
     whoami: () => get<Whoami>("/v1/whoami"),
     health: () => get<{ status: string }>("/v1/health"),
-    graph: () => get<GraphResponse>("/v1/graph"),
-    search: (params: { q?: string; status?: string; topic?: string; limit?: number; cursor?: string }) => data<SearchPage>("/v1/decisions/search", params),
+    /** One project's newest decisions and what hangs off them. The whole tenant graph (no `project`) is for the pages that still need it. */
+    graph: (params: { project?: string; limit?: number; cursor?: string } = {}) => get<GraphResponse>("/v1/graph", params),
+    /** Every project the ledger holds, registered or personal, with its decision counts. Follows the server's pages to the end. */
+    projects: async (): Promise<{ items: ProjectEntry[]; unfiled_decisions: number }> => {
+      const items: ProjectEntry[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < MAX_PROJECT_PAGES; page += 1) {
+        const result = await data<ProjectsPage>("/v1/projects", { limit: PROJECTS_PAGE, cursor });
+        items.push(...result.items);
+        if (!result.next_cursor) return { items, unfiled_decisions: result.unfiled_decisions };
+        cursor = result.next_cursor;
+      }
+      throw new HiveMindError("The ledger holds more projects than this UI lists.", "bad_response", 502);
+    },
+    search: (params: { q?: string; status?: string; topic?: string; project?: string; limit?: number; cursor?: string }) => data<SearchPage>("/v1/decisions/search", params),
     /** The decision itself. (`compact-view` answers for the head of its supersession chain instead.) */
     decision: (id: string) => data<DecisionBrief>(`/v1/decisions/${segment(id)}`),
     timeline: (id: string) => data<Timeline>(`/v1/decisions/${segment(id)}/timeline`),

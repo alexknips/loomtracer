@@ -5614,7 +5614,7 @@ fn evidence_recorded_projects_where_it_was_seen_and_when() -> Result<()> {
 }
 
 #[test]
-fn memory_graph_serves_grounding_edges_with_provenance_oldest_first() -> Result<()> {
+fn memory_graph_keeps_the_first_assertion_of_a_grounding_edge_with_its_provenance() -> Result<()> {
     let graph = memory::MemoryGraph::default();
     let properties = |origin: i64, by: &str, causation: Option<i64>| {
         let mut properties = GraphProperties::from([
@@ -5649,17 +5649,79 @@ fn memory_graph_serves_grounding_edges_with_provenance_oldest_first() -> Result<
         &GraphParams::from([("id".to_owned(), GraphValue::String("decision:a".to_owned()))]),
     )?;
 
-    assert_eq!(rows.len(), 2);
+    // One edge for the pair, the first write's, as Postgres keeps it.
+    assert_eq!(rows.len(), 1);
     assert_eq!(
         rows[0].get("added_by"),
         Some(&GraphValue::String("actor:alice".to_owned()))
     );
+    assert_eq!(rows[0].get("event_origin"), Some(&GraphValue::Int(5)));
     assert_eq!(rows[0].get("causation_event_id"), Some(&GraphValue::Int(4)));
+    Ok(())
+}
+
+#[test]
+fn memory_graph_lists_a_pair_asserted_twice_once_and_keeps_other_pairs() -> Result<()> {
+    let graph = memory::MemoryGraph::default();
+    let origin =
+        |offset: i64| GraphProperties::from([("event_origin".to_owned(), GraphValue::Int(offset))]);
+    // `decision.proposed` asserts the option, then the `relation.added` after it asserts it again.
+    for (offset, option) in [
+        (1, "option:a"),
+        (2, "option:b"),
+        (3, "option:a"),
+        (4, "option:b"),
+    ] {
+        graph.upsert_edge(
+            RelationKind::HasOption,
+            "decision:d",
+            option,
+            &origin(offset),
+        )?;
+    }
+    graph.upsert_edge(
+        RelationKind::HasOption,
+        "decision:e",
+        "option:a",
+        &origin(5),
+    )?;
+
+    let rows = graph.query(
+        "MATCH (from:`Decision`)-[:`HAS_OPTION`]->(to:`Option`) RETURN from.id AS from_id, to.id AS to_id ORDER BY from.id, to.id;",
+        &GraphParams::new(),
+    )?;
+    let pairs: Vec<(String, String)> = rows
+        .iter()
+        .map(|row| {
+            let id = |key: &str| match row.get(key) {
+                Some(GraphValue::String(value)) => value.clone(),
+                other => panic!("{key} is not a string: {other:?}"),
+            };
+            (id("from_id"), id("to_id"))
+        })
+        .collect();
     assert_eq!(
-        rows[1].get("added_by"),
-        Some(&GraphValue::String("actor:bob".to_owned()))
+        pairs,
+        [
+            ("decision:d".to_owned(), "option:a".to_owned()),
+            ("decision:d".to_owned(), "option:b".to_owned()),
+            ("decision:e".to_owned(), "option:a".to_owned()),
+        ]
     );
-    assert_eq!(rows[1].get("causation_event_id"), Some(&GraphValue::Null));
+
+    // The first write is the one kept.
+    let with_origin = graph.query(
+        "MATCH (from:`Decision`)-[r:`HAS_OPTION`]->(to:`Option`) RETURN from.id AS from_id, to.id AS to_id, r.event_origin AS event_origin ORDER BY from.id, to.id;",
+        &GraphParams::new(),
+    )?;
+    let origins: Vec<Option<i64>> = with_origin
+        .iter()
+        .map(|row| match row.get("event_origin") {
+            Some(GraphValue::Int(offset)) => Some(*offset),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(origins, [Some(1), Some(2), Some(5)]);
     Ok(())
 }
 

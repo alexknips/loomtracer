@@ -126,11 +126,38 @@ pub fn reaffirmation_arrows(graph: &impl GraphView) -> Result<Vec<DerivedArrow>>
     let hypotheses: BTreeSet<String> = node_rows(graph, NodeKind::Hypothesis)?
         .into_keys()
         .collect();
+    Ok(arrows_of_reaffirmations(
+        &reaffirmations,
+        &decisions,
+        &hypotheses,
+    ))
+}
 
-    Ok(reaffirmations
+/// [`reaffirmation_arrows`] for a reader that holds only some of the graph: the lines whose end is
+/// one of `decisions` or `hypotheses`. A line to any other node is left out, as a line to a node
+/// that is not in the graph is.
+pub(crate) fn reaffirmation_arrows_among(
+    graph: &impl GraphView,
+    decisions: &BTreeSet<String>,
+    hypotheses: &BTreeSet<String>,
+) -> Result<Vec<DerivedArrow>> {
+    let reaffirmations = node_rows(graph, NodeKind::Reaffirmation)?;
+    Ok(arrows_of_reaffirmations(
+        &reaffirmations,
+        decisions,
+        hypotheses,
+    ))
+}
+
+fn arrows_of_reaffirmations(
+    reaffirmations: &BTreeMap<String, GraphRow>,
+    decisions: &BTreeSet<String>,
+    hypotheses: &BTreeSet<String>,
+) -> Vec<DerivedArrow> {
+    reaffirmations
         .iter()
-        .flat_map(|(id, row)| arrows_of_reaffirmation(id, row, &decisions, &hypotheses))
-        .collect())
+        .flat_map(|(id, row)| arrows_of_reaffirmation(id, row, decisions, hypotheses))
+        .collect()
 }
 
 /// The arrows one `Reaffirmation` node derives: `REAFFIRMS` to the decision it was recorded

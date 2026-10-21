@@ -148,6 +148,26 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`GET /v1/projects` lists the projects of a ledger, and `GET /v1/graph?project=<ref>` reads
+  one of them.** `/v1/projects` (the query envelope; `limit` and `cursor`) answers each project's
+  `handle`, `name`, `personal`, `parent` (the project it is `part_of`) and `decisions` by status
+  (`total`, `proposed`, `accepted`, `contested`, `rejected`, `superseded`), plus
+  `unfiled_decisions` for those filed under no project. It lists registered projects and the
+  personal projects (`personal:agent:claude`) that hold a decision; it is read only, and
+  registering, renaming and moving projects stay `hivemind project`. `/v1/graph?project=<ref>`
+  answers that project's newest decisions and what hangs off them (every edge that touches one
+  of them, with the node at its far end, which may be a decision of another project) in the
+  shape `GET /v1/graph` has, with `limit` (default 200,
+  at most 1000), `total_matches`, `truncated` and `next_cursor` added; pass `next_cursor` back as
+  `cursor` for the older decisions. An unregistered handle answers 404. Without `project` the
+  graph is as before, and `limit` or `cursor` without `project` answers 400. On a copy of the
+  cell's ledger (157,563 events, 1,845 decisions; a debug build on a loaded host) the whole graph
+  was 4.50 MB in 1.6 to 2.6 s of server time, and the page of its largest project (1,788
+  decisions, the default 200) is 0.47 MB in about 0.6 s, with the project list another 1.8 KB.
+  (hivemind-d87pp)
+- **`GET /v1/decisions/search` takes `project`**, as the CLI and MCP search already did: the
+  project's own decisions, those of the projects it is part of, and those it depends on, each
+  labelled by `scope`. A handle that is not registered answers 404. (hivemind-d87pp)
 - **A web UI in `web/` reads a HiveMind server over its HTTP API.** It is Jeff Miao's Loomtracer
   UI (a Next.js app, imported with its history from `TheChairmanMiao/neurofilament`), moved off
   Supabase: `HIVEMIND_API_URL` and a bearer token in `HIVEMIND_API_KEY`, read on the server side
@@ -754,6 +774,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`GET /v1/graph` returns each edge once.** A capture asserts its option, chosen and assumption
+  edges twice in the ledger (inside `decision.proposed` and again as `relation.added`), and the
+  in-memory graph the server answers from kept both, so a ledger of 1,845 decisions answered 796
+  repeats among 9,881 edges (the Postgres and Kuzu graphs always kept one per relation, source and
+  target, the first write). The in-memory graph now keeps the first write of each pair too, so
+  `query`, MCP and the REST reads agree with the shared backends, and a reader no longer has to
+  collapse repeats. The capture still writes the pair twice; the ledger is not rewritten.
+  (hivemind-d87pp)
 - **What changed since a date now lists the decisions passive capture recorded after it.** A
   classified capture's decision has no `decision.proposed` event, so `query
   get_decisions_changed_since` and `get_recent_activity` listed its classification as a

@@ -790,8 +790,8 @@ impl EdgeProvenance {
 }
 
 /// `root`'s outgoing edges of one grounding relation, keyed by the other end. When the same pair
-/// was asserted more than once, the earliest assertion is the one attributed (memory returns one
-/// row per assertion, oldest first; Postgres keeps the first write).
+/// was asserted more than once, the earliest assertion is the one attributed (the graphs keep the
+/// first write; the dedup below holds that for a graph that returns more than one row).
 fn grounding_edges(
     graph: &impl GraphView,
     root_kind: NodeKind,

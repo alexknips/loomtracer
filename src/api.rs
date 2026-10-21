@@ -62,7 +62,9 @@
 //! - `GET  /v1/decisions/{id}/possibly-related[?limit=][?cursor=]` — decisions recorded out of the
 //!   same conversation (capture session) or sharing a specific topic key, ranked, labelled
 //!   `inferred`; never a recorded relation (hivemind-xarm, hivemind-266t)
-//! - `GET  /v1/decisions/search`                   — full-text search (SQLite only)
+//! - `GET  /v1/decisions/search`                   — full-text search (SQLite only); `project` asks
+//!   from a project, as MCP and the CLI do: its own decisions first, then those of the project it
+//!   is part of, then those of the projects it depends on
 //! - `GET  /v1/decisions/relevant`                 — decisions by topic
 //! - `GET  /v1/decisions/situational`               — decisions relevant to touched paths
 //! - `GET  /v1/decisions/recall`                    — ranked search + text digest
@@ -91,7 +93,14 @@
 //! - `GET  /v1/classify-queue/sessions[?limit=]`   — the sessions with pending batches, most
 //!   recently active first: batch count, oldest and newest submission time (no turn text),
 //!   `session_total`, `batch_total` and `truncated`
-//! - `GET  /v1/graph`                              — full decision graph (JSON)
+//! - `GET  /v1/graph[?project=][?limit=][?cursor=]` — the decision graph (JSON); with `project`
+//!   (a registered handle or a personal address) one page of that project's newest decisions and
+//!   what hangs off them, `limit` of them (default 200, at most 1000), with `total_matches`,
+//!   `truncated` and `next_cursor` to continue to older ones (docs/GRAPH_CONTRACT.md); each edge
+//!   once. Without `project` the whole tenant, unpaged
+//! - `GET  /v1/projects[?limit=][?cursor=]`        — every project with a registration or a
+//!   decision in it: handle, name, `parent` (`PART_OF`) and decision counts by status; personal
+//!   projects appear once a decision is filed in them; read only
 //! - `GET  /v1/health`                             — liveness probe; the server opens its port only
 //!   after it has built every tenant's graph, so the first answer means reads are warm
 //! - `GET  /v1/version`                            — build version + commit sha
@@ -140,6 +149,7 @@ mod body_timeout;
 mod graph;
 mod handlers;
 mod mcp_http;
+mod projects;
 mod replay;
 mod restatements;
 mod slack;
@@ -801,8 +811,9 @@ fn build_router(state: AppState) -> Router {
             "/.well-known/oauth-authorization-server",
             get(auth::oauth_authorization_server_handler),
         )
-        // Full decision graph (read layer — no layer-3 inference)
+        // Full decision graph, or one project's page of it (read layer — no layer-3 inference)
         .route("/v1/graph", get(graph::graph_handler))
+        .route("/v1/projects", get(projects::projects_handler))
         // Slack front door — auth is Slack's own request signature, not
         // extract_ctx's bearer/JWT path. See api::slack's module docs.
         .route("/v1/slack/events", post(slack::events_handler))

@@ -1,0 +1,387 @@
+{
+ "decisions": [
+  {
+   "binds": "The experiment design",
+   "binds_level": "something",
+   "decided_at": "2026-10-21T06:19:52.403525867+00:00",
+   "deciders": [],
+   "event_origin": 27,
+   "expressed_confidence": null,
+   "id": "decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "project": "pricing-experiments",
+   "project_source": "stated",
+   "question": null,
+   "quote": null,
+   "rationale": "The invite flow is where seat cost showed up, so it is where an included allowance would show up too",
+   "slug": "run-the-allowance-experiment-on-the-invite-flow",
+   "source": "agent",
+   "source_ref": "agent:claude:analyst",
+   "status": "proposed",
+   "tenant_id": "local",
+   "title": "Run the allowance experiment on the invite flow",
+   "topic_keys": [
+    "pricing",
+    "experiment"
+   ],
+   "undo_cost": null,
+   "undo_cost_level": "cheap"
+  },
+  {
+   "binds": "The next pricing experiment",
+   "binds_level": "something",
+   "decided_at": "2026-10-21T06:19:52.143069762+00:00",
+   "deciders": [
+    {
+     "id": "agent:claude:analyst",
+     "kind": "agent"
+    }
+   ],
+   "event_origin": 18,
+   "expressed_confidence": null,
+   "id": "decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "project": "pricing",
+   "project_source": "stated",
+   "question": null,
+   "quote": null,
+   "rationale": "Per-seat charges made occasional collaborators hard to invite, usage billing made bills hard to predict; an included allowance combines both",
+   "slug": "test-a-team-plan-with-included-usage",
+   "source": "agent",
+   "source_ref": "agent:claude:analyst",
+   "status": "accepted",
+   "tenant_id": "local",
+   "title": "Test a team plan with included usage",
+   "topic_keys": [
+    "pricing",
+    "team-plan"
+   ],
+   "undo_cost": "One experiment cycle",
+   "undo_cost_level": "costly"
+  },
+  {
+   "binds": "The first pricing experiment",
+   "binds_level": "something",
+   "decided_at": "2026-10-21T06:19:52.030651037+00:00",
+   "deciders": [
+    {
+     "id": "human:alice",
+     "kind": "human"
+    }
+   ],
+   "event_origin": 11,
+   "expressed_confidence": null,
+   "id": "decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "project": "pricing",
+   "project_source": "stated",
+   "question": null,
+   "quote": null,
+   "rationale": "A fixed seat count is easy for teams to budget for and easy for us to explain",
+   "slug": "price-per-seat",
+   "source": "human",
+   "source_ref": "human:alice",
+   "status": "superseded",
+   "tenant_id": "local",
+   "title": "Price per seat",
+   "topic_keys": [
+    "pricing",
+    "seats"
+   ],
+   "undo_cost": null,
+   "undo_cost_level": "cheap"
+  },
+  {
+   "binds": "The invite dialog copy",
+   "binds_level": "something",
+   "decided_at": "2026-10-21T06:19:52.499361620+00:00",
+   "deciders": [
+    {
+     "id": "human:bob",
+     "kind": "human"
+    }
+   ],
+   "event_origin": 33,
+   "expressed_confidence": null,
+   "id": "decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "project": "pricing",
+   "project_source": "stated",
+   "question": null,
+   "quote": null,
+   "rationale": "People hesitate when they learn the cost after clicking invite, so the price comes first",
+   "slug": "show-the-price-before-the-invite-is-sent",
+   "source": "human",
+   "source_ref": "human:bob",
+   "status": "contested",
+   "tenant_id": "local",
+   "title": "Show the price before the invite is sent",
+   "topic_keys": [
+    "pricing",
+    "invite"
+   ],
+   "undo_cost": null,
+   "undo_cost_level": "cheap"
+  }
+ ],
+ "edges": [
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "proposed by",
+   "relation": "PROPOSED_BY",
+   "reversed": false,
+   "to": "Actor:agent:claude:analyst"
+  },
+  {
+   "from": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "label": "proposed by",
+   "relation": "PROPOSED_BY",
+   "reversed": false,
+   "to": "Actor:human:alice"
+  },
+  {
+   "from": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "label": "proposed by",
+   "relation": "PROPOSED_BY",
+   "reversed": false,
+   "to": "Actor:human:bob"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "accepted by",
+   "relation": "ACCEPTED_BY",
+   "reversed": false,
+   "to": "Actor:agent:claude:analyst"
+  },
+  {
+   "from": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "label": "accepted by",
+   "relation": "ACCEPTED_BY",
+   "reversed": false,
+   "to": "Actor:human:alice"
+  },
+  {
+   "from": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "label": "accepted by",
+   "relation": "ACCEPTED_BY",
+   "reversed": false,
+   "to": "Actor:human:bob"
+  },
+  {
+   "from": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "label": "rejected by",
+   "relation": "REJECTED_BY",
+   "reversed": false,
+   "to": "Actor:human:carol"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "supersedes",
+   "relation": "SUPERSEDES",
+   "reversed": false,
+   "to": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "based on",
+   "relation": "BASED_ON",
+   "reversed": false,
+   "to": "Evidence:evidence-cc356f82-05bc-41d0-b2cb-95680a9beadb"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-723046aa-2c36-44e6-ad58-d357970b7d7e"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-89d3c1d5-8cb7-4ff5-ba60-2a42d108b1a0"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-b82a4838-2639-4a9e-8b99-8e0b8e5932dc"
+  },
+  {
+   "from": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-0e2b4287-4d90-438a-b377-b13326fcb6f4"
+  },
+  {
+   "from": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-a8c2be92-3aeb-4bb0-97d9-4f57ca55de77"
+  },
+  {
+   "from": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-233e4bbe-7ddf-4a61-9e02-ba94bcd30177"
+  },
+  {
+   "from": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "label": "weighs",
+   "relation": "HAS_OPTION",
+   "reversed": false,
+   "to": "Option:option-6ececbfa-71d9-4a85-a387-4bfcf7b593d2"
+  },
+  {
+   "from": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "label": "chose",
+   "relation": "CHOSE",
+   "reversed": false,
+   "to": "Option:option-89d3c1d5-8cb7-4ff5-ba60-2a42d108b1a0"
+  },
+  {
+   "from": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "label": "chose",
+   "relation": "CHOSE",
+   "reversed": false,
+   "to": "Option:option-a8c2be92-3aeb-4bb0-97d9-4f57ca55de77"
+  },
+  {
+   "from": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "label": "chose",
+   "relation": "CHOSE",
+   "reversed": false,
+   "to": "Option:option-233e4bbe-7ddf-4a61-9e02-ba94bcd30177"
+  },
+  {
+   "from": "Option:option-233e4bbe-7ddf-4a61-9e02-ba94bcd30177",
+   "label": "rests on",
+   "relation": "PREMISED_ON",
+   "reversed": false,
+   "to": "Hypothesis:hypothesis-4634a014-0eab-48dd-baf3-75d9059e663e"
+  },
+  {
+   "from": "Option:option-a8c2be92-3aeb-4bb0-97d9-4f57ca55de77",
+   "label": "rests on",
+   "relation": "PREMISED_ON",
+   "reversed": false,
+   "to": "Hypothesis:hypothesis-d38aec63-77d1-43cc-b42f-5a63cfe58d02"
+  },
+  {
+   "from": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "label": "follows from",
+   "relation": "FOLLOWS_FROM",
+   "reversed": false,
+   "to": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0"
+  }
+ ],
+ "limit": 200,
+ "next_cursor": null,
+ "nodes": [
+  {
+   "decided_at": "2026-10-21T06:19:52.403525867+00:00",
+   "id": "Decision:decision-30efadf9-7434-4886-807a-5cda2116f2fc",
+   "kind": "Decision",
+   "label": "Run the allowance experiment on the invite flow",
+   "slug": "run-the-allowance-experiment-on-the-invite-flow"
+  },
+  {
+   "decided_at": "2026-10-21T06:19:52.143069762+00:00",
+   "id": "Decision:decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
+   "kind": "Decision",
+   "label": "Test a team plan with included usage",
+   "slug": "test-a-team-plan-with-included-usage"
+  },
+  {
+   "decided_at": "2026-10-21T06:19:52.030651037+00:00",
+   "id": "Decision:decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+   "kind": "Decision",
+   "label": "Price per seat",
+   "slug": "price-per-seat"
+  },
+  {
+   "decided_at": "2026-10-21T06:19:52.499361620+00:00",
+   "id": "Decision:decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
+   "kind": "Decision",
+   "label": "Show the price before the invite is sent",
+   "slug": "show-the-price-before-the-invite-is-sent"
+  },
+  {
+   "id": "Actor:agent:claude:analyst",
+   "kind": "Actor"
+  },
+  {
+   "id": "Actor:human:alice",
+   "kind": "Actor"
+  },
+  {
+   "id": "Actor:human:bob",
+   "kind": "Actor"
+  },
+  {
+   "id": "Actor:human:carol",
+   "kind": "Actor"
+  },
+  {
+   "id": "Evidence:evidence-cc356f82-05bc-41d0-b2cb-95680a9beadb",
+   "kind": "Evidence",
+   "label": "Seat study: occasional collaborators were invited less often when each seat cost extra"
+  },
+  {
+   "id": "Option:option-0e2b4287-4d90-438a-b377-b13326fcb6f4",
+   "kind": "Option",
+   "label": "Usage based",
+   "title": "Usage based"
+  },
+  {
+   "id": "Option:option-233e4bbe-7ddf-4a61-9e02-ba94bcd30177",
+   "kind": "Option",
+   "label": "Price first",
+   "title": "Price first"
+  },
+  {
+   "id": "Option:option-6ececbfa-71d9-4a85-a387-4bfcf7b593d2",
+   "kind": "Option",
+   "label": "Price after",
+   "title": "Price after"
+  },
+  {
+   "id": "Option:option-723046aa-2c36-44e6-ad58-d357970b7d7e",
+   "kind": "Option",
+   "label": "Pure usage",
+   "title": "Pure usage"
+  },
+  {
+   "id": "Option:option-89d3c1d5-8cb7-4ff5-ba60-2a42d108b1a0",
+   "kind": "Option",
+   "label": "Team plan with allowance",
+   "title": "Team plan with allowance"
+  },
+  {
+   "id": "Option:option-a8c2be92-3aeb-4bb0-97d9-4f57ca55de77",
+   "kind": "Option",
+   "label": "Per seat",
+   "title": "Per seat"
+  },
+  {
+   "id": "Option:option-b82a4838-2639-4a9e-8b99-8e0b8e5932dc",
+   "kind": "Option",
+   "label": "Pure per seat",
+   "title": "Pure per seat"
+  },
+  {
+   "id": "Hypothesis:hypothesis-4634a014-0eab-48dd-baf3-75d9059e663e",
+   "kind": "Hypothesis",
+   "label": "Surprise is what makes people hesitate"
+  },
+  {
+   "id": "Hypothesis:hypothesis-d38aec63-77d1-43cc-b42f-5a63cfe58d02",
+   "kind": "Hypothesis",
+   "label": "Teams prefer a bill they can predict over one that follows activity"
+  }
+ ],
+ "project": "pricing",
+ "total_matches": 3,
+ "truncated": false
+}

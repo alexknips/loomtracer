@@ -116,6 +116,62 @@ a reader needs without reconstructing them from edges:
 Both are pure reads: three bulk edge scans (`SUPERSEDES`, `ACCEPTED_BY`, `REJECTED_BY`), no
 per-decision queries and no inference.
 
+**Each edge once.** The graph holds one edge per `(relation, from, to)`, the first write's, on
+every backend (Postgres `ON CONFLICT DO NOTHING`, Kuzu, and the in-memory graph the API serves
+from). A capture asserts each of its pairs twice, in the `decision.proposed` event and again in
+the `relation.added` that follows it; the second assertion is not a second edge, so `edges[]`
+never repeats a `(relation, from, to)`.
+
+## One project's page: `GET /v1/graph?project=`
+
+The whole-tenant graph grows with the ledger, so a reader that shows one project asks for that
+project. `project` is a registered handle or a personal address (`personal:agent:claude`);
+`limit` (default 200, at most 1000) and `cursor` page it. The response has the same
+`{decisions, nodes, edges}` shape as above and these fields besides:
+
+| Field | Meaning |
+|---|---|
+| `project` | The address the project's decisions are filed under (a personal address in its canonical form). |
+| `limit` | How many of the project's decisions the page holds at most. |
+| `total_matches` | Every decision the project holds, on this page or not. |
+| `truncated` | `true` when older decisions remain. |
+| `next_cursor` | Where the next, older page starts (`null` when `truncated` is `false`). Pass it back as `cursor`. |
+
+A page holds the project's newest decisions first, by ledger offset, and `next_cursor` continues
+to older ones, so a reader can walk the whole project and a short page never reads as a complete
+one. What hangs off the page's decisions comes with them:
+
+- every edge that has a page decision at either end, whatever its relation, and the node at its
+  other end (an actor, an option, evidence, a hypothesis, a question, a request, a blocker, or
+  another decision, which may belong to another project);
+- from an option reached that way, what it is premised on (`PREMISED_ON`);
+- from evidence and hypotheses reached that way, one hop of `SUPPORTS` and `REFUTES`;
+- a reaffirmation whose line ends at a node reached that way.
+
+Nodes at the far end are named, not followed: a decision of another project is a `nodes[]` and
+`decisions[]` entry and shows no edges of its own beyond those to the page. Every edge in the
+page has both of its ends in `nodes[]`, each edge appears once, and arrows run newer to older
+like every arrow. A project nobody registered is 404 (a typo never reads as an empty project);
+a personal address always resolves and may be empty. `limit` or `cursor` without `project`
+is 400. Without `project` the whole tenant is returned, unpaged, as before.
+
+## Projects: `GET /v1/projects`
+
+A picker or a tree needs the projects and how many decisions each holds, not the graph. The
+response is the query envelope; `data` holds `items`, one per project with a registration or a
+decision in it, by handle, and `limit`, `cursor`, `next_cursor`, `total_matches` as every page:
+
+| Field | Meaning |
+|---|---|
+| `handle` | The address decisions are filed under. |
+| `name` | The display name it was registered with, else its handle; for a personal address, the person or agent tool it belongs to. |
+| `personal` | `true` for a personal address (`personal:...`), which appears once a decision is filed in it. |
+| `parent` | The handle of the project it is part of now (`PART_OF`), `null` when it is part of none. A retracted link does not show. |
+| `decisions` | `{total, proposed, accepted, contested, rejected, superseded}`: its decisions by the status above. |
+
+`data.unfiled_decisions` counts decisions recorded under no project, which are in no item. The
+endpoint is read only: registering, renaming and moving a project stay with the CLI.
+
 ## Kinds
 
 Source → Target is the stored direction. The arrow label is used when the arrow runs as

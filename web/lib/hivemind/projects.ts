@@ -1,6 +1,6 @@
-import type { DecisionStatus, GraphEdge, GraphResponse, ProjectSummary } from "./types";
+import type { DecisionStatus, GraphEdge, ProjectEntry, ProjectSummary } from "./types";
 
-/** Decisions filed under no project. The underscore cannot occur in a project handle (letters, digits and dashes). */
+/** The project a decision is read under when the graph names none (a decision only referenced, never proposed). The underscore cannot occur in a project handle (letters, digits and dashes). */
 export const UNASSIGNED = "_unassigned";
 export const STATUSES: DecisionStatus[] = ["proposed", "accepted", "contested", "rejected", "superseded"];
 
@@ -12,26 +12,12 @@ export const nodeRawId = (nodeId: string) => nodeId.slice(nodeId.indexOf(":") + 
 export const nodeKind = (nodeId: string) => nodeId.slice(0, nodeId.indexOf(":"));
 export const projectOf = (decision: { project: string | null }) => decision.project ?? UNASSIGNED;
 
-export function listProjects(graph: GraphResponse): ProjectSummary[] {
-  const byRef = new Map<string, ProjectSummary>();
-  const ensure = (ref: string, name?: string | null) => {
-    let project = byRef.get(ref);
-    if (!project) {
-      project = { ref, name: name || (ref === UNASSIGNED ? "Unassigned" : ref), parent: null, children: [], counts: { proposed: 0, accepted: 0, contested: 0, rejected: 0, superseded: 0, total: 0 } };
-      byRef.set(ref, project);
-    } else if (name && project.name === ref) project.name = name;
-    return project;
-  };
-  for (const node of graph.nodes) if (node.kind === "Project") ensure(nodeRawId(node.id), node.label);
-  for (const decision of graph.decisions) {
-    const counts = ensure(projectOf(decision)).counts;
-    counts[decision.status] += 1; counts.total += 1;
-  }
-  for (const edge of graph.edges) {
-    if (edge.relation !== "PART_OF") continue;
-    const { source, target } = stored(edge);
-    const child = byRef.get(nodeRawId(source)), parent = byRef.get(nodeRawId(target));
-    if (child && parent && child.parent === null && child !== parent) { child.parent = parent.ref; parent.children.push(child.ref); }
+/** The projects of `GET /v1/projects` as a tree: each with its parent, its children and its decisions by status, in path order. */
+export function summarizeProjects(entries: ProjectEntry[]): ProjectSummary[] {
+  const byRef = new Map<string, ProjectSummary>(entries.map(entry => [entry.handle, { ref: entry.handle, name: entry.name || entry.handle, parent: null, children: [], counts: { ...entry.decisions } }]));
+  for (const entry of entries) {
+    const project = byRef.get(entry.handle)!, parent = entry.parent ? byRef.get(entry.parent) : undefined;
+    if (parent && parent !== project) { project.parent = parent.ref; parent.children.push(project.ref); }
   }
   // A cycle would hide the whole ring from the tree below; break it at the first project met.
   for (const project of byRef.values()) {

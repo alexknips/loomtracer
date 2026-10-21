@@ -3975,6 +3975,434 @@ async fn graph_returns_shape_after_decision() {
     }
 }
 
+/// Every arrow of `GET /v1/graph` once. A capture appends `decision.proposed` and then one
+/// `relation.added` per option, premise and evidence; both assert the same edge, and the memory
+/// graph used to keep both (Postgres and Kuzu keep the first), so each `HAS_OPTION` arrow came
+/// out twice.
+#[tokio::test]
+async fn graph_returns_each_edge_once() {
+    let dir = test_ledger_dir();
+    let (status, _) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/decisions",
+            serde_json::json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Use SQLite for the hosted MVP",
+                "rationale": "Single binary, zero ops",
+                "topic_keys": ["persistence"],
+                "options": [{ "label": "SQLite" }, { "label": "Postgres" }],
+                "chosen_option_label": "SQLite"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "precondition: capture failed"); // ubs:ignore
+
+    let (status, graph) = call(app(dir), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "GET /v1/graph: {graph}"); // ubs:ignore
+
+    let edges = graph["edges"].as_array().expect("edges array");
+    let mut seen = std::collections::BTreeSet::new();
+    for edge in edges {
+        let key = (
+            edge["relation"].as_str().unwrap_or_default().to_owned(),
+            edge["from"].as_str().unwrap_or_default().to_owned(),
+            edge["to"].as_str().unwrap_or_default().to_owned(),
+        );
+        assert!(seen.insert(key), "edge repeated in /v1/graph: {edge}"); // ubs:ignore
+    }
+    let has_option = edges
+        .iter()
+        .filter(|edge| edge["relation"] == "HAS_OPTION")
+        .count();
+    assert_eq!(has_option, 2, "one HAS_OPTION per option: {graph}"); // ubs:ignore
+}
+
+/// Registers `platform` and `billing` (part of `platform`), each with the topic key the fixtures
+/// use. The HTTP capture files a decision under its caller's personal project and cannot name a
+/// registered one, so the fixtures below write through the commands.
+fn register_billing_and_platform(dir: &Path) {
+    use hivemind::commands::Commands;
+    use hivemind::events::ProjectLinkKind;
+    let ledger = hivemind::ledger::SqliteEventLedger::open(dir).expect("ledger opens");
+    let commands = Commands::new(&ledger);
+    for (handle, name) in [("platform", "Platform"), ("billing", "Billing")] {
+        commands
+            .register_project("human:alex", handle, Some(name), None)
+            .expect("registers");
+        commands
+            .declare_project_topic("human:alex", handle, "pricing")
+            .expect("declares the topic");
+    }
+    commands
+        .link_project("human:alex", "billing", "platform", ProjectLinkKind::PartOf)
+        .expect("links");
+}
+
+/// One decision with a chosen option, filed under `project` (`None`: alex's personal project).
+fn file_decision(dir: &Path, project: Option<&str>, title: &str) -> String {
+    use hivemind::commands::{
+        Commands, DecisionProposalInput, DeterminedProject, FloorInput, Grounding,
+    };
+    let ledger = hivemind::ledger::SqliteEventLedger::open(dir).expect("ledger opens");
+    let commands = Commands::new(&ledger);
+    let option_id = commands
+        .record_option("human:alex", "Per seat", "One price for each seat")
+        .expect("records the option");
+    let option_ids = [option_id];
+    let labels = ["Per seat".to_owned()];
+    let topics = ["pricing".to_owned()];
+    commands
+        .propose_decision(DecisionProposalInput {
+            actor_id: "human:alex",
+            title,
+            rationale: "A stated, self-contained reason that reads without the source conversation",
+            topic_keys: &topics,
+            option_ids: &option_ids,
+            option_labels: &labels,
+            chosen_option_id: option_ids.first().map(String::as_str),
+            decided_by: None,
+            delegated_by: None,
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            quote: None,
+            question: None,
+            grounding: Grounding::NotAsked,
+            expressed_confidence: None,
+            project: project.map(DeterminedProject::stated),
+            floor: FloorInput::NotAsked,
+        })
+        .expect("proposes")
+}
+
+fn graph_ids(page: &Value, collection: &str) -> Vec<String> {
+    page[collection]
+        .as_array()
+        .unwrap_or_else(|| panic!("{collection} array: {page}"))
+        .iter()
+        .map(|entry| entry["id"].as_str().expect("id").to_owned())
+        .collect()
+}
+
+/// Every edge of a page has both its ends in it, and none repeats.
+fn assert_graph_is_closed_and_edges_once(page: &Value) {
+    let nodes: std::collections::BTreeSet<String> = graph_ids(page, "nodes").into_iter().collect();
+    let mut seen = std::collections::BTreeSet::new();
+    for edge in page["edges"].as_array().expect("edges array") {
+        for end in ["from", "to"] {
+            let node = edge[end].as_str().expect("edge end");
+            assert!(
+                nodes.contains(node),
+                "edge {edge} ends at {node}, not in the page: {page}"
+            ); // ubs:ignore
+        }
+        let key = (
+            edge["relation"].as_str().unwrap_or_default().to_owned(),
+            edge["from"].as_str().unwrap_or_default().to_owned(),
+            edge["to"].as_str().unwrap_or_default().to_owned(),
+        );
+        assert!(seen.insert(key), "edge repeated: {edge}"); // ubs:ignore
+    }
+}
+
+/// `GET /v1/graph?project=` is a page of one project's graph in the same shape as the whole
+/// graph, and `limit` and `cursor` walk the project to its oldest decision.
+#[tokio::test]
+async fn graph_of_one_project_is_a_bounded_page_that_the_cursor_walks() {
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    let billing: Vec<String> = ["Price per seat", "Bill monthly", "Invoice in euros"]
+        .map(|title| file_decision(&dir, Some("billing"), title))
+        .to_vec();
+    let elsewhere = file_decision(&dir, Some("platform"), "Adopt the platform SDK");
+
+    // Without `project` nothing changed: the whole graph, no paging fields.
+    let (status, whole) = call(app(dir.clone()), get_req("/v1/graph")).await;
+    assert_eq!(status, StatusCode::OK, "{whole}"); // ubs:ignore
+    for field in [
+        "truncated",
+        "next_cursor",
+        "total_matches",
+        "project",
+        "limit",
+    ] {
+        assert!(
+            whole.get(field).is_none(),
+            "{field} on the whole graph: {whole}"
+        ); // ubs:ignore
+    }
+    assert!(graph_ids(&whole, "decisions").contains(&elsewhere)); // ubs:ignore
+
+    // The newest two of three.
+    let (status, first) = call(
+        app(dir.clone()),
+        get_req("/v1/graph?project=billing&limit=2"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}"); // ubs:ignore
+    for field in ["decisions", "nodes", "edges"] {
+        assert!(first[field].is_array(), "{field}: {first}"); // ubs:ignore
+    }
+    assert_eq!(first["project"], "billing", "{first}"); // ubs:ignore
+    assert_eq!(first["limit"], 2, "{first}"); // ubs:ignore
+    assert_eq!(first["total_matches"], 3, "{first}"); // ubs:ignore
+    assert_eq!(first["truncated"], true, "{first}"); // ubs:ignore
+    assert_eq!(
+        graph_ids(&first, "decisions")
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        [billing[2].clone(), billing[1].clone()]
+            .into_iter()
+            .collect(),
+        "the newest two: {first}"
+    ); // ubs:ignore
+    assert_graph_is_closed_and_edges_once(&first);
+    assert!(
+        first["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .any(|edge| edge["relation"] == "HAS_OPTION"),
+        "what hangs off a decision comes with it: {first}"
+    ); // ubs:ignore
+
+    // The cursor continues at the oldest, and nothing of platform's came along.
+    let cursor = first["next_cursor"].as_str().expect("a cursor").to_owned();
+    let (status, last) = call(
+        app(dir.clone()),
+        get_req(&format!(
+            "/v1/graph?project=billing&limit=2&cursor={cursor}"
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{last}"); // ubs:ignore
+    assert_eq!(
+        graph_ids(&last, "decisions"),
+        vec![billing[0].clone()],
+        "{last}"
+    ); // ubs:ignore
+    assert_eq!(last["truncated"], false, "{last}"); // ubs:ignore
+    assert_eq!(last["next_cursor"], Value::Null, "{last}"); // ubs:ignore
+    assert_graph_is_closed_and_edges_once(&last);
+    assert!(!graph_ids(&last, "decisions").contains(&elsewhere)); // ubs:ignore
+
+    // The default page holds the whole of a small project and says so.
+    let (status, all) = call(app(dir.clone()), get_req("/v1/graph?project=billing")).await;
+    assert_eq!(status, StatusCode::OK, "{all}"); // ubs:ignore
+    assert_eq!(all["limit"], 200, "{all}"); // ubs:ignore
+    assert_eq!(all["truncated"], false, "{all}"); // ubs:ignore
+    assert_eq!(graph_ids(&all, "decisions").len(), 3, "{all}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A decision of another project at the far end of an edge is named, with its own row, and is
+/// not followed.
+#[tokio::test]
+async fn graph_of_one_project_names_the_decision_of_another_project_it_is_linked_to() {
+    use hivemind::commands::Commands;
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    let old = file_decision(&dir, Some("billing"), "Price per seat");
+    let new = file_decision(&dir, Some("platform"), "Price per organisation");
+    Commands::new(&hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens"))
+        .supersede_decision(&old, &new, "human:alex")
+        .expect("supersedes");
+
+    let (status, page) = call(app(dir.clone()), get_req("/v1/graph?project=billing")).await;
+    assert_eq!(status, StatusCode::OK, "{page}"); // ubs:ignore
+    let decisions = graph_ids(&page, "decisions");
+    assert!(
+        decisions.contains(&old) && decisions.contains(&new),
+        "{page}"
+    ); // ubs:ignore
+    assert_eq!(
+        graph_decision(&page, &old)["status"],
+        "superseded",
+        "{page}"
+    ); // ubs:ignore
+    assert_eq!(graph_decision(&page, &new)["project"], "platform", "{page}"); // ubs:ignore
+    assert_eq!(
+        page["total_matches"], 1,
+        "only billing's own decision counts: {page}"
+    ); // ubs:ignore
+    assert!(
+        page["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .any(|edge| edge["relation"] == "SUPERSEDES"),
+        "{page}"
+    ); // ubs:ignore
+       // The far end is named, and its own option is not part of billing's page.
+    let nodes = graph_ids(&page, "nodes");
+    assert!(nodes.contains(&format!("Decision:{new}")), "{page}"); // ubs:ignore
+    assert_eq!(
+        nodes.iter().filter(|id| id.starts_with("Option:")).count(),
+        1,
+        "{page}"
+    ); // ubs:ignore
+    assert_graph_is_closed_and_edges_once(&page);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn graph_of_a_project_refuses_what_it_cannot_page_and_says_when_the_project_is_unknown() {
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    file_decision(&dir, Some("billing"), "Price per seat");
+
+    for (uri, expected) in [
+        // The whole graph is not paged: a limit or a cursor without a project is not ignored.
+        ("/v1/graph?limit=5", StatusCode::BAD_REQUEST),
+        ("/v1/graph?cursor=1:d", StatusCode::BAD_REQUEST),
+        ("/v1/graph?project=%20", StatusCode::BAD_REQUEST),
+        ("/v1/graph?project=personal:", StatusCode::BAD_REQUEST),
+        (
+            "/v1/graph?project=billing&cursor=garbage",
+            StatusCode::BAD_REQUEST,
+        ),
+        // A typo is not an empty project.
+        ("/v1/graph?project=biling", StatusCode::NOT_FOUND),
+    ] {
+        let (status, body) = call(app(dir.clone()), get_req(uri)).await;
+        assert_eq!(status, expected, "GET {uri}: {body}"); // ubs:ignore
+    }
+
+    // A personal address always resolves; with no decision it is an empty page.
+    let (status, empty) = call(
+        app(dir.clone()),
+        get_req("/v1/graph?project=personal:agent:nobody"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{empty}"); // ubs:ignore
+    assert_eq!(empty["total_matches"], 0, "{empty}"); // ubs:ignore
+    assert_eq!(empty["truncated"], false, "{empty}"); // ubs:ignore
+    assert!(graph_ids(&empty, "nodes").is_empty(), "{empty}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn projects_lists_registered_and_personal_projects_with_parent_and_counts() {
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    file_decision(&dir, Some("billing"), "Price per seat");
+    file_decision(&dir, Some("billing"), "Bill monthly");
+    file_decision(&dir, None, "Keep a note to self");
+
+    let (status, body) = call(app(dir.clone()), get_req("/v1/projects")).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    let data = &body["data"];
+    assert_eq!(data["total_matches"], 3, "{body}"); // ubs:ignore
+    assert_eq!(data["unfiled_decisions"], 0, "{body}"); // ubs:ignore
+    assert_eq!(body["truncated"], false, "{body}"); // ubs:ignore
+    let handles: Vec<&str> = data["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|item| item["handle"].as_str().expect("handle"))
+        .collect();
+    assert_eq!(
+        handles,
+        vec!["billing", "personal:human:alex", "platform"],
+        "{body}"
+    ); // ubs:ignore
+
+    let billing = &data["items"][0];
+    assert_eq!(billing["name"], "Billing", "{body}"); // ubs:ignore
+    assert_eq!(billing["parent"], "platform", "{body}"); // ubs:ignore
+    assert_eq!(billing["personal"], false, "{body}"); // ubs:ignore
+    assert_eq!(billing["decisions"]["total"], 2, "{body}"); // ubs:ignore
+    assert_eq!(billing["decisions"]["accepted"], 2, "{body}"); // ubs:ignore
+    assert_eq!(billing["decisions"]["proposed"], 0, "{body}"); // ubs:ignore
+    let personal = &data["items"][1];
+    assert_eq!(personal["personal"], true, "{body}"); // ubs:ignore
+    assert_eq!(personal["parent"], Value::Null, "{body}"); // ubs:ignore
+    assert_eq!(personal["decisions"]["total"], 1, "{body}"); // ubs:ignore
+    assert_eq!(
+        data["items"][2]["decisions"]["total"], 0,
+        "a project with none is still listed: {body}"
+    ); // ubs:ignore
+
+    // Paged: a short page says so and carries the cursor.
+    let (status, page) = call(app(dir.clone()), get_req("/v1/projects?limit=2")).await;
+    assert_eq!(status, StatusCode::OK, "{page}"); // ubs:ignore
+    assert_eq!(page["truncated"], true, "{page}"); // ubs:ignore
+    let cursor = page["data"]["next_cursor"]
+        .as_str()
+        .expect("cursor")
+        .to_owned();
+    let (status, rest) = call(
+        app(dir.clone()),
+        get_req(&format!("/v1/projects?limit=2&cursor={cursor}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rest}"); // ubs:ignore
+    assert_eq!(rest["data"]["items"][0]["handle"], "platform", "{rest}"); // ubs:ignore
+    let (status, _) = call(app(dir.clone()), get_req("/v1/projects?cursor=nope")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `GET /v1/decisions/search?project=` asks from a project as MCP and the CLI do: its own
+/// decisions first, then those of the project it is part of.
+#[tokio::test]
+async fn search_takes_a_project_and_refuses_one_nobody_registered() {
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    let own = file_decision(&dir, Some("billing"), "Price per seat");
+    let parents = file_decision(&dir, Some("platform"), "Seat licences for the SDK");
+    file_decision(&dir, None, "Seat reservations at the office");
+
+    let (status, body) = call(app(dir.clone()), get_req("/v1/decisions/search?q=seat")).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(
+        body["data"]["total_matches"], 3,
+        "unscoped sees all three: {body}"
+    ); // ubs:ignore
+
+    let (status, body) = call(
+        app(dir.clone()),
+        get_req("/v1/decisions/search?q=seat&project=billing"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    let ids: Vec<&str> = body["data"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|item| item["decision"]["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids, vec![own.as_str(), parents.as_str()], "{body}"); // ubs:ignore
+    assert_eq!(
+        body["data"]["items"][0]["scope"]["relation"], "own",
+        "{body}"
+    ); // ubs:ignore
+    assert_eq!(
+        body["data"]["items"][1]["scope"]["relation"], "parent",
+        "{body}"
+    ); // ubs:ignore
+    assert_eq!(body["data"]["scope"]["project"], "billing", "{body}"); // ubs:ignore
+
+    // A typo is not an empty answer, and a blank name is not no project.
+    let (status, body) = call(
+        app(dir.clone()),
+        get_req("/v1/decisions/search?q=seat&project=biling"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}"); // ubs:ignore
+    let (status, body) = call(
+        app(dir.clone()),
+        get_req("/v1/decisions/search?q=seat&project=%20"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn graph_decisions_carry_a_decided_at_timestamp() {
     use hivemind::events::{Event, EventSource, EventType, TenantId};

@@ -483,9 +483,8 @@ dependent that still holds stops the wave. The premise has changed when:
 | a hypothesis | `refuted` | the earliest refuting event |
 
 Ordering is by ledger offset, never by wall-clock time. An edge asserted twice counts
-at its first assertion, which is what Postgres and Kuzu keep and what memory's lowest
-offset gives, so every backend dates the change the same. An offset the graph does not
-state never closes an item.
+at its first assertion, which is what every backend keeps, so every backend dates the
+change the same. An offset the graph does not state never closes an item.
 
 **Open until closed, and closing is recorded.** An item is open until
 

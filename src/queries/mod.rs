@@ -19,6 +19,7 @@ mod misfiled;
 mod neighborhood;
 mod open_why;
 mod outcome;
+mod project_graph;
 mod project_label;
 mod project_scope;
 mod projects;
@@ -114,12 +115,16 @@ pub use outcome::{
     outcome_next_cursor, outcome_page_len, DecisionOutcome, DecisionQualityCandidatesRequest,
     OutcomeReason,
 };
+pub use project_graph::{
+    project_graph_page, ProjectGraphCursor, ProjectGraphPage, ProjectGraphRequest,
+};
 pub use project_scope::{MatchScope, ScopeNote, ScopeRelation, ScopedProject};
 pub use projects::{
     decisions_in_project, get_project, get_project_ancestries, get_project_by_anchor,
-    list_projects, ProjectAncestry, ProjectAnchorView, ProjectDecisionItem,
-    ProjectDecisionsOutcome, ProjectDecisionsPage, ProjectDecisionsRequest, ProjectLinkFact,
-    ProjectListRequest, ProjectListResults, ProjectOutcome, ProjectTopicFact, ProjectView,
+    list_projects, project_address, project_overview, DecisionCounts, ProjectAncestry,
+    ProjectAnchorView, ProjectDecisionItem, ProjectDecisionsOutcome, ProjectDecisionsPage,
+    ProjectDecisionsRequest, ProjectLinkFact, ProjectListRequest, ProjectListResults,
+    ProjectOutcome, ProjectOverview, ProjectOverviewItem, ProjectTopicFact, ProjectView,
 };
 pub use question::{answers_to, QuestionAnswer, QuestionAnswers, QuestionKey};
 pub use record_facts::{

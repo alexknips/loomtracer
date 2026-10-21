@@ -5,20 +5,20 @@
     "level": "something",
     "statement": "The first pricing experiment"
    },
-   "chosen_option_id": "option-b5b83f69-9567-4ec5-a460-d649508cfd3e",
+   "chosen_option_id": "option-a8c2be92-3aeb-4bb0-97d9-4f57ca55de77",
    "evidence_ids": [],
    "floor": "cleared",
    "hypotheses": [
     {
-     "id": "hypothesis-7d79bc63-5820-47ca-a530-b2b49f8df0dc",
+     "id": "hypothesis-d38aec63-77d1-43cc-b42f-5a63cfe58d02",
      "kind": "assumption",
      "status": "open"
     }
    ],
-   "id": "decision-7fb9e148-8ee0-462a-9acd-3a87e0fba735",
+   "id": "decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
    "option_ids": [
-    "option-b5b83f69-9567-4ec5-a460-d649508cfd3e",
-    "option-f8775720-94bf-435a-a842-752ca53a64ec"
+    "option-0e2b4287-4d90-438a-b377-b13326fcb6f4",
+    "option-a8c2be92-3aeb-4bb0-97d9-4f57ca55de77"
    ],
    "premise_decision_ids": [],
    "project": "pricing",
@@ -35,30 +35,30 @@
    }
   },
   "timeline": {
-   "decided_at": "2026-10-21T03:13:39.561168622Z",
-   "decision_id": "decision-7fb9e148-8ee0-462a-9acd-3a87e0fba735",
+   "decided_at": "2026-10-21T06:19:52.030651037Z",
+   "decision_id": "decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
    "entries": [
     {
      "actor_id": "human:alice",
      "citation_id": "event:11",
      "event_origin": 11,
      "kind": "recorded",
-     "ts": "2026-10-21T03:13:39.561168622Z"
+     "ts": "2026-10-21T06:19:52.030651037Z"
     },
     {
      "actor_id": "human:alice",
      "citation_id": "event:16",
      "event_origin": 16,
      "kind": "accepted",
-     "ts": "2026-10-21T03:13:39.561957071Z"
+     "ts": "2026-10-21T06:19:52.032774785Z"
     },
     {
      "actor_id": "agent:claude:analyst",
-     "by_id": "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372",
+     "by_id": "decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
      "citation_id": "event:25",
      "event_origin": 25,
      "kind": "superseded",
-     "ts": "2026-10-21T03:13:39.645167802Z"
+     "ts": "2026-10-21T06:19:52.232829033Z"
     }
    ]
   }
@@ -74,18 +74,18 @@
    "floor": "cleared",
    "hypotheses": [
     {
-     "id": "hypothesis-1209d37c-0632-40f0-89d7-8852673ba859",
+     "id": "hypothesis-f22f66a6-b349-407b-beba-91712d136108",
      "kind": "assumption",
      "status": "refuted"
     }
    ],
-   "id": "decision-823b93f2-6bf8-4839-9239-d5924cfcb95c",
+   "id": "decision-30efadf9-7434-4886-807a-5cda2116f2fc",
    "option_ids": [
-    "option-0d68ea1e-b60c-496b-b7e4-ca456e80d56f",
-    "option-7def68da-5d35-4edc-af5f-c0bba9f8a38a"
+    "option-529fe44c-64a5-4394-9b9a-e8bdb26e3ebc",
+    "option-8132331e-efcd-473a-80b4-7038ff5da3de"
    ],
    "premise_decision_ids": [
-    "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372"
+    "decision-5db88a77-2abb-4292-9615-b4621a5e58f0"
    ],
    "project": "pricing-experiments",
    "project_label": "Pricing experiments",
@@ -101,24 +101,24 @@
    }
   },
   "timeline": {
-   "decided_at": "2026-10-21T03:13:39.693878721Z",
-   "decision_id": "decision-823b93f2-6bf8-4839-9239-d5924cfcb95c",
+   "decided_at": "2026-10-21T06:19:52.403525867Z",
+   "decision_id": "decision-30efadf9-7434-4886-807a-5cda2116f2fc",
    "entries": [
     {
      "actor_id": "agent:claude:analyst",
      "citation_id": "event:27",
      "event_origin": 27,
      "kind": "recorded",
-     "ts": "2026-10-21T03:13:39.693878721Z"
+     "ts": "2026-10-21T06:19:52.403525867Z"
     },
     {
      "actor_id": "human:alice",
      "citation_id": "event:43",
      "event_origin": 43,
-     "evidence_id": "evidence-189661e6-713b-4394-a629-653ad53d810c",
-     "hypothesis_id": "hypothesis-1209d37c-0632-40f0-89d7-8852673ba859",
+     "evidence_id": "evidence-ea0920ff-fb27-4874-9b0b-9560ce447eb7",
+     "hypothesis_id": "hypothesis-f22f66a6-b349-407b-beba-91712d136108",
      "kind": "premise_refuted",
-     "ts": "2026-10-21T03:13:39.943217224Z"
+     "ts": "2026-10-21T06:19:52.928063732Z"
     }
    ]
   }
@@ -129,20 +129,20 @@
     "level": "something",
     "statement": "The invite dialog copy"
    },
-   "chosen_option_id": "option-696f2239-4585-4ddb-8859-a147463131ab",
+   "chosen_option_id": "option-233e4bbe-7ddf-4a61-9e02-ba94bcd30177",
    "evidence_ids": [],
    "floor": "cleared",
    "hypotheses": [
     {
-     "id": "hypothesis-971fcef3-1161-4cb0-ad44-da1b221ee1cb",
+     "id": "hypothesis-4634a014-0eab-48dd-baf3-75d9059e663e",
      "kind": "assumption",
      "status": "open"
     }
    ],
-   "id": "decision-dbe005e4-2d0f-4008-b07c-7d1d0e81970c",
+   "id": "decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
    "option_ids": [
-    "option-696f2239-4585-4ddb-8859-a147463131ab",
-    "option-872e8ad1-a46b-4979-875c-6a1eee3ed32f"
+    "option-233e4bbe-7ddf-4a61-9e02-ba94bcd30177",
+    "option-6ececbfa-71d9-4a85-a387-4bfcf7b593d2"
    ],
    "premise_decision_ids": [],
    "project": "pricing",
@@ -159,22 +159,22 @@
    }
   },
   "timeline": {
-   "decided_at": "2026-10-21T03:13:39.764359052Z",
-   "decision_id": "decision-dbe005e4-2d0f-4008-b07c-7d1d0e81970c",
+   "decided_at": "2026-10-21T06:19:52.499361620Z",
+   "decision_id": "decision-ec6979a8-8f4d-49de-8859-9f2247cfd566",
    "entries": [
     {
      "actor_id": "human:bob",
      "citation_id": "event:33",
      "event_origin": 33,
      "kind": "recorded",
-     "ts": "2026-10-21T03:13:39.764359052Z"
+     "ts": "2026-10-21T06:19:52.499361620Z"
     },
     {
      "actor_id": "human:bob",
      "citation_id": "event:38",
      "event_origin": 38,
      "kind": "accepted",
-     "ts": "2026-10-21T03:13:39.765298767Z"
+     "ts": "2026-10-21T06:19:52.501616416Z"
     },
     {
      "actor_id": "human:carol",
@@ -182,7 +182,7 @@
      "event_origin": 39,
      "kind": "rejected",
      "reason": "Showing the price first may suppress invites exactly as the seat study warned",
-     "ts": "2026-10-21T03:13:39.797939162Z"
+     "ts": "2026-10-21T06:19:52.621293288Z"
     }
    ]
   }
@@ -193,17 +193,17 @@
     "level": "something",
     "statement": "The next pricing experiment"
    },
-   "chosen_option_id": "option-c94434a1-2299-4204-9223-d44bf396ee4d",
+   "chosen_option_id": "option-89d3c1d5-8cb7-4ff5-ba60-2a42d108b1a0",
    "evidence_ids": [
-    "evidence-867ce778-c3dc-4482-b307-0d3ab75388b2"
+    "evidence-cc356f82-05bc-41d0-b2cb-95680a9beadb"
    ],
    "floor": "cleared",
    "hypotheses": [],
-   "id": "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372",
+   "id": "decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
    "option_ids": [
-    "option-c94434a1-2299-4204-9223-d44bf396ee4d",
-    "option-eca80676-c23b-46b7-857a-2ebc9fdaa608",
-    "option-f9c93e26-5a4a-4d0f-81c4-d780538ed3a2"
+    "option-723046aa-2c36-44e6-ad58-d357970b7d7e",
+    "option-89d3c1d5-8cb7-4ff5-ba60-2a42d108b1a0",
+    "option-b82a4838-2639-4a9e-8b99-8e0b8e5932dc"
    ],
    "premise_decision_ids": [],
    "project": "pricing",
@@ -221,30 +221,30 @@
    }
   },
   "timeline": {
-   "decided_at": "2026-10-21T03:13:39.595224509Z",
-   "decision_id": "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372",
+   "decided_at": "2026-10-21T06:19:52.143069762Z",
+   "decision_id": "decision-5db88a77-2abb-4292-9615-b4621a5e58f0",
    "entries": [
     {
      "actor_id": "agent:claude:analyst",
      "citation_id": "event:18",
      "event_origin": 18,
      "kind": "recorded",
-     "ts": "2026-10-21T03:13:39.595224509Z"
+     "ts": "2026-10-21T06:19:52.143069762Z"
     },
     {
      "actor_id": "agent:claude:analyst",
      "citation_id": "event:24",
      "event_origin": 24,
      "kind": "accepted",
-     "ts": "2026-10-21T03:13:39.596101001Z"
+     "ts": "2026-10-21T06:19:52.144954273Z"
     },
     {
      "actor_id": "agent:claude:analyst",
      "citation_id": "event:25",
      "event_origin": 25,
      "kind": "supersedes",
-     "replaces_id": "decision-7fb9e148-8ee0-462a-9acd-3a87e0fba735",
-     "ts": "2026-10-21T03:13:39.645167802Z"
+     "replaces_id": "decision-b8a84746-93c7-4899-bd3f-9e11fc892580",
+     "ts": "2026-10-21T06:19:52.232829033Z"
     }
    ]
   }

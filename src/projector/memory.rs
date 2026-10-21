@@ -152,6 +152,19 @@ impl GraphView for MemoryGraph {
         properties: &GraphProperties,
     ) -> Result<()> {
         let mut edges = self.edges_lock()?;
+        // One edge per (relation, from, to), the first write kept, as Postgres does
+        // (`ON CONFLICT DO NOTHING`). A capture asserts each of its pairs twice, in the
+        // `decision.proposed` event and again in the `relation.added` that follows it; keeping both
+        // drew every `HAS_OPTION` arrow twice on `GET /v1/graph`. Replay applies events in ledger
+        // order, so the first write is the lowest offset.
+        let first_of_pair = MemoryEdge::first_of_pair(kind, from_id, to_id);
+        if edges
+            .range(first_of_pair..)
+            .next()
+            .is_some_and(|held| held.is_pair(kind, from_id, to_id))
+        {
+            return Ok(());
+        }
         let event_origin = match properties.get("event_origin") {
             Some(GraphValue::Int(value)) => Some(*value),
             _ => None,
@@ -231,17 +244,25 @@ impl GraphView for MemoryGraph {
                 None
             };
             let nodes = self.nodes_lock()?;
+            let row_of = |id: &String, properties: &GraphProperties| {
+                let mut row = GraphRow::from([("id".to_owned(), GraphValue::String(id.clone()))]);
+                row.extend(properties.clone());
+                row
+            };
+            if let Some(anchor) = anchor {
+                // A lookup by id is one map read, not a walk of every node: a read that looks up
+                // each node of a page would otherwise cost the size of the graph per node.
+                let key = (kind, anchor.to_owned());
+                return Ok(nodes
+                    .get_key_value(&key)
+                    .map(|((_, id), properties)| row_of(id, properties))
+                    .into_iter()
+                    .collect());
+            }
             let mut rows = nodes
                 .iter()
-                .filter_map(|((node_kind, id), properties)| {
-                    if *node_kind != kind || anchor.is_some_and(|anchor| anchor != id.as_str()) {
-                        return None;
-                    }
-                    let mut row =
-                        GraphRow::from([("id".to_owned(), GraphValue::String(id.clone()))]);
-                    row.extend(properties.clone());
-                    Some(row)
-                })
+                .filter(|((node_kind, _), _)| *node_kind == kind)
+                .map(|((_, id), properties)| row_of(id, properties))
                 .collect::<Vec<_>>();
             rows.sort_by(|left, right| row_string(left, "id").cmp(row_string(right, "id")));
             return Ok(rows);
@@ -249,8 +270,8 @@ impl GraphView for MemoryGraph {
 
         // Grounding provenance (hivemind-gwhr.3): one decision's (or option's) outgoing edges of
         // one grounding relation with who added each, when, and its causing proposal event.
-        // A duplicate edge (same pair asserted by more than one event) yields one row per
-        // assertion, oldest first; readers keep the first, matching Postgres' first-write-wins.
+        // The edge's provenance. A pair asserted by more than one event is one edge here, the
+        // first write's (`upsert_edge`), matching Postgres' first-write-wins.
         if cypher.contains("r.causation_event_id AS causation_event_id") {
             let relation = query_relation(cypher)?;
             let id = required_param_string(params, "id")?;
@@ -329,7 +350,7 @@ impl GraphView for MemoryGraph {
             let relation = query_relation(cypher)?;
             // Only a read that asks for the offset (`queries::shared::relation_edges_with_origin`)
             // gets the column; every other edge list keeps its two-column rows. One row per
-            // assertion, as the edge set holds them: the reader keeps the first of each pair.
+            // edge, and the edge set holds one per pair.
             let with_origin = cypher.contains("r.event_origin AS event_origin");
             // The edges that carry a recording time add it on request
             // (`queries::shared::relation_edges_with_time`).
@@ -585,7 +606,7 @@ impl GraphView for MemoryGraph {
                 .collect());
         }
 
-        // The same walk with the real offset of each edge, one row per assertion
+        // The same walk with the real offset of each edge, one row per edge
         // (`queries::shared::neighbor_edges_with_origin`), and with the time the edge was
         // recorded at when the read asks for it (`neighbor_edges_with_time`). The shape below
         // returns a null offset here, and its public answers are pinned by goldens, so this one
@@ -1001,6 +1022,27 @@ struct MemoryEdge {
     causation_event_id: Option<i64>,
     added_by: Option<String>,
     added_at: Option<String>,
+}
+
+impl MemoryEdge {
+    /// The least edge of a pair in the set's order (the derived `Ord` sorts by relation, source,
+    /// target, then the rest, and `""` and `None` sort first), the start of a range over the pair.
+    fn first_of_pair(relation: RelationKind, from_id: &str, to_id: &str) -> Self {
+        Self {
+            relation,
+            from_id: from_id.to_owned(),
+            to_id: to_id.to_owned(),
+            _tenant_id: String::new(),
+            _event_origin: None,
+            causation_event_id: None,
+            added_by: None,
+            added_at: None,
+        }
+    }
+
+    fn is_pair(&self, relation: RelationKind, from_id: &str, to_id: &str) -> bool {
+        self.relation == relation && self.from_id == from_id && self.to_id == to_id
+    }
 }
 
 fn query_relation(cypher: &str) -> Result<RelationKind> {

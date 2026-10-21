@@ -1,6 +1,7 @@
 /**
  * Renders one project of the HiveMind decision graph as a reasoning bundle, the shape the history
- * views (timeline, trace map, sources, inspector) read. A pure function of `GET /v1/graph`:
+ * views (timeline, trace map, sources, inspector) read. A pure function of `GET /v1/graph?project=`
+ * (the project's newest decisions and what hangs off them) and that project's entry in the project list:
  *
  * - each Decision, Option, Evidence, Hypothesis and Question node is one record (a source with the
  *   node's words) and one entry whose span covers those words;
@@ -11,13 +12,14 @@
  * - sources are ordered by the decision that introduced them, in ledger order, so moving the
  *   cutoff replays the project's record in the order it was made.
  *
- * It states only what the graph holds. Status and deciders come from the graph's derived fields.
+ * It states only what the graph holds. Status and deciders come from the graph's derived fields. A page
+ * that stopped short of the project's older decisions says so in the run's uncertainties.
  * Requests, blockers, notifications, reaffirmations and project links are not drawn here.
  */
 import { createHash } from "node:crypto";
 import type { Actor, Connection, Entry, ExternalEntryRef, ReasoningBundle, SourceMessage } from "@reasoning";
-import { listProjects, nodeKind, nodeRawId, projectOf, stored } from "./projects";
-import type { GraphDecision, GraphNode, GraphResponse } from "./types";
+import { nodeKind, nodeRawId, projectOf, stored } from "./projects";
+import type { GraphDecision, GraphNode, GraphResponse, ProjectSummary } from "./types";
 
 export const LEDGER_ACTOR_ID = "hivemind:ledger";
 export type ProjectBundle = { bundle: ReasoningBundle; head: string };
@@ -32,20 +34,11 @@ export const bundleId = (tenant: string, projectRef: string) => `hivemind:${tena
 
 type Member = { node: GraphNode; raw: string; introducedBy: GraphDecision; order: number };
 
-export function buildProjectBundle(graph: GraphResponse, projectRef: string, tenant: string, now: string): ProjectBundle | null {
-  const projects = listProjects(graph);
-  const project = projects.find(item => item.ref === projectRef);
-  if (!project) return null;
-
+export function buildProjectBundle(graph: GraphResponse, project: Pick<ProjectSummary, "ref" | "name">, tenant: string, now: string): ProjectBundle {
+  const projectRef = project.ref;
   const nodes = new Map(graph.nodes.map(node => [node.id, node]));
   const decisions = new Map(graph.decisions.map(decision => [decision.id, decision]));
-  const seenEdge = new Set<string>();
-  const edges = graph.edges.filter(edge => {
-    if (edge.derived) return false;
-    const { source, target } = stored(edge);
-    const key = `${edge.relation}|${source}|${target}`;
-    return seenEdge.has(key) ? false : (seenEdge.add(key), true);
-  }).map(edge => ({ ...stored(edge), relation: edge.relation, edge }));
+  const edges = graph.edges.filter(edge => !edge.derived).map(edge => ({ ...stored(edge), relation: edge.relation, edge }));
   const outgoing = new Map<string, typeof edges>(), incoming = new Map<string, typeof edges>();
   for (const edge of edges) {
     (outgoing.get(edge.source) ?? outgoing.set(edge.source, []).get(edge.source)!).push(edge);
@@ -157,8 +150,11 @@ export function buildProjectBundle(graph: GraphResponse, projectRef: string, ten
     runs: sources.length ? [{
       id: runId, parentId: null, createdAt: now, recordedBy: LEDGER_ACTOR_ID, sourceCutoff: sources.length, sourceMessageIds: sources.map(source => source.id),
       addedEntryIds: entries.map(entry => entry.id), addedConnectionIds: connections.map(connection => connection.id), replacements: [],
-      uncertainties: ["Drawn from the HiveMind graph: decisions with their options, evidence, assumptions and questions. Requests, blockers, notifications, reaffirmations and project links are not drawn here."],
-      notes: `Rendered from GET /v1/graph at ledger event ${head}. Each record is one HiveMind node; each connection is one graph edge in its stored direction. Order is the order of the decision that introduced the record. Status and deciders are the graph's derived fields.`,
+      uncertainties: [
+        "Drawn from the HiveMind graph: decisions with their options, evidence, assumptions and questions. Requests, blockers, notifications, reaffirmations and project links are not drawn here.",
+        ...(graph.truncated ? [`Only the newest decisions of this project are drawn in full; it holds ${graph.total_matches ?? "more"}. Older ones appear only where a shown decision links to them, and without what they weighed.`] : []),
+      ],
+      notes: `Rendered from GET /v1/graph?project=${projectRef} at ledger event ${head}. Each record is one HiveMind node; each connection is one graph edge in its stored direction. Order is the order of the decision that introduced the record. Status and deciders are the graph's derived fields.`,
       reviewResolutions: [],
     }] : [],
     reviewNotes: [], authorityGrants: [], commitmentReceipts: [], externalEntryRefs: [...external.values()],

@@ -25,12 +25,13 @@ use crate::ledger::EventLedger;
 use crate::projector::{GraphParams, GraphRow, GraphValue, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
+use super::project_label::ProjectLabels;
 use super::shared::{
-    neighbor_pairs, node_row, normalized_limit, normalized_query, optional_int, optional_string,
-    parse_cursor, query_error, query_timer_start, recorded_floor_of, required_string, Direction,
-    DEFAULT_SEARCH_LIMIT,
+    neighbor_pairs, node_row, node_rows, normalized_limit, normalized_query, optional_int,
+    optional_string, parse_cursor, query_error, query_timer_start, recorded_floor_of,
+    required_string, Direction, DEFAULT_SEARCH_LIMIT,
 };
-use super::status::{derive_decision_status, DecisionStatus};
+use super::status::{derive_decision_status, DecisionStandings, DecisionStatus};
 use super::QueryResponse;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -431,6 +432,147 @@ pub fn list_projects(
             items: page,
         },
     })
+}
+
+/// How many decisions a project holds, in all and in each status.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct DecisionCounts {
+    pub total: usize,
+    pub proposed: usize,
+    pub accepted: usize,
+    pub contested: usize,
+    pub rejected: usize,
+    pub superseded: usize,
+}
+
+impl DecisionCounts {
+    fn note(&mut self, status: DecisionStatus) {
+        self.total += 1;
+        match status {
+            DecisionStatus::Proposed => self.proposed += 1,
+            DecisionStatus::Accepted => self.accepted += 1,
+            DecisionStatus::Contested => self.contested += 1,
+            DecisionStatus::Rejected => self.rejected += 1,
+            DecisionStatus::Superseded => self.superseded += 1,
+        }
+    }
+}
+
+/// One project in [`ProjectOverview`]: what a picker or a tree needs, without the anchors, topics
+/// and links `ProjectView` carries.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ProjectOverviewItem {
+    /// The address decisions are filed under: a registered handle, or a personal address.
+    pub handle: String,
+    /// What a person calls it: the display name it was registered with (else its handle), or for
+    /// a personal address the person or agent tool it belongs to.
+    pub name: String,
+    pub personal: bool,
+    /// The handle of the project this one is part of now (`None` when it is part of none).
+    pub parent: Option<String>,
+    pub decisions: DecisionCounts,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ProjectOverview {
+    pub limit: usize,
+    pub cursor: Option<String>,
+    pub next_cursor: Option<String>,
+    pub total_matches: usize,
+    /// Decisions recorded under no project (from before projects existed), in no item's count.
+    pub unfiled_decisions: usize,
+    pub items: Vec<ProjectOverviewItem>,
+}
+
+/// Every project the tenant holds, by handle, paged: the registered ones (also when empty) and the
+/// personal and any other address a decision is filed under, each with its decision counts by
+/// status. The parent is the `part_of` link as it stands now, read from the ledger like
+/// `get_project` (a retracted link does not show). Where `list_projects` lists only what was
+/// registered, this lists where decisions are: a ledger whose decisions all sit in personal
+/// projects (no one has registered a shared project) is not an empty list.
+///
+/// A decision node that only a request or a blocker names, and nobody proposed, is not counted:
+/// it holds no decision yet.
+pub fn project_overview(
+    ledger: &impl EventLedger,
+    graph: &impl GraphView,
+    request: &ProjectListRequest,
+) -> Result<QueryResponse<ProjectOverview>> {
+    let started = query_timer_start();
+    let limit = normalized_limit(request.limit);
+    let cursor = normalized_query(request.cursor.as_deref());
+    let offset = parse_cursor(cursor.as_deref())?;
+
+    let registry = collect_project_registry(ledger)?;
+    let labels = ProjectLabels::from_graph(graph)?;
+    let standings = DecisionStandings::load(graph)?;
+
+    let mut counts: BTreeMap<String, DecisionCounts> = registry
+        .projects
+        .keys()
+        .map(|handle| (handle.clone(), DecisionCounts::default()))
+        .collect();
+    let mut unfiled_decisions = 0;
+    for (decision_id, row) in node_rows(graph, NodeKind::Decision)? {
+        match optional_string(&row, "project") {
+            Some(project) => counts
+                .entry(project)
+                .or_default()
+                .note(standings.status_of(&decision_id)),
+            None if optional_string(&row, "title").is_some() => unfiled_decisions += 1,
+            None => {}
+        }
+    }
+
+    let items: Vec<ProjectOverviewItem> = counts
+        .into_iter()
+        .map(|(handle, decisions)| ProjectOverviewItem {
+            name: labels.label(&handle),
+            personal: handle.starts_with(PERSONAL_PROJECT_HANDLE_PREFIX),
+            parent: registry.part_of_parent(&handle).map(str::to_owned),
+            handle,
+            decisions,
+        })
+        .collect();
+
+    let total_matches = items.len();
+    let page: Vec<ProjectOverviewItem> = items.into_iter().skip(offset).take(limit).collect();
+    let next_offset = offset.saturating_add(page.len());
+    let next_cursor = (next_offset < total_matches).then(|| next_offset.to_string());
+
+    Ok(QueryResponse {
+        result_count: page.len(),
+        truncated: next_cursor.is_some(),
+        latency_ms: started.elapsed().as_millis(),
+        data: ProjectOverview {
+            limit,
+            cursor,
+            next_cursor,
+            total_matches,
+            unfiled_decisions,
+            items: page,
+        },
+    })
+}
+
+/// The address the decisions of the project a reader names are filed under, or `None` when it
+/// names a shared project nobody registered (a miss is data: the caller says so, and a typo never
+/// reads as an empty project). A personal address always resolves and is canonicalised the way
+/// the write layer derives it, so every session of one agent tool reads as one project.
+/// The handle must not be empty, and a personal address must name an actor.
+pub fn project_address(graph: &impl GraphView, requested: &str) -> Result<Option<String>> {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Err(query_error("handle must not be empty").into());
+    }
+    if let Some(actor_part) = requested.strip_prefix(PERSONAL_PROJECT_HANDLE_PREFIX) {
+        let actor_part = actor_part.trim();
+        if actor_part.is_empty() {
+            return Err(query_error("personal project address must name an actor").into());
+        }
+        return Ok(Some(personal_project_handle(actor_part)));
+    }
+    Ok(node_row(graph, NodeKind::Project, requested)?.map(|_| requested.to_owned()))
 }
 
 /// Registered (shared) handles with their display names, for readers that need to name

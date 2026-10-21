@@ -13,7 +13,15 @@ export type GraphDecision = {
 export type GraphNode = { id: string; kind: string; label?: string | null; title?: string | null; recorded_as?: string | null; decided_at?: string | null; slug?: string | null };
 /** An arrow from the newer node to the older one. `reversed` says it runs against the stored direction. */
 export type GraphEdge = { from: string; to: string; relation: string; label: string; reversed: boolean; derived?: boolean };
-export type GraphResponse = { decisions: GraphDecision[]; nodes: GraphNode[]; edges: GraphEdge[] };
+/**
+ * `GET /v1/graph`. With `?project=` it is that project's page: its newest decisions and what hangs off them
+ * (`limit` of them; `truncated` and `next_cursor` continue to older ones), plus the far end of every edge,
+ * which may be a decision of another project. Without `project` the paging fields are absent.
+ */
+export type GraphResponse = {
+  decisions: GraphDecision[]; nodes: GraphNode[]; edges: GraphEdge[];
+  limit?: number; total_matches?: number; truncated?: boolean; next_cursor?: string | null;
+};
 
 /** `data` of the query-envelope endpoints (`{ result_count, truncated, latency_ms, data }`). */
 export type Envelope<T> = { result_count: number; truncated: boolean; latency_ms: number; data: T };
@@ -24,8 +32,9 @@ export type DecisionBrief = {
   hypotheses: { id: string; status: string; kind: string }[]; premise_decision_ids: string[];
   binds?: { level: string; statement?: string } | null; undo_cost?: { level: string; statement?: string } | null; floor?: string | null;
 };
-export type SearchItem = { decision: DecisionBrief; rank: number; matched_fields: string[] };
-export type SearchPage = { query: string | null; total_matches: number; next_cursor: string | null; limit: number; items: SearchItem[] };
+/** With a `project`, `scope` says how a decision reached the answer: its own project, or one it is part of or depends on. */
+export type SearchItem = { decision: DecisionBrief; rank: number; matched_fields: string[]; scope?: { relation: "own" | "parent" | "dependency"; label: string } };
+export type SearchPage = { query: string | null; total_matches: number; next_cursor: string | null; limit: number; items: SearchItem[]; scope?: { project: string; project_label: string; note: string } };
 
 export type TimelineEntry = { event_origin: number; citation_id: string; ts: string; actor_id: string; kind: string; reason?: string };
 export type Timeline = { decision_id: string; decided_at: string | null; entries: TimelineEntry[] };
@@ -45,8 +54,13 @@ export type WaitingPage = { total_matches: number; next_cursor: string | null; l
 
 export type Whoami = { actor_id: string; tenant_id: string };
 
-/** A registered or personal project, with its place in the part_of hierarchy. */
+export type DecisionCounts = Record<DecisionStatus, number> & { total: number };
+/** One row of `GET /v1/projects`: a registered project, or a personal one that holds a decision. */
+export type ProjectEntry = { handle: string; name: string; personal: boolean; parent: string | null; decisions: DecisionCounts };
+export type ProjectsPage = { limit: number; cursor: string | null; next_cursor: string | null; total_matches: number; unfiled_decisions: number; items: ProjectEntry[] };
+
+/** A project with its place in the part_of hierarchy. */
 export type ProjectSummary = {
   ref: string; name: string; parent: string | null; children: string[];
-  counts: Record<DecisionStatus, number> & { total: number };
+  counts: DecisionCounts;
 };

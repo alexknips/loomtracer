@@ -1,24 +1,45 @@
-//! `GET /v1/graph` — full decision graph for a tenant, plus the projected
-//! [`MemoryGraph`] cache shared by every read handler across the API
-//! (avoids replaying the whole ledger on each request).
+//! `GET /v1/graph` — the decision graph of a tenant, or with `?project=` one page of a project's
+//! decisions and what hangs off them, plus the projected [`MemoryGraph`] cache shared by every
+//! read handler across the API (avoids replaying the whole ledger on each request).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use crate::events::{EventId, TenantId};
 use crate::ledger::EventLedger;
+use crate::projector::arrow::Arrow;
 use crate::projector::{
     memory::MemoryGraph, project_from_ledger_for_tenant_reporting, GraphParams, GraphRow,
     GraphValue, GraphView, NodeKind,
 };
-use crate::queries::{oriented_edges, reaffirmation_arrows, DecisionStandings};
+use crate::queries::{
+    oriented_edges, project_graph_page, reaffirmation_arrows, DecisionStandings, DerivedArrow,
+    ProjectGraphCursor, ProjectGraphRequest, MAX_QUERY_RESULTS,
+};
 
 use super::auth::extract_ctx;
+use super::projects::named_project;
 use super::{respond, ApiBackend, ApiError, ApiLedger, ApiRequestCtx, ApiResult, AppState};
+
+/// How many of a project's decisions `GET /v1/graph?project=` returns when it is not asked for a
+/// number: a page a UI draws at once. The most it returns is [`MAX_QUERY_RESULTS`].
+const PROJECT_GRAPH_DEFAULT_LIMIT: usize = 200;
+
+/// Query parameters of `GET /v1/graph`. Without `project` it answers for the whole tenant and
+/// takes no `limit` or `cursor`.
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct GraphQuery {
+    /// A project: a registered handle or a personal address (`personal:agent:claude`).
+    project: Option<String>,
+    /// How many of the project's decisions the page holds (default 200, at most 1000).
+    limit: Option<usize>,
+    /// The `next_cursor` of the previous page.
+    cursor: Option<String>,
+}
 
 /// A single node in the decision graph, as returned by GET /v1/graph.
 #[derive(Debug, serde::Serialize)]
@@ -64,30 +85,53 @@ struct GraphEdge {
     derived: bool,
 }
 
-/// Full decision graph for a tenant, in the shape expected by the SPA. Each entry of
-/// `decisions` is the decision's stored row plus its derived `status` (`proposed`, `accepted`,
-/// `rejected`, `contested` or `superseded`), `deciders` (the `ACCEPTED_BY` actors, each with
-/// a `kind` of `human`, `agent` or `unknown`; empty until someone accepts) and `decided_at`
-/// (the capture event's timestamp, ISO-8601 UTC).
+/// Decision graph in the shape expected by the SPA: a tenant's whole graph, or one page of a
+/// project's. Each entry of `decisions` is the decision's stored row plus its derived `status`
+/// (`proposed`, `accepted`, `rejected`, `contested` or `superseded`), `deciders` (the
+/// `ACCEPTED_BY` actors, each with a `kind` of `human`, `agent` or `unknown`; empty until someone
+/// accepts) and `decided_at` (the capture event's timestamp, ISO-8601 UTC).
 #[derive(Debug, serde::Serialize)]
 struct GraphData {
     decisions: Vec<serde_json::Value>,
     nodes: Vec<GraphNode>,
     edges: Vec<GraphEdge>,
+    /// Present on a project's page only.
+    #[serde(flatten)]
+    page: Option<GraphPage>,
+}
+
+/// Where a page of a project's graph sits in the project (docs/GRAPH_CONTRACT.md).
+#[derive(Debug, serde::Serialize)]
+struct GraphPage {
+    /// The address the project's decisions are filed under (a personal address is canonical:
+    /// every session of one agent tool is one project).
+    project: String,
+    /// How many of the project's decisions this page holds at most.
+    limit: usize,
+    /// Every decision the project holds, on this page or not.
+    total_matches: usize,
+    /// True when older decisions remain; `next_cursor` is where they start.
+    truncated: bool,
+    next_cursor: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
 // Graph handler
 // ---------------------------------------------------------------------------
 
-pub(super) async fn graph_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub(super) async fn graph_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<GraphQuery>,
+) -> Response {
     let ctx = match extract_ctx(&state, &headers).await {
         Ok(c) => c,
         Err(e) => return e.into_response(),
     };
     let backend = Arc::clone(&state.backend);
     let cache = Arc::clone(&state.graph_cache);
-    let result = tokio::task::spawn_blocking(move || graph_blocking(&backend, &ctx, &cache)).await;
+    let result =
+        tokio::task::spawn_blocking(move || graph_blocking(&backend, &ctx, &cache, query)).await;
     respond(result, StatusCode::OK)
 }
 
@@ -99,132 +143,259 @@ fn graph_blocking(
     backend: &ApiBackend,
     ctx: &ApiRequestCtx,
     cache: &GraphCache,
+    query: GraphQuery,
 ) -> ApiResult<serde_json::Value> {
+    let scope = match query {
+        GraphQuery {
+            project: None,
+            limit: None,
+            cursor: None,
+        } => None,
+        GraphQuery { project: None, .. } => {
+            return Err(ApiError::validation(
+                "`limit` and `cursor` page one project's graph: name it with `project`",
+            ))
+        }
+        GraphQuery {
+            project: Some(project),
+            limit,
+            cursor,
+        } => {
+            let cursor = cursor
+                .map(|text| {
+                    ProjectGraphCursor::parse(&text).ok_or_else(|| {
+                        ApiError::validation(format!(
+                            "cursor is not one this endpoint gave: {text}"
+                        ))
+                    })
+                })
+                .transpose()?;
+            let limit = match limit {
+                None | Some(0) => PROJECT_GRAPH_DEFAULT_LIMIT,
+                Some(limit) => limit.min(MAX_QUERY_RESULTS),
+            };
+            Some((project, limit, cursor))
+        }
+    };
+
     let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
     let graph = get_cached_graph(&ledger, &ctx.tenant_id, cache)?;
+    let standings = DecisionStandings::load(graph.as_ref()).map_err(graph_err)?;
+    let data = match scope {
+        None => whole_graph(graph.as_ref(), &standings)?,
+        Some((project, limit, cursor)) => {
+            let address = named_project(graph.as_ref(), &project)?;
+            project_graph(graph.as_ref(), &standings, address, limit, cursor)?
+        }
+    };
+    serde_json::to_value(data).map_err(graph_err)
+}
 
+/// Every node, decision and edge of the tenant.
+fn whole_graph(graph: &impl GraphView, standings: &DecisionStandings) -> ApiResult<GraphData> {
     let mut nodes: Vec<GraphNode> = Vec::new();
     let mut decisions: Vec<serde_json::Value> = Vec::new();
-    let standings = DecisionStandings::load(graph.as_ref()).map_err(graph_err)?;
 
     for kind in NodeKind::ALL {
-        let kind_name = kind.table_name();
         let rows = graph
             .query(&graph_node_query(kind), &GraphParams::new())
             .map_err(graph_err)?;
         for row in rows {
-            let id = row_string(&row, "id").unwrap_or_default();
-            // `.get(key)` on a Null-valued key (e.g. an unset "display_name") returns
-            // `Some(GraphValue::Null)`, which would short-circuit `.or_else` before it ever
-            // tries the next candidate key — so filter to String values before chaining.
-            let string_field = |key: &str| match row.get(key) {
-                Some(GraphValue::String(s)) => Some(s.clone()), // ubs:ignore: clone necessary — GraphValue holds borrowed ref, GraphNode needs owned String
-                _ => None,
-            };
-            let label = string_field("title")
-                .or_else(|| string_field("label"))
-                .or_else(|| string_field("statement"))
-                .or_else(|| string_field("content"))
-                .or_else(|| string_field("display_name"))
-                .or_else(|| string_field("handle"))
-                // A question and an ask read as the words that were asked.
-                .or_else(|| string_field("text"))
-                // A reaffirmation, a blocker and a decision request read as their one-line reason.
-                .or_else(|| {
-                    matches!(
-                        kind,
-                        NodeKind::Reaffirmation | NodeKind::Blocker | NodeKind::DecisionRequest
-                    )
-                    .then(|| string_field("reason"))
-                    .flatten()
-                });
-            // The capture event's timestamp (`occurred_at` on the projected node) read
-            // under the response's `decided_at` name (docs/GRAPH_CONTRACT.md).
-            let decided_at = matches!(kind, NodeKind::Decision)
-                .then(|| string_field("occurred_at"))
-                .flatten();
-            let slug = matches!(kind, NodeKind::Decision)
-                .then(|| string_field("slug"))
-                .flatten();
-            if matches!(kind, NodeKind::Decision) {
-                let mut obj: serde_json::Map<String, serde_json::Value> = row
-                    .iter()
-                    .map(|(k, v)| (k.into(), graph_value_to_json(v)))
-                    .collect();
-                obj.insert(
-                    "status".into(),
-                    serde_json::to_value(standings.status_of(&id)).map_err(graph_err)?,
-                );
-                obj.insert(
-                    "deciders".into(),
-                    serde_json::to_value(standings.deciders_of(&id)).map_err(graph_err)?,
-                );
-                // Raw column selected only to compute `decided_at` below; drop it so the
-                // response carries one timestamp field, not two names for the same value.
-                obj.remove("occurred_at");
-                obj.insert(
-                    "decided_at".into(),
-                    decided_at
-                        .clone()
-                        .map_or(serde_json::Value::Null, serde_json::Value::String),
-                );
-                decisions.push(serde_json::Value::Object(obj));
-            }
-            // Same fallback every other reader of an option uses (`resolve_option_label`).
-            let title = matches!(kind, NodeKind::Option)
-                .then(|| label.clone().unwrap_or_else(|| id.clone())); // ubs:ignore: one owned title per option node
-            let recorded_as = matches!(kind, NodeKind::Option)
-                .then(|| string_field("recorded_label"))
-                .flatten()
-                .filter(|recorded| Some(recorded) != label.as_ref());
-            nodes.push(GraphNode {
-                id: [kind_name, ":", &id].concat(),
-                kind: kind_name.into(),
-                label,
-                title,
-                recorded_as,
-                decided_at,
-                slug,
-            });
+            let (node, decision) = graph_entry(kind, &row, standings)?;
+            nodes.push(node);
+            decisions.extend(decision);
         }
     }
 
     // Every arrow runs from the newer node to the older node (docs/GRAPH_CONTRACT.md); the
     // label reads along that direction, so the SPA draws `from -> to` as given.
-    let edges: Vec<GraphEdge> = oriented_edges(graph.as_ref())
+    let edges: Vec<GraphEdge> = oriented_edges(graph)
         .map_err(graph_err)?
-        .into_iter()
-        .map(|arrow| GraphEdge {
-            from: [arrow.from_kind.table_name(), ":", &arrow.from_id].concat(),
-            to: [arrow.to_kind.table_name(), ":", &arrow.to_id].concat(),
-            relation: arrow.relation.table_name().into(),
-            label: arrow.label,
-            reversed: arrow.reversed,
-            derived: false,
-        })
+        .iter()
+        .map(graph_edge)
         .chain(
             // A reaffirmation has no stored edge; drawn alone it would float free of the
             // decision it is about. These lines are read from its own properties.
-            reaffirmation_arrows(graph.as_ref())
+            reaffirmation_arrows(graph)
                 .map_err(graph_err)?
-                .into_iter()
-                .map(|arrow| GraphEdge {
-                    from: [arrow.from_kind.table_name(), ":", &arrow.from_id].concat(),
-                    to: [arrow.to_kind.table_name(), ":", &arrow.to_id].concat(),
-                    relation: arrow.relation.into(),
-                    label: arrow.label,
-                    reversed: false,
-                    derived: true,
-                }),
+                .iter()
+                .map(derived_edge),
         )
         .collect();
 
-    let data = GraphData {
+    Ok(GraphData {
         decisions,
         nodes,
         edges,
+        page: None,
+    })
+}
+
+/// One page of a project's graph: the same nodes, decisions and edges as the whole graph, for
+/// the project's newest `limit` decisions (older than `cursor`) and what hangs off them.
+fn project_graph(
+    graph: &impl GraphView,
+    standings: &DecisionStandings,
+    address: String,
+    limit: usize,
+    cursor: Option<ProjectGraphCursor>,
+) -> ApiResult<GraphData> {
+    let page = project_graph_page(
+        graph,
+        &ProjectGraphRequest {
+            address: address.clone(), // ubs:ignore: the response names the project; the request owns its copy
+            limit,
+            cursor,
+        },
+    )
+    .map_err(graph_err)?;
+
+    let mut nodes: Vec<GraphNode> = Vec::with_capacity(page.nodes.len());
+    let mut decisions: Vec<serde_json::Value> = Vec::new();
+    for (kind, id) in &page.nodes {
+        let rows = graph
+            .query(
+                &graph_node_lookup(*kind),
+                &GraphParams::from([("id".to_owned(), GraphValue::String(id.clone()))]), // ubs:ignore: the query owns its parameter
+            )
+            .map_err(graph_err)?;
+        // A node the graph does not hold is left out, as it is from the whole graph's `nodes`.
+        let Some(row) = rows
+            .into_iter()
+            .find(|row| row_string(row, "id").as_deref() == Some(id.as_str()))
+        else {
+            continue;
+        };
+        let (node, decision) = graph_entry(*kind, &row, standings)?;
+        nodes.push(node);
+        decisions.extend(decision);
+    }
+    let edges: Vec<GraphEdge> = page
+        .arrows
+        .iter()
+        .map(graph_edge)
+        .chain(page.derived.iter().map(derived_edge))
+        .collect();
+
+    Ok(GraphData {
+        decisions,
+        nodes,
+        edges,
+        page: Some(GraphPage {
+            project: address,
+            limit,
+            total_matches: page.total_matches,
+            truncated: page.next_cursor.is_some(),
+            next_cursor: page.next_cursor,
+        }),
+    })
+}
+
+/// The graph node a row is and, for a Decision, its entry in `decisions`.
+fn graph_entry(
+    kind: NodeKind,
+    row: &GraphRow,
+    standings: &DecisionStandings,
+) -> ApiResult<(GraphNode, Option<serde_json::Value>)> {
+    let kind_name = kind.table_name();
+    let id = row_string(row, "id").unwrap_or_default();
+    // `.get(key)` on a Null-valued key (e.g. an unset "display_name") returns
+    // `Some(GraphValue::Null)`, which would short-circuit `.or_else` before it ever
+    // tries the next candidate key — so filter to String values before chaining.
+    let string_field = |key: &str| match row.get(key) {
+        Some(GraphValue::String(s)) => Some(s.clone()), // ubs:ignore: clone necessary — GraphValue holds borrowed ref, GraphNode needs owned String
+        _ => None,
     };
-    serde_json::to_value(data).map_err(graph_err)
+    let label = string_field("title")
+        .or_else(|| string_field("label"))
+        .or_else(|| string_field("statement"))
+        .or_else(|| string_field("content"))
+        .or_else(|| string_field("display_name"))
+        .or_else(|| string_field("handle"))
+        // A question and an ask read as the words that were asked.
+        .or_else(|| string_field("text"))
+        // A reaffirmation, a blocker and a decision request read as their one-line reason.
+        .or_else(|| {
+            matches!(
+                kind,
+                NodeKind::Reaffirmation | NodeKind::Blocker | NodeKind::DecisionRequest
+            )
+            .then(|| string_field("reason"))
+            .flatten()
+        });
+    // The capture event's timestamp (`occurred_at` on the projected node) read
+    // under the response's `decided_at` name (docs/GRAPH_CONTRACT.md).
+    let decided_at = matches!(kind, NodeKind::Decision)
+        .then(|| string_field("occurred_at"))
+        .flatten();
+    let slug = matches!(kind, NodeKind::Decision)
+        .then(|| string_field("slug"))
+        .flatten();
+    let decision = if matches!(kind, NodeKind::Decision) {
+        let mut obj: serde_json::Map<String, serde_json::Value> = row
+            .iter()
+            .map(|(k, v)| (k.into(), graph_value_to_json(v)))
+            .collect();
+        obj.insert(
+            "status".into(),
+            serde_json::to_value(standings.status_of(&id)).map_err(graph_err)?,
+        );
+        obj.insert(
+            "deciders".into(),
+            serde_json::to_value(standings.deciders_of(&id)).map_err(graph_err)?,
+        );
+        // Raw column selected only to compute `decided_at` below; drop it so the
+        // response carries one timestamp field, not two names for the same value.
+        obj.remove("occurred_at");
+        obj.insert(
+            "decided_at".into(),
+            decided_at
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
+        Some(serde_json::Value::Object(obj))
+    } else {
+        None
+    };
+    // Same fallback every other reader of an option uses (`resolve_option_label`).
+    let title =
+        matches!(kind, NodeKind::Option).then(|| label.clone().unwrap_or_else(|| id.clone())); // ubs:ignore: one owned title per option node
+    let recorded_as = matches!(kind, NodeKind::Option)
+        .then(|| string_field("recorded_label"))
+        .flatten()
+        .filter(|recorded| Some(recorded) != label.as_ref());
+    let node = GraphNode {
+        id: [kind_name, ":", &id].concat(),
+        kind: kind_name.into(),
+        label,
+        title,
+        recorded_as,
+        decided_at,
+        slug,
+    };
+    Ok((node, decision))
+}
+
+fn graph_edge(arrow: &Arrow) -> GraphEdge {
+    GraphEdge {
+        from: [arrow.from_kind.table_name(), ":", &arrow.from_id].concat(),
+        to: [arrow.to_kind.table_name(), ":", &arrow.to_id].concat(),
+        relation: arrow.relation.table_name().into(),
+        label: arrow.label,
+        reversed: arrow.reversed,
+        derived: false,
+    }
+}
+
+fn derived_edge(arrow: &DerivedArrow) -> GraphEdge {
+    GraphEdge {
+        from: [arrow.from_kind.table_name(), ":", &arrow.from_id].concat(),
+        to: [arrow.to_kind.table_name(), ":", &arrow.to_id].concat(),
+        relation: arrow.relation.into(),
+        label: arrow.label,
+        reversed: false,
+        derived: true,
+    }
 }
 
 fn row_string(row: &GraphRow, key: &str) -> Option<String> {
@@ -234,8 +405,8 @@ fn row_string(row: &GraphRow, key: &str) -> Option<String> {
     })
 }
 
-fn graph_node_query(kind: NodeKind) -> String {
-    let projection = match kind {
+fn graph_node_projection(kind: NodeKind) -> &'static str {
+    match kind {
         NodeKind::Decision => {
             "node.id AS id, node.title AS title, node.rationale AS rationale, node.topic_keys AS topic_keys, node.occurred_at AS occurred_at, node.slug AS slug"
         }
@@ -254,10 +425,23 @@ fn graph_node_query(kind: NodeKind) -> String {
         NodeKind::Project => "node.id AS id, node.handle AS handle, node.display_name AS display_name",
         NodeKind::Ask => "node.id AS id, node.text AS text, node.question_id AS question_id",
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
-    };
+    }
+}
+
+fn graph_node_query(kind: NodeKind) -> String {
     format!(
-        "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",
-        kind.table_name()
+        "MATCH (node:`{}`) RETURN {} ORDER BY node.id;",
+        kind.table_name(),
+        graph_node_projection(kind)
+    )
+}
+
+/// The same projection for one node, by `$id`.
+fn graph_node_lookup(kind: NodeKind) -> String {
+    format!(
+        "MATCH (node:`{}` {{id: $id}}) RETURN {} LIMIT 1;",
+        kind.table_name(),
+        graph_node_projection(kind)
     )
 }
 

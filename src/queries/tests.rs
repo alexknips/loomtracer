@@ -3841,13 +3841,16 @@ fn a_pair_superseded_twice_is_one_step_not_a_branch() -> Result<()> {
         // The same pair again, as a client retries after a timeout.
         superseded_event(4, "d:old", "d:new"),
     ])?;
-    // The premise: MemoryGraph keys an edge by the event that wrote it, so the graph returns
-    // the successor once per supersede event.
+    // The graph holds the pair once, whichever event wrote it first, as Postgres does.
     let rows = graph.query(
         "MATCH (other:`Decision`)-[:`SUPERSEDES`]->(d:`Decision` {id: $id}) RETURN other.id AS id ORDER BY other.id;",
         &GraphParams::from([("id".to_owned(), GraphValue::String("d:old".to_owned()))]),
     )?;
-    assert_eq!(rows.len(), 2, "one neighbour row per supersede event");
+    assert_eq!(
+        rows.len(),
+        1,
+        "one neighbour row for the pair, not one per event"
+    );
 
     let chain = get_supersession_chain(&graph, "d:old")?.data;
     assert_eq!(chain.decision_ids, vec!["d:old", "d:new"]);

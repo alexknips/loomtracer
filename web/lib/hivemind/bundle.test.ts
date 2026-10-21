@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 import { entryText, getView, relatedConnections, validateBundle } from "@reasoning";
 import { buildProjectBundle, LEDGER_ACTOR_ID } from "./bundle";
 import type { GraphResponse } from "./types";
-import fixture from "./fixtures/graph.json";
+import pricingPage from "./fixtures/graph-pricing.json";
+import experimentsPage from "./fixtures/graph-pricing-experiments.json";
 
-const graph = fixture as unknown as GraphResponse;
+// Each fixture is `GET /v1/graph?project=<ref>` from a scratch server seeded by e2e/support/seed-ledger.mjs.
+const pages: Record<string, { name: string; page: GraphResponse }> = {
+  pricing: { name: "Pricing study", page: pricingPage as unknown as GraphResponse },
+  "pricing-experiments": { name: "Pricing experiments", page: experimentsPage as unknown as GraphResponse },
+};
 const NOW = "2026-10-21T03:00:00.000Z";
-const build = (ref: string) => buildProjectBundle(graph, ref, "local", NOW)!;
-const decision = (title: string) => graph.decisions.find(item => item.title === title)!;
+const build = (ref: string) => buildProjectBundle(pages[ref]!.page, { ref, name: pages[ref]!.name }, "local", NOW);
+const decision = (title: string) => Object.values(pages).flatMap(({ page }) => page.decisions).find(item => item.title === title)!;
 
 describe("a project's graph as a reasoning bundle", () => {
   it.each(["pricing", "pricing-experiments"])("passes the bundle validation for %s", ref => {
@@ -20,8 +25,10 @@ describe("a project's graph as a reasoning bundle", () => {
     expect(build("pricing")).toEqual(build("pricing"));
   });
 
-  it("answers null for a project the graph does not hold", () => {
-    expect(buildProjectBundle(graph, "no-such-project", "local", NOW)).toBeNull();
+  it("draws only the project's own decisions as records, and the far end of a link as a pointer", () => {
+    const { bundle } = build("pricing");
+    const own = pages.pricing!.page.decisions.filter(item => item.project === "pricing").map(item => item.id).sort();
+    expect(bundle.entries.filter(entry => entry.labels[0] === "Decision").map(entry => entry.id).sort()).toEqual(own);
   });
 
   it("owns the bundle by tenant and project", () => {
@@ -122,10 +129,20 @@ describe("a project's graph as a reasoning bundle", () => {
   });
 
   it("is a valid, empty bundle for a registered project with no decisions", () => {
-    const empty: GraphResponse = { ...graph, nodes: [...graph.nodes, { id: "Project:empty-project", kind: "Project", label: "Empty" }] };
-    const { bundle } = buildProjectBundle(empty, "empty-project", "local", NOW)!;
+    const empty: GraphResponse = { decisions: [], nodes: [], edges: [], limit: 200, total_matches: 0, truncated: false, next_cursor: null };
+    const { bundle } = buildProjectBundle(empty, { ref: "empty-project", name: "Empty" }, "local", NOW);
+    expect(bundle.title).toBe("Empty");
     expect(bundle.entries).toEqual([]);
     expect(bundle.runs).toEqual([]);
+    expect(validateBundle(bundle).ok).toBe(true);
+  });
+
+  it("says in the run when the page stopped short of the project's older decisions", () => {
+    const whole = build("pricing").bundle.runs[0]!.uncertainties.join(" ");
+    expect(whole).not.toMatch(/Only the newest decisions/);
+    const cut: GraphResponse = { ...pages.pricing!.page, truncated: true, total_matches: 450, next_cursor: "9:x" };
+    const { bundle } = buildProjectBundle(cut, { ref: "pricing", name: "Pricing study" }, "local", NOW);
+    expect(bundle.runs[0]!.uncertainties.join(" ")).toMatch(/Only the newest decisions of this project are drawn in full; it holds 450/);
     expect(validateBundle(bundle).ok).toBe(true);
   });
 });

@@ -127,6 +127,25 @@ test("search finds decisions by their words and opens each with its reasons", as
   await expect(page.getByText("Nothing in the ledger matches.")).toBeVisible();
 });
 
+test("search can be asked from one project, and says whose decisions it found", async ({ page }) => {
+  await page.goto("/search");
+  await expect(page.getByLabel("Project").locator("option")).toHaveText(["Any project", "Pricing study", "Pricing study / Pricing experiments"]);
+  await page.getByLabel("Project").selectOption("pricing-experiments");
+  await page.getByLabel("Search decisions").fill("price");
+  await page.getByLabel("Search decisions").press("Enter");
+  await expect(page).toHaveURL(/project=pricing-experiments/);
+  // Asked from the experiments project, the answer holds the decisions of the project it is part of, and says so.
+  await expect(page.getByTestId("search-count")).toContainText("asked from Pricing experiments");
+  await expect(page.getByTestId("search-scope")).toContainText("Pricing experiments (own project)");
+  await expect(page.getByTestId("search-result")).toHaveCount(2);
+  await expect(page.getByTestId("search-result").filter({ hasText: "Show the price before the invite is sent" })).toContainText("Pricing study; Pricing experiments is part of it");
+  await expect(page.getByTestId("search-result-scope")).toHaveCount(2);
+  await shoot(page, "search-project");
+  // A handle nobody registered is not found, so a typo never reads as an empty project.
+  await page.goto("/search?project=no-such-project");
+  await expect(page.getByTestId("hivemind-problem")).toContainText("project not registered");
+});
+
 test("a decision that is not in the ledger says so", async ({ page }) => {
   const response = await page.goto("/decisions/decision-does-not-exist");
   expect(response?.status()).toBe(404);
@@ -170,9 +189,15 @@ test("the API serves the project and its bundle privately, and a missing project
   expect(projects.headers()["cache-control"]).toContain("no-store");
   expect((await projects.json()).projects).toEqual([{ ref: "pricing", name: "Pricing study", decisions: 3 }, { ref: "pricing-experiments", name: "Pricing study / Pricing experiments", decisions: 1 }]);
   const bundle = await (await request.get("/api/reasoning?project_ref=pricing")).json();
-  expect(Object.keys(bundle).sort()).toEqual(["bundle", "head"]);
+  expect(Object.keys(bundle).sort()).toEqual(["bundle", "decisions", "head"]);
+  expect(bundle.decisions).toEqual({ shown: 3, total: 3, truncated: false });
   expect(bundle.bundle.namespace).toEqual({ datasetId: "hivemind:local:pricing", workspaceId: "local", projectId: "pricing" });
   expect(JSON.stringify(bundle)).not.toContain(SEED_TOKEN);
+  // A short page says so: how many decisions it draws, of how many the project holds.
+  const short = await (await request.get("/api/reasoning?project_ref=pricing&limit=2")).json();
+  expect(short.decisions).toEqual({ shown: 2, total: 3, truncated: true });
+  expect(short.bundle.runs[0].uncertainties.join(" ")).toContain("Only the newest decisions of this project are drawn in full; it holds 3");
+  expect((await request.get("/api/reasoning?project_ref=pricing&limit=0")).status()).toBe(400);
   const missing = await request.get("/api/reasoning?project_ref=nope");
   expect(missing.status()).toBe(404);
   expect(await request.post("/api/reasoning", { data: {} }).then(response => response.status())).toBe(405);

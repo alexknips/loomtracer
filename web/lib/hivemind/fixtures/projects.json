@@ -1,0 +1,42 @@
+{
+ "data": {
+  "cursor": null,
+  "items": [
+   {
+    "decisions": {
+     "accepted": 1,
+     "contested": 1,
+     "proposed": 0,
+     "rejected": 0,
+     "superseded": 1,
+     "total": 3
+    },
+    "handle": "pricing",
+    "name": "Pricing study",
+    "parent": null,
+    "personal": false
+   },
+   {
+    "decisions": {
+     "accepted": 0,
+     "contested": 0,
+     "proposed": 1,
+     "rejected": 0,
+     "superseded": 0,
+     "total": 1
+    },
+    "handle": "pricing-experiments",
+    "name": "Pricing experiments",
+    "parent": "pricing",
+    "personal": false
+   }
+  ],
+  "limit": 25,
+  "next_cursor": null,
+  "total_matches": 2,
+  "unfiled_decisions": 0
+ },
+ "latency_ms": 0,
+ "result_count": 2,
+ "truncated": false
+}

@@ -886,3 +886,129 @@ fn the_misfiled_report_is_scoped_to_a_project_names_the_move_and_is_clean_after_
 
     Ok(())
 }
+
+#[test]
+fn project_overview_counts_each_projects_decisions_by_status_and_lists_where_decisions_are(
+) -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    commands.register_project("human:alice", "platform", Some("Platform"), None)?;
+    commands.register_project("human:alice", "billing", Some("Billing"), None)?;
+    commands.register_project("human:alice", "idle", None, None)?;
+    commands.link_project(
+        "human:alice",
+        "billing",
+        "platform",
+        ProjectLinkKind::PartOf,
+    )?;
+    let recorder = DecisionRecorder::new(&commands)?;
+    recorder.record("human:alice", "Price per seat", Some("billing"))?;
+    recorder.record_with("human:alice", "Bill monthly", Some("billing"), true)?;
+    // No project stated: the recorder's personal project, which no one registered.
+    recorder.record("agent:claude:session-1", "Retry with backoff", None)?;
+
+    let overview = project_overview(&ledger, &graph_of(&ledger)?, &ProjectListRequest::default())?;
+    assert_eq!(overview.data.total_matches, 4);
+    assert_eq!(overview.data.unfiled_decisions, 0);
+    assert!(!overview.truncated);
+    let handles: Vec<&str> = overview
+        .data
+        .items
+        .iter()
+        .map(|item| item.handle.as_str())
+        .collect();
+    assert_eq!(
+        handles,
+        vec!["billing", "idle", "personal:agent:claude", "platform"]
+    );
+
+    let billing = &overview.data.items[0];
+    assert_eq!(billing.name, "Billing");
+    assert!(!billing.personal);
+    assert_eq!(billing.parent.as_deref(), Some("platform"));
+    assert_eq!(
+        billing.decisions,
+        DecisionCounts {
+            total: 2,
+            proposed: 1,
+            accepted: 1,
+            ..DecisionCounts::default()
+        }
+    );
+
+    let idle = &overview.data.items[1];
+    assert_eq!(idle.name, "idle", "no display name reads as the handle");
+    assert_eq!(idle.decisions, DecisionCounts::default());
+
+    let personal = &overview.data.items[2];
+    assert!(personal.personal);
+    assert_eq!(personal.name, "claude agents' personal project");
+    assert_eq!(personal.parent, None);
+    assert_eq!(personal.decisions.total, 1);
+
+    assert_eq!(overview.data.items[3].name, "Platform");
+    assert_eq!(overview.data.items[3].parent, None);
+    Ok(())
+}
+
+#[test]
+fn project_overview_does_not_show_a_retracted_parent_and_pages_with_a_cursor() -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    for handle in ["alpha", "beta", "gamma"] {
+        commands.register_project("human:alice", handle, None, None)?;
+    }
+    commands.link_project("human:alice", "beta", "alpha", ProjectLinkKind::PartOf)?;
+    commands.unlink_project("human:alice", "beta", "alpha", ProjectLinkKind::PartOf)?;
+    let graph = graph_of(&ledger)?;
+
+    let first = project_overview(
+        &ledger,
+        &graph,
+        &ProjectListRequest {
+            limit: 2,
+            cursor: None,
+        },
+    )?;
+    assert!(first.truncated);
+    assert_eq!(first.data.total_matches, 3);
+    assert_eq!(first.data.next_cursor.as_deref(), Some("2"));
+    assert_eq!(first.data.items[1].handle, "beta");
+    assert_eq!(first.data.items[1].parent, None, "an unlinked parent");
+
+    let second = project_overview(
+        &ledger,
+        &graph,
+        &ProjectListRequest {
+            limit: 2,
+            cursor: first.data.next_cursor,
+        },
+    )?;
+    assert_eq!(second.data.items.len(), 1);
+    assert_eq!(second.data.items[0].handle, "gamma");
+    assert_eq!(second.data.next_cursor, None);
+    Ok(())
+}
+
+#[test]
+fn project_address_resolves_a_registered_handle_and_a_personal_address_and_misses_a_typo(
+) -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    commands.register_project("human:alice", "billing", None, None)?;
+    let graph = graph_of(&ledger)?;
+
+    assert_eq!(
+        project_address(&graph, " billing ")?,
+        Some("billing".to_owned())
+    );
+    assert_eq!(project_address(&graph, "biling")?, None);
+    // Every session of one agent tool reads as one project, as the write layer files it.
+    assert_eq!(
+        project_address(&graph, "personal:agent:claude:session-9")?,
+        Some("personal:agent:claude".to_owned())
+    );
+    assert!(project_address(&graph, "  ").is_err());
+    assert!(project_address(&graph, "personal:").is_err());
+    Ok(())
+}
