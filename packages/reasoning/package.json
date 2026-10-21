@@ -2,7 +2,20 @@
   "name": "@loomtracer/reasoning",
   "version": "0.3.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./legacy": "./src/legacy.ts", "./graph-model": "./src/graph-model.ts" },
-  "dependencies": { "zod": "4.4.3" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./legacy": "./src/legacy.ts",
+    "./graph-model": "./src/graph-model.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11"
+  }
 }

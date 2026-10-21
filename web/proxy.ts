@@ -1,24 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { refreshSupabaseSession } from "@/lib/supabase/proxy";
 
-export async function proxy(request: NextRequest) {
+/**
+ * The workspace has no login of its own: it shows whatever the HiveMind server behind
+ * HIVEMIND_API_URL lets its bearer token read. Run it on a loopback address or behind your own
+ * access control. A separate public deployment (NEUROFILAMENT_PUBLIC_ONLY=true) serves only the
+ * landing page, the demo and their assets, and answers 404 to everything else.
+ */
+export function proxy(request: NextRequest) {
+  if (process.env.NEUROFILAMENT_PUBLIC_ONLY !== "true") return NextResponse.next({ request });
   const path = request.nextUrl.pathname;
   const publicPage = path === "/" || path === "/demo";
-  const localInspector = path === "/inspect";
-  const publicIntake = path === "/api/access-requests";
   const publicAsset = path.startsWith("/_next/static/") || path.startsWith("/_next/image")
     || ["/favicon.ico", "/og.png", "/reasoning/brand/logo.svg"].includes(path);
-  const publicRequest = (publicPage || publicAsset) && ["GET", "HEAD"].includes(request.method)
-    || publicIntake && request.method === "POST";
-  // A separate marketing deployment can run against only the additive intake
-  // migration. Never invoke private auth or beta handlers on that deployment.
-  if (process.env.NEUROFILAMENT_PUBLIC_ONLY === "true") {
-    return publicRequest ? NextResponse.next({ request }) : new NextResponse("Not found", {
-      status: 404, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" },
-    });
-  }
-  if (publicPage || localInspector || publicIntake || publicAsset) return NextResponse.next({ request });
-  return refreshSupabaseSession(request);
+  if ((publicPage || publicAsset) && ["GET", "HEAD"].includes(request.method)) return NextResponse.next({ request });
+  return new NextResponse("Not found", { status: 404, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" } });
 }
 
 export const config = {

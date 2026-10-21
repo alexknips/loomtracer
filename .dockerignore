@@ -5,3 +5,8 @@ target/
 docs/
 .claude/
 .agents/
+web/
+packages/
+node_modules/
+package.json
+package-lock.json

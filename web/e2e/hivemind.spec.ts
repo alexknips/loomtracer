@@ -1,0 +1,179 @@
+import { mkdirSync } from "node:fs";
+import { expect, test as base, type Page } from "@playwright/test";
+
+// Runs against the scratch `hivemind serve` that playwright.config.ts starts: a fictional pricing study
+// (e2e/support/seed-ledger.mjs). Set LOOMTRACER_SCREENSHOTS=<dir> to also write a screenshot of each page.
+const SEED_TOKEN = "e2e-scratch-token";
+const screenshots = process.env.LOOMTRACER_SCREENSHOTS;
+async function shoot(page: Page, name: string) {
+  if (!screenshots) return;
+  mkdirSync(screenshots, { recursive: true });
+  await page.screenshot({ path: `${screenshots}/${name}.png`, fullPage: true, caret: "initial" });
+}
+
+// Every test in this file also checks, as it ends, that the browser talked to the UI only: no request to the
+// HiveMind server, none carrying an Authorization header, and the bearer token in no response.
+const test = base.extend<{ leaks: string[] }>({
+  leaks: [async ({ page }, use) => {
+    const leaks: string[] = [];
+    page.on("request", request => { if (request.url().includes(`:${process.env.HIVEMIND_E2E_PORT ?? 18736}`) || request.headers().authorization) leaks.push(request.url()); });
+    page.on("response", async response => { if (response.url().startsWith("http://127.0.0.1:3107") && (await response.text().catch(() => "")).includes(SEED_TOKEN)) leaks.push(`token in ${response.url()}`); });
+    await use(leaks);
+    expect(leaks).toEqual([]);
+  }, { auto: true }],
+});
+
+test("the graph shows the ledger's decisions with their statuses, and replays them in order", async ({ page }) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", error => runtimeErrors.push(error.message));
+  await page.goto("/graph");
+  await expect(page.getByTestId("workspace-identity")).toHaveText("local · service:api");
+  await expect(page.getByLabel("Reasoning project")).toHaveValue("pricing");
+  await expect(page.getByLabel("Reasoning project").locator("option")).toHaveText(["Pricing study (3)", "Pricing study / Pricing experiments (1)"]);
+
+  const timeline = page.getByTestId("timeline");
+  await expect(timeline.getByTestId("timeline-entry").filter({ hasText: "Price per seat" }).first()).toBeVisible();
+  await expect(timeline).toContainText("Test a team plan with included usage");
+  await expect(timeline).toContainText("Show the price before the invite is sent");
+  // Status is a word on every decision, and contested is its own.
+  await expect(timeline.locator(".badge.status-superseded")).toHaveCount(1);
+  await expect(timeline.locator(".badge.status-accepted")).toHaveCount(1);
+  await expect(timeline.locator(".badge.status-contested")).toHaveText("Status: contested");
+  // What was weighed is in the record: the options of a decision are entries of their own.
+  await expect(timeline).toContainText("Pure usage");
+  await expect(page.getByTestId("ledger-position")).toContainText("Ledger position");
+  await expect(page.getByTestId("read-from")).toContainText("HiveMind ledger, event");
+  await expect(page.getByText("read from the HiveMind ledger", { exact: false }).first()).toBeAttached();
+  await shoot(page, "graph-timeline");
+
+  // Inspecting a record shows who recorded it, and where it sits in the ledger.
+  await timeline.getByTestId("timeline-entry").filter({ hasText: "Test a team plan with included usage" }).getByRole("button").first().click();
+  const inspector = page.getByTestId("inspector");
+  await expect(inspector.getByTestId("reported-provenance")).toContainText("agent:claude:analyst");
+  await expect(inspector.getByTestId("server-capture")).toContainText("HiveMind ledger");
+  await expect(inspector.getByTestId("source-highlight").first()).toContainText("Test a team plan with included usage");
+  await expect(inspector).toContainText("Read from the HiveMind ledger");
+  await expect(inspector).toContainText("Recorded as written");
+  await expect(inspector).toContainText("HiveMind record");
+  await expect(inspector).not.toContainText("Legacy");
+  await expect(inspector).not.toContainText("Preserved record record");
+  // Its connections sit beside it in the timeline, worded as the graph words them.
+  await expect(timeline.getByTestId("timeline-entry").filter({ hasText: "Test a team plan with included usage" }).first().locator(".connection-chip").filter({ hasText: "supersedes" })).toHaveCount(1);
+  await shoot(page, "graph-inspector");
+
+  // Moving the cutoff replays the project's record in the order it was made.
+  const total = await timeline.getByTestId("timeline-entry").count();
+  await page.getByTestId("cutoff-slider").fill("1");
+  await expect(timeline.getByTestId("timeline-entry")).toHaveCount(1);
+  await expect(timeline.getByTestId("timeline-entry").first()).toContainText("Price per seat");
+  await page.getByTestId("cutoff-slider").fill(await page.getByTestId("cutoff-slider").getAttribute("max") ?? "99");
+  await expect(timeline.getByTestId("timeline-entry")).toHaveCount(total);
+
+  // The trace map draws the same record, and a project's edge into another project stays a pointer.
+  await page.getByTestId("graph-tab").click();
+  await expect(page.locator("[data-testid^='graph-node-']").first()).toBeVisible();
+  await shoot(page, "graph-trace-map");
+  await page.getByLabel("Reasoning project").selectOption("pricing-experiments");
+  await expect(page).toHaveURL(/\/graph\?project=pricing-experiments/);
+  await expect(page.getByRole("heading", { name: "Pricing experiments", level: 1 })).toBeVisible();
+  await page.getByTestId("timeline-tab").click();
+  await expect(page.getByTestId("timeline")).toContainText("Run the allowance experiment on the invite flow");
+  await expect(page.getByTestId("timeline").locator(".badge.status-proposed")).toHaveText("Status: proposed");
+  await page.getByTestId("graph-tab").click();
+  await expect(page.getByText("1 preserved cross-project links")).toBeVisible();
+  await shoot(page, "graph-cross-project");
+  expect(runtimeErrors).toEqual([]);
+});
+
+test("search finds decisions by their words and opens each with its reasons", async ({ page }) => {
+  await page.goto("/search");
+  await page.getByLabel("Search decisions").fill("seat");
+  await page.getByLabel("Search decisions").press("Enter");
+  await expect(page.getByTestId("search-count")).toContainText("matching “seat”");
+  const results = page.getByTestId("search-result");
+  await expect(results.filter({ hasText: "Price per seat" })).toBeVisible();
+  await expect(results.filter({ hasText: "Test a team plan with included usage" })).toBeVisible();
+  await shoot(page, "search");
+
+  await results.filter({ hasText: "Price per seat" }).getByRole("link", { name: "Price per seat" }).click();
+  await expect(page).toHaveURL(/\/decisions\/decision-/);
+  const detail = page.getByTestId("decision-detail");
+  await expect(detail.getByRole("heading", { name: "Price per seat", level: 1 })).toBeVisible();
+  await expect(detail.locator(".hm-status")).toHaveText("Superseded");
+  await expect(detail.getByTestId("decision-rationale")).toContainText("easy for teams to budget for");
+  await expect(detail.getByTestId("decision-options")).toContainText("Usage based");
+  await expect(detail.getByTestId("decision-options").locator(".hm-chosen")).toHaveText("Per seat");
+  await expect(detail.getByTestId("decision-grounds")).toContainText("Teams prefer a bill they can predict");
+  await expect(detail.getByTestId("decision-supersession")).toContainText("Superseded by Test a team plan with included usage");
+  await expect(detail.getByTestId("decision-timeline")).toContainText("Recorded by human:alice");
+  await shoot(page, "decision-superseded");
+
+  // Following the replacement reaches the decision that took its place, with the evidence it was based on.
+  await detail.getByRole("link", { name: "Test a team plan with included usage" }).click();
+  await expect(page.getByTestId("decision-grounds")).toContainText("Seat study: occasional collaborators were invited less often");
+  await expect(page.getByTestId("decision-supersession")).toContainText("Supersedes Price per seat");
+
+  await page.goto("/search?status=contested");
+  await expect(page.getByTestId("search-result")).toHaveCount(1);
+  await page.getByTestId("search-result").getByRole("link").click();
+  await expect(page.locator(".hm-status")).toHaveText("Contested");
+  await expect(page.getByTestId("decision-contest")).toContainText("human:bob");
+  await expect(page.getByTestId("decision-contest")).toContainText("human:carol");
+  await expect(page.getByTestId("decision-timeline")).toContainText("Showing the price first may suppress invites");
+  await shoot(page, "decision-contested");
+
+  await page.goto("/search?q=zzzz-no-such-words");
+  await expect(page.getByTestId("search-count")).toContainText("0 decisions");
+  await expect(page.getByText("Nothing in the ledger matches.")).toBeVisible();
+});
+
+test("a decision that is not in the ledger says so", async ({ page }) => {
+  const response = await page.goto("/decisions/decision-does-not-exist");
+  expect(response?.status()).toBe(404);
+});
+
+test("review lists what needs a person: proposed, contested and unanswered", async ({ page }) => {
+  await page.goto("/review");
+  await expect(page.getByTestId("review-proposed")).toContainText("Run the allowance experiment on the invite flow");
+  await expect(page.getByTestId("review-contested")).toContainText("Show the price before the invite is sent");
+  await expect(page.getByTestId("review-contested")).toContainText("Accepted by human:bob");
+  await expect(page.getByTestId("review-contested")).toContainText("Rejected by human:carol");
+  await expect(page.getByTestId("review-waiting")).toContainText("Should the team plan include a free tier?");
+  await shoot(page, "review");
+  await page.getByTestId("review-proposed").getByRole("link", { name: "Run the allowance experiment on the invite flow" }).click();
+  await expect(page).toHaveURL(/\/decisions\/decision-/);
+  await expect(page.locator(".page-heading .hm-status")).toHaveText("Proposed");
+  await expect(page.getByTestId("decision-grounds")).toContainText("Invite behaviour is a fair proxy");
+  // It rests on a decision of the parent project, and says so.
+  await expect(page.getByTestId("decision-grounds")).toContainText("Test a team plan with included usage");
+});
+
+test("projects lists each project with its parent and its decisions by status", async ({ page }) => {
+  await page.goto("/projects");
+  const projects = page.getByTestId("project");
+  await expect(projects).toHaveCount(2);
+  await expect(projects.nth(0)).toContainText("Pricing study");
+  await expect(projects.nth(0)).toContainText("3 decisions");
+  await expect(projects.nth(1)).toHaveAttribute("data-depth", "1");
+  await expect(projects.nth(1)).toContainText("part of Pricing study");
+  await expect(projects.nth(1).locator(".hm-status-proposed")).toBeVisible();
+  await shoot(page, "projects");
+  await projects.nth(0).getByRole("link", { name: "Pricing study" }).click();
+  await expect(page).toHaveURL(/\/graph\?project=pricing$/);
+});
+
+test("the API serves the project and its bundle privately, and a missing project is a 404", async ({ request }) => {
+  const health = await request.get("/api/health");
+  expect(health.status()).toBe(200);
+  expect(await health.json()).toEqual({ ok: true, tenant: "local" });
+  const projects = await request.get("/api/reasoning");
+  expect(projects.headers()["cache-control"]).toContain("no-store");
+  expect((await projects.json()).projects).toEqual([{ ref: "pricing", name: "Pricing study", decisions: 3 }, { ref: "pricing-experiments", name: "Pricing study / Pricing experiments", decisions: 1 }]);
+  const bundle = await (await request.get("/api/reasoning?project_ref=pricing")).json();
+  expect(Object.keys(bundle).sort()).toEqual(["bundle", "head"]);
+  expect(bundle.bundle.namespace).toEqual({ datasetId: "hivemind:local:pricing", workspaceId: "local", projectId: "pricing" });
+  expect(JSON.stringify(bundle)).not.toContain(SEED_TOKEN);
+  const missing = await request.get("/api/reasoning?project_ref=nope");
+  expect(missing.status()).toBe(404);
+  expect(await request.post("/api/reasoning", { data: {} }).then(response => response.status())).toBe(405);
+});

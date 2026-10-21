@@ -17,7 +17,7 @@ export type SourceMessage = {
   active: boolean; supersededBy?: string; provenance?: SourceProvenance;
 };
 export type Attachment = { id: string; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; dataUrl: string; sha256: string };
-export type Context = { id: string; title: string; kind: 'discussion' | 'illustration' | 'quoted_source' | 'legacy_record' };
+export type Context = { id: string; title: string; kind: 'discussion' | 'illustration' | 'quoted_source' | 'legacy_record' | 'ledger_record' };
 export type Provenance = {
   expressedBy: string | null; recordedBy: string; occurredAt: string | null;
   recordedAt: string; basis: 'direct' | 'inferred'; sourceSpans: Span[];

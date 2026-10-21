@@ -1,45 +1,34 @@
 {
-  "name": "neurofilament-web",
+  "name": "loomtracer-web",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest run && node --test benchmarks/harness.test.mjs",
+    "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "benchmark": "node benchmarks/run.mjs",
-    "benchmark:agent": "node benchmarks/run.mjs --mode agent",
-    "benchmark:build": "npm test && npm run build && npm run benchmark",
-    "test:db": "node ../scripts/test-private-beta.mjs && node ../scripts/test-team-beta.mjs && node ../scripts/test-hosted-default-privileges.mjs",
-    "test:migration": "node ../scripts/rehearse-private-beta.mjs",
-    "local:stack": "node ../scripts/local-beta-stack.mjs",
-    "dev:beta": "node scripts/start-local-beta.mjs",
-    "test:native": "node scripts/test-native-beta.mjs"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@loomtracer/reasoning": "0.3.0",
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "@supabase/ssr": "0.12.5",
-    "@supabase/supabase-js": "2.112.4",
     "@xyflow/react": "12.11.3",
     "elkjs": "0.12.0",
-    "next": "16.3.5",
+    "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8",
     "@playwright/test": "1.62.1",
     "@types/node": "26.2.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.3.8",
     "typescript": "6.0.3",
     "vitest": "4.1.11"
   }

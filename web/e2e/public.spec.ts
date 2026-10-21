@@ -55,14 +55,14 @@ test("public landing and demo are anonymous, isolated and shareable", async ({ p
   const runtimeErrors: string[] = [];
   page.on("pageerror", error => runtimeErrors.push(error.message));
   page.on("console", message => { if (message.type() === "error") runtimeErrors.push(message.text()); });
-  page.on("request", request => { if (/\/api\/(graph|search|review|projects|nodes|export|mcp|session)(\/|\?|$)/.test(request.url())) privateRequests.push(request.url()); });
+  page.on("request", request => { if (/\/api\/(graph|search|review|projects|nodes|export|mcp|session|reasoning|health)(\/|\?|$)/.test(request.url())) privateRequests.push(request.url()); });
   await page.setViewportSize({ width: 1440, height: 1000 });
   const response = await page.goto("/");
   expect(response?.headers()["x-robots-tag"]).toBe("index, follow");
   await expect(page.getByRole("heading", { name: "Test. Iterate. Connect the dots.", exact: true, level: 1 })).toBeVisible();
   await expect(page.locator(".public-pricing-intro").getByRole("heading", { name: "One pricing question. Three possible paths.", exact: true, level: 2 })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Public navigation" }).getByRole("link", { name: "Explore demo", exact: true })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Public navigation" }).getByRole("link", { name: /^Sign in/ })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Public navigation" }).getByRole("link", { name: /^Open the workspace/ })).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "index, follow");
   await expectReadableHeroGraph(page);
   await expectReadablePricingWalkthrough(page);
@@ -124,7 +124,7 @@ test("the public sample has a usable mobile list and visible record details", as
     await expect(page.getByRole("heading", { name: "Test. Iterate. Connect the dots.", exact: true, level: 1 })).toBeVisible();
     await expect(page.locator(".public-pricing-intro").getByRole("heading", { name: "One pricing question. Three possible paths.", exact: true, level: 2 })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Public navigation" }).getByRole("link", { name: "Explore demo", exact: true })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Public navigation" }).getByRole("link", { name: /^Sign in/ })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Public navigation" }).getByRole("link", { name: /^Open the workspace/ })).toBeVisible();
     await expectReadableHeroGraph(page);
     await expectReadablePricingWalkthrough(page);
     await page.screenshot({ path: testInfo.outputPath(`landing-${viewport.screenshot}.png`), fullPage: true, caret: "initial" });
@@ -146,21 +146,4 @@ test("the public sample has a usable mobile list and visible record details", as
     await page.screenshot({ path: testInfo.outputPath(`demo-${viewport.screenshot}.png`), fullPage: true, caret: "initial" });
   }
   expect(runtimeErrors).toEqual([]);
-});
-
-test("access requests show honest unavailable, throttle and accepted states", async ({ page }) => {
-  await page.goto("/#request-access");
-  await page.getByLabel("Email address", { exact: true }).fill("builder@example.com");
-  await page.getByLabel("What would you like your agents to remember?").fill("Architecture choices across our coding agents.");
-  let status = 503;
-  await page.route("**/api/access-requests", route => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 202 ? { ok: true } : { error: "Unavailable" }) }));
-  await page.getByRole("button", { name: "Request access", exact: true }).click();
-  await expect(page.locator(".public-form-error")).toContainText("couldn't save your request");
-  await expect(page.getByRole("heading", { name: "Your request is in the queue." })).toHaveCount(0);
-  status = 429;
-  await page.getByRole("button", { name: "Request access", exact: true }).click();
-  await expect(page.locator(".public-form-error")).toContainText("busy right now");
-  status = 202;
-  await page.getByRole("button", { name: "Request access", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Your request is in the queue." })).toBeVisible();
 });

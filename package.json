@@ -1,0 +1,10 @@
+{
+  "name": "loomtracer-workspace",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "workspaces": ["web", "packages/reasoning"],
+  "scripts": {
+    "build": "npm run build --workspace=web",
+    "test": "npm test --workspaces --if-present"
+  }
+}

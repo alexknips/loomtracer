@@ -12,7 +12,7 @@ const connectionSchema = z.object({ ...versioned, relation: z.union([z.enum(['re
 export const bundleSchema = z.object({
   schemaVersion: z.literal('0.3.0'), id, title: id, namespace: namespaceSchema,
   actors: z.array(z.object({ id, name: id, kind: z.enum(['human', 'agent', 'system', 'import', 'unknown']) }).strict()),
-  contexts: z.array(z.object({ id, title: id, kind: z.enum(['discussion', 'illustration', 'quoted_source', 'legacy_record']) }).strict()),
+  contexts: z.array(z.object({ id, title: id, kind: z.enum(['discussion', 'illustration', 'quoted_source', 'legacy_record', 'ledger_record']) }).strict()),
   sources: z.array(z.object({ id, originalId: id, actorId: id, role: z.enum(['user', 'assistant', 'record', 'audit']), content: z.string(), occurredAt: instant.nullable(), loggedAt: instant.nullable(), order: z.number().int().nonnegative(), sourceRef: id, attachmentIds: z.array(id), active: z.boolean(), supersededBy: id.optional(), provenance: z.object({ kind: z.enum(['chat', 'legacy_record', 'legacy_audit', 'authored']), originalRecord: z.object({ table: id, id, workspaceId: id }).strict().optional(), recordedBy: id.nullable().optional(), recordedAt: instant.nullable().optional(), payload: z.json().optional() }).strict().optional() }).strict()),
   attachments: z.array(z.object({ id, mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']), dataUrl: z.string().regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/), sha256: z.string().regex(/^[a-f0-9]{64}$/i) }).strict()),
   manifest: z.object({ threadId: id, frozenAt: instant, cutoffDescription: id, segments: z.array(z.object({ ref: id, sha256: z.string().regex(/^[a-f0-9]{64}$/i), selectedMessageIds: z.array(id) }).strict()), exclusions: z.array(z.string()) }).strict(),

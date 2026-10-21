@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { publicSignInUrl } from "@/lib/public-site-config";
 import { BrandLogo } from "@/components/brand-logo";
 
 export function PublicHeader({ demo = false }: { demo?: boolean }) {
@@ -9,7 +8,8 @@ export function PublicHeader({ demo = false }: { demo?: boolean }) {
     </Link>
     <nav aria-label="Public navigation">
       <Link className={demo ? "public-nav-current" : undefined} href="/demo">Explore demo</Link>
-      <Link className="public-signin" href={publicSignInUrl()} prefetch={false}>Sign in <span aria-hidden="true">↗</span></Link>
+      {/* The workspace is part of the full app only; a public-only deployment answers 404 for it. */}
+      {process.env.NEUROFILAMENT_PUBLIC_ONLY !== "true" && <Link className="public-signin" href="/graph">Open the workspace <span aria-hidden="true">↗</span></Link>}
     </nav>
   </header>;
 }

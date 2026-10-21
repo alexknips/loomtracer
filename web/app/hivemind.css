@@ -1,0 +1,68 @@
+/* Views over the HiveMind ledger: search, a decision, projects, review. Colour and type follow globals.css. */
+.brand-identity { display: grid; gap: 3px; min-width: 0; }
+.workspace-identity { display: block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; font-weight: 400; letter-spacing: 0; }
+@media (max-width: 700px) { .workspace-identity { max-width: min(210px, 48vw); } }
+
+.hm-status { display: inline-block; padding: 3px 9px; border-radius: 999px; border: 1px solid currentColor; font-size: 11px; font-weight: 600; letter-spacing: .02em; line-height: 1.3; white-space: nowrap; }
+.hm-status-proposed { color: var(--blue); }
+.hm-status-accepted { color: var(--green); }
+.hm-status-rejected { color: var(--red); }
+.hm-status-contested { color: #8a5a00; background: rgb(243 186 30 / 22%); border-color: #8a5a00; }
+.hm-status-superseded { color: var(--muted); border-style: dashed; }
+
+.hm-problem pre { margin: 20px 0 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.6; }
+.hm-problem p { max-width: 62ch; color: var(--muted); line-height: 1.6; }
+
+.hm-search { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 8px; }
+.hm-search input[type="search"] { flex: 1 1 320px; min-width: 0; padding: 11px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.hm-search select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+.hm-count { margin: 22px 0 14px; color: var(--muted); font-size: 12px; }
+
+.hm-results, .hm-plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.hm-result { padding: 20px 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.hm-result-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.hm-result h2 { margin: 10px 0 6px; font: 600 20px/1.25 var(--font-headline), serif; letter-spacing: -.02em; }
+.hm-result h2 a:hover, .hm-link:hover { text-decoration: underline; }
+.hm-result p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 78ch; }
+.hm-result small { display: block; margin-top: 10px; color: var(--muted); font-size: 11px; }
+.hm-more { margin-top: 22px; }
+
+.hm-decision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 40px; margin-top: 34px; align-items: start; }
+.hm-decision section { margin: 0 0 34px; }
+.hm-decision h2 { margin: 0 0 12px; font: 600 12px/1 var(--font-body), sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.hm-decision p { margin: 0 0 10px; font-size: 15px; line-height: 1.65; max-width: 70ch; }
+.hm-decision blockquote { margin: 0 0 12px; padding: 4px 0 4px 16px; border-left: 3px solid var(--brand-yellow); color: var(--muted); font-size: 14px; line-height: 1.6; }
+.hm-decision ul, .hm-decision ol { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.55; }
+.hm-chosen { font-weight: 600; }
+.hm-chosen::after { content: " · chosen"; color: var(--green); font-weight: 400; font-size: 12px; }
+.hm-contest { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 16px 18px; border: 1px solid #8a5a00; border-radius: 10px; background: rgb(243 186 30 / 14%); }
+.hm-contest h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.hm-contest ul { padding-left: 16px; }
+.hm-facts { margin: 0; display: grid; gap: 14px; font-size: 13px; }
+.hm-facts dt { color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 3px; }
+.hm-facts dd { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.hm-timeline { list-style: none !important; padding-left: 0 !important; border-left: 2px solid var(--line); }
+.hm-timeline li { padding: 0 0 0 16px; position: relative; }
+.hm-timeline li::before { content: ""; position: absolute; left: -6px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); }
+.hm-timeline small { display: block; color: var(--muted); font-size: 11px; }
+.hm-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+.hm-projects { display: grid; gap: 10px; margin-top: 28px; }
+.hm-project { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: center; padding: 16px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.hm-project[data-depth="1"] { margin-left: 28px; } .hm-project[data-depth="2"] { margin-left: 56px; } .hm-project[data-depth="3"] { margin-left: 84px; }
+.hm-project h2 { margin: 0; font: 600 18px/1.25 var(--font-headline), serif; letter-spacing: -.02em; }
+.hm-project p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.hm-counts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+
+.hm-review { display: grid; gap: 34px; margin-top: 30px; }
+.hm-review h2 { margin: 0 0 6px; font: 600 24px/1.2 var(--font-headline), serif; letter-spacing: -.02em; }
+.hm-review > section > p { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 70ch; }
+.hm-empty { padding: 18px 20px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.hm-note { margin-top: 30px; padding: 14px 18px; border-left: 3px solid var(--green); background: rgb(47 93 75 / 8%); color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 80ch; }
+
+@media (max-width: 860px) {
+  .hm-decision { grid-template-columns: 1fr; gap: 10px; }
+  .hm-contest { grid-template-columns: 1fr; }
+  .hm-project { grid-template-columns: 1fr; }
+  .hm-counts { justify-content: flex-start; }
+}

@@ -1,0 +1,252 @@
+{
+ "Price per seat": {
+  "brief": {
+   "binds": {
+    "level": "something",
+    "statement": "The first pricing experiment"
+   },
+   "chosen_option_id": "option-b5b83f69-9567-4ec5-a460-d649508cfd3e",
+   "evidence_ids": [],
+   "floor": "cleared",
+   "hypotheses": [
+    {
+     "id": "hypothesis-7d79bc63-5820-47ca-a530-b2b49f8df0dc",
+     "kind": "assumption",
+     "status": "open"
+    }
+   ],
+   "id": "decision-7fb9e148-8ee0-462a-9acd-3a87e0fba735",
+   "option_ids": [
+    "option-b5b83f69-9567-4ec5-a460-d649508cfd3e",
+    "option-f8775720-94bf-435a-a842-752ca53a64ec"
+   ],
+   "premise_decision_ids": [],
+   "project": "pricing",
+   "project_label": "Pricing study",
+   "rationale": "A fixed seat count is easy for teams to budget for and easy for us to explain",
+   "status": "superseded",
+   "title": "Price per seat",
+   "topic_keys": [
+    "pricing",
+    "seats"
+   ],
+   "undo_cost": {
+    "level": "cheap"
+   }
+  },
+  "timeline": {
+   "decided_at": "2026-10-21T03:13:39.561168622Z",
+   "decision_id": "decision-7fb9e148-8ee0-462a-9acd-3a87e0fba735",
+   "entries": [
+    {
+     "actor_id": "human:alice",
+     "citation_id": "event:11",
+     "event_origin": 11,
+     "kind": "recorded",
+     "ts": "2026-10-21T03:13:39.561168622Z"
+    },
+    {
+     "actor_id": "human:alice",
+     "citation_id": "event:16",
+     "event_origin": 16,
+     "kind": "accepted",
+     "ts": "2026-10-21T03:13:39.561957071Z"
+    },
+    {
+     "actor_id": "agent:claude:analyst",
+     "by_id": "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372",
+     "citation_id": "event:25",
+     "event_origin": 25,
+     "kind": "superseded",
+     "ts": "2026-10-21T03:13:39.645167802Z"
+    }
+   ]
+  }
+ },
+ "Run the allowance experiment on the invite flow": {
+  "brief": {
+   "binds": {
+    "level": "something",
+    "statement": "The experiment design"
+   },
+   "chosen_option_id": null,
+   "evidence_ids": [],
+   "floor": "cleared",
+   "hypotheses": [
+    {
+     "id": "hypothesis-1209d37c-0632-40f0-89d7-8852673ba859",
+     "kind": "assumption",
+     "status": "refuted"
+    }
+   ],
+   "id": "decision-823b93f2-6bf8-4839-9239-d5924cfcb95c",
+   "option_ids": [
+    "option-0d68ea1e-b60c-496b-b7e4-ca456e80d56f",
+    "option-7def68da-5d35-4edc-af5f-c0bba9f8a38a"
+   ],
+   "premise_decision_ids": [
+    "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372"
+   ],
+   "project": "pricing-experiments",
+   "project_label": "Pricing experiments",
+   "rationale": "The invite flow is where seat cost showed up, so it is where an included allowance would show up too",
+   "status": "proposed",
+   "title": "Run the allowance experiment on the invite flow",
+   "topic_keys": [
+    "pricing",
+    "experiment"
+   ],
+   "undo_cost": {
+    "level": "cheap"
+   }
+  },
+  "timeline": {
+   "decided_at": "2026-10-21T03:13:39.693878721Z",
+   "decision_id": "decision-823b93f2-6bf8-4839-9239-d5924cfcb95c",
+   "entries": [
+    {
+     "actor_id": "agent:claude:analyst",
+     "citation_id": "event:27",
+     "event_origin": 27,
+     "kind": "recorded",
+     "ts": "2026-10-21T03:13:39.693878721Z"
+    },
+    {
+     "actor_id": "human:alice",
+     "citation_id": "event:43",
+     "event_origin": 43,
+     "evidence_id": "evidence-189661e6-713b-4394-a629-653ad53d810c",
+     "hypothesis_id": "hypothesis-1209d37c-0632-40f0-89d7-8852673ba859",
+     "kind": "premise_refuted",
+     "ts": "2026-10-21T03:13:39.943217224Z"
+    }
+   ]
+  }
+ },
+ "Show the price before the invite is sent": {
+  "brief": {
+   "binds": {
+    "level": "something",
+    "statement": "The invite dialog copy"
+   },
+   "chosen_option_id": "option-696f2239-4585-4ddb-8859-a147463131ab",
+   "evidence_ids": [],
+   "floor": "cleared",
+   "hypotheses": [
+    {
+     "id": "hypothesis-971fcef3-1161-4cb0-ad44-da1b221ee1cb",
+     "kind": "assumption",
+     "status": "open"
+    }
+   ],
+   "id": "decision-dbe005e4-2d0f-4008-b07c-7d1d0e81970c",
+   "option_ids": [
+    "option-696f2239-4585-4ddb-8859-a147463131ab",
+    "option-872e8ad1-a46b-4979-875c-6a1eee3ed32f"
+   ],
+   "premise_decision_ids": [],
+   "project": "pricing",
+   "project_label": "Pricing study",
+   "rationale": "People hesitate when they learn the cost after clicking invite, so the price comes first",
+   "status": "contested",
+   "title": "Show the price before the invite is sent",
+   "topic_keys": [
+    "pricing",
+    "invite"
+   ],
+   "undo_cost": {
+    "level": "cheap"
+   }
+  },
+  "timeline": {
+   "decided_at": "2026-10-21T03:13:39.764359052Z",
+   "decision_id": "decision-dbe005e4-2d0f-4008-b07c-7d1d0e81970c",
+   "entries": [
+    {
+     "actor_id": "human:bob",
+     "citation_id": "event:33",
+     "event_origin": 33,
+     "kind": "recorded",
+     "ts": "2026-10-21T03:13:39.764359052Z"
+    },
+    {
+     "actor_id": "human:bob",
+     "citation_id": "event:38",
+     "event_origin": 38,
+     "kind": "accepted",
+     "ts": "2026-10-21T03:13:39.765298767Z"
+    },
+    {
+     "actor_id": "human:carol",
+     "citation_id": "event:39",
+     "event_origin": 39,
+     "kind": "rejected",
+     "reason": "Showing the price first may suppress invites exactly as the seat study warned",
+     "ts": "2026-10-21T03:13:39.797939162Z"
+    }
+   ]
+  }
+ },
+ "Test a team plan with included usage": {
+  "brief": {
+   "binds": {
+    "level": "something",
+    "statement": "The next pricing experiment"
+   },
+   "chosen_option_id": "option-c94434a1-2299-4204-9223-d44bf396ee4d",
+   "evidence_ids": [
+    "evidence-867ce778-c3dc-4482-b307-0d3ab75388b2"
+   ],
+   "floor": "cleared",
+   "hypotheses": [],
+   "id": "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372",
+   "option_ids": [
+    "option-c94434a1-2299-4204-9223-d44bf396ee4d",
+    "option-eca80676-c23b-46b7-857a-2ebc9fdaa608",
+    "option-f9c93e26-5a4a-4d0f-81c4-d780538ed3a2"
+   ],
+   "premise_decision_ids": [],
+   "project": "pricing",
+   "project_label": "Pricing study",
+   "rationale": "Per-seat charges made occasional collaborators hard to invite, usage billing made bills hard to predict; an included allowance combines both",
+   "status": "accepted",
+   "title": "Test a team plan with included usage",
+   "topic_keys": [
+    "pricing",
+    "team-plan"
+   ],
+   "undo_cost": {
+    "level": "costly",
+    "statement": "One experiment cycle"
+   }
+  },
+  "timeline": {
+   "decided_at": "2026-10-21T03:13:39.595224509Z",
+   "decision_id": "decision-3d7e0ff3-02bb-481b-b253-47dac2d08372",
+   "entries": [
+    {
+     "actor_id": "agent:claude:analyst",
+     "citation_id": "event:18",
+     "event_origin": 18,
+     "kind": "recorded",
+     "ts": "2026-10-21T03:13:39.595224509Z"
+    },
+    {
+     "actor_id": "agent:claude:analyst",
+     "citation_id": "event:24",
+     "event_origin": 24,
+     "kind": "accepted",
+     "ts": "2026-10-21T03:13:39.596101001Z"
+    },
+    {
+     "actor_id": "agent:claude:analyst",
+     "citation_id": "event:25",
+     "event_origin": 25,
+     "kind": "supersedes",
+     "replaces_id": "decision-7fb9e148-8ee0-462a-9acd-3a87e0fba735",
+     "ts": "2026-10-21T03:13:39.645167802Z"
+    }
+   ]
+  }
+ }
+}

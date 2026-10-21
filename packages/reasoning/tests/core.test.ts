@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { makeDemoBundle as oldDemo } from '../../../prototypes/reasoning/src/fixture';
+import { makeDemoBundle as oldDemo } from './fixture';
 import { buildEvaluationPacket, entryText, getView, mergeBundles, relatedConnections, upgradeBundle, validateBundle } from '../src/domain';
 import { buildGraphModel, projectGraphModel, relationLinks } from '../src/graph-model';
 import { convertLegacySnapshot, type LegacySnapshot } from '../src/legacy';
@@ -193,20 +188,5 @@ describe('legacy preservation converter', () => {
     expect(result.report.ready).toBe(true); expect(result.report.explicitProjectAssignments).toEqual([assignment]);
     expect(result.bundles[0].sources.find(source => source.provenance?.originalRecord?.table === 'nodes' && source.provenance.originalRecord.id === 'D-one')!.provenance!.payload).toEqual(input.tables.nodes[0]);
     expect(() => convertLegacySnapshot(snapshot(), { projectAssignments: [assignment] })).toThrow('cannot overwrite existing ownership');
-  });
-  it('runs the offline CLI and writes private, validated bundles without overwriting earlier output', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'reasoning-convert-test-'));
-    try {
-      const input = join(directory, 'snapshot.json'), output = join(directory, 'output'); writeFileSync(input, JSON.stringify(snapshot()));
-      const cli = fileURLToPath(new URL('../../../scripts/reasoning-convert.mjs', import.meta.url));
-      const stdout = execFileSync(process.execPath, ['--experimental-strip-types', cli, input, output], { encoding: 'utf8' });
-      expect(JSON.parse(stdout).ready).toBe(true);
-      const files = readdirSync(output); expect(files).toHaveLength(3);
-      for (const file of files) {
-        expect(statSync(join(output, file)).mode & 0o777).toBe(0o600);
-        if (file.endsWith('.bundle.json')) expect(validateBundle(JSON.parse(readFileSync(join(output, file), 'utf8'))).ok).toBe(true);
-      }
-      expect(() => execFileSync(process.execPath, ['--experimental-strip-types', cli, input, output], { stdio: 'pipe' })).toThrow();
-    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

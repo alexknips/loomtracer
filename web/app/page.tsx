@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { getOwnerContext } from "@/lib/server/auth";
 import { BrandLogo } from "@/components/brand-logo";
 import { PublicHeader } from "@/components/public-header";
-import { PublicAccessForm } from "@/components/public-access-form";
 import { PublicHeroGraph } from "@/components/public-hero-graph";
-import { publicSignInUrl } from "@/lib/public-site-config";
 
 const title = "Loomtracer — Test. Iterate. Connect the dots.";
 const description = "Shared project memory that moves open questions to informed decisions. Connect your agents' investigations, findings, and choices so each agent can discover relevant history, explore solutions, and build on what works.";
@@ -20,9 +16,10 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title, description, images: ["/og.png"] },
 };
 
-export default async function Home() {
-  const owner = await getOwnerContext();
-  if (owner && !owner.demo) redirect("/graph");
+// The workspace is part of the full app; a public-only deployment serves this page and the demo alone.
+const workspaceLink = process.env.NEUROFILAMENT_PUBLIC_ONLY !== "true";
+
+export default function Home() {
   return <div className="public-site">
     <a className="public-skip" href="#public-main">Skip to content</a>
     <PublicHeader />
@@ -33,7 +30,7 @@ export default async function Home() {
           <h1>Test. Iterate.<br /><em>Connect the dots.</em></h1>
           <p className="public-product-line">Shared project memory that moves open questions to informed decisions.</p>
           <p className="public-lede">Connect your agents&apos; investigations, findings, and choices–so each agent can discover relevant history, explore solutions, and build on what works.</p>
-          <div className="public-actions"><Link className="public-button public-button-dark" href="/demo">Explore the demo <span aria-hidden="true">↗</span></Link><a className="public-text-link" href="#request-access">Request access <span aria-hidden="true">→</span></a></div>
+          <div className="public-actions"><Link className="public-button public-button-dark" href="/demo">Explore the demo <span aria-hidden="true">↗</span></Link>{workspaceLink && <Link className="public-text-link" href="/graph">Open the workspace <span aria-hidden="true">→</span></Link>}</div>
           <p className="public-hero-note">Open sample. No account needed.</p>
         </div>
         <PublicHeroGraph />
@@ -105,8 +102,7 @@ export default async function Home() {
 
       <section className="public-connect public-container"><p className="public-eyebrow">For the agents you already use</p><h2>Connect your agents today.</h2><p>The invite-only pilot includes setup for Codex and Claude Code. Connect an agent through MCP and have it retrieve the project&apos;s decisions, investigations, and findings at the start of a related task.</p><div className="public-connect-labels"><span>Possibilities to explore</span><span>Evidence to compare</span><span>Decisions with reasons</span></div></section>
 
-      <section className="public-access-section" id="request-access" aria-labelledby="access-heading"><div className="public-container public-access-grid"><div><p className="public-eyebrow">Private beta</p><h2 id="access-heading">Where could<br /><em>this lead?</em></h2><p>We&apos;re inviting a small group of builders working with agents. Tell us what you&apos;re exploring and where your agents could use a shared understanding.</p><p className="public-access-aside">Explore the sample today. Request an invitation to try Loomtracer with your own work.</p></div><PublicAccessForm /></div></section>
     </main>
-    <footer className="public-footer public-container"><BrandLogo className="footer-brand-logo" /><p>AI should reduce burden, not authorship.</p><Link href={publicSignInUrl()} prefetch={false}>Sign in ↗</Link></footer>
+    <footer className="public-footer public-container"><BrandLogo className="footer-brand-logo" /><p>AI should reduce burden, not authorship.</p>{workspaceLink && <Link href="/graph">Open the workspace ↗</Link>}</footer>
   </div>;
 }

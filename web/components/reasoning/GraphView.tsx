@@ -4,6 +4,7 @@ import '@xyflow/react/dist/style.css';
 import type { ReasoningBundle, View, Relation } from '@reasoning';
 import { entryText } from '@reasoning';
 import { buildGraphModel, projectGraphModel, type GraphRole } from '@reasoning';
+import { relationLabel } from './relations';
 
 // Agreed Loomtracer relationship colors, using the supplied brand palette.
 const relationColors: Partial<Record<Relation, string>> = {
@@ -11,12 +12,16 @@ const relationColors: Partial<Record<Relation, string>> = {
   supports: '#1D90CD', adopts: '#1D90CD',
   challenges: '#E25432', withdraws: '#E25432',
   compares: '#F3BA1E', revises: '#F3BA1E',
+  // HiveMind's relations: resting on and supporting, refuting, replacing.
+  'legacy:supports': '#1D90CD', 'legacy:based_on': '#1D90CD', 'legacy:premised_on': '#1D90CD', 'legacy:premised_on_direct': '#1D90CD',
+  'legacy:refutes': '#E25432',
+  'legacy:supersedes': '#F3BA1E', 'legacy:follows_from': '#F3BA1E',
 };
 const relationLegend = [
   { color: relationColors.answers, label: 'Answers / responds to' },
-  { color: relationColors.supports, label: 'Supports / adopts' },
-  { color: relationColors.challenges, label: 'Challenges / withdraws' },
-  { color: relationColors.compares, label: 'Compares / revises' },
+  { color: relationColors.supports, label: 'Supports / adopts / rests on' },
+  { color: relationColors.challenges, label: 'Challenges / withdraws / refutes' },
+  { color: relationColors.compares, label: 'Compares / revises / supersedes' },
 ];
 
 function CurvedConnection(props: EdgeProps) {
@@ -66,7 +71,7 @@ export default function GraphView({ bundle, view, fullView = view, selected, onS
   const nodes: TraceNode[] = visible.nodes.map(node => {
     const entry = entryMap.get(node.id), connection = connectionMap.get(node.id);
     const isSelected = selected?.kind === node.kind && selected.id === node.id;
-    const label = entry ? (entry.summary ?? entryText(bundle, entry)).slice(0, 165) : connection!.relation.replaceAll('_', ' ');
+    const label = entry ? (entry.summary ?? entryText(bundle, entry)).slice(0, 165) : relationLabel(connection!.relation);
     return {
       id: node.id, type: 'trace', position: node.position, width: node.width, height: node.height, selected: isSelected,
       data: { id: node.id, kind: node.kind, label, connectionColor: connection ? (relationColors[connection.relation] ?? '#332B32') : undefined, labels: entry?.labels ?? [], byline: entry ? `${bundle.actors.find(actor => actor.id === entry.provenance.expressedBy)?.name ?? 'Unstated author'}${entry.summary ? ' · summary' : ''}` : '', inferred: (entry ?? connection)!.provenance.basis === 'inferred', selected: isSelected, related: relatedIds.has(node.id), roles: node.roles, timestamp: node.timestamp, timeLabel: formatTime(node.timestamp, node.sourceOrder), cycle: node.cycle },

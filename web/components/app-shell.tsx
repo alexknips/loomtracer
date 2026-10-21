@@ -1,42 +1,40 @@
 import Link from "next/link";
-import { BrandLogo } from "@/components/brand-logo";
 import type { ReactNode } from "react";
-import { requireOwner } from "@/lib/server/auth";
-import { SessionBoundary } from "@/components/session-boundary";
-import styles from "@/components/workspace-administration.module.css";
+import { BrandLogo } from "@/components/brand-logo";
+import { hivemind } from "@/lib/hivemind/client";
+
+const LINKS = [
+  ["Reasoning", "/graph"],
+  ["Search", "/search"],
+  ["Review", "/review"],
+  ["Projects", "/projects"],
+  ["Inspect file", "/inspect"],
+];
 
 export async function AppShell({ children, active }: { children: ReactNode; active: string }) {
-  const owner = await requireOwner();
-  const links = [
-    ["Reasoning", "/graph"],
-    ["Inspect file", "/inspect"],
-    ["Projects", "/projects"],
-
-    ["Agent connections", "/settings/connections"],
-    ["Team", "/settings/team"],
-  ];
-  if (owner.isAdmin) links.push(["Invitations", "/settings/invitations"], ["Access requests", "/settings/access-requests"]);
+  // The tenant and actor the server resolves for this workspace's key: what everything below is read as.
+  const who = await hivemind().whoami().catch(() => null);
   return (
-    <SessionBoundary userId={owner.user.id} workspaceId={owner.workspaceId} membershipRole={owner.membershipRole} demo={owner.demo}><div className="app-shell">
+    <div className="app-shell">
       <header className="topbar">
-        <Link className={`brand ${styles.brand}`} href="/graph" aria-label="Loomtracer graph home">
+        <Link className="brand" href="/graph" aria-label="Loomtracer graph home">
           <BrandLogo className="app-brand-logo" />
-          <span className={styles.brandIdentity}>
-            <span className={styles.workspaceIdentity} aria-label={`Current workspace: ${owner.workspaceName}`} title={owner.workspaceName}>{owner.workspaceName} · {owner.membershipRole === "owner" ? "Owner" : "Member"}</span>
+          <span className="brand-identity">
+            <span className="workspace-identity" data-testid="workspace-identity" title={who ? `Reading tenant ${who.tenant_id} as ${who.actor_id}` : "HiveMind is not connected"}>
+              {who ? `${who.tenant_id} · ${who.actor_id}` : "HiveMind not connected"}
+            </span>
           </span>
         </Link>
         <nav aria-label="Primary navigation">
-          {links.map(([label, href]) => (
+          {LINKS.map(([label, href]) => (
             <Link key={href} href={href} className={active === label ? "active" : undefined}>
               {label}
             </Link>
           ))}
         </nav>
-        <form className="owner-chip" action="/auth/signout" method="post">
-          <span>{owner.user.email?.slice(0, 2).toUpperCase() ?? "ME"}</span><button type="submit" aria-label={`Sign out of ${owner.user.email ?? "your account"}`} title={owner.workspaceName}>Sign out</button>
-        </form>
+        <span />
       </header>
       {children}
-    </div></SessionBoundary>
+    </div>
   );
 }

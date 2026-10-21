@@ -85,3 +85,11 @@
 @media (max-width:760px) { .reasoning-surface .hosted-controls { margin:16px 22px; } .reasoning-surface .hosted-controls-top { flex-direction:column; } .reasoning-surface .project-controls label { flex:1 1 170px; } }
 
 .reasoning-surface .eyebrow { color:var(--ink); }
+
+/* A decision's status, as the ledger derives it. Contested is a status of its own, never folded into another. */
+.reasoning-surface .badge.status { font-weight:600; text-transform:none; }
+.reasoning-surface .badge.status-accepted { color:#2f5d4b; border-color:#2f5d4b; background:#2f5d4b14; }
+.reasoning-surface .badge.status-proposed { color:#1a76a6; border-color:#1d90cd99; background:#1d90cd10; }
+.reasoning-surface .badge.status-rejected { color:#a24a43; border-color:#b5564f; background:#b5564f12; }
+.reasoning-surface .badge.status-contested { color:#7a4f00; border-color:#8a5a00; background:#f3ba1e33; }
+.reasoning-surface .badge.status-superseded { color:var(--muted); border-style:dashed; }
