@@ -1,0 +1,8 @@
+{
+  "name": "@loomtracer/reasoning",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./legacy": "./src/legacy.ts", "./graph-model": "./src/graph-model.ts" },
+  "dependencies": { "zod": "4.4.3" }
+}
