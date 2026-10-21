@@ -29,7 +29,7 @@ test("the graph shows the ledger's decisions with their statuses, and replays th
   await page.goto("/graph?project=pricing");
   await expect(page.getByTestId("workspace-identity")).toHaveText("local · service:api");
   await expect(page.getByLabel("Reasoning project")).toHaveValue("pricing");
-  await expect(page.getByLabel("Reasoning project").locator("option")).toHaveText(["claude agents' personal project (1)", "Pricing study (3)", "Pricing study / Pricing experiments (1)"]);
+  await expect(page.getByLabel("Reasoning project").locator("option")).toHaveText(["claude agents' personal project (2)", "Pricing study (3)", "Pricing study / Pricing experiments (1)"]);
 
   const timeline = page.getByTestId("timeline");
   await expect(timeline.getByTestId("timeline-entry").filter({ hasText: "Price per seat" }).first()).toBeVisible();
@@ -167,6 +167,24 @@ test("a classifier draft, whose id has colons in it, opens from a search result"
   await expect(page.getByTestId("decision-detail")).toContainText("Weekly release train");
 });
 
+test("a classifier draft that chose words it never weighed names its choice", async ({ page }) => {
+  await page.goto("/search?q=hotfix+branch+rebase");
+  const link = page.getByTestId("search-result").getByRole("link", { name: "Rebase the hotfix branch onto main before the fast-forward merge" });
+  await link.click();
+  const detail = page.getByTestId("decision-detail");
+  await expect(detail.getByRole("heading", { name: "Rebase the hotfix branch onto main before the fast-forward merge", level: 1 })).toBeVisible();
+  // The options it weighed stay open: the choice is not one of them, so none is marked, and the choice is named apart.
+  await expect(detail.getByTestId("decision-options").locator("li")).toHaveText(["Merge commit", "Squash merge"]);
+  await expect(detail.getByTestId("decision-options").locator(".hm-chosen")).toHaveCount(0);
+  await expect(detail.getByTestId("decision-chose")).toHaveText("Rebase in a scratch worktree");
+  await shoot(page, "decision-draft-unweighed-choice");
+  // A draft whose choice was one of its options marks it there and names no second choice.
+  await page.goto("/search?q=weekly+release+train");
+  await page.getByTestId("search-result").getByRole("link", { name: "Chose a weekly release train over releasing on demand" }).click();
+  await expect(page.getByTestId("decision-detail").getByTestId("decision-options").locator(".hm-chosen")).toHaveText("Weekly release train");
+  await expect(page.getByTestId("decision-chose")).toHaveCount(0);
+});
+
 test("a decision that is not in the ledger says so", async ({ page }) => {
   const response = await page.goto("/decisions/decision-does-not-exist");
   expect(response?.status()).toBe(404);
@@ -192,9 +210,9 @@ test("projects lists each project with its parent and its decisions by status", 
   await page.goto("/projects");
   const projects = page.getByTestId("project");
   await expect(projects).toHaveCount(3);
-  // The personal project holds the classifier draft; it comes first, then the study and the project under it.
+  // The personal project holds the classifier drafts; it comes first, then the study and the project under it.
   await expect(projects.nth(0)).toContainText("claude agents' personal project");
-  await expect(projects.nth(0)).toContainText("1 decision");
+  await expect(projects.nth(0)).toContainText("2 decisions");
   await expect(projects.nth(1)).toContainText("Pricing study");
   await expect(projects.nth(1)).toContainText("3 decisions");
   await expect(projects.nth(2)).toHaveAttribute("data-depth", "1");
@@ -211,7 +229,7 @@ test("the API serves the project and its bundle privately, and a missing project
   expect(await health.json()).toEqual({ ok: true, tenant: "local" });
   const projects = await request.get("/api/reasoning");
   expect(projects.headers()["cache-control"]).toContain("no-store");
-  expect((await projects.json()).projects).toEqual([{ ref: "personal:agent:claude", name: "claude agents' personal project", decisions: 1 }, { ref: "pricing", name: "Pricing study", decisions: 3 }, { ref: "pricing-experiments", name: "Pricing study / Pricing experiments", decisions: 1 }]);
+  expect((await projects.json()).projects).toEqual([{ ref: "personal:agent:claude", name: "claude agents' personal project", decisions: 2 }, { ref: "pricing", name: "Pricing study", decisions: 3 }, { ref: "pricing-experiments", name: "Pricing study / Pricing experiments", decisions: 1 }]);
   const bundle = await (await request.get("/api/reasoning?project_ref=pricing")).json();
   expect(Object.keys(bundle).sort()).toEqual(["bundle", "decisions", "head"]);
   expect(bundle.decisions).toEqual({ shown: 3, total: 3, truncated: false });

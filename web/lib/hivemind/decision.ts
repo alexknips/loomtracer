@@ -11,6 +11,8 @@ export type DecisionDetail = {
   deciders: { id: string; kind: string }[];
   quote: string | null; question: string | null; topics: string[];
   options: { id: string; label: string; chosen: boolean }[];
+  /** The choice, when it is not one of `options`: a classifier draft can choose words it never weighed as an option. */
+  chose: { id: string; label: string } | null;
   assumptions: { id: string; statement: string; status: string; kind: string }[];
   evidence: { id: string; text: string }[];
   premises: DecisionRef[];
@@ -41,6 +43,7 @@ export function decisionDetail(brief: DecisionBrief, timeline: Timeline, graph: 
     deciders: row?.deciders ?? [],
     quote: row?.quote ?? null, question: row?.question ?? null, topics: brief.topic_keys,
     options: brief.option_ids.map(id => ({ id, label: label("Option", id), chosen: id === brief.chosen_option_id })),
+    chose: brief.chosen_option_id && !brief.option_ids.includes(brief.chosen_option_id) ? { id: brief.chosen_option_id, label: label("Option", brief.chosen_option_id) } : null,
     assumptions: brief.hypotheses.map(({ id, status, kind }) => ({ id, status, kind, statement: label("Hypothesis", id) })),
     evidence: brief.evidence_ids.map(id => ({ id, text: label("Evidence", id) })),
     premises: brief.premise_decision_ids.map(ref),

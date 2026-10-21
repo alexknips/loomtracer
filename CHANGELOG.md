@@ -790,6 +790,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The web UI's decision page names the choice of a draft that chose words it never weighed as an
+  option.** A classifier draft can choose a label that is not one of the options it listed (or
+  name a choice and no options). The page marked the chosen option among "What it weighed", so
+  for such a draft it marked none (`capture:105186:3` listed seven options, none chosen) or, when
+  the draft listed no options, showed no options section at all (`capture:106622:0` never said
+  "rebase in scratch worktree"), while the CLI's `why` and the `/graph` page named it. On the
+  cell's ledger that was 24 drafts. The page now adds a "What it chose" section with the words
+  the capture recorded; the options it weighed stay as they were, none marked, as the choice is
+  not one of them. A draft whose choice was one of its options marks it there as before, and a
+  decision with options and no choice shows them as open. The Rust server is unchanged.
+  (hivemind-89vgq)
+
 - **On a ledger of the cell's size, `recall`, `why` and `verify` name the decision filed under the
   question's rare word, and a rare word no longer outweighs two words in a title.** Both rules
   below were measured on 69 decisions only. On 1,845 (a copy of the cell's ledger, 157,563

@@ -46,6 +46,41 @@ describe("one decision, read for a person", () => {
   });
 });
 
+describe("the choice of a decision", () => {
+  // A classifier draft can choose words it did not weigh: the Option node has a CHOSE edge and no HAS_OPTION, and the
+  // brief names it in chosen_option_id although option_ids does not hold it (capture:106622:0 on the real ledger).
+  const draftChoosing = (weighed: string[]) => {
+    const { brief, timeline, graph: own } = details["Price per seat"]!;
+    const chosenId = "capture:106622:0:opt:rebase_in_scratch_worktree";
+    const optionIds = new Set(weighed.map(label => own.nodes.find(node => node.kind === "Option" && node.title === label)!.id.slice("Option:".length)));
+    const kept = own.nodes.filter(node => node.kind !== "Option" || optionIds.has(node.id.slice("Option:".length)));
+    const nodes = [...kept, { id: `Option:${chosenId}`, kind: "Option", label: "rebase in scratch worktree", title: "rebase in scratch worktree" }];
+    const edges = own.edges.filter(edge => edge.relation !== "CHOSE" && (edge.relation !== "HAS_OPTION" || optionIds.has(edge.to.slice("Option:".length))))
+      .concat({ from: `Decision:${brief.id}`, to: `Option:${chosenId}`, relation: "CHOSE", label: "chose", reversed: false });
+    return decisionDetail({ ...brief, option_ids: [...optionIds], chosen_option_id: chosenId }, timeline, { ...own, nodes, edges });
+  };
+
+  it("names a choice that is not one of the options, whether the draft weighed none or others", () => {
+    expect(draftChoosing([]).chose).toEqual({ id: "capture:106622:0:opt:rebase_in_scratch_worktree", label: "rebase in scratch worktree" });
+    const others = draftChoosing(["Usage based", "Per seat"]);
+    expect(others.chose).toEqual({ id: "capture:106622:0:opt:rebase_in_scratch_worktree", label: "rebase in scratch worktree" });
+    expect(others.options.map(option => option.label)).toEqual(["Usage based", "Per seat"]);
+    expect(others.options.filter(option => option.chosen)).toEqual([]);
+  });
+
+  it("marks a weighed choice among the options as it always did, and names no second one", () => {
+    const weighed = detail("Price per seat");
+    expect(weighed.options.filter(option => option.chosen).map(option => option.label)).toEqual(["Per seat"]);
+    expect(weighed.chose).toBeNull();
+  });
+
+  it("names no choice when none was made, and the options stay open", () => {
+    const open = detail("Run the allowance experiment on the invite flow");
+    expect(open.chose).toBeNull();
+    expect(open.options.map(option => option.chosen)).toEqual([false, false]);
+  });
+});
+
 describe("a decision's own graph", () => {
   it("is all the page needs: every decision reads the same from it as from the whole tenant graph", () => {
     const titles = Object.keys(details);

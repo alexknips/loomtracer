@@ -33,6 +33,7 @@ export default async function DecisionPage({ params }: { params: Promise<{ id: s
           <div><h3>Rejected by</h3><ul>{d.contest.rejectedBy.map(actor => <li key={actor}>{actor}</li>)}</ul></div>
         </div></section>}
         {d.options.length > 0 && <section><h2>What it weighed</h2><ul data-testid="decision-options">{d.options.map(option => <li key={option.id} className={option.chosen ? "hm-chosen" : undefined}>{option.label}</li>)}</ul></section>}
+        {d.chose && <section><h2>What it chose</h2><p data-testid="decision-chose">{d.chose.label}</p></section>}
         {(d.assumptions.length > 0 || d.evidence.length > 0 || d.premises.length > 0) && <section><h2>What it rests on</h2><ul data-testid="decision-grounds">
           {d.premises.map(premise => <li key={premise.id}>The decision <Link className="hm-link" href={decisionHref(premise.id)}>{premise.title}</Link> <StatusBadge status={premise.status} /></li>)}
           {d.evidence.map(item => <li key={item.id}>Observed: {item.text}</li>)}
