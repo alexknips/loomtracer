@@ -474,7 +474,10 @@ asked with another form or a synonym of a decision's words still finds it
   `replace` (the site draws a supersession as "replaces"), `assumption`, `hypothesis`
   and `premise`, `ui` and `interface`, `graph`, `diagram`, `chart` and `picture`,
   `site` and `website`, `edge` and `arrow`, `link`, `url` and `address`, `refute` and
-  `wrong`, and `browser`, `laptop` and `phone`. The list is fixed and literal, like the question
+  `wrong`, `browser`, `laptop` and `phone`, and the everyday words for what the ledger writes
+  another way: `competitor` and `rival`, `deck` and `presentation`, `clock`
+  and `zone`, `rename` and `rebrand`, `community` and `group`, `charge`, `price` and `pay`,
+  `repo` and `repository`, and `agent` and `bot`. The list is fixed and literal, like the question
   words: nothing is learned, and a word belongs in it only when people ask about the
   same decision with either. A stand-in is never the word itself: among decisions that
   lack the same number of words, the one that matches fewer of them only through a

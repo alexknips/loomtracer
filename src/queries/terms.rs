@@ -597,6 +597,14 @@ pub(crate) const WORD_GROUPS: &[&[&str]] = &[
     &["edge", "arrow"],
     &["link", "url", "address"],
     &["browser", "device", "laptop", "phone", "mobile", "desktop"],
+    &["competitor", "rival"],
+    &["deck", "presentation"],
+    &["clock", "zone", "timezone"],
+    &["rename", "rebrand"],
+    &["community", "group"],
+    &["charge", "price", "pay", "paywall"],
+    &["repo", "repository"],
+    &["agent", "bot"],
 ];
 
 struct Vocabulary {

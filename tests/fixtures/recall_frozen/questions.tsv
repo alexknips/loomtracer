@@ -1,0 +1,296 @@
+# The frozen recall question set (hivemind-y7b6c). DO NOT EDIT ROWS: a build is judged by running this same set,
+# so a change to it makes two runs incomparable. A new set is a new file; this one stays.
+#
+# Columns (tab separated): id, kind, expect, question, role.
+#   id      <standing battery>:<question id>, or dog-<build>:<id> for a question a product check filed.
+#   kind    the failure the row watches for. NEARBY: a `why` question answered from a nearby decision instead of the
+#           one asked (or a control answered at all), or the decision asked is found but behind others. SYNONYM: the
+#           question is in everyday words and the decision is written in other words, so recall never reaches it.
+#   expect  the 8-hex prefix of the decision the question is about (`a|b` when two are right), or `none`: nothing in
+#           the ledger answers it, so any one-call answer is wrong.
+#   role    `fail` = master 45f15984 failed this row on the crew copy or the cell-sized copy when the set was frozen;
+#           `guard` = master passed it on both (every tenth such row of the standing batteries, so a fix that breaks
+#           a right answer shows up here too).
+#
+# A row FAILS when, by kind: NEARBY: `why` answers in one call with a decision other than `expect` (any one-call
+# answer for `none`), or `expect` is not in recall's first 3. SYNONYM: `expect` is not in recall's first 3.
+# A row whose decision the ledger copy does not hold is left out of that copy's counts.
+#
+# Ledger copies it was frozen on (scripts/recall_frozen_set.py --ledger-dir): the crew ledger
+# (/home/ubuntu/gc/hivemind/ledger.sqlite, 534 events, 69 decisions) and a copy of the live cell, 165,352 events.
+checker:D1	NEARBY	c2da11a6	why do the website diagrams say replaces instead of supersedes?	guard
+checker:E1	SYNONYM	05695fd8	where does the web app get the address part of a decision link from?	fail
+checker:F2	SYNONYM	05695fd8	does a decision's web address change when someone renames the decision?	fail
+checker:F3	NEARBY	83e5bdcd	what does Flow do with a long search answer so it doesn't cover the node names?	guard
+checker:F4	SYNONYM	9237423c	how do we stop someone hand-editing the demo's sample graph?	fail
+checker:H1	NEARBY	25005f47	how do we get the graph to draw a decision's options A, B, C in order without making the lines cross more?	fail
+checker:H3	SYNONYM	6ca0bdd5	can I turn off the dotted links between decisions that might be connected?	fail
+checker:H4	SYNONYM	ba606337	when a teammate saves somebody's Slack post with an emoji, whose decision is it?	fail
+checker:H5	SYNONYM	05695fd8	does the web app still make up its own decision address from the title when the backend already gives one?	fail
+checker:I1	NEARBY	c2da11a6	what wording do the homepage diagrams use when one choice replaces an older one?	fail
+checker:I2	SYNONYM	9237423c	how do we verify nobody altered the demo's sample dataset by hand?	fail
+checker:I5	NEARBY	83e5bdcd	what does the reply panel in Flow's search do with a lengthy answer?	guard
+checker:J1	SYNONYM	25005f47	how do we make the graph list a decision's choices alphabetically?	fail
+checker:J2	NEARBY	7d07c1b4	why could a decision page show its options as A, C, B, and what did we do about it?	fail
+checker:J3	NEARBY	6ca0bdd5	are inferred connections between decisions drawn like real links on the graph?	fail
+checker:J5	SYNONYM	05695fd8	if I rename a decision, will old links to it break?	fail
+checker:K1	NEARBY	83e5bdcd	in the Flow search chapter, why doesn't a long answer push the graph aside?	fail
+checker:K3	NEARBY	c2da11a6	how are features that are built but not yet released drawn on the marketing site's graphs?	guard
+checker:K5	NEARBY	cd049fd7	why was the homepage rewritten in plain language?	fail
+checker:L5	NEARBY	19a98974	are we still switching the product's name to Upheld?	fail
+checker:M2	NEARBY	6d2c7a02	does a decision's status history get one row for each change or one per day?	guard
+checker:N2	NEARBY	6ab3791e	does the command-line binary get a new name along with the new company?	fail
+checker:O2	NEARBY	6d2c7a02	why do some history entries on a demo decision say No date?	fail
+checker:O4	NEARBY	25005f47	why not force the layout engine to put option A before option B?	guard
+checker:P2	SYNONYM	6ab3791e	what name does the marketing site go by now?	fail
+checker:P3	SYNONYM	32bf9421	what is the one figure we report every week?	fail
+checker:P4	NEARBY	6cd1dd8f	if the same choice is logged twice with an identical time, do we keep both copies?	fail
+checker:P5	SYNONYM	19a98974	is the rebrand on hold?	fail
+checker:Q1	NEARBY	5174d1df	how many slides is the pitch, and what took the place of the setup instructions?	fail
+checker:Q2	NEARBY	6d2c7a02	does every acceptance or rejection get its own line in a decision's history?	fail
+checker:Q3	NEARBY	3585c83e	after a disputed decision is replaced, do we still show who pushed back?	fail
+checker:Q4	NEARBY	25005f47	how do we get the chart to draw options alphabetically without rigid placement rules?	fail
+checker:R1	NEARBY	8a08752c	is the design co-founder the only one who edits the investor slides?	fail
+checker:R2	NEARBY	6ab3791e	after teaming up with Jeff's company, what is the homepage called and does the command change too?	fail
+checker:R4	NEARBY	6cd1dd8f	when the auto-classifier sees a ruling it has already logged, does it write a duplicate?	guard
+checker:R5	NEARBY	19a98974	did we drop the plan to change the product's name?	fail
+checker:S2	NEARBY	6d2c7a02	on a decision's page, what does one line of the history list represent?	fail
+checker:S4	SYNONYM	25005f47	how does the layout library learn to put option A above option B?	fail
+checker:T1	NEARBY	8a08752c	which of the two founders signs off on edits to the startup's slides?	fail
+checker:T3	NEARBY	32bf9421	how do we measure progress each week now that outsiders can't be counted?	guard
+checker:U1	SYNONYM	5174d1df	who is our investor presentation aimed at, and did the terminal commands stay in it?	fail
+checker:U4	SYNONYM	25005f47	does sorting the choices alphabetically in the diagram ever add crossing lines?	fail
+checker:V1	NEARBY	8a08752c	do our coding agents ever touch the slides we show to investors?	fail
+checker:V2	NEARBY	6ab3791e	since joining forces with a designer, what brand does the homepage carry?	guard
+checker:V3	NEARBY	32bf9421	what count leads each weekly company report?	fail
+checker:X1	NEARBY	6d2c7a02	where does a decision page show when it was rejected?	fail
+checker:X2	NEARBY	6d2c7a02	does the decision page show supersession dates?	fail
+checker:X3	SYNONYM	05695fd8	does renaming a decision break its URL?	fail
+checker:X4	NEARBY	05695fd8	do decision links survive a title change?	fail
+checker:X6	NEARBY	6d2c7a02	who changed a decision's status, and when?	guard
+checker:Y3	NEARBY	32bf9421	what figure opens the company's weekly update?	fail
+checker:Y5	SYNONYM	19a98974	are we still changing what the product is called?	fail
+checker:Y8	SYNONYM	6cde610d	whose clock are decision dates shown in?	fail
+checker:Y9	NEARBY	af7c3c02	do we say which coding tool an agent was?	fail
+checker:Z3	NEARBY	9237423c	how is the demo snapshot checked for tampering?	fail
+checker:Z4	NEARBY	ba606337	who counts as the decider for a Slack emoji capture?	guard
+checker:Z6	NEARBY	6ca0bdd5	are related decisions drawn in the graph by default?	fail
+checker:AA4	NEARBY	e61bb5e9	why did we stop testing the UI in jsdom?	fail
+checker:AA5	NEARBY	fa017650	how do screenshots of the 3D view avoid timing out?	fail
+checker:AA6	SYNONYM	df474de6	what stops someone hard-coding a colour in a component?	fail
+checker:AA9	SYNONYM	9455365d	where does the decision page get the question and the quote from?	fail
+checker:AB1	NEARBY	ae952f98	is the Flow demo labelled as a demo?	guard
+checker:AB2	NEARBY	c08ca0ff	how are options without letters matched to their reasons?	fail
+checker:AB5	SYNONYM	7392151c	what order is the decision list in?	fail
+checker:AB6	NEARBY	aae94459	when does the clock start for a blocked bead?	fail
+checker:AC1	SYNONYM	6356a947	when will we settle what we charge people for?	fail
+checker:AC4	NEARBY	977b0801	why did the names in the story pictures shrink to almost nothing on a phone, and what fixed it?	fail
+checker:AC6	SYNONYM	217648dc	where do the group labels go when the search view is wide but short?	fail
+checker:AC7	NEARBY	3629e4db	how do four dozen demo names fit on the small search stage?	fail
+checker:AC8	NEARBY	fd92ee86	how does the interface read the server's graph without changing the server?	fail
+checker:AD1	SYNONYM	466b50d8	how far does the forecast's leftover tail reach?	fail
+checker:AD2	NEARBY	6540651e	do gates hold an agent in the forecast?	guard
+checker:AD9	SYNONYM	df474de6	where do colours live?	fail
+checker:AE1	NEARBY	6356a947	at what point do we pick how the paid offer is packaged?	fail
+checker:AE5	NEARBY	466b50d8	how far past the longest finished job does the survival estimate put the remaining mass?	guard
+checker:AE6	NEARBY	05695fd8	where do the UI's decision links get their slug from?	fail
+checker:AE9	NEARBY	25005f47	how do we get the graph to draw options A, B, C in order?	fail
+checker:AF8	NEARBY	af1961fc	what does the toml file change about which repos are read?	guard
+checker:AG1	SYNONYM	0a6266cd	what happens when two labels in the animated graph would sit on top of each other?	fail
+checker:AG4	NEARBY	2165b8c3	which command do the docs show newcomers to record their first decision?	fail
+checker:AG7	SYNONYM	5174d1df	how many slides does the investor presentation have?	fail
+checker:AG8	NEARBY	ae952f98	how do visitors know the animated graph is showing sample data?	fail
+checker:AH1	SYNONYM	fd92ee86	I'm changing how the frontend turns the graph API response into edges; what did we settle?	fail
+checker:AH2	NEARBY	7392151c	I want to add a topic filter to the decision list page; was anything decided about filters?	fail
+checker:AH3	SYNONYM	df474de6	I'm about to add a new button; which component library should I use?	fail
+checker:AH5	NEARBY	a206ba0f	when one capture in a batch refers to another in the same batch, how do I point at it?	fail
+checker:AH6	SYNONYM	3629e4db	how should search results be arranged in the animated walkthrough?	fail
+checker:AH8	SYNONYM	9455365d	which endpoint should the decision page call to get a decision's summary?	fail
+checker:AJ1	NEARBY	fa017650	how long does the harness wait for things to settle before it takes the WebGL picture?	guard
+checker:AK2	SYNONYM	e61bb5e9	what made us run the interface checks inside a genuine Chromium window rather than faking one?	fail
+checker:AK3	NEARBY	25005f47	how come ELK gets handed the arrows one by one in a particular sequence?	guard
+checker:AK6	SYNONYM	df474de6	is shadcn what everybody grabs when they need a fresh dropdown or toggle?	fail
+checker:AK7	NEARBY	6ab3791e	how come the Loomtracer switch never touched what people type into their terminal?	fail
+checker:AL1	NEARBY	19a98974	is the switch to the Upheld name on hold for now?	fail
+checker:AM2	NEARBY	af1961fc	what happens when the beadline.toml file lists some repos and nobody set a path?	guard
+checker:AN1	SYNONYM	19a98974	did the Upheld rebrand get shelved?	fail
+checker:AN2	NEARBY	6cd1dd8f	if the classifier hands us the same choice twice with an identical time, do we keep both?	fail
+checker:AO3	NEARBY	9237423c	how do we know the demo data file was not changed, is there a SHA check?	guard
+checker:AO6	NEARBY	none	did we decide to replace ELK with dagre for the graph layout?	fail
+checker:AP1	SYNONYM	19a98974	are we still going ahead with calling the product Upheld, or is that on ice?	fail
+checker:AQ4	NEARBY	af7c3c02	does the UI say which tool an agent was, like Claude or Codex?	fail
+checker:AQ5	NEARBY	6cde610d	which time zone do we show decision dates in?	guard
+checker:AR3	SYNONYM	1acd70dd	on a small screen, where do the map's buttons go?	fail
+checker:AS3	SYNONYM	dc82de96	what do we say we are, in a line, when people find us next to other memory tools?	fail
+checker:AS6	NEARBY	none	did we decide to move the database from Postgres to MongoDB?	guard
+checker:AT2	NEARBY	6ab3791e	what name does the public site go by these days, and did the command line tool change too?	fail
+checker:AT4	NEARBY	6cd1dd8f	when the classifier sees the same decision twice, do we keep both copies?	fail
+checker:AT5	NEARBY	19a98974	are we still switching the product over to a new name, or was that put on hold?	fail
+checker:AU2	NEARBY	6d2c7a02	does a decision's page list every time its status changed?	fail
+checker:AU3	SYNONYM	3585c83e	if something got overruled after people argued over it, how does its note show the disagreement?	fail
+checker:AU4	NEARBY	25005f47	how does the diagram keep options A, B, C in alphabetical order?	fail
+checker:AV1	SYNONYM	6cde610d	if I am in Tokyo, whose clock do the dates on a decision follow?	fail
+checker:AV2	SYNONYM	af7c3c02	when a bot made the call, does the screen say which bot it was?	fail
+checker:AV3	NEARBY	650e4710	if the login info cannot be read, which sign-in does the app fall back to?	fail
+checker:AV4	NEARBY	13cb6413	where does the code for our marketing pages live?	fail
+checker:AW1	SYNONYM	fa017650	how long do we wait before snapping a picture of the animated view?	fail
+checker:AW3	NEARBY	e61bb5e9	do the frontend tests run in a fake browser?	fail
+checker:AW4	NEARBY	9455365d	where does a decision's page get its summary from?	fail
+checker:AW5	SYNONYM	2165b8c3	what is the very first command a newcomer types to save a decision in the site's getting started?	fail
+checker:AX2	NEARBY	32bf9421	what headline figure goes in our company update each week?	guard
+checker:AX5	SYNONYM	9237423c	how do we know the sample data behind the public demo was not tampered with?	fail
+checker:AY2	SYNONYM	83e67825	did looking at rival products change how we pitch ourselves?	fail
+checker:AY4	SYNONYM	abb50678	when do we start charging people for anything?	fail
+checker:AZ2	SYNONYM	af7c3c02	will the interface ever tell me whether a choice came from Codex?	fail
+checker:AZ4	NEARBY	13cb6413	where does the code for the marketing site live?	fail
+checker:BA1	NEARBY	c04c7f3e	what order are we listing the plugin in the different directories?	guard
+checker:BA3	SYNONYM	af1961fc	when beadline is run without a path, which repositories does it look at?	fail
+checker:BA5	NEARBY	fa017650	how does the screenshot tool deal with the animated 3D view?	fail
+checker:BB1	NEARBY	32bf9421	what figure goes at the top of the company's weekly update?	fail
+checker:BB2	SYNONYM	466b50d8	when the forecast runs out of finished examples, how far out does the survival curve put the leftover chance?	fail
+checker:BB5	NEARBY	650e4710	if the sign-in settings cannot be read, which login does the web app fall back to?	fail
+checker:BC4	SYNONYM	1c52841b	does the bug scanner look inside the extra checkouts sitting in the repo folder?	fail
+checker:BC5	SYNONYM	a206ba0f	inside one batch of captures, how does one decision point at another before either has an id?	fail
+checker:BD1	SYNONYM	8a08752c	who gets to merge the slides we show investors?	fail
+checker:BD2	NEARBY	fa017650	when the screenshot tool photographs the animated view, does it freeze the animation first?	fail
+checker:BD3	SYNONYM	af1961fc	if I run the forecaster without giving it a folder, which repos does it pick?	fail
+checker:BD4	NEARBY	6cd1dd8f	when the classifier hears the same decision twice at the same moment, does it keep both?	fail
+checker:BD5	NEARBY	60948a4d	how does the demo site get its sample data, baked into the page or loaded while it runs?	fail
+checker:BE1	NEARBY	5174d1df	what did we drop from the investor slides to make room for who it is for?	fail
+checker:BE2	NEARBY	c08ca0ff	when an option label lost its letter, how does the decision page still pair it with the list in the reasoning?	guard
+checker:BE3	NEARBY	3629e4db	in the search chapter of the flow, are the dots grouped by kind and then by when they happened?	fail
+checker:BF4	SYNONYM	f1ec4ba7	for numbers that span lots of decisions, what gets built first?	fail
+checker:BG2	SYNONYM	6356a947	how will we choose between running it for people and a single paid tier?	fail
+checker:BG4	NEARBY	a2d418fd	when claiming work runs into a broken store, what does the hook say?	guard
+checker:BH3	NEARBY	e61bb5e9	do the UI tests still run under jsdom?	fail
+checker:BI4	NEARBY	fa017650	why did the screenshot tool keep timing out on the animated Flow page?	fail
+checker:BI5	NEARBY	e4e19939	when a hypothesis underneath is disproved, how far does the not-holding mark spread on the site graph?	guard
+checker:BJ5	NEARBY	7392151c	what does the main list of decisions keep from the old index page?	fail
+checker:BK2	NEARBY	60948a4d	does the public demo bake its sample data into the javascript bundle?	fail
+checker:BK4	SYNONYM	d32e4195	what happens if someone opens a graph link to a decision that does not exist?	fail
+checker:BK5	NEARBY	6bfa6221	on a small phone, why do node titles vanish while space is held for the info card?	fail
+checker:BL2	NEARBY	0d40fa67	what line do we open with when we interview people about agent decisions going wrong?	guard
+checker:BL4	NEARBY	6e7b3b34	why didn't we just remove the list toggle from the graph tab?	fail
+checker:BN2	NEARBY	60948a4d	where does the read-only demo get its example data from when it loads?	fail
+checker:BN3	NEARBY	e18c0d34	what new name did we settle on for the product, and which web address goes with it?	guard
+checker:BO2	SYNONYM	217648dc	on a big screen, where do the group names and their counts go in the search step?	fail
+checker:BO4	NEARBY	6bfa6221	on phones, when do we hold space free for the info card?	fail
+checker:BP1	NEARBY	e487a22a	when a decision gets accepted later, why is there no timestamp for that in its history list?	fail
+checker:BP5	NEARBY	ae952f98	how does Flow tell people it is playing sample data when they are in live mode?	guard
+checker:BQ4	SYNONYM	7392151c	what order does the main list of decisions show, and which filters are left?	fail
+checker:BQ5	SYNONYM	83e67825	when we checked rivals in late September, did anything make us change how we pitch?	fail
+checker:BR1	NEARBY	a206ba0f	how do captures in one batch point at each other when the real ids only exist after saving?	fail
+checker:BR3	NEARBY	abb50678	do people have to pay to run it on their own servers?	fail
+checker:BR4	SYNONYM	e18c0d34	what were we going to call the product instead, and which web address?	fail
+checker:BS1	SYNONYM	0a6266cd	on a small phone screen, how do we stop the names on the map from piling on top of each other?	fail
+checker:BS5	NEARBY	cd049fd7	is it only for engineers, and what did we change on the front page because of that?	fail
+checker:BS6	NEARBY	none	what did we decide about the company holiday party budget?	fail
+checker:BT1	NEARBY	4cd585bc	why does a shared link to one decision come out the same whichever browser makes it?	guard
+checker:BT3	SYNONYM	9699cace	should the sorting step use a model on the person's own machine unless they switch it?	fail
+checker:BT4	SYNONYM	d32e4195	what does the map page say when someone follows a link that points at nothing?	fail
+checker:BU4	SYNONYM	1c52841b	should the bug scanner skip the extra checkouts nested inside the project folder?	fail
+checker:BV2	NEARBY	2165b8c3	which command does the website's getting-started page use for the very first record, and why not the newer one?	fail
+checker:BV3	SYNONYM	217648dc	on a big screen, where do the group names go in the search animation so the box does not get taller?	fail
+checker:BW1	NEARBY	56d59e21	when we copied the upstream merge check, did we also bring over the half that tests whether things are alive?	guard
+checker:BW3	NEARBY	69e67c8d	when past forecasts get graded, what happens to items that were put off instead of finished?	fail
+checker:BW4	NEARBY	6bfa6221	on a small phone, should the space for the info card stay reserved all the time?	fail
+checker:BW5	NEARBY	6e7b3b34	did we drop the text list next to the graph picture, or fix it so it reads like the graph?	fail
+checker:BX1	NEARBY	4cd585bc	why do the readable bits of a choice's web address come from its name instead of being kept on each laptop?	fail
+checker:BX2	SYNONYM	e487a22a	when a choice changed state, do we show the day it happened or hold off until the server tells us?	fail
+checker:BX3	NEARBY	1acd70dd	on a narrow screen, where do the play buttons and the colour key go so they don't cover the picture?	fail
+checker:BX4	SYNONYM	60948a4d	where does the read-only showcase get its sample records from, and is that baked in when we build it?	fail
+checker:BY2	SYNONYM	83e67825	after looking at the rivals in late September, did we change how we pitch it?	fail
+checker:BY3	NEARBY	9455365d	where does the page about one choice get its question and quote, since the big picture feed lacks them?	fail
+checker:BY4	SYNONYM	977b0801	why did the drawings in the animation stop using a fixed-size canvas that got shrunk on phones?	fail
+checker:BY5	SYNONYM	a2d418fd	when claiming work hits a database hiccup, does the tool still say there was nothing to do?	fail
+checker:BZ1	NEARBY	a7cb973f	what is the health-check command of the bead forecasting tool called now, and why was it changed?	fail
+checker:BZ2	SYNONYM	aae94459	for a ticket stuck waiting behind others, when does the clock on how long it took start ticking?	fail
+checker:BZ3	NEARBY	ae952f98	in the live view of the labelling walkthrough, where do the sample records sit on screen?	fail
+checker:CA1	NEARBY	c08ca0ff	how does the page for one choice match unlettered options to the reasons spelled out in the explanation?	fail
+checker:CA2	NEARBY	c62db133	do people appear as dots in the picture, or where do we say who made the call?	fail
+checker:CA3	SYNONYM	d32e4195	what happens when someone opens a picture link that doesn't point at any particular choice?	fail
+checker:CA6	NEARBY	none	what did we decide about parking spaces for visitors?	guard
+checker:CB3	SYNONYM	cd049fd7	is the tool only meant for programmers, and how should the front page talk to people?	fail
+checker:CB4	NEARBY	dc82de96	which shelf do we want people to put us on when they first hear what we make?	guard
+checker:CC2	SYNONYM	fd92ee86	when the browser turns the server's network data into a drawing, what happens to two lines between the same pair of dots?	fail
+checker:CC3	NEARBY	0a6266cd	when labels in the flow picture would land on top of each other, how do we keep them readable?	fail
+checker:CC4	SYNONYM	0d40fa67	when we sit down with possible users, what does the opening of the conversation put first?	fail
+checker:CC5	NEARBY	13cb6413	which repository holds the marketing pages, and where does the check that the docs still match run?	fail
+checker:AA10	NEARBY	0a6266cd	how do the Flow labels avoid sitting on top of each other on a phone?	fail
+checker:AD10	NEARBY	6ab3791e	is the command-line tool renamed too?	fail
+checker:AE10	NEARBY	7d07c1b4	when does the decision page put the chosen option first instead of lettered order?	fail
+checker:AF10	NEARBY	aae94459	what happens to the lead time of a blocked bead?	guard
+checker:AH10	SYNONYM	c04c7f3e	where do we publish first once the product has proven itself?	fail
+hard:HD01	SYNONYM	c62db133	does the network diagram show avatars for the persons behind each choice?	fail
+hard:HD02	SYNONYM	6cde610d	do timestamps follow the viewer's local clock on every screen?	fail
+hard:HD05	NEARBY	e61bb5e9	which browser engine do front-end checks use, and how are known visual defects marked?	fail
+hard:HD06	NEARBY	7392151c	in what sequence does the landing list show choices, grouped by date?	fail
+hard:HD07	SYNONYM	650e4710	if the stored credential can't be parsed, which login provider does the web app use?	fail
+hard:HD08	NEARBY	fa017650	how does the picture-taking script freeze animation before capturing the 3D canvas?	fail
+hard:HD09	SYNONYM	2165b8c3	which write command should the getting-started guide start with?	fail
+hard:HD10	SYNONYM	1c52841b	why does the scanner skip checkouts inside checkouts?	fail
+hard:HD11	SYNONYM	dc82de96	which tagline do we use to describe the product to the public?	fail
+hard:HD12	NEARBY	0d40fa67	what opening line do we use in customer conversations?	fail
+hard:HD13	NEARBY	06709acf	do we advertise a paid license option on the front page of the repository?	fail
+hard:HD14	SYNONYM	af1961fc	when the command is run bare, which projects does the planning tool look at?	fail
+hold:A04	NEARBY	9455365d	decision page brief verify endpoint rationale parsing	guard
+hold:P09	NEARBY	e18c0d34	what is the product being renamed to, and on which domain?	guard
+hold:P10	NEARBY	e61bb5e9	do the interface tests run in a real browser?	fail
+hold:P18	SYNONYM	d32e4195	what does a graph link to a decision that doesn't exist tell the reader?	fail
+hold:P22	NEARBY	f1ec4ba7	which measures across decisions do we record first?	guard
+hold:Q10	NEARBY	a2d418fd	hook claim store unavailable fence fault no work	guard
+fresh:N06	NEARBY	none	when did we move the demo cell to Kubernetes?	guard
+fresh:N07	NEARBY	none	why does the graph use a force layout?	fail
+fresh:N12	NEARBY	none	how long do we keep decision backups for the demo?	fail
+fresh:R06	NEARBY	8a08752c	who merges the pitch deck pull request?	guard
+fresh:R08	SYNONYM	650e4710	when does sign-in fall back to the token?	fail
+fresh:R17	NEARBY	f1ec4ba7	which measures does the decision speed view start with?	guard
+fresh:R20	NEARBY	05695fd8	where do the decision page links get their slug?	fail
+eral:E1	NEARBY	e18c0d34	is the product still called HiveMind?	fail
+eral:E5	SYNONYM	af7c3c02	how does the interface refer to an agent that made a decision?	fail
+eral:F3	NEARBY	60948a4d	how does the demo load its example data?	fail
+eral:F7	NEARBY	6cd1dd8f	what happens when the classifier repeats a decision?	guard
+eral:F17	NEARBY	6d2c7a02|e487a22a	what does the status history show on the decision page?	guard
+eral:F27	NEARBY	13cb6413	where does the site live and who checks the docs drift?	guard
+tfde:T3	NEARBY	e18c0d34	is the product still called Upheld?	fail
+ctrl:C07	NEARBY	none	database migration rollback plan for the orders table	guard
+ctrl:C08	NEARBY	none	how do we cache images on the cdn edge	fail
+ctrl:C13	NEARBY	none	retry policy for failed webhook deliveries with exponential backoff	fail
+ctrl:C19	NEARBY	none	the office coffee machine maintenance schedule	guard
+ctrl2:D05	NEARBY	none	do we enable two factor authentication for contractor accounts	guard
+ctrl2:D07	NEARBY	none	which linter rules does the frontend team enforce on pull requests	fail
+ctrl2:D16	NEARBY	none	how do we version the public sdk and communicate breaking changes	guard
+ctrl2:D23	NEARBY	none	which monitoring tool pages the team for latency alerts	fail
+ctrl2:D27	NEARBY	none	how do we label experiments in the ab testing platform	guard
+pobj2:PB1	NEARBY	466b50d8	for jobs that run longer than anything we have seen finish, how does beadline draw the time they still need?	guard
+pobj2:PB7	NEARBY	6540651e	do beadline simulations schedule each item on its own or the whole open graph together in every single run?	guard
+pobj2:PB12	NEARBY	217648dc	on a wide stage, where do the community name and its count go in the global query of Flow?	guard
+pobj2:PB22	NEARBY	13cb6413	where does the source of the website live and where does the docs drift check run from?	guard
+wdxx0:W1	SYNONYM	c62db133	does the graph draw anyone in it at all, or do we tell you who made the call?	fail
+wdxx0:W2	SYNONYM	c62db133	does the graph draw anyone in it at all, or do we tell you who made the call in some other spot on the screen?	fail
+wdxx0:W4	NEARBY	c62db133	does the graph draw anyone in it at all?	fail
+wdxx0:W5	SYNONYM	d32e4195	what do people get told when a link to the graph points at nothing?	fail
+wdxx0:W6	NEARBY	d32e4195	if somebody follows a link to the graph but it does not point at any one thing we chose, what do they get told when it opens?	guard
+vxepq:P7	NEARBY	abb50678	is paywalled stuff going to show up before the trial is over?	guard
+vxepq:PX1	SYNONYM	85c0a82e	at what number of pixels do we stop putting the names in?	fail
+pen9l:C2	NEARBY	none	is the free coffee kept in the kitchen until someone asks for a new one?	fail
+pen9l:C4	NEARBY	none	when people ask what time the kitchen opens, which shelf do we point them to?	fail
+pen9l:L3	SYNONYM	1acd70dd	where does the legend end up when someone is looking on a small device?	fail
+pen9l:L4	NEARBY	1acd70dd	where does the legend go on a phone when the screen is small?	guard
+pen9l:O5	SYNONYM	7d07c1b4	when somebody opens up the decision page, in what order do they see the things we could have gone with?	fail
+pen9l:S1	NEARBY	dc82de96	shelf	fail
+pen9l:S2	NEARBY	dc82de96	which shelf do we point them to?	fail
+pen9l:S3	NEARBY	dc82de96	when people ask what we are, which shelf do we point them to?	fail
+pen9l:S4	NEARBY	dc82de96	when people ask what kind of thing we are, which shelf do we point them to?	fail
+pen9l:S5	NEARBY	dc82de96	which shelf do we point people to when they ask what kind of thing we are?	fail
+pen9l:T1	NEARBY	f1ec4ba7	timeline	fail
+pen9l:T2	NEARBY	f1ec4ba7	what goes in the timeline?	fail
+pen9l:T3	SYNONYM	f1ec4ba7	what goes in the timeline for a single decision?	fail
+pen9l:T4	SYNONYM	f1ec4ba7	what goes in the timeline for a single decision, and what do we record before anything else?	fail
+pen9l:X3	NEARBY	85c0a82e	at what number of pixels do we stop putting the names in the zoomed-out picture?	guard
+checker_pen9l:QB7	NEARBY	164b72f6	when retention clears out old things, how many locks does it take?	guard
+dog-ee0daf64:CL5	NEARBY	4f274aa0	which way do the answer edges point when the UI draws an edge from a question?	guard
+dog-ee0daf64:CL9	SYNONYM	3f398983	what does capture.sh do with option labels when the hivemind it talks to has no label support?	fail
+dog-ee0daf64:CL13	NEARBY	none	how many cards did we send for the birthday, and who signed the card?	fail
+dog-7a916936:christmas	NEARBY	none	was the proposed christmas tree for the office rejected?	fail
+dog-7a916936:doctor	NEARBY	none	what grade does the doctor need before we hire them?	fail

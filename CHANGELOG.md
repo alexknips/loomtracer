@@ -790,6 +790,50 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **One frozen set of 276 recall questions now says whether a build got better or worse at the two
+  kinds of wrong recall answer, and `recall`, `why` and `verify` find a decision from the everyday
+  word for what it calls something else.** `scripts/recall_frozen_set.py` runs
+  `tests/fixtures/recall_frozen/questions.tsv` against a build and a ledger copy and prints, per kind,
+  the rows that fail and the rows that gained or lost against an earlier run (`--out`, `--compare`);
+  `tests/recall_frozen_set.rs` pins the file so the set stays the same from build to build. Each row
+  names the decision it expects (or `none`) and its kind. NEARBY: `why` answers from a decision near
+  the one asked, or the right one is behind the top three. SYNONYM: the question is in everyday words
+  and recall never reaches the decision. It holds 182 NEARBY rows and 94 SYNONYM rows from the
+  standing batteries, the dog CLI check reports and the crew questions (CB4, BQ4, H1, K3, R4, V2, BB2,
+  the beadline question, the coffee and the backups controls among them). Master 45f15984, rows that
+  fail (wrong one-call answers / expected decision missing from the top three / of those, not found
+  at all): on the crew copy (534 events) NEARBY 44 of 180 (24 / 27 / 14), SYNONYM 69 of 92 (0 / 69 / 69);
+  on a cell-sized copy (165,352 events) NEARBY 117 of 182 (53 / 82 / 20), SYNONYM 87 of 94 (0 / 87 / 87).
+  By the bead's own measure SYNONYM is the larger kind (an expected decision not found at all: 69
+  against 24 wrong one-call answers on the crew copy, 87 against 53 on the cell copy), so that is the
+  kind fixed here; by failing rows NEARBY is larger on the cell copy (117 against 87), because it also
+  counts a right decision found behind the top three. The fix is eight new groups in `WORD_GROUPS`
+  (`src/queries/terms.rs`), each a pair or set of words that people use for one thing: `competitor`
+  and `rival`, `deck` and `presentation`, `clock`, `zone` and `timezone`, `rename` and `rebrand`,
+  `community` and `group`, `charge`, `price`, `pay` and `paywall`, `repo` and `repository`, and
+  `agent` and `bot`. After, crew: NEARBY 43 (24 / 26 / 14), SYNONYM 58 (0 / 58 / 57), recall top three
+  167 of 251 questions (155 on master). Cell: NEARBY 116 (52 / 83 / 20), SYNONYM 81 (0 / 81 / 79),
+  top three 91 of 255 (86). On the standing batteries, master against this change: crew (760
+  questions) 12 questions gain a place in the top three, none loses one, `why` gives one more
+  one-call answer, no wrong one-call answer appears and no right one is lost; cell (764 questions)
+  six gain, one loses (the licence question "do we advertise a paid license option on the front page
+  of the repository?" falls from third to fourth, which leaves the `repo` group as the cause, since
+  the question's other grouped word, "paid", is kept out of the pricing group; not re-measured
+  without that group; `why` answered it wrongly before and after), four more get a one-call answer, no
+  wrong one-call answer appears, the wrong answer about the marketing-pages repository becomes a
+  list and no right one-call answer is lost. Two sets of words were tried and cut because the cell copy
+  showed a loss that the crew copy hides: `sample` and `example` (six questions about the demo's
+  sample data lost a place or a right one-call answer, since "example" is said by many decisions and
+  lowers the weight of "sample"), `flow`, `animated` and `walkthrough` (the screenshot-tool question
+  fell from third to fourth and no row on the cell copy passed because of it); `paid` stays out of
+  the pricing group, and `map` beside `graph` was cut because it turned the
+  right one-call answer about a demo's sample graph into a list. `docs/AGENT_FLUENT_QUERYING.md`
+  lists the groups. Not fixed, and said plainly: the groups are fitted on the same questions they
+  are measured on, so the counts above describe this set, not new questions; SYNONYM still fails
+  58 of 92 rows on the crew copy and 81 of 94 on the cell copy; and NEARBY, the kind that is larger
+  by failing rows on the cell copy (52 wrong one-call answers, 83 expected decisions behind the top
+  three), is the next kind to take against this same set. (hivemind-y7b6c)
+
 - **`recall`, `why` and `verify` no longer lose the decision whose title says a question's rare word
   to the everyday words around it in four more shapes.** (1) Where several decisions hold the
   same weight below the half-of-the-words bar and are equally about the question, the first three

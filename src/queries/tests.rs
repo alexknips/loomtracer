@@ -3767,6 +3767,44 @@ fn a_stand_in_word_matches_and_is_not_the_word_itself() {
 }
 
 #[test]
+fn the_words_a_question_says_for_what_a_decision_calls_something_else_are_stand_ins() {
+    // Everyday words for what the ledger writes another way (hivemind-y7b6c): a competitor check
+    // is asked about as the rivals, the pitch deck as the investor presentation, a time zone as
+    // whose clock, Flow as the animation, a Pro plan as what we charge.
+    for (asked, said) in [
+        ("rivals", "competitor check 2026-09-25"),
+        ("presentation", "the pitch deck"),
+        ("clock", "decision dates read in the reader's time zone"),
+        ("rebrand", "renaming the product is paused"),
+        ("group", "community name and count"),
+        (
+            "charging",
+            "nothing paywalled until after the own-use trial",
+        ),
+        ("repositories", "beadline lists repos"),
+        ("bot", "the ui names every agent"),
+    ] {
+        assert_eq!(
+            held(asked, said),
+            Some(WordMatch::StandIn),
+            "{asked:?} asked, {said:?} said"
+        );
+    }
+    // The word itself still beats its stand-in, and a word beside a group is not in it.
+    assert_eq!(
+        held("rival", "a rival and a competitor"),
+        Some(WordMatch::Word)
+    );
+    assert_eq!(held("slides", "the pitch deck"), None);
+    // Left out on purpose (each lost a question on a cell-sized ledger that master answers): "paid"
+    // beside the pricing words pulls the pricing decisions over a licence one, "animated" beside
+    // "flow" pulls every decision about Flow over the one about the screenshot tool, and "map" in the
+    // graph group makes the right one-call answer about a demo's sample graph a list.
+    assert_eq!(held("paid", "the price"), None);
+    assert_eq!(held("animated", "flow's svg chapters"), None);
+}
+
+#[test]
 fn every_word_of_a_group_stands_in_for_every_other_and_no_group_reaches_another() {
     for (group, words) in WORD_GROUPS.iter().enumerate() {
         for asked in *words {
