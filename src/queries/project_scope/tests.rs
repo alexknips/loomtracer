@@ -695,7 +695,18 @@ fn the_two_matchers_answer_a_scoped_recall_with_the_same_decisions_in_the_same_o
     let fts = recall_fts(&f, &recall_request(Some("billing")))?;
     let portable = search_portable(&f, &search_request(Some("billing"), 10, None))?.data;
 
-    assert_eq!(arrived(&fts.ranked.items), arrived(&portable.items));
+    // Within one relation recall lists an accepted decision before a proposed or superseded one
+    // that ties it, and a literal search lists them by id, so the order is compared per relation.
+    let by_relation = |items: &[crate::queries::DecisionSearchResult]| {
+        let mut arrived = arrived(items);
+        let relations: Vec<(ScopeRelation, String)> = arrived
+            .iter()
+            .map(|(_, relation, label)| (*relation, label.clone()))
+            .collect();
+        arrived.sort();
+        (relations, arrived)
+    };
+    assert_eq!(by_relation(&fts.ranked.items), by_relation(&portable.items));
     assert_eq!(fts.scope, portable.scope);
     Ok(())
 }

@@ -649,8 +649,11 @@ fn narrow_to_scope(
 /// word (a decision that has the word asked for comes before one that has a synonym), then
 /// (rank, id) order. A negated question does not change that order: among decisions tied on all
 /// of it, the ones whose title does not say every term outright come before the ones whose
-/// title does. An unscoped document has no relation, a literal match lacks nothing, is never
-/// negated and is about nothing, so an unscoped `search` keeps the plain (rank, id) order.
+/// title does. Among decisions tied on all of that, an accepted decision comes before one that is
+/// still proposed (`ScoredDecisionSearchResult::accepted`), so a draft that discusses a decision
+/// is not listed above it for the sake of an id. An unscoped document has no relation, a literal
+/// match lacks nothing, is never negated, is about nothing and is never `accepted`, so an
+/// unscoped `search` keeps the plain (rank, id) order.
 fn sort_scored(scored: &mut [ScoredDecisionSearchResult]) {
     mark_out_heading(scored);
     scored.sort_by(|left, right| {
@@ -676,6 +679,7 @@ fn sort_scored(scored: &mut [ScoredDecisionSearchResult]) {
             .then_with(|| left.stand_ins.cmp(&right.stand_ins))
             .then_with(|| left.rank.cmp(&right.rank))
             .then_with(|| left.polarity_mismatch.cmp(&right.polarity_mismatch))
+            .then_with(|| right.accepted.cmp(&left.accepted))
             .then_with(|| left.id.cmp(&right.id))
     });
 }
@@ -1038,6 +1042,12 @@ struct ScoredDecisionSearchResult {
     rank: u8,
     id: String,
     event_origin: i64,
+    /// The decision is accepted, and the asker matches words (a fluent or resolver ask; a literal
+    /// search never sets it, so it keeps its plain (rank, id) order on every backend). Among
+    /// decisions that tie on everything else that says how fully a question matches, the accepted
+    /// one is listed before a proposed draft, which the id or recency would otherwise place first
+    /// (`capture:` sorts before `decision-`, and a draft is newer than the decision it discusses).
+    accepted: bool,
     /// When the decision was decided, as the graph dates it (the Decision node's `occurred_at`,
     /// which `GET /v1/graph` reports as `decided_at`): a proposal's own time, a classifier
     /// draft's turn time. What `since`/`until` window on; `None` for a decision the graph has no
@@ -1357,6 +1367,7 @@ fn collect_graph_search_results(
             rank: match_info.rank,
             id,
             event_origin,
+            accepted: terms.stemmed && status == DecisionStatus::Accepted,
             decided_at,
             polarity_mismatch: match_info.polarity_mismatch,
             headline_terms: match_info.headline_terms,
@@ -2454,6 +2465,10 @@ pub(crate) struct ResolverCandidateRow {
     pub(crate) title: String,
     pub(crate) rank: u8,
     pub(crate) event_origin: i64,
+    /// The decision is accepted and the asker matches words (`ScoredDecisionSearchResult::
+    /// accepted`): among candidates that tie on everything that says how fully the question
+    /// matches, it comes before a proposed draft, which recency alone would put first.
+    pub(crate) accepted: bool,
     pub(crate) matched_fields: Vec<String>,
     /// Description terms this decision does not contain; empty for a full match.
     pub(crate) missing_terms: Vec<String>,
@@ -2535,6 +2550,7 @@ pub(crate) fn collect_resolver_candidates(
             title: scored.result.decision.title,
             rank: scored.rank,
             event_origin: scored.event_origin,
+            accepted: scored.accepted,
             matched_fields: scored.result.matched_fields,
             missing_terms: scored.result.missing_terms,
             polarity_mismatch: scored.polarity_mismatch,

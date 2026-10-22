@@ -223,7 +223,8 @@ term, decisions matching more than half of them (and at least two) come back as
 an `Ambiguous` list, ranked by how much of the question the decision's title, topic
 keys and recorded question carry (*what the question is about*, below), then by
 fewest missing terms, then by how many of the matched terms the decision's title or
-topic keys carry (below), then rank tier, then recency, each with `missing_terms`
+topic keys carry (below), then rank tier, then an accepted decision before a proposed one
+(below), then recency, each with `missing_terms`
 naming what it lacks. For a verb that writes
 (`disagree`, `supersede`, `move`, `retitle`, `ground`, a grounding premise), a
 close candidate is never `Resolved`, even when there is only one: the caller
@@ -344,6 +345,17 @@ So where the words sit is compared before whether every word is somewhere:
   equals however many of the other words each held in its title, and now are not.
   That is the order of every list and what a verb that only reads answers with. It
   never picks what a verb that writes lands on (hivemind-293q, below).
+- Decisions that are equals on all of that are listed accepted first (hivemind-rgv7a). A
+  single word asked alone ties every decision that titles it, and a draft an agent wrote
+  about a decision (a bug filed against it, a note on how it was found) is newer than it,
+  says the same word in its title and has an id that sorts first (`capture:` before
+  `decision-`), so the draft used to come first on recency and the decision came third to
+  fifth. An accepted decision now comes before a proposed one that ties it; the proposed
+  ones keep the order they had, by `id` in `recall` and newest first in a list `why`
+  gives. Only `accepted` moves: a rejected, contested or superseded decision ties with the
+  drafts, and a decision that says the word only in its rationale is still behind a
+  draft whose title says it. Nothing is added, dropped or hidden by it, only reordered,
+  and a literal `search` keeps its plain (rank, id) order on every backend.
 - Leading the full matches is not being the decision asked about (hivemind-5ctc). A
   decision can out-weigh the others by one word in its title and still carry no more
   than half of the question in its title and topic keys, the rest only in its
@@ -618,7 +630,9 @@ least 85% of the weight of all the question's words, exactly one word of the que
 by three decisions or fewer and said in a title or topic keys, every decision that holds that
 word says it there (a rationale that mentions it in passing is a sign it is not the subject,
 and a fourth title is a word too common to be one), and the decision holds two of the
-question's words, each stem once. They are listed with `missing_terms` and never named alone.
+question's words, each stem once. A session draft counts as a decision here: where an agent's
+note about this very question titles "pixels" too, that is a fourth title and the rule is off.
+They are listed with `missing_terms` and never named alone.
 
 Then the peers of the answer's best-titled decision, which the first two items cannot reach
 when one word of the question is common. "Does the graph draw anyone in it at all, or do we
@@ -707,7 +721,9 @@ first, when a session draft that holds more of the question's words comes first.
 off when drafts that talk about the same word pile up: once eight decisions of two thousand hold
 "shelf", two of them titled for it, the word weighs less than the rules ask for and the question
 is answered by the draft again, as it was before them. A decision that no rule above lists is
-found by asking with the word alone, though no longer always first.
+found by asking with the word alone: among the decisions that hold the word equally an accepted
+one is listed before a proposed draft (hivemind-rgv7a), and behind another accepted decision
+that titles it too, which the ids settle, since one word does not say which was meant.
 
 At most three such decisions are added (the ones holding the most weight, then
 decision id; of several that hold the same weight and are equally about the question, the one

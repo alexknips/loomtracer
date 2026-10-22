@@ -2140,6 +2140,102 @@ fn fluent_search_reads_an_adverb_as_the_word_a_title_says() -> Result<()> {
     Ok(())
 }
 
+/// The decision titled for a word, accepted, and two drafts that title it too and whose ids sort
+/// before its own (`capture:` before `d:`), as the classifier's drafts do next to a decision.
+fn accepted_beside_drafts() -> Result<Scenario> {
+    let scenario = titled_decisions(&[
+        (
+            "capture:101:0",
+            "Treat the pivot search miss as a bug to fix now",
+            "A note taken while working on the miss.",
+        ),
+        (
+            "capture:102:0",
+            "Pivot question gap recorded on the bead, not reopened",
+            "A note taken while working on the gap.",
+        ),
+        (
+            "d:public",
+            "The public pivot is agent memory",
+            "Wording for the front page.",
+        ),
+        (
+            "d:front",
+            "The front page leads with who decided",
+            "The pivot is said only in this rationale.",
+        ),
+    ])?;
+    scenario.accept("d:public", "human:alex", "2026-01-02T00:00:00Z")?;
+    scenario.accept("d:front", "human:alex", "2026-01-02T00:00:00Z")?;
+    Ok(scenario)
+}
+
+#[test]
+fn fluent_search_lists_an_accepted_decision_before_the_drafts_that_tie_it() -> Result<()> {
+    let scenario = accepted_beside_drafts()?;
+
+    let (items, data) = fluent_answer(&scenario, "pivot", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["d:public", "capture:101:0", "capture:102:0", "d:front"],
+        "the accepted decision titled for the word comes before the drafts that title it as \
+         well; the accepted decision that says it only in a rationale stays behind them: {items:?}"
+    );
+    assert_eq!(data.total_matches, 4, "the order moves rows and drops none");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_keeps_the_drafts_in_id_order_when_nothing_is_accepted() -> Result<()> {
+    let scenario = titled_decisions(&[
+        ("capture:101:0", "The pivot note", "A note."),
+        ("capture:102:0", "The pivot gap", "A gap."),
+        ("d:public", "The public pivot", "Wording."),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, "pivot", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["capture:101:0", "capture:102:0", "d:public"],
+        "a proposed decision gains nothing over another proposal: {items:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_literal_search_keeps_its_plain_rank_and_id_order_whatever_is_accepted() -> Result<()> {
+    let scenario = accepted_beside_drafts()?;
+    let graph = scenario.graph()?;
+
+    let response = search_decisions_with_ledger(
+        &QueryContext::local(),
+        scenario.ledger(),
+        &graph,
+        &SearchDecisionRequest {
+            query: Some("pivot".to_owned()),
+            limit: 10,
+            ..SearchDecisionRequest::default()
+        },
+    )?;
+
+    let ids: Vec<&str> = response
+        .data
+        .items
+        .iter()
+        .map(|item| item.decision.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        ["capture:101:0", "capture:102:0", "d:public", "d:front"],
+        "`search` orders by (rank, id) on every backend, so an accepted decision gains no place"
+    );
+    Ok(())
+}
+
 /// Sixty generic decisions, the decision titled for the public shelf, and decisions that hold the
 /// everyday words of a question about it: "people", "want" and "put" are each held by five or more
 /// decisions, "shelf" by three, and only d:shelf says it in its title.

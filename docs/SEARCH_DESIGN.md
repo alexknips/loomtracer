@@ -410,6 +410,13 @@ The tie-breaker should be `decision_id` for local deterministic projections.
 Remote services may use `(ledger_watermark, decision_id)` or another stable key
 as long as identical inputs at the same ledger state return identical order.
 
+That is the order of a literal `search`, on every backend. A fluent ask (`recall`, and the
+list `why` and the other readers give) puts one key before the tie-breaker: among decisions
+equal on everything above, an accepted decision comes before a proposed one, so a draft that
+discusses a decision is not listed above it for the sake of an id or a later event
+(`docs/AGENT_FLUENT_QUERYING.md`, "What the question is about"). The key reorders; it adds,
+drops and hides nothing.
+
 `order=newest` and `order=oldest` are planned along with the `order` field and the
 `--order` flag. They sort by explicit decision event time or event
 offset after filters are applied. They do not turn search into ranking by

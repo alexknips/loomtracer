@@ -56,6 +56,22 @@ fn decision_proposed_because(
     }
 }
 
+fn decision_accepted(sequence: u128, decision_id: &str) -> Event {
+    Event {
+        tenant_id: Default::default(),
+        event_id: None,
+        event_uuid: Uuid::from_u128(sequence),
+        correlation_id: Some("resolve-test".to_owned()),
+        causation_event_id: None,
+        event_type: EventType::DecisionAccepted,
+        actor_id: "human:alex".to_owned(),
+        source: EventSource::Cli,
+        source_ref: None,
+        payload: json!({ "decision_id": decision_id }),
+        ts: Some(ts("2026-01-02T00:00:00Z")),
+    }
+}
+
 fn ts(timestamp: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(timestamp)
         .expect("test timestamp parses")
@@ -783,6 +799,113 @@ fn resolve_by_id_rejects_a_blank_id() -> Result<()> {
 
 fn reading(graph: &MemoryGraph, description: &str) -> Result<QueryResponse<ResolveOutcome>> {
     resolve_decision_for_reading(graph, description, None)
+}
+
+/// The ids a list names, in the order it names them.
+fn listed_ids(outcome: ResolveOutcome) -> Vec<String> {
+    match outcome {
+        ResolveOutcome::Ambiguous { candidates } => candidates
+            .into_iter()
+            .map(|candidate| candidate.decision_id)
+            .collect(),
+        other => panic!("expected a list, got {other:?}"),
+    }
+}
+
+#[test]
+fn reading_lists_an_accepted_decision_before_the_newer_drafts_that_tie_it() -> Result<()> {
+    // One word names the accepted decision and two drafts written after it alike; recency alone
+    // would list the newest draft first.
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:public",
+            "The public pivot is agent memory",
+            &["positioning"],
+        ),
+        decision_accepted(2, "d:public"),
+        decision_proposed(
+            3,
+            "capture:3:0",
+            "Treat the pivot miss as a bug",
+            &["search"],
+        ),
+        decision_proposed(
+            4,
+            "capture:4:0",
+            "Pivot gap recorded on the bead",
+            &["bead"],
+        ),
+    ])?;
+
+    assert_eq!(
+        listed_ids(reading(&graph, "pivot")?.data),
+        ["d:public", "capture:4:0", "capture:3:0"],
+        "the accepted decision first, then the drafts newest first, as before"
+    );
+    Ok(())
+}
+
+#[test]
+fn reading_lists_proposed_decisions_newest_first_when_none_is_accepted() -> Result<()> {
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:public",
+            "The public pivot is agent memory",
+            &["positioning"],
+        ),
+        decision_proposed(
+            2,
+            "capture:2:0",
+            "Treat the pivot miss as a bug",
+            &["search"],
+        ),
+        decision_proposed(
+            3,
+            "capture:3:0",
+            "Pivot gap recorded on the bead",
+            &["bead"],
+        ),
+    ])?;
+
+    assert_eq!(
+        listed_ids(reading(&graph, "pivot")?.data),
+        ["capture:3:0", "capture:2:0", "d:public"],
+        "recency still orders proposals that tie"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_accepted_decision_that_says_the_word_only_in_its_rationale_stays_behind_a_title() -> Result<()>
+{
+    // The accepted decision ties nothing: a draft whose title says the word is more about it.
+    let graph = graph_from_events([
+        decision_proposed_because(
+            1,
+            "d:front-page",
+            "The front page leads with who decided",
+            "The pivot is said only here.",
+            &["positioning"],
+        ),
+        decision_accepted(2, "d:front-page"),
+        decision_proposed(
+            3,
+            "capture:3:0",
+            "Treat the pivot miss as a bug",
+            &["search"],
+        ),
+    ])?;
+
+    match reading(&graph, "pivot")?.data {
+        ResolveOutcome::Resolved { candidate } => assert_eq!(
+            candidate.decision_id, "capture:3:0",
+            "accepted is a tie-break, not a rank"
+        ),
+        other => panic!("expected the draft whose title says the word, got {other:?}"),
+    }
+    Ok(())
 }
 
 const LINKS_TITLE: &str = "Decision links use title slugs worked out the same in every browser";
@@ -2410,6 +2533,7 @@ fn headline_candidate(id: &str, said_as_word: u64, said_in_any_form: u64) -> Res
         title: String::new(),
         rank: 1,
         event_origin: 0,
+        accepted: false,
         matched_fields: Vec::new(),
         missing_terms: Vec::new(),
         polarity_mismatch: false,

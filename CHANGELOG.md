@@ -837,6 +837,37 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   of `terms.rs` (`timezone` and `paywall` were missing) and says which groups get the half word.
   (hivemind-k25y8)
 
+- **A question of one word lists the accepted decision titled for it before the drafts that say the
+  same word.** "shelf", "timeline" and "pixels" asked alone put three or four proposed session drafts
+  first (a note on how the question was found, a bug filed against the decision) and the accepted
+  decision third to fifth, in `recall`, `why` and every reader that lists. Every row matched the word
+  fully, so each ordering key tied and the last two decided: the id (`capture:` sorts before
+  `decision-`) in `recall`, recency (a draft is newer than the decision it discusses) in a list
+  `why` gives. Among decisions that tie on everything that says how fully a question matches, an
+  accepted decision now comes before a proposed one. Only `accepted` moves: a rejected, contested or
+  superseded decision still ties with the drafts. Nothing is added, dropped or hidden, a literal
+  `search` keeps its plain (rank, id) order on every backend, and a numbered `--pick` (`move
+  "Seed decision" --pick 1`, golden `move_pick`) follows the order of the list it picks from, so it
+  now lands on an accepted decision first. Measured on a copy of the cell ledger (166,281 events at
+  15:25Z; the live cell held 166,550 at 19:13 CEST) and on the crew copy, master e30fb741 against
+  this head: "shelf" puts the two accepted shelf decisions first and second in `recall` and in the
+  first rows of `why` (fifth and fourth before), "timeline" puts f1ec4ba7 and "pixels" 85c0a82e
+  first in both (fourth and third before), "legend" keeps 1acd70dd first. Over 765 questions on the
+  cell copy 11 expected decisions enter the top three, 25 move up inside it and one leaves it; on
+  the crew copy (761 questions) none moves. The one that leaves, and the four that move down inside
+  the top three, are one decision: the superseded 19a98974 ("Renaming the product to Upheld is
+  paused ...") behind its accepted successor a42ca00a, which has the same title and now comes
+  first; that is a superseded decision dropping below an accepted one, not a proposed draft. Every
+  decision that left a top three was proposed (50) or superseded (9) and every one that entered was
+  accepted (59). No one-call answer is gained, lost or changed on either copy (`why` outcomes and
+  listed sets are identical; six lists now name the expected decision first), and no control
+  question gets a new `why` answer; four controls show one more accepted row at the 10-row edge of
+  the recall page. The frozen set (`scripts/recall_frozen_set.py`): cell copy, 9 rows pass now, 1
+  no longer (the superseded one above), NEARBY fails 108 of 182 (116 before), 74 expected decisions
+  missing from the top three (83), wrong one-call answers 52 (52); crew copy unchanged. A draft
+  that titles the word also counts toward the three-titles cap of the below-the-bar rule and can
+  turn it off; `docs/AGENT_FLUENT_QUERYING.md` says so. (hivemind-rgv7a)
+
 - **One frozen set of 276 recall questions now says whether a build got better or worse at the two
   kinds of wrong recall answer, and `recall`, `why` and `verify` find a decision from the everyday
   word for what it calls something else.** `scripts/recall_frozen_set.py` runs

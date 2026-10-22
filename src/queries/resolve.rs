@@ -410,9 +410,11 @@ fn resolve_for(
 /// The order of a list and the pick of a verb that only reads: a close candidate that
 /// `out_heading` promoted, then the decisions that hold every word, then the one more about the
 /// question (`About`), the one that lacks fewer words, the one whose headline carries more of the
-/// words it matched, the one that leans on fewer stand-ins, then the rank tier, recency last.
+/// words it matched, the one that leans on fewer stand-ins, then the rank tier, then an accepted
+/// decision before a proposed draft, recency last.
 fn by_standing(left: &ResolverCandidateRow, right: &ResolverCandidateRow) -> Ordering {
     standing_before_recency(left, right)
+        .then_with(|| right.accepted.cmp(&left.accepted))
         .then_with(|| right.event_origin.cmp(&left.event_origin))
         .then_with(|| left.decision_id.cmp(&right.decision_id))
 }
@@ -425,6 +427,7 @@ fn by_standing(left: &ResolverCandidateRow, right: &ResolverCandidateRow) -> Ord
 fn by_standing_filed(left: &ResolverCandidateRow, right: &ResolverCandidateRow) -> Ordering {
     standing_before_recency(left, right)
         .then_with(|| right.headline_hits.cmp(&left.headline_hits))
+        .then_with(|| right.accepted.cmp(&left.accepted))
         .then_with(|| right.event_origin.cmp(&left.event_origin))
         .then_with(|| left.decision_id.cmp(&right.decision_id))
 }
@@ -630,11 +633,12 @@ fn full_match_leads(asker: Asker, term_count: usize, rows: &[ResolverCandidateRo
     }
 }
 
-/// Takes the match of another record of the same decision onto the one shown: the best rank, the
-/// fields either matched, only the words neither record lacks, and the opposite polarity only when
-/// neither record says what was asked.
+/// Takes the match of another record of the same decision onto the one shown: the best rank,
+/// accepted if either record is, the fields either matched, only the words neither record lacks,
+/// and the opposite polarity only when neither record says what was asked.
 fn absorb_record(shown: &mut ResolverCandidateRow, other: ResolverCandidateRow) {
     shown.rank = shown.rank.min(other.rank);
+    shown.accepted |= other.accepted;
     shown.stand_in_terms = shown.stand_in_terms.min(other.stand_in_terms);
     if other.headline_words > shown.headline_words {
         shown.headline_mask = other.headline_mask;
