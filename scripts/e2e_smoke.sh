@@ -597,6 +597,17 @@ hm_ic_reviewer() {
     --tenant "$CLI_IC_TENANT" --actor "$CLI_IC_REVIEWER" --json "$@" 2>&1
 }
 
+# The 1-based position of decision $2 among the candidates of the ambiguous answer $1, empty
+# when it is not listed: the number a coding agent reads off the printed list before it types
+# --pick N. The order is not fixed (an accepted decision is listed before a proposed or contested
+# one it otherwise ties with, so contesting a decision moves it), so the smoke reads the list it
+# is about to pick from instead of assuming where a decision sits.
+ic_position_of() {
+  echo "$1" | jq -r --arg id "$2" \
+    '[.data.candidates[].decision_id] | index($id) | if . == null then empty else . + 1 end' \
+    2> /dev/null || true
+}
+
 if ! command -v docker > /dev/null 2>&1 \
    || ! docker compose ps --status running --services 2>/dev/null | grep -qx hivemind; then
   skip "CLI (in-container): emit decision.proposed — ingestion decision — no running 'hivemind' compose service"
@@ -607,8 +618,8 @@ if ! command -v docker > /dev/null 2>&1 \
   skip "CLI (in-container): query verify (pre-supersede) — no running 'hivemind' compose service"
   skip "CLI (in-container): disagree (ambiguous description) — no running 'hivemind' compose service"
   skip "CLI (in-container): ledger offset unmoved after ambiguous disagree — no running 'hivemind' compose service"
-  skip "CLI (in-container): disagree --pick 2 — no running 'hivemind' compose service"
-  skip "CLI (in-container): supersede --pick 2 — no running 'hivemind' compose service"
+  skip "CLI (in-container): disagree --pick N — no running 'hivemind' compose service"
+  skip "CLI (in-container): supersede --pick N — no running 'hivemind' compose service"
   skip "CLI (in-container): query verify (post-supersede) — no running 'hivemind' compose service"
 else
   # --project-from-context is what the capture plugins pass. The container's working directory
@@ -696,27 +707,42 @@ else
     fail "CLI (in-container): ledger offset moved after ambiguous disagree — before=$IC_OFFSET_BEFORE after=$IC_OFFSET_AFTER"
   fi
 
-  ic_disagree_pick=$(hm_ic_reviewer disagree "adopt async retry queue" --pick 2 \
-    --reason "e2e smoke: retries hide a slower systemic bottleneck") || true
-  if echo "$ic_disagree_pick" | jq -e --arg id "$IC_D1_ID" '.decision_id == $id' > /dev/null 2>&1; then
-    pass "CLI (in-container): disagree --pick 2 — resolves and contests the ingestion decision"
+  # --pick N follows the printed list. The ambiguous answer above is that list for the disagree.
+  ic_pick_disagree=$(ic_position_of "$ic_disagree_ambig" "$IC_D1_ID")
+  if [[ -n "$ic_pick_disagree" ]]; then
+    ic_disagree_pick=$(hm_ic_reviewer disagree "adopt async retry queue" --pick "$ic_pick_disagree" \
+      --reason "e2e smoke: retries hide a slower systemic bottleneck") || true
+    if echo "$ic_disagree_pick" | jq -e --arg id "$IC_D1_ID" '.decision_id == $id' > /dev/null 2>&1; then
+      pass "CLI (in-container): disagree --pick N — resolves and contests the ingestion decision (N=$ic_pick_disagree)"
+    else
+      fail "CLI (in-container): disagree --pick $ic_pick_disagree — response: $ic_disagree_pick"
+    fi
   else
-    fail "CLI (in-container): disagree --pick 2 — response: $ic_disagree_pick"
+    fail "CLI (in-container): disagree --pick N — ingestion decision is not among the candidates: $ic_disagree_ambig"
   fi
 
-  ic_supersede=$(hm_ic supersede "adopt async retry queue" --pick 2 \
-    --title "Batch ingestion writes instead of per-event retries" \
-    --rationale "e2e smoke: batching removes the retry queue's backlog risk entirely" \
-    --options "batched-writes" \
-    --chose "batched-writes" \
-    --rests-on-assumption "Batching removes the retry backlog risk" \
-    --binds "Ingestion callers write in batches" \
-    --cheap-to-undo) || true
-  if echo "$ic_supersede" | jq -e --arg id "$IC_D1_ID" \
-      '.old_decision_id == $id and .old_decision_status == "superseded"' > /dev/null 2>&1; then
-    pass "CLI (in-container): supersede --pick 2 — supersedes the ingestion decision"
+  # The disagree just contested the ingestion decision, which can move it in the list, so read
+  # the list again (an ambiguous disagree writes nothing) before the supersede picks from it.
+  ic_candidates_now=$(hm_ic_reviewer disagree "adopt async retry queue" \
+    --reason "e2e smoke: ambiguous — read the candidate order again, must not resolve or write") || true
+  ic_pick_supersede=$(ic_position_of "$ic_candidates_now" "$IC_D1_ID")
+  if [[ -n "$ic_pick_supersede" ]]; then
+    ic_supersede=$(hm_ic supersede "adopt async retry queue" --pick "$ic_pick_supersede" \
+      --title "Batch ingestion writes instead of per-event retries" \
+      --rationale "e2e smoke: batching removes the retry queue's backlog risk entirely" \
+      --options "batched-writes" \
+      --chose "batched-writes" \
+      --rests-on-assumption "Batching removes the retry backlog risk" \
+      --binds "Ingestion callers write in batches" \
+      --cheap-to-undo) || true
+    if echo "$ic_supersede" | jq -e --arg id "$IC_D1_ID" \
+        '.old_decision_id == $id and .old_decision_status == "superseded"' > /dev/null 2>&1; then
+      pass "CLI (in-container): supersede --pick N — supersedes the ingestion decision (N=$ic_pick_supersede)"
+    else
+      fail "CLI (in-container): supersede --pick $ic_pick_supersede — response: $ic_supersede"
+    fi
   else
-    fail "CLI (in-container): supersede --pick 2 — response: $ic_supersede"
+    fail "CLI (in-container): supersede --pick N — ingestion decision is not among the candidates: $ic_candidates_now"
   fi
 
   ic_verify_post=$(hm_ic query verify "adopt async retry queue ingestion") || true
