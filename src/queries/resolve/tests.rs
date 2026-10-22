@@ -2423,6 +2423,7 @@ fn headline_candidate(id: &str, said_as_word: u64, said_in_any_form: u64) -> Res
         about: Default::default(),
         promoted: false,
         peer: false,
+        outweighed: false,
     }
 }
 
@@ -2603,6 +2604,110 @@ fn a_peer_admitted_below_the_bar_is_never_named_alone() {
         !close_candidate_leads(4, &[candidate(true)]),
         "a decision admitted beside the answer is listed, not named as the one asked about"
     );
+}
+
+#[test]
+fn an_outweighed_candidate_admitted_below_the_bar_is_never_named_alone() {
+    // Four words asked; the candidate says two of them in its title and lacks two.
+    let candidate = |outweighed: bool| {
+        let mut row = headline_candidate("d:outweighed", 0b0011, 0b0011);
+        row.missing_terms = vec!["c".to_owned(), "d".to_owned()];
+        row.outweighed = outweighed;
+        row
+    };
+
+    assert!(close_candidate_leads(4, &[candidate(false)]));
+    assert!(
+        !close_candidate_leads(4, &[candidate(true)]),
+        "a decision that one left out says more of the question than is listed, not named as the one asked about"
+    );
+}
+
+const WEIGHED_QUESTION: &str = "quartz marble lantern falcon zephyr walnut obsidian tundra";
+
+/// Thirty decisions. "quartz" and "marble" are held by eight of them and "falcon" and "walnut" by
+/// five. d:shelf says "quartz" and "marble" in its title and "lantern", which nobody else holds,
+/// in its rationale: three of the eight words, below the half that the bar asks, and enough of the
+/// rare ones to be listed. `rival_title` is the title of a decision whose rationale says none of
+/// the question's words.
+fn weighed_graph(rival_title: &str) -> Result<MemoryGraph> {
+    let mut events = vec![
+        decision_proposed_because(
+            1,
+            "d:shelf",
+            "Quartz marble stay on the shelf",
+            "The lantern hangs above them.",
+            &["shelf"],
+        ),
+        decision_proposed_because(
+            2,
+            "d:rival",
+            rival_title,
+            "Nothing else is said.",
+            &["rival"],
+        ),
+    ];
+    let mut sequence = 10;
+    let mut add = |title: String, rationale: &str| {
+        sequence += 1;
+        events.push(decision_proposed_because(
+            sequence,
+            &format!("d:filler-{sequence}"),
+            &title,
+            rationale,
+            &["notes"],
+        ));
+    };
+    for index in 0..7 {
+        add(
+            format!("Plain note {index} on the build"),
+            "Quartz and marble are held in the rationale.",
+        );
+    }
+    for index in 0..4 {
+        add(
+            format!("Plain item {index} on the page"),
+            "Falcon and walnut are held in the rationale.",
+        );
+    }
+    for index in 0..17 {
+        add(
+            format!("Plain entry {index} on the page"),
+            "Nothing is held here.",
+        );
+    }
+    graph_from_events(events)
+}
+
+#[test]
+fn a_candidate_below_the_bar_is_listed_when_a_decision_left_out_is_more_about_the_question(
+) -> Result<()> {
+    // d:rival says "falcon" and "walnut" in its title, which the question says apart. Two words
+    // that five decisions each hold are short of the pair rule, so it is left out, whereas it
+    // weighs more of the question than d:shelf does: the counts do not tell which was meant.
+    let graph = weighed_graph("Falcon and walnut stay apart")?;
+
+    match reading(&graph, WEIGHED_QUESTION)?.data {
+        ResolveOutcome::Ambiguous { candidates } => {
+            let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+            assert_eq!(ids, vec!["d:shelf"], "{ids:?}");
+        }
+        other => panic!("expected the candidate listed, not named: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_candidate_below_the_bar_is_answered_when_nothing_left_out_says_two_of_the_words() -> Result<()>
+{
+    // d:rival says one of the words only: no rival of d:shelf, which is the one asked about.
+    let graph = weighed_graph("Falcon stays apart")?;
+
+    match reading(&graph, WEIGHED_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => assert_eq!(candidate.decision_id, "d:shelf"),
+        other => panic!("expected the candidate named: {other:?}"),
+    }
+    Ok(())
 }
 
 #[test]

@@ -714,7 +714,8 @@ fn mark_out_heading(scored: &mut [ScoredDecisionSearchResult]) {
 /// holds the same words somewhere in a long rationale, its evidence or the fields of whoever
 /// recorded it is a weaker answer, however many of the words it holds. A word counts for what it
 /// is worth (`TermWeights`), so the one rare word of a question outweighs the generic ones around
-/// it. A title or topic key that says a word only in other words (`WORD_GROUPS`: "graphs" for the
+/// it, and a word the question says in two forms ("job", "jobs") is one word of a decision, counted
+/// once (`TermWeights::once`). A title or topic key that says a word only in other words (`WORD_GROUPS`: "graphs" for the
 /// "diagrams" asked about, an "edge" for the "arrow") is about the question too, for
 /// `STAND_IN_CREDIT` of what the word itself would be worth (hivemind-ctok).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -748,6 +749,15 @@ impl About {
     /// its words sit is left to weigh.
     pub(crate) fn is_named(&self) -> bool {
         self.weight.is_infinite()
+    }
+
+    /// This much of the question, but no more than `ceiling`.
+    fn capped_at(self, ceiling: Self) -> Self {
+        if self.cmp_about(&ceiling).is_gt() {
+            ceiling
+        } else {
+            self
+        }
     }
 
     /// Whether this is at least `ratio` of what `other` weighs.
@@ -1063,6 +1073,9 @@ struct ScoredDecisionSearchResult {
     /// Admitted below the bar as a peer of the answer's best-titled decision
     /// (`peers_below_bar`): listed with the answer, and never named alone.
     peer: bool,
+    /// Admitted below the bar, while a decision left out says more of the question
+    /// (`outweighed_below_bar`): listed with the answer, and never named alone.
+    outweighed: bool,
     result: DecisionSearchResult,
     fields: Vec<SearchField>,
 }
@@ -1361,6 +1374,7 @@ fn collect_graph_search_results(
             about: About::default(),
             promoted: false,
             peer: false,
+            outweighed: false,
             fields,
             result: DecisionSearchResult {
                 decision,
@@ -1387,7 +1401,7 @@ fn collect_graph_search_results(
         });
     }
 
-    let weights = TermWeights::new(&holdings, searched);
+    let weights = TermWeights::new(&holdings, searched, terms.terms);
     for (decision, holding) in scored.iter_mut().zip(&holdings) {
         decision.about = holding.about(&weights);
     }
@@ -1440,10 +1454,16 @@ impl Holding {
             return About::NAMED;
         }
         let sum = |terms: &BTreeSet<usize>| -> f64 {
-            terms.iter().map(|term| weights.weight_of(*term)).sum()
+            weights
+                .once(terms)
+                .iter()
+                .map(|term| weights.weight_of(*term))
+                .sum()
         };
         let stand_in = |terms: &BTreeSet<usize>, held: &BTreeSet<usize>| -> f64 {
-            terms
+            let held = weights.once(held);
+            weights
+                .once(terms)
                 .iter()
                 .filter(|term| !held.contains(term))
                 .map(|term| weights.stand_in_weight(*term))
@@ -1470,10 +1490,13 @@ struct TermWeights {
     spellers: HashMap<usize, usize>,
     /// How many decisions were searched.
     searched: usize,
+    /// For each term (by position), the first term that has its stem: "job" and "jobs" are two
+    /// terms of a question and one word of a decision (see `TermWeights::once`).
+    first_of_stem: Vec<usize>,
 }
 
 impl TermWeights {
-    fn new(holdings: &[Holding], searched: usize) -> Self {
+    fn new(holdings: &[Holding], searched: usize, terms: &[String]) -> Self {
         let mut holders: HashMap<usize, usize> = HashMap::new();
         let mut reachers: HashMap<usize, usize> = HashMap::new();
         let mut spellers: HashMap<usize, usize> = HashMap::new();
@@ -1488,12 +1511,32 @@ impl TermWeights {
                 *reachers.entry(*term).or_default() += 1;
             }
         }
+        let first_of_stem = terms
+            .iter()
+            .map(|term| {
+                terms
+                    .iter()
+                    .position(|other| stem(other) == stem(term))
+                    .unwrap_or_default()
+            })
+            .collect();
         Self {
             holders,
             reachers,
             spellers,
             searched,
+            first_of_stem,
         }
+    }
+
+    /// The words of the question that `terms` hold, each stem once: a decision that says "job"
+    /// holds the question's "job" and its "jobs" alike, and that is one word it shares with the
+    /// question, not two (hivemind-otruj).
+    fn once(&self, terms: &BTreeSet<usize>) -> BTreeSet<usize> {
+        terms
+            .iter()
+            .map(|term| self.first_of_stem.get(*term).copied().unwrap_or(*term))
+            .collect()
     }
 
     /// The decisions searched, plus one.
@@ -1561,6 +1604,9 @@ const BELOW_BAR_LIMIT: usize = 3;
 /// Two words of a title that the question does not say side by side are a pair for
 /// `titled_below_bar` only when the decision holds this many of the question's words in all.
 const FAR_PAIR_WORDS_MIN: usize = 5;
+/// A decision left out below the bar outweighs one admitted there (`outweighed_below_bar`) only
+/// when it holds this many of the question's words, one of them in its title or topic keys.
+const OUTWEIGHING_WORDS_MIN: usize = 2;
 
 /// Which decisions that lack too many of the terms (`SearchMatchInfo::below_bar`) are still
 /// answered. A long question names one thing among generic words ("CLI query xpath css text
@@ -1597,7 +1643,10 @@ const FAR_PAIR_WORDS_MIN: usize = 5;
 /// terms than any decision at the bar and each is labelled with the terms it lacks. Where they
 /// stand among the others is the search's own order, by where the question's words sit. One more
 /// is added when it is the question's subject (`subject_below_bar`) or, failing that, the one its
-/// title or topic keys hold two words of (`titled_below_bar`). No word list, nothing learned: the
+/// title or topic keys hold two words of (`titled_below_bar`). The words a decision shares with the
+/// question are counted once per stem: it says "job" or "jobs" and holds the question's "job" and
+/// its "jobs" alike, which is one word, not two (`TermWeights::once`). An admitted decision that a
+/// left-out one outweighs is flagged (`outweighed_below_bar`). No word list, nothing learned: the
 /// counts are the ledger's own.
 /// `scored` and `holdings` are in the same order; the terms are the question's, `term_count` of
 /// them, and the holdings name them by position.
@@ -1622,21 +1671,19 @@ fn admit_below_bar(
         if !holding.below_bar {
             continue;
         }
-        let shared: f64 = holding
-            .held
-            .iter()
-            .map(|term| weights.weight_of(*term))
-            .sum();
-        let rare_pair = holding.held.len() >= 2
-            && !holding.headline.is_empty()
-            && holding.held.iter().all(|term| {
+        let held = weights.once(&holding.held);
+        let headlined = weights.once(&holding.headline);
+        let shared: f64 = held.iter().map(|term| weights.weight_of(*term)).sum();
+        let rare_pair = held.len() >= 2
+            && !headlined.is_empty()
+            && held.iter().all(|term| {
                 weights
                     .holders
                     .get(term)
                     .is_some_and(|n| *n <= RARE_PAIR_HOLDERS)
             });
-        let pair = (holding.held.len() >= SHARED_WORDS_MIN
-            || holding.headline.len() >= SHARED_HEADLINE_WORDS_MIN
+        let pair = (held.len() >= SHARED_WORDS_MIN
+            || headlined.len() >= SHARED_HEADLINE_WORDS_MIN
             || rare_pair)
             && shared >= SHARED_WORDS_RARITY * weights.ledger().ln()
             && shared >= SHARED_WORDS_SHARE * total;
@@ -1649,11 +1696,7 @@ fn admit_below_bar(
                 .headline
                 .iter()
                 .any(|term| weights.holders.get(term) == Some(&1));
-        let headline: f64 = holding
-            .headline
-            .iter()
-            .map(|term| weights.weight_of(*term))
-            .sum();
+        let headline: f64 = headlined.iter().map(|term| weights.weight_of(*term)).sum();
         let subject =
             headline >= SUBJECT_RARITY * weights.ledger().ln() && headline >= SUBJECT_SHARE * total;
         if pair || named || subject || spelled {
@@ -1672,14 +1715,22 @@ fn admit_below_bar(
     {
         admitted.insert(extra);
     }
+    let ceiling = answer_about(&holdings, &admitted, weights);
     let peers = peers_below_bar(&scored, &holdings, &admitted, weights);
     admitted.extend(peers.iter().copied());
+    let outweighed = outweighed_below_bar(&holdings, &admitted, weights);
     scored
         .into_iter()
         .zip(holdings)
         .enumerate()
         .filter_map(|(index, (mut decision, holding))| {
             decision.peer = peers.contains(&index);
+            if let Some(ceiling) = ceiling.filter(|ceiling| {
+                decision.peer && ceiling.weighs_at_least(SAYS_AS_MUCH_SHARE, &decision.about)
+            }) {
+                decision.about = decision.about.capped_at(ceiling);
+            }
+            decision.outweighed = outweighed.contains(&index);
             (!holding.below_bar || admitted.contains(&index)).then_some(decision)
         })
         .collect()
@@ -1780,13 +1831,10 @@ fn titled_below_bar(
 ) -> Option<usize> {
     let outranked = answer_about(holdings, admitted, weights)?;
     outranking_below_bar(scored, holdings, admitted, weights, outranked, |holding| {
-        let shared: f64 = holding
-            .held
-            .iter()
-            .map(|term| weights.weight_of(*term))
-            .sum();
-        holding.headline.len() >= SHARED_HEADLINE_WORDS_MIN
-            && (side_by_side(&holding.headline) || holding.held.len() >= FAR_PAIR_WORDS_MIN)
+        let held = weights.once(&holding.held);
+        let shared: f64 = held.iter().map(|term| weights.weight_of(*term)).sum();
+        weights.once(&holding.headline).len() >= SHARED_HEADLINE_WORDS_MIN
+            && (side_by_side(&holding.headline) || held.len() >= FAR_PAIR_WORDS_MIN)
             && shared >= SHARED_WORDS_RARITY * weights.ledger().ln()
     })
 }
@@ -1796,8 +1844,9 @@ fn titled_below_bar(
 pub(crate) const SAYS_AS_MUCH_SHARE: f64 = 0.9;
 
 /// The decisions below the bar that are peers of the answer's best-titled decision: their title or
-/// topic keys say as much of the question as its does, `SHARED_HEADLINE_WORDS_MIN` words at least,
-/// two of them the words the question says side by side, and they are about the question as much
+/// topic keys say as much of the question as its does, `SHARED_HEADLINE_WORDS_MIN` words at least
+/// (a word the question says in two forms counted once), two of them the words the question says
+/// side by side, and they are about the question as much
 /// (`SAYS_AS_MUCH_SHARE`). "does the graph draw anyone in it at all, or do we tell you who made the
 /// call?" is answered by the decision whose title says "graph" and "made", whereas the two
 /// decisions whose titles say "graph draw" are the ones asked about: one rare word does not tell
@@ -1807,12 +1856,19 @@ pub(crate) const SAYS_AS_MUCH_SHARE: f64 = 0.9;
 /// way, which two words the question says far apart ("people" and "graph" of "what do people get told
 /// when a link to the graph points at nothing?") are. They join the answer, most about the question
 /// first, so a search that lists them does not leave them for a decision that holds more of the
-/// words in a rationale. An answer none of whose decisions says a word of the question in its title
-/// or topic keys has no best-titled decision to be a peer of (it found the decision by a rare word
-/// in a rationale, "how do visitors know the animated graph is showing sample data?"), and an empty
-/// one has nothing, so nothing is added. At most `BELOW_BAR_LIMIT` are added; of two, the one more
-/// about the question, then the one that names a word it holds in both its title and its topic
-/// keys, then the lower id.
+/// words in a rationale. A peer does not outrank the decision the answer was found by when that
+/// decision is about the question as much as the peer is (`SAYS_AS_MUCH_SHARE`: `admit_below_bar`
+/// caps the peer's weight there, and the search's tie-break, the fewer words missing, puts the
+/// decision first): "does the command-line binary get a new name along with the new company?" is
+/// answered by the decision titled for the new name, which holds four of the words, and not by the
+/// two drafts that say "get" and "new" in theirs, which hold two and weigh a hair more because
+/// "get" is held by fewer decisions than "name". A peer that weighs clearly more keeps its place.
+/// An answer none of whose decisions says a word of the question in its title or topic keys has
+/// no best-titled decision to be a peer of (it found the decision by a rare word in a rationale,
+/// "how do visitors know the animated graph is showing sample data?"), and an empty one has
+/// nothing, so nothing is added. At most `BELOW_BAR_LIMIT` are added; of two, the one more about
+/// the question, then the one that names a word it holds in both its title and its topic keys,
+/// then the lower id.
 fn peers_below_bar(
     scored: &[ScoredDecisionSearchResult],
     holdings: &[Holding],
@@ -1826,7 +1882,7 @@ fn peers_below_bar(
         .iter()
         .enumerate()
         .filter(|(index, holding)| answered(holding, *index, admitted))
-        .map(|(_, holding)| holding.headline.len())
+        .map(|(_, holding)| weights.once(&holding.headline).len())
         .max()
         .filter(|titled| *titled > 0)
         .map_or(0, |titled| titled.max(SHARED_HEADLINE_WORDS_MIN));
@@ -1840,7 +1896,7 @@ fn peers_below_bar(
         .filter(|(index, (_, holding))| {
             holding.below_bar
                 && !admitted.contains(index)
-                && holding.headline.len() >= titled
+                && weights.once(&holding.headline).len() >= titled
                 && side_by_side(&holding.headline)
                 && holding
                     .about(weights)
@@ -1866,6 +1922,45 @@ fn peers_below_bar(
         .into_iter()
         .take(BELOW_BAR_LIMIT)
         .map(|(.., index)| index)
+        .collect()
+}
+
+/// The decisions admitted below the bar while a decision left out below it is more about the
+/// question (`About`) and holds `OUTWEIGHING_WORDS_MIN` of its words, each stem once, one of them in
+/// its title or topic keys. The half-of-the-terms bar (`admit_below_bar`) and its pair rule are
+/// counts, and a decision that holds three of the words in a rationale, two of them in a title,
+/// passes them by a hair while a decision that says the question's rarer words in its title falls
+/// short of them by another: "why did the drawings in the animation stop using a fixed-size canvas
+/// that got shrunk on phones?" admits the decision titled for the frame loop that stops with the
+/// canvas, whereas the decision that says "canvas" and "phones" in its title and is more about the
+/// question is left out. Which of the two was meant is not told by the counts, so the admitted
+/// one is listed and never named alone (`close_candidate_leads`). A decision at the bar is not
+/// outweighed: it holds half of the question, as the one left out does not.
+fn outweighed_below_bar(
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+) -> BTreeSet<usize> {
+    let rivals: Vec<About> = holdings
+        .iter()
+        .enumerate()
+        .filter(|(index, holding)| {
+            holding.below_bar
+                && !admitted.contains(index)
+                && !holding.headline.is_empty()
+                && weights.once(&holding.held).len() >= OUTWEIGHING_WORDS_MIN
+        })
+        .map(|(_, holding)| holding.about(weights))
+        .collect();
+    admitted
+        .iter()
+        .copied()
+        .filter(|index| {
+            holdings.get(*index).is_some_and(|holding| {
+                let about = holding.about(weights);
+                holding.below_bar && rivals.iter().any(|rival| rival.cmp_about(&about).is_gt())
+            })
+        })
         .collect()
 }
 
@@ -1982,6 +2077,9 @@ pub(crate) struct ResolverCandidateRow {
     /// Admitted below the bar as a peer of the answer's best-titled decision, see
     /// `peers_below_bar`; it is listed with the answer and is never the one named alone.
     pub(crate) peer: bool,
+    /// Admitted below the bar while a decision left out says more of the question, see
+    /// `outweighed_below_bar`; it is listed with the answer and is never the one named alone.
+    pub(crate) outweighed: bool,
 }
 
 impl ResolverCandidateRow {
@@ -2034,6 +2132,7 @@ pub(crate) fn collect_resolver_candidates(
             about: scored.about,
             promoted: false,
             peer: scored.peer,
+            outweighed: scored.outweighed,
         })
         .collect())
 }

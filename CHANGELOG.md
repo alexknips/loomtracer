@@ -790,6 +790,62 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`why` no longer answers a close match that holds only a few of the question's words when a
+  decision it left out says more of them, a word the question says in two forms is counted
+  once, and a peer does not come before a decision that says as much of the question.** The
+  first two come from the older rule that admits a decision below the half-of-the-words bar
+  (hivemind-wdxx0 left them as known costs). That rule counted "job" and "jobs" as two words a
+  decision shares with the question when the decision says "job" once, so a session note whose
+  title says "job" and "run" weighed as much as the decision about the thing asked, in the
+  pair rule, in how much of the question a title carries (`About`, which orders `recall` and
+  `why`) and in the peer rule that lists decisions whose titles say as many words as the
+  answer's. Each stem is now counted once in all of them. And an admitted decision is no longer
+  named alone when a decision left out below the bar holds two of the question's words, one in
+  its title or topic keys, and is strictly more about the question: `why` lists them instead,
+  with the labels of any close match. And a decision listed with the answer because its title
+  says two of the question's words side by side (a peer) no longer comes before the decision the
+  answer was found by when that decision is about the question at least nine tenths as much: two
+  drafts that said "get" and "new" in their titles weighed 8% more than the decision titled for
+  the new name, because "get" is held by fewer decisions than "name", and came before it though
+  it holds four of the question's words and they hold two. A peer that weighs clearly more keeps
+  its place. A share of the question held does not tell the right
+  answers from the wrong ones (right ones go down to a weight share of 0.27), so none is used.
+  What the question says is the only thing counted. Through the debug build of this change on a
+  copy of the crew ledger (534 events, 69 decisions), 690 questions: two questions differ from
+  before. "should the sorting step use a model on the person's own machine unless they switch
+  it?" has a decision that is not in the ledger and stops answering "The company weekly's
+  headline number is ..." as a close match lacking five words, and lists two decisions; "when
+  a decision mixes lettered and unlabelled choices, which one goes first?" goes from the
+  second of a list to the first. The checker's 439 stay at 355 in the recall top three (first
+  294 to 295), no question loses its place in it, the `why` answers that are a decision other
+  than the recorded one go from 20 to 19, the controls are unchanged. On a copy of the cell's
+  ledger (about 150,000 events, 1,845 decisions), the same 694 questions: the checker's 439 stay
+  at 305 in the recall top three (first 200 to 202), no question loses its place in it, `why`'s confident wrong answers go from
+  42 to 38 across the batteries (36 to 33 in the checker's) and its right answers from 243 to
+  244, and the controls are unchanged. Per question: "when the forecast runs out of finished
+  examples, how far out does the survival curve put the leftover chance?" (twice) and "why did
+  the drawings in the animation stop using a fixed-size canvas that got shrunk on phones?"
+  stop answering a decision they are not about ("beadline forecaster: one shared schedule per
+  run ..." holding three of eleven words; "Hidden Flow tab stops the R3F frame loop instead of
+  unmounting the Canvas"), and list them instead, where the decision asked about is not in the
+  ledger or is still not found; "how
+  does beadline handle the time that is left over for the jobs we have no finish times for?"
+  goes from the first of a list to the answer; "how does beadline draw the time a long job
+  still needs for jobs that run longer than anything we have seen finish" puts the forecast
+  decision first and answers it as a close match, where a note from a session came first;
+  "if just one choice lacks a letter, how are the choices sorted on the page?" stops answering
+  a wrong decision and lists the right one second (recall 3 to 2); "how does the page match each
+  choice with its reason when the choices have no letters?" goes from a list to the first of one
+  (recall 2 to 1); "I want to add a topic filter to the decision list page; was anything decided
+  about filters?" has its decision at 5 in `recall`, from 7; "does the command-line binary get a
+  new name along with the new company?" puts the decision titled for the new name first, from
+  third behind two drafts; "how do we know the demo's sample data was not edited by hand?" puts
+  its decision first, from third. The wdxx0 wins hold: the link
+  question answers no wrong decision and lists the decision about the missing link third, the
+  lint question puts the decision about it first. Not fixed: the decision about the leftover
+  mass, which the survival curve question asks for, is still not listed.
+  `docs/AGENT_FLUENT_QUERYING.md` states both rules. (hivemind-otruj)
+
 - **The web UI's landing page no longer promises an invite-only pilot.** Its "Connect your agents
   today." section said "The invite-only pilot includes setup for Codex and Claude Code", but the
   hqbd9 merge removed the "Request access" form and the "Sign in" link because the server has no
@@ -863,6 +919,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   "when the forecast runs out of finished examples, how far out does the survival curve put the
   leftover chance?" still answers "beadline forecaster: one shared schedule per run ..." as a
   close match lacking eight words, where the decision about the leftover mass is not listed.
+  (The entry above, hivemind-otruj, changes the last two.)
   `docs/AGENT_FLUENT_QUERYING.md` and the `recall_decisions` description state the rules.
   (hivemind-wdxx0)
 

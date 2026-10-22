@@ -2611,6 +2611,181 @@ fn fluent_search_adds_no_peer_to_an_answer_that_says_none_of_the_words_in_its_ti
 }
 
 #[test]
+fn fluent_search_counts_a_word_the_question_says_in_two_forms_once() -> Result<()> {
+    // Thirty decisions. "job", "jobs", "run" and "night" are each held by four of them. d:schedule
+    // says "job" in its title and "jobs" and "run" in its rationale, and the question has eight
+    // words, so it holds three of them: below the half that the bar asks.
+    let scenario = generic_ledger(
+        23,
+        &[
+            (
+                "d:schedule",
+                "Schedule a job at night",
+                "The jobs run once.",
+            ),
+            ("d:wait-1", "Queue entry one", "A job waits at night."),
+            ("d:wait-2", "Queue entry two", "A job waits at night."),
+            ("d:wait-3", "Queue entry three", "A job waits at night."),
+            ("d:go-1", "Worker entry one", "Then it will run."),
+            ("d:go-2", "Worker entry two", "Then it will run."),
+            ("d:go-3", "Worker entry three", "Then it will run."),
+        ],
+    )?;
+
+    let (twice, _) = fluent_answer(
+        &scenario,
+        "job jobs run kubernetes helm rollout staging xpath",
+        10,
+    )?;
+    assert_eq!(
+        twice,
+        Vec::new(),
+        "\"job\" and \"jobs\" are one word of the decision, so it shares two words with the question, \
+         and two that four decisions each hold are a chance meeting"
+    );
+
+    let (three, _) = fluent_answer(
+        &scenario,
+        "job run night kubernetes helm rollout staging xpath",
+        10,
+    )?;
+    assert_eq!(
+        three.first().map(|(id, _)| id.as_str()),
+        Some("d:schedule"),
+        "three different words of the question are not a chance meeting, wherever the decision holds them"
+    );
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_peer_that_weighs_as_much_only_by_saying_a_word_in_two_forms() -> Result<()>
+{
+    // d:answer holds four of the seven words, "alpha" and "beta" in its title. d:ops says "run",
+    // "job" and "jobs" in its title, side by side in the question: three words of its title where
+    // the answer's says two, and, with "job" and "jobs" each counted, about as much of the
+    // question. Counted once, "job" and "run" are two words that eight decisions each hold, a
+    // good deal less than "alpha" and "beta", so it is no peer of the answer.
+    let mut named: Vec<(String, String, String)> = vec![
+        (
+            "d:answer".to_owned(),
+            "Alpha beta forge".to_owned(),
+            "Gamma and delta follow.".to_owned(),
+        ),
+        (
+            "d:ops".to_owned(),
+            "Run the job queue for jobs".to_owned(),
+            "Nothing else is said.".to_owned(),
+        ),
+    ];
+    for (word, count) in [("alpha", 4), ("beta", 4), ("job", 7), ("run", 7)] {
+        for index in 0..count {
+            named.push((
+                format!("d:{word}-{index}"),
+                format!("Plain item {}", named.len()),
+                format!("A note that says {word} once."),
+            ));
+        }
+    }
+    let borrowed: Vec<(&str, &str, &str)> = named
+        .iter()
+        .map(|(id, title, rationale)| (id.as_str(), title.as_str(), rationale.as_str()))
+        .collect();
+    let scenario = generic_ledger(20, &borrowed)?;
+
+    let (items, _) = fluent_answer(&scenario, "alpha beta gamma delta job jobs run", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["d:answer"], "{ids:?}");
+    Ok(())
+}
+
+/// d:answer holds four of the question's seven words, "gamma" and "delta" in its title. The two
+/// peers say "alpha" and "beta" in theirs, side by side in the question, and hold only those. Four
+/// decisions hold "alpha" and "beta" each, and `answer_holders` hold "gamma" and "delta": the fewer
+/// decisions hold a word, the more it weighs, so the answer's two words weigh a little less than the
+/// peers' (`answer_holders` 5) or a lot less (8) of the ledger of `padding` plain decisions.
+fn peers_ahead_of_the_answer_ledger(padding: usize, answer_holders: usize) -> Result<Scenario> {
+    let mut named: Vec<(String, String, String)> = vec![
+        (
+            "d:answer".to_owned(),
+            "Gamma delta forge".to_owned(),
+            "Epsilon and zeta follow.".to_owned(),
+        ),
+        (
+            "d:peer-one".to_owned(),
+            "Alpha beta drift".to_owned(),
+            "Nothing else is said.".to_owned(),
+        ),
+        (
+            "d:peer-two".to_owned(),
+            "Beta alpha shift".to_owned(),
+            "Nothing else is said.".to_owned(),
+        ),
+    ];
+    for (word, holders) in [
+        ("alpha", 4),
+        ("beta", 4),
+        ("gamma", answer_holders),
+        ("delta", answer_holders),
+    ] {
+        let others = if word == "alpha" || word == "beta" {
+            2
+        } else {
+            1
+        };
+        for index in 0..holders - others {
+            named.push((
+                format!("d:{word}-{index}"),
+                format!("Plain item {}", named.len()),
+                format!("A note that says {word} once."),
+            ));
+        }
+    }
+    let borrowed: Vec<(&str, &str, &str)> = named
+        .iter()
+        .map(|(id, title, rationale)| (id.as_str(), title.as_str(), rationale.as_str()))
+        .collect();
+    generic_ledger(padding, &borrowed)
+}
+
+#[test]
+fn fluent_search_ranks_no_peer_above_the_decision_the_answer_was_found_by_when_it_says_as_much(
+) -> Result<()> {
+    // The peers weigh a little more than the answer (it is 0.91 of them, over `SAYS_AS_MUCH_SHARE`)
+    // though they hold fewer of the question's words ("does the command-line binary get a new name
+    // along with the new company?": two drafts say "get" and "new" in their titles, the decision
+    // titled for the new name holds four of the words). They join the answer
+    // (`peers_below_bar`) and come after the decision that holds more of it.
+    let scenario = peers_ahead_of_the_answer_ledger(28, 5)?;
+
+    let (items, _) = fluent_answer(&scenario, "alpha beta gamma delta epsilon zeta eta", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids.first(), Some(&"d:answer"), "{ids:?}");
+    assert!(ids[1..].contains(&"d:peer-one"), "{ids:?}");
+    assert!(ids[1..].contains(&"d:peer-two"), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_leaves_a_peer_that_weighs_clearly_more_before_the_decision_the_answer_was_found_by(
+) -> Result<()> {
+    // The answer's two words weigh 0.7 of the peers' here, which is not a hair: the peers say
+    // the question's two most telling words in their titles and keep their place ahead.
+    let scenario = peers_ahead_of_the_answer_ledger(20, 8)?;
+
+    let (items, _) = fluent_answer(&scenario, "alpha beta gamma delta epsilon zeta eta", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(
+        ids.first().is_some_and(|id| id.starts_with("d:peer")),
+        "{ids:?}"
+    );
+    assert!(ids.contains(&"d:answer"), "{ids:?}");
+    Ok(())
+}
+
+#[test]
 fn fluent_search_in_a_small_ledger_answers_the_decision_whose_title_holds_the_word() -> Result<()> {
     let scenario = titled_decisions(&[
         (

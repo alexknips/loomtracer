@@ -522,7 +522,11 @@ decision below the bar is returned when
   load balancer question). Two words are enough when no more than two decisions
   hold either of them, one of them in the title or a topic key ("how far does the
   forecast's leftover tail reach?" lists the decision titled for the leftover whose
-  rationale says "tail"), or
+  rationale says "tail"). The words are counted once per stem: a decision that says
+  "job" holds the question's "job" and its "jobs" alike, and that is one word it shares
+  with the question, not two ("how does beadline draw the time a long job still needs for
+  jobs that run longer than anything we have seen finish" no longer puts first a session
+  note that says "job" and "run"), or
 - the ledger is small (16 decisions or fewer, too few for counts to say what is
   rare), and a word its title or topic keys hold is held by no other decision: its
   capturer named it as the subject, or
@@ -581,15 +585,36 @@ the 1.25 times `ln(n + 1)` the titled test asks. A decision below the bar is a p
 title or topic keys hold at least as many of the question's words as the answer's best does
 (two at least), two of them words the question says side by side (neighbours among its
 terms, whatever small words sit between them: "graph draw", "link ... graph"), and it is
-about the question at least nine tenths as much as the answer is. Two common words that
-sit in one title and far apart in the question are chance, a phrase is not. At most three
+about the question at least nine tenths as much as the answer is, a word the question
+says in two forms counted once in both counts ("job" and "jobs" are one word of a title).
+Two common words that sit in one title and far apart in the question are chance, a phrase
+is not. At most three
 peers are added (the most about the question first, then the one that names a word in both
 its title and its topic keys, then the lower id), they carry `missing_terms` like any
-close match, and `why` lists them with the answer, never naming one alone. An answer
+close match, and `why` lists them with the answer, never naming one alone. A peer does not
+outrank the decision the answer was found by when that decision is about the question at
+least nine tenths as much as the peer is: its weight counts for no more than the
+decision's, and the one missing fewer of the question's words comes first. "Does the
+command-line binary get a new name along with the new company?" is answered by the decision
+titled for the new name, which holds four of the question's words, not by the two drafts whose
+titles say "get" and "new" and weigh 8% more because "get" is held by fewer decisions than
+"name". A peer that weighs more than that keeps its place. An answer
 none of whose decisions says a word of the question in its title or topic keys has no
 best-titled decision to be a peer of ("how do visitors know the animated graph is showing
 sample data?" finds its decision by "animated" in a rationale), and an empty one has
 nothing: nothing is added.
+
+A decision admitted below the bar is also never named alone when a decision left out below
+it is more about the question and holds two of the words (each stem once), one of them in its
+title or topic keys. The counts above cannot tell which of the two was meant: a decision
+that holds three of the words, two in its title, passes the first item by a hair, while a
+decision whose title says two rarer words, said apart in the question, falls short of it.
+"Why did the drawings in the animation stop using a fixed-size canvas that got shrunk on
+phones?" admits the decision about a tab that stops the frame loop instead of unmounting the
+canvas, and the decision whose title says "canvas" and "phones" is left out; `why` lists
+the first and does not answer it. A decision at the bar is not held to this, nor is one
+that no left-out decision outweighs: the decision asked about is still answered when a
+single one is admitted.
 
 At most three such decisions are added (the ones holding the most weight, then
 decision id), and the subject or the titled one, then the peers, on top of them, each carrying

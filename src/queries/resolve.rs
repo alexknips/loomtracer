@@ -543,6 +543,7 @@ fn close_candidate_leads(term_count: usize, rows: &[ResolverCandidateRow]) -> bo
     let shared = term_count.saturating_sub(first.missing_terms.len());
     !first.polarity_mismatch
         && !first.peer
+        && !first.outweighed
         && shared >= MIN_WORDS_TO_ANSWER_CLOSE
         && first.headline_words >= MIN_HEADLINE_WORDS_TO_ANSWER_CLOSE
         && (!first.promoted || promoted_leader_is_about_it(term_count, rows, first))
