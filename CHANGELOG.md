@@ -791,7 +791,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **`recall`, `why` and `verify` no longer lose the decision whose title says a question's rare word
-  to the everyday words around it in three more shapes.** (1) Where several decisions hold the
+  to the everyday words around it in four more shapes.** (1) Where several decisions hold the
   same weight below the half-of-the-words bar and are equally about the question, the first three
   were taken in id order, so three session drafts that restate a title (`capture:` ids) crowded out
   the decision filed under the word: "what goes in the timeline for a single decision?" listed
@@ -806,23 +806,37 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   held by a handful of decisions of a large ledger (weight at least 0.78 times `ln(n + 1)`): "when
   people ask what kind of thing we are, which shelf do we point them to?" answered a session draft
   titled "Arrows to people and agents always point at them", which holds "people" and "point"; `why`
-  now lists it with the decision titled for the public shelf second, and recall puts that decision in
-  the top three. The decisions of the answer that are more about the question and lack the word
-  are not named alone. Measured on a cell-sized copy (157,563 events, 764 standing questions)
-  against master: six questions gain a place in the top three (the shelf questions, the timeline
-  question, the pixels question, and a flow-search question), one standing question loses its
-  place there (the frontend tests that run in a fake browser, from third to fourth), `why` answers
-  nothing new, four wrong one-call answers become lists, no right one-call answer is lost, and
-  the controls ("which shelf in the kitchen holds the new mugs?", "is the free coffee kept in the
-  kitchen until someone asks for a new one?", "do we need a licence to play music in the
-  office?") are unchanged. On the crew copy (69 decisions) no question changes. Not
-  fixed: the shelf, timeline and legend questions on the 69-decision crew copy (a word held by
-  three or five decisions of sixty-nine is not rare enough for the rules to tell a title from
-  chance), the legend question on the cell, and "which shelf do we want people to put us on when
-  they first hear what we make?" on the live cell, where a session draft about a plugin hold
-  comes first. `docs/AGENT_FLUENT_QUERYING.md` states the rules and what `why` does for the
-  command-line rename question, which it answers on a small ledger and lists first on a large
-  one. (hivemind-pen9l)
+  then listed it with the decision titled for the public shelf second. (4) The one decision whose
+  title says the question's rare word is listed beside an answer in which a second decision holds
+  that word, when the rest of the question is words some decision holds: the paywall question that
+  hivemind-vxepq fixed stopped finding the decision titled for "paywalled" once a session draft
+  about that fix, which repeats the question and holds every word of it, became a second holder;
+  `why` then answered the draft alone, and now lists both. The word must weigh at least 0.75 times
+  `ln(n + 1)` (five or six holders of two thousand decisions), exactly one title must say it, and
+  the decision must hold two of the question's words; a second title that says the word turns the
+  rule off. In all four shapes the decisions of the answer that are more about the question and
+  lack the word, or hold it without a title, are not named alone. Measured on a cell-sized copy
+  taken the same day (165,352 events, 764 standing questions), master 7a916936 against this
+  change: five questions gain a place in the top three (a flow-search question, the timeline
+  question, and three questions about what is paywalled), one loses it (the frontend tests that
+  run in a fake browser, third to fourth), one moves from second to third inside the top three,
+  `why` answers nothing new, two wrong one-call answers (the fake-browser question and one paywall
+  question) become lists, four misses become lists, and no right one-call answer is lost. The
+  paywall questions keep the decision when one more neutral decision holds the word. Of the 118
+  controls (among them "which shelf in the kitchen holds the new mugs?", "is the free coffee kept
+  in the kitchen until someone asks for a new one?" and "do we need a licence to play music in
+  the office?") one changes: the question about rotating the SSH host keys lists one more
+  decision, a session decision to rotate the events log, with its top three and its answer
+  unchanged. On the crew copy (69 decisions, 760 questions) no question changes. Not fixed: the
+  shelf, timeline and legend questions on the 69-decision crew copy (a word held by three or five
+  decisions of sixty-nine is not rare enough for the rules to tell a title from chance); the long
+  form of the timeline question and the legend question on the cell; and the shelf questions on
+  a cell once drafts about the shelf pile up: on a copy of 157,563 events the rules above listed
+  the decision titled for the public shelf second, on the copy of 165,352 events "shelf" is held
+  by eight decisions, two of them titled for it, every rule is off, and the session draft is
+  answered as before. `docs/AGENT_FLUENT_QUERYING.md` states the rules, their known gaps, and what
+  `why` does for the command-line rename question, which it answers on a small ledger and lists
+  first on a large one. (hivemind-pen9l)
 
 - **`recall`, `why` and `verify` find the decision whose title says the one word a question names,
   when the question adds everyday words the ledger does not hold.** "Is anything paywalled before

@@ -3314,6 +3314,96 @@ fn fluent_search_lists_no_decision_that_says_the_word_in_its_title_but_is_not_fi
     Ok(())
 }
 
+const EMBARGO_QUESTION: &str =
+    "embargo people try first quarter budget review calendar mailing press";
+
+/// Two hundred generic decisions, six that title "people", a draft that says every word of
+/// `EMBARGO_QUESTION` in its rationale and none in its title, and `named`: the draft is answered at
+/// the bar and holds "embargo", so the word has one holder more than the decision a test titles for
+/// it, and "people" is an everyday word that no pair of title words makes a subject of.
+fn embargo_ledger(named: &[(&str, &str, &str)]) -> Result<Scenario> {
+    let people: Vec<(String, String)> = (0..6)
+        .map(|index| {
+            (
+                format!("d:people-{index}"),
+                format!("People see page {index}"),
+            )
+        })
+        .collect();
+    let mut decisions: Vec<(&str, &str, &str)> = people
+        .iter()
+        .map(|(id, title)| (id.as_str(), title.as_str(), "Wording."))
+        .collect();
+    decisions.push((
+        "d:draft",
+        "Notes on the release wording",
+        "People try the embargo first, then the quarter budget review, calendar, mailing and press.",
+    ));
+    decisions.extend_from_slice(named);
+    generic_ledger(200, &decisions)
+}
+
+fn embargo_ids(scenario: &Scenario) -> Result<Vec<String>> {
+    let (items, _) = fluent_answer(scenario, EMBARGO_QUESTION, 10)?;
+    Ok(items.into_iter().map(|(id, _)| id).collect())
+}
+
+#[test]
+fn fluent_search_lists_the_one_decision_titled_for_the_rare_word_beside_a_draft_that_holds_it(
+) -> Result<()> {
+    // The draft holds every word and is answered. "Embargo" is held by it and by the one decision
+    // that titles it, which holds one more word of the question in its rationale: below the bar,
+    // and listed.
+    let scenario =
+        embargo_ledger(&[("d:owner", "Embargo lifts at launch", "People wait for it.")])?;
+
+    let ids = embargo_ids(&scenario)?;
+
+    assert!(ids.contains(&"d:draft".to_owned()), "{ids:?}");
+    assert!(ids.contains(&"d:owner".to_owned()), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_no_title_owner_when_a_second_decision_titles_the_word() -> Result<()> {
+    // Two titles say "embargo": nothing sets either above the other, so neither is the subject's.
+    let scenario = embargo_ledger(&[
+        ("d:owner", "Embargo lifts at launch", "People wait for it."),
+        ("d:other", "Embargo notes", "Wording."),
+    ])?;
+
+    let ids = embargo_ids(&scenario)?;
+
+    assert!(!ids.contains(&"d:owner".to_owned()), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_no_title_owner_that_holds_only_the_rare_word() -> Result<()> {
+    let scenario = embargo_ledger(&[("d:owner", "Embargo lifts at noon", "Wording.")])?;
+
+    let ids = embargo_ids(&scenario)?;
+
+    assert!(!ids.contains(&"d:owner".to_owned()), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_no_title_owner_of_a_word_five_decisions_hold() -> Result<()> {
+    // Three more decisions say "embargo" in a rationale: five hold it, and it no longer names one.
+    let scenario = embargo_ledger(&[
+        ("d:owner", "Embargo lifts at launch", "People wait for it."),
+        ("d:aside-1", "Agenda one", "Mind the embargo."),
+        ("d:aside-2", "Agenda two", "Mind the embargo."),
+        ("d:aside-3", "Agenda three", "Mind the embargo."),
+    ])?;
+
+    let ids = embargo_ids(&scenario)?;
+
+    assert!(!ids.contains(&"d:owner".to_owned()), "{ids:?}");
+    Ok(())
+}
+
 #[test]
 fn fluent_search_adds_at_most_three_below_the_bar_and_after_those_at_it() -> Result<()> {
     let scenario = titled_decisions(&[

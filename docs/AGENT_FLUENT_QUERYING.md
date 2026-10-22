@@ -666,6 +666,36 @@ decisions of the answer that are more about the question than it is and do not h
 are not named alone either, since the question is as much about the word they lack as about
 the words they hold. At most one decision is added.
 
+A decision below the bar is also listed when it is the only one whose title says the question's
+rare word and the answer holds that word elsewhere. A question that asks whether anything is
+paywalled before people try it names one thing; the ledger says "paywalled" in a handful of
+decisions, one titled for it and the others in passing, among them a session draft that restates
+the question and holds every word of it, so the draft is answered and nothing in the question puts
+it above the decision titled for the word.
+The rule before this one needs the word to have exactly one holder, and the one before that a long
+answer, so a second holder, a topic key or a rationale, turned both off. This rule wants the same:
+the words some decision holds carry two thirds of the question's weight, the rarest word that
+exactly one decision says in its title weighs at least 0.75 times `ln(n + 1)` (a word five or six
+decisions of two thousand hold), a decision of the answer holds that word, and the decision holds two
+of the question's words, each stem once. Where two decisions each own such a word, the question's
+rare words are scattered and none is its subject. The decision is listed with the answer and never
+named alone, it comes no higher than the answer's best, and the decisions of the answer that hold
+the word and are more about the question than it is are not named alone either: nothing in the
+question tells them from the decision titled for the word. At most one decision is added. A second
+decision that titles the word turns the rule off, as does a word that so many decisions hold that
+it weighs less than that.
+
+**Known gaps of these rules.** They are tuned on a ledger of a few thousand decisions, where a
+word that three to six decisions hold is rare. On a ledger of sixty-nine decisions the same words
+(shelf, timeline, legend) are held by three to five, which is not rare enough to tell a title from
+chance, so a long question that adds everyday words to one of them still misses the decision
+titled for it there. On a large ledger the decision titled for the shelf is listed second, not
+first, when a session draft that holds more of the question's words comes first. And the rules turn
+off when drafts that talk about the same word pile up: once eight decisions of two thousand hold
+"shelf", two of them titled for it, the word weighs less than the rules ask for and the question
+is answered by the draft again, as it was before them. A decision that no rule above lists is
+found by asking with the word alone, though no longer always first.
+
 At most three such decisions are added (the ones holding the most weight, then
 decision id; of several that hold the same weight and are equally about the question, the one
 filed under the word first, since the id says nothing of which was meant: a decision and the
