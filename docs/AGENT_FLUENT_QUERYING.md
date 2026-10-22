@@ -558,8 +558,10 @@ decision below the bar is returned when
   question mostly about what nobody holds ("did we decide to move the UI from React to
   Svelte?") has no subject and an empty answer stays empty. Two words that sit in a
   title are no chance meeting, so a word that few decisions hold does not outweigh
-  them: "does the command-line binary get a new name along with the new company?" is
-  answered by the decision whose title says "new" and "name", and the one whose title
+  them: "does the command-line binary get a new name along with the new company?" puts
+  the decision whose title says "new" and "name" first (`why` answers with it alone where
+  no other decision says as much of the question, as on a small ledger, and lists it first
+  where session drafts do, as on a large one), and the one whose title
   says only "along", which seven decisions hold, is not added, or
 - failing a subject, its title or topic keys hold two of the question's words, two of
   them side by side in the question (or the decision holds five of the question's words
@@ -592,6 +594,19 @@ decision below the bar is returned when
   "marketing" in another), and nothing is added. At most one decision is added, since only
   one decision holds the word.
 
+When nothing answers at all, a word that a few decisions each title is the same shape: "at what
+number of pixels do we stop putting the names in?" meets "pixels" in the titles of three
+decisions and in nothing else, and each of them holds the everyday "names" too, so none is the
+only decision that owns the word. Up to three decisions below the bar, the most about the
+question first, are added when the answer is empty or none of its decisions says a word of the
+question in its title or topic keys (a review whose rationale holds "number", "stop" and
+"names" is such an answer), the words some decision holds carry at
+least 85% of the weight of all the question's words, exactly one word of the question is held
+by three decisions or fewer and said in a title or topic keys, every decision that holds that
+word says it there (a rationale that mentions it in passing is a sign it is not the subject,
+and a fourth title is a word too common to be one), and the decision holds two of the
+question's words, each stem once. They are listed with `missing_terms` and never named alone.
+
 Then the peers of the answer's best-titled decision, which the first two items cannot reach
 when one word of the question is common. "Does the graph draw anyone in it at all, or do we
 tell you who made the call?" is answered by the decision whose title says "graph" and
@@ -611,10 +626,12 @@ close match, and `why` lists them with the answer, never naming one alone. A pee
 outrank the decision the answer was found by when that decision is about the question at
 least nine tenths as much as the peer is: its weight counts for no more than the
 decision's, and the one missing fewer of the question's words comes first. "Does the
-command-line binary get a new name along with the new company?" is answered by the decision
-titled for the new name, which holds four of the question's words, not by the two drafts whose
+command-line binary get a new name along with the new company?" puts the decision titled
+for the new name, which holds four of the question's words, first, not the two drafts whose
 titles say "get" and "new" and weigh 8% more because "get" is held by fewer decisions than
-"name". A peer that weighs more than that keeps its place. An answer
+"name" (`why` answers with it alone on a ledger where nothing else says as much of the
+question, and lists it first, with the drafts after it, on one where other drafts do). A peer
+that weighs more than that keeps its place. An answer
 none of whose decisions says a word of the question in its title or topic keys has no
 best-titled decision to be a peer of ("how do visitors know the animated graph is showing
 sample data?" finds its decision by "animated" in a rationale), and an empty one has
@@ -632,8 +649,27 @@ the first and does not answer it. A decision at the bar is not held to this, nor
 that no left-out decision outweighs: the decision asked about is still answered when a
 single one is admitted.
 
+A decision below the bar can also be filed under a word the whole answer lacks. "Which
+shelf do we point people to when they ask what kind of thing we are?" adds to "shelf", which
+four decisions of eighteen hundred hold, everyday words that dozens of decisions hold each,
+so the decisions that say "people" and "point" in their titles pass the bar, and the one
+titled for the shelf is one word of six: the subject rule wants it as titled as the answer and
+more about the question, and neither holds. It is listed with the answer when the answer is
+four decisions or more, the words some decision holds carry two thirds of the question's
+weight, the rarest word that a decision below the bar says in its title or topic keys weighs at
+least 0.78 times `ln(n + 1)` (a word four decisions hold, in eighteen hundred; the rule is
+stricter than the subject's 0.6 because it asks for no more from the answer), no decision of
+the answer says that word in its title or topic keys, and the decision that is the most about
+the question of those that do is filed under it (its title and its topic keys both say a word
+of the question). It comes no higher than the answer's best and is never named alone; the
+decisions of the answer that are more about the question than it is and do not hold the word
+are not named alone either, since the question is as much about the word they lack as about
+the words they hold. At most one decision is added.
+
 At most three such decisions are added (the ones holding the most weight, then
-decision id), and the subject or the titled one, then the peers, on top of them, each carrying
+decision id; of several that hold the same weight and are equally about the question, the one
+filed under the word first, since the id says nothing of which was meant: a decision and the
+drafts that restate its title tie exactly), and the subject or the titled one, then the peers, on top of them, each carrying
 `missing_terms` like any close match. Of two that fit the subject or the titled test,
 the more about the question is added (the one that owns the question's rare word is added
 only when neither fits); between two equally about it, the one that

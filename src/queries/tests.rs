@@ -3010,6 +3010,310 @@ fn fluent_search_puts_first_the_decision_whose_title_and_topic_keys_both_name_th
     Ok(())
 }
 
+/// Sixty generic decisions, which say "query" and "output" in a rationale, and `named`.
+fn timeline_ledger(named: &[(&str, &str, &[&str])]) -> Result<Scenario> {
+    let scenario = generic_ledger(60, &[])?;
+    for (id, title, topics) in named {
+        titled_proposal(&scenario, id, title, topics)?;
+    }
+    Ok(scenario)
+}
+
+#[test]
+fn fluent_search_lists_the_decision_filed_under_the_word_when_drafts_with_lower_ids_tie_it(
+) -> Result<()> {
+    // Three drafts and the decision all say "timeline" in their title and nothing else of the
+    // question, so they tie on the weight they hold and on how much of the question they carry, and
+    // only three are added below the bar. The drafts' ids come first; the decision filed under the
+    // word (its topic keys say it too) comes before them.
+    let scenario = timeline_ledger(&[
+        ("capture:1:0", "Timeline entries come first", &["drafts"]),
+        ("capture:2:0", "Timeline entries stay short", &["drafts"]),
+        ("capture:3:0", "Timeline entries show the day", &["drafts"]),
+        ("d:filed", "The timeline lists each change", &["timeline"]),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, "timeline query output", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids.first(), Some(&"d:filed"), "{ids:?}");
+    assert!(
+        ids.iter().filter(|id| id.starts_with("capture:")).count() == 2,
+        "three decisions below the bar are added, not four: {ids:?}"
+    );
+    Ok(())
+}
+
+/// Sixty generic decisions, six plain notes that say "alpha", "bravo" or "charlie" in a rationale
+/// (two each), and `named`. "query" is held by the generic decisions, so it is common.
+fn pixels_ledger(named: &[(&str, &str, &str)]) -> Result<Scenario> {
+    let scenario = generic_ledger(60, &[])?;
+    for (index, word) in ["Alpha", "Bravo", "Charlie", "Alpha", "Bravo", "Charlie"]
+        .iter()
+        .enumerate()
+    {
+        scenario.proposal(
+            "human:alice",
+            "2026-01-01T00:00:00Z",
+            json!({
+                "decision_id": format!("d:note-{index}"),
+                "title": format!("Plain note {index}"),
+                "rationale": format!("{word} notes."),
+                "topic_keys": ["notes"],
+                "option_ids": [],
+                "chosen_option_id": null,
+                "hypothesis_ids": [],
+                "evidence_ids": []
+            }),
+        )?;
+    }
+    for (id, title, rationale) in named {
+        scenario.proposal(
+            "human:alice",
+            "2026-01-01T00:00:00Z",
+            json!({
+                "decision_id": id,
+                "title": title,
+                "rationale": rationale,
+                "topic_keys": ["labels"],
+                "option_ids": [],
+                "chosen_option_id": null,
+                "hypothesis_ids": [],
+                "evidence_ids": []
+            }),
+        )?;
+    }
+    Ok(scenario)
+}
+
+const PIXELS_QUESTION: &str = "pixels query alpha bravo charlie";
+
+#[test]
+fn fluent_search_lists_the_few_decisions_that_each_title_the_one_rare_word_when_nothing_answers(
+) -> Result<()> {
+    // "pixels" is held by three decisions and each of them says it in its title; each holds the
+    // everyday "query" too. No decision holds half of the question's words, and the rare word is
+    // not one decision's alone.
+    let scenario = pixels_ledger(&[
+        (
+            "d:px-1",
+            "Names stop at this many pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-2",
+            "Labels hide under some pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-3",
+            "Pixels set the smallest title",
+            "The query is read.",
+        ),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
+
+    let mut ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["d:px-1", "d:px-2", "d:px-3"], "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_them_beside_an_answer_that_says_none_of_the_words_in_a_title() -> Result<()>
+{
+    // d:review holds three of the five words in its rationale and passes the bar, with nothing of
+    // the question in its title: it does not answer a question about the titles of "pixels".
+    let scenario = pixels_ledger(&[
+        (
+            "d:review",
+            "Review of the batch",
+            "Alpha bravo and the query, once.",
+        ),
+        (
+            "d:px-1",
+            "Names stop at this many pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-2",
+            "Labels hide under some pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-3",
+            "Pixels set the smallest title",
+            "The query is read.",
+        ),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    for owner in ["d:px-1", "d:px-2", "d:px-3"] {
+        assert!(ids.contains(&owner), "{ids:?}");
+    }
+    assert!(ids.contains(&"d:review"), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_none_of_them_beside_an_answer_whose_title_says_a_word_of_the_question(
+) -> Result<()> {
+    // d:titled says "query" in its title and "alpha" and "bravo" in its rationale: it passes the
+    // bar and is about the question in its title, so the answer is not left for the owners.
+    let scenario = pixels_ledger(&[
+        ("d:titled", "The query as asked", "Alpha and bravo, once."),
+        (
+            "d:px-1",
+            "Names stop at this many pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-2",
+            "Labels hide under some pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-3",
+            "Pixels set the smallest title",
+            "The query is read.",
+        ),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(ids.contains(&"d:titled"), "{ids:?}");
+    for owner in ["d:px-1", "d:px-2", "d:px-3"] {
+        assert!(!ids.contains(&owner), "{ids:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_none_of_them_when_a_rationale_says_the_rare_word_in_passing() -> Result<()> {
+    // The same three, and a fourth decision that says "pixels" only in its rationale: the word is
+    // mentioned in passing, so the three titles are no sign that it is the subject.
+    let scenario = pixels_ledger(&[
+        (
+            "d:px-1",
+            "Names stop at this many pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-2",
+            "Labels hide under some pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-3",
+            "Pixels set the smallest title",
+            "The query is read.",
+        ),
+        ("d:aside", "Screens differ", "Count the pixels."),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
+
+    assert_eq!(items, Vec::new(), "{items:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_none_of_them_when_more_than_three_decisions_title_the_word() -> Result<()> {
+    let scenario = pixels_ledger(&[
+        (
+            "d:px-1",
+            "Names stop at this many pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-2",
+            "Labels hide under some pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-3",
+            "Pixels set the smallest title",
+            "The query is read.",
+        ),
+        (
+            "d:px-4",
+            "Pixels decide the icon size",
+            "The query is read.",
+        ),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
+
+    assert_eq!(items, Vec::new(), "{items:?}");
+    Ok(())
+}
+
+/// Two hundred generic decisions, a deck that says "shelf" in a rationale, four decisions whose
+/// titles say three of the everyday words of a question about the shelf ("people", "ask" and
+/// "point" are each held by five), and `d:shelf-filed`, whose title says "shelf" and whose topic
+/// keys are `topics`: "shelf" is held by two decisions of two hundred and seven.
+fn dominant_shelf_ledger(topics: &[&str]) -> Result<Scenario> {
+    let scenario = generic_ledger(
+        200,
+        &[
+            ("d:tail", "Plain tail", "People ask where to point it."),
+            (
+                "d:deck",
+                "The pitch deck opens with the value",
+                "The shelf we sit on is a page of its own.",
+            ),
+        ],
+    )?;
+    for (id, title) in [
+        ("d:r1", "People ask what we point at"),
+        ("d:r2", "Ask people where to point"),
+        ("d:r3", "People ask us to point"),
+        ("d:r4", "Point people to the docs and ask"),
+    ] {
+        titled_proposal(&scenario, id, title, &["pointing"])?;
+    }
+    titled_proposal(
+        &scenario,
+        "d:shelf-filed",
+        "The public shelf is agent memory",
+        topics,
+    )?;
+    Ok(scenario)
+}
+
+#[test]
+fn fluent_search_lists_the_decision_filed_under_the_one_word_no_title_of_the_answer_says(
+) -> Result<()> {
+    // Four decisions say two of the question's everyday words in their titles and pass the bar; the
+    // ledger holds "shelf" in two decisions and one is filed under it.
+    let scenario = dominant_shelf_ledger(&["public-shelf"])?;
+
+    let (items, _) = fluent_answer(&scenario, "people ask point shelf", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(ids.contains(&"d:shelf-filed"), "{ids:?}");
+    for answer in ["d:r1", "d:r2", "d:r3", "d:r4"] {
+        assert!(ids.contains(&answer), "{ids:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_no_decision_that_says_the_word_in_its_title_but_is_not_filed_under_it(
+) -> Result<()> {
+    let scenario = dominant_shelf_ledger(&["notes"])?;
+
+    let (items, _) = fluent_answer(&scenario, "people ask point shelf", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(!ids.contains(&"d:shelf-filed"), "{ids:?}");
+    Ok(())
+}
+
 #[test]
 fn fluent_search_adds_at_most_three_below_the_bar_and_after_those_at_it() -> Result<()> {
     let scenario = titled_decisions(&[

@@ -1610,6 +1610,21 @@ const OUTWEIGHING_WORDS_MIN: usize = 2;
 /// The decision that owns the question's one rare word (`lone_below_bar`) is added only when it
 /// holds this many of the question's words.
 const LONE_SUBJECT_WORDS_MIN: usize = 2;
+/// The question's one rare word may be held by this many decisions at most when every one of them
+/// says it in its title or topic keys (`lone_owners_below_bar`).
+const LONE_OWNERS_HOLDERS_MAX: usize = 3;
+/// ... and the words some decision holds must carry this share of the weight of all the question's
+/// words: a question with words nobody holds is mostly about something the ledger lacks.
+const LONE_OWNERS_KNOWN_SHARE: f64 = 0.85;
+/// The word that a decision is filed under (`dominant_owner_below_bar`) weighs at least this times
+/// `ln(searched + 1)`: a word four decisions hold, in a ledger of eighteen hundred.
+const DOMINANT_WORD_RARITY: f64 = 0.78;
+/// ... and the answer is at least this many decisions: a question whose everyday words many
+/// decisions hold, and whose rare word none of them titles.
+const DOMINANT_ANSWER_MIN: usize = 4;
+/// ... and the decision is filed under the word: its title and its topic keys say it, which is
+/// `SearchMatchInfo::headline_hits` of at least this many.
+const DOMINANT_FILED_HITS_MIN: usize = 2;
 
 /// Which decisions that lack too many of the terms (`SearchMatchInfo::below_bar`) are still
 /// answered. A long question names one thing among generic words ("CLI query xpath css text
@@ -1707,7 +1722,7 @@ fn admit_below_bar(
             below.push((shared, decision.id.as_str(), index));
         }
     }
-    below.sort_by(|left, right| right.0.total_cmp(&left.0).then_with(|| left.1.cmp(right.1)));
+    let below = order_below_bar(below, &scored, &holdings, weights);
     let mut admitted: BTreeSet<usize> = below
         .into_iter()
         .take(BELOW_BAR_LIMIT)
@@ -1723,16 +1738,34 @@ fn admit_below_bar(
     let ceiling = answer_about(&holdings, &admitted, weights);
     let peers = peers_below_bar(&scored, &holdings, &admitted, weights);
     admitted.extend(peers.iter().copied());
-    let outweighed = outweighed_below_bar(&holdings, &admitted, weights);
+    let mut outweighed = outweighed_below_bar(&holdings, &admitted, weights);
+    let mut listed: BTreeSet<usize> = BTreeSet::new();
+    let owners = lone_owners_below_bar(&scored, &holdings, &admitted, weights, term_count, total);
+    if owners.is_empty() {
+        if let Some((owner, outweighed_leaders)) =
+            dominant_owner_below_bar(&scored, &holdings, &admitted, weights, term_count, total)
+        {
+            listed.insert(owner);
+            outweighed.extend(outweighed_leaders);
+        }
+    } else {
+        listed.extend(owners);
+    }
+    let listed_ceiling = answer_about(&holdings, &admitted, weights);
+    admitted.extend(listed.iter().copied());
     scored
         .into_iter()
         .zip(holdings)
         .enumerate()
         .filter_map(|(index, (mut decision, holding))| {
-            decision.peer = peers.contains(&index);
+            decision.peer = peers.contains(&index) || listed.contains(&index);
             if let Some(ceiling) = ceiling.filter(|ceiling| {
-                decision.peer && ceiling.weighs_at_least(SAYS_AS_MUCH_SHARE, &decision.about)
+                peers.contains(&index)
+                    && ceiling.weighs_at_least(SAYS_AS_MUCH_SHARE, &decision.about)
             }) {
+                decision.about = decision.about.capped_at(ceiling);
+            }
+            if let Some(ceiling) = listed_ceiling.filter(|_| listed.contains(&index)) {
                 decision.about = decision.about.capped_at(ceiling);
             }
             decision.outweighed = outweighed.contains(&index);
@@ -1894,6 +1927,234 @@ fn lone_below_bar(
     let outranks = answer_about(holdings, admitted, weights)
         .is_none_or(|answer| holding.about(weights).cmp_about(&answer).is_gt());
     outranks.then_some(owner)
+}
+
+/// The decisions that pass the first test below the bar, in the order the first `BELOW_BAR_LIMIT` of
+/// them are added: the ones holding the most weight first, then the lower id. Where several hold the
+/// same weight and are equally about the question (`About`), the one filed under the word comes first
+/// (`SearchMatchInfo::headline_hits`: its title and its topic keys both say it), since the id says
+/// nothing of which was meant: a decision and the drafts that restate its title tie exactly ("what
+/// goes in the timeline for a single decision?" meets the decision filed under "timeline" and three
+/// drafts that say it in their titles, and the three drafts' ids come first).
+fn order_below_bar<'a>(
+    mut below: Vec<(f64, &'a str, usize)>,
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    weights: &TermWeights,
+) -> Vec<(f64, &'a str, usize)> {
+    below.sort_by(|left, right| right.0.total_cmp(&left.0).then_with(|| left.1.cmp(right.1)));
+    let mut placed = vec![false; below.len()];
+    let mut ordered = Vec::with_capacity(below.len());
+    for first in 0..below.len() {
+        if placed.get(first).copied().unwrap_or(true) {
+            continue;
+        }
+        let Some(&(shared, _, lead)) = below.get(first) else {
+            continue;
+        };
+        let Some(lead_about) = holdings.get(lead).map(|holding| holding.about(weights)) else {
+            continue;
+        };
+        let mut tied: Vec<(usize, &str, usize)> = Vec::new();
+        for (position, &(weight, id, index)) in below.iter().enumerate().skip(first) {
+            let equally_about = holdings
+                .get(index)
+                .is_some_and(|holding| holding.about(weights).cmp_about(&lead_about).is_eq());
+            if !placed.get(position).copied().unwrap_or(true)
+                && weight.total_cmp(&shared).is_eq()
+                && equally_about
+            {
+                if let Some(slot) = placed.get_mut(position) {
+                    *slot = true;
+                }
+                tied.push((scored.get(index).map_or(0, |d| d.headline_hits), id, index));
+            }
+        }
+        tied.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(right.1)));
+        ordered.extend(tied.into_iter().map(|(_, id, index)| (shared, id, index)));
+    }
+    ordered
+}
+
+/// The decisions below the bar that own the question's one rare word when nothing answers it:
+/// a person who asks "at what number of pixels do we stop putting the names in?" names one thing and
+/// adds everyday words, and the ledger holds "pixels" in the titles of three decisions and in
+/// nothing else, so none of them is the only one (`lone_below_bar`) and each of them holds the
+/// everyday "names" too. The answer is empty, or a decision that holds "number", "stop" and "names"
+/// in a rationale (a review of a hundred and twelve decisions, say), so nothing in it is about the
+/// question more than they are.
+///
+/// Up to `BELOW_BAR_LIMIT` decisions below the bar, the most about the question first, are added when
+///
+/// - the answer is empty or none of its decisions says a word of the question in its title or topic
+///   keys (`About` of nothing), and
+/// - the words some decision holds carry at least `LONE_OWNERS_KNOWN_SHARE` of the weight of all the
+///   question's words, and
+/// - exactly one word of the question is held by `LONE_OWNERS_HOLDERS_MAX` decisions or fewer and said
+///   in the title or topic keys of one of them, and
+/// - every decision that holds that word says it in its title or topic keys: nobody mentions it in
+///   passing, and
+/// - the decision holds `LONE_SUBJECT_WORDS_MIN` of the question's words, each stem once.
+///
+/// The word held by one decision only is `lone_below_bar`'s, which also answers a question with an
+/// answer that says more in its title; this is its form for a word that a few decisions each title.
+fn lone_owners_below_bar(
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+    term_count: usize,
+    total: f64,
+) -> Vec<usize> {
+    if answer_about(holdings, admitted, weights).is_some_and(|answer| answer.weight > 0.0) {
+        return Vec::new();
+    }
+    let known: f64 = (0..term_count).map(|term| weights.weight_of(term)).sum();
+    if known < LONE_OWNERS_KNOWN_SHARE * total {
+        return Vec::new();
+    }
+    let mut rare = (0..term_count).filter(|term| {
+        weights
+            .holders
+            .get(term)
+            .is_some_and(|n| *n <= LONE_OWNERS_HOLDERS_MAX)
+            && holdings
+                .iter()
+                .any(|holding| holding.headline.contains(term))
+    });
+    let (Some(word), None) = (rare.next(), rare.next()) else {
+        return Vec::new();
+    };
+    if holdings
+        .iter()
+        .any(|holding| holding.held.contains(&word) != holding.headline.contains(&word))
+    {
+        return Vec::new();
+    }
+    let mut owners: Vec<usize> = holdings
+        .iter()
+        .enumerate()
+        .filter(|(index, holding)| {
+            holding.headline.contains(&word)
+                && holding.below_bar
+                && !admitted.contains(index)
+                && weights.once(&holding.held).len() >= LONE_SUBJECT_WORDS_MIN
+        })
+        .map(|(index, _)| index)
+        .collect();
+    owners.sort_by(|left, right| {
+        let about = |index: &usize| {
+            holdings
+                .get(*index)
+                .map_or_else(About::default, |holding| holding.about(weights))
+        };
+        let hits = |index: &usize| scored.get(*index).map_or(0, |d| d.headline_hits);
+        let id = |index: &usize| scored.get(*index).map(|d| d.id.as_str());
+        about(right)
+            .cmp_about(&about(left))
+            .then_with(|| hits(right).cmp(&hits(left)))
+            .then_with(|| id(left).cmp(&id(right)))
+    });
+    owners.truncate(BELOW_BAR_LIMIT);
+    owners
+}
+
+/// The decision below the bar that is filed under the question's dominant word, listed beside an answer
+/// that never says it: a person who asks "which shelf do we point people to when they ask what kind
+/// of thing we are?" adds to "shelf", which four decisions of eighteen hundred hold, everyday words
+/// that dozens of decisions hold each, so the answer is the decisions that say "people" and "point"
+/// in their titles, and the decision filed under the shelf is one word of six. The subject rule
+/// (`subject_below_bar`) wants it more about the question than the answer and as titled, and neither
+/// holds: the answer's title says two everyday words and weighs more.
+///
+/// A decision below the bar, not already admitted, is it when
+///
+/// - the answer is `DOMINANT_ANSWER_MIN` decisions or more, and
+/// - the words some decision holds carry at least `SUBJECT_WORD_KNOWN_SHARE` of the weight of all the
+///   question's words, and
+/// - the rarest word of the question that a decision below the bar says in its title or topic keys
+///   weighs at least `DOMINANT_WORD_RARITY` times `ln(searched + 1)`, and
+/// - no decision of the answer says that word in its title or topic keys, and
+/// - the decision that is the most about the question of those that do is filed under a word of the
+///   question (`DOMINANT_FILED_HITS_MIN`).
+///
+/// It is listed with the answer and never named alone, and it comes no higher than the answer's best.
+/// The decisions of the answer that are more about the question than it is and do not hold the word
+/// are not named alone either, since the question is as much about the word they lack as about the
+/// words they hold. At most one decision is added.
+fn dominant_owner_below_bar(
+    scored: &[ScoredDecisionSearchResult],
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+    term_count: usize,
+    total: f64,
+) -> Option<(usize, Vec<usize>)> {
+    let known: f64 = (0..term_count).map(|term| weights.weight_of(term)).sum();
+    if known < SUBJECT_WORD_KNOWN_SHARE * total {
+        return None;
+    }
+    answer_about(holdings, admitted, weights)?;
+    let answers = holdings
+        .iter()
+        .enumerate()
+        .filter(|(index, holding)| answered(holding, *index, admitted))
+        .count();
+    if answers < DOMINANT_ANSWER_MIN {
+        return None;
+    }
+    let word = (0..term_count)
+        .filter(|term| {
+            weights.weight_of(*term) > 0.0
+                && holdings.iter().enumerate().any(|(index, holding)| {
+                    holding.below_bar
+                        && !admitted.contains(&index)
+                        && holding.headline.contains(term)
+                })
+        })
+        .max_by(|left, right| {
+            weights
+                .weight_of(*left)
+                .total_cmp(&weights.weight_of(*right))
+        })?;
+    if weights.weight_of(word) < DOMINANT_WORD_RARITY * weights.ledger().ln() {
+        return None;
+    }
+    if holdings.iter().enumerate().any(|(index, holding)| {
+        answered(holding, index, admitted) && holding.headline.contains(&word)
+    }) {
+        return None;
+    }
+    let owner = scored
+        .iter()
+        .zip(holdings)
+        .enumerate()
+        .filter(|(index, (_, holding))| {
+            holding.below_bar && !admitted.contains(index) && holding.headline.contains(&word)
+        })
+        .max_by(|(_, (left, left_holding)), (_, (right, right_holding))| {
+            left_holding
+                .about(weights)
+                .cmp_about(&right_holding.about(weights))
+                .then_with(|| left.headline_hits.cmp(&right.headline_hits))
+                .then_with(|| right.id.cmp(&left.id))
+        })?;
+    let (index, (decision, holding)) = owner;
+    if decision.headline_hits < DOMINANT_FILED_HITS_MIN {
+        return None;
+    }
+    let about = holding.about(weights);
+    let leaders = holdings
+        .iter()
+        .enumerate()
+        .filter(|(other, holding)| {
+            answered(holding, *other, admitted)
+                && !holding.held.contains(&word)
+                && holding.about(weights).cmp_about(&about).is_gt()
+        })
+        .map(|(other, _)| other)
+        .collect();
+    Some((index, leaders))
 }
 
 /// One decision is about the question as much as another when it weighs (`About`) at least this
