@@ -1978,6 +1978,10 @@ fn fluent_search_does_not_list_a_pair_when_one_of_its_words_is_common_or_neither
             ("d:tail-a", "Unrelated one", "A tail in a rationale."),
             ("d:tail-b", "Unrelated two", "Another tail in a rationale."),
             ("d:tail-c", "Unrelated three", "Yet another tail."),
+            // A second decision that says "leftover": d:leftover does not own the word, so the
+            // pair test is all that is left to list it (`lone_below_bar` lists a decision whose
+            // title says a word that no other decision holds).
+            ("d:tail-d", "Unrelated four", "A leftover in a rationale."),
         ],
     )?;
     let (items, _) = fluent_answer(&common, "forecast leftover tail reach far", 10)?;
@@ -2782,6 +2786,147 @@ fn fluent_search_leaves_a_peer_that_weighs_clearly_more_before_the_decision_the_
         "{ids:?}"
     );
     assert!(ids.contains(&"d:answer"), "{ids:?}");
+    Ok(())
+}
+
+/// Twenty-three plain decisions, d:paywall, which says "paywalled" in its title and `rationale`
+/// below it, four reviews that say "before" in theirs, and `more`. "paywalled" is held by one
+/// decision of the ledger, "before" by five.
+fn paywall_ledger(rationale: &str, more: &[(&str, &str, &str)]) -> Result<Scenario> {
+    let mut named: Vec<(&str, &str, &str)> = vec![
+        (
+            "d:paywall",
+            "Nothing paywalled until after the trial",
+            rationale,
+        ),
+        (
+            "d:review-1",
+            "Review step one",
+            "Check it before the release.",
+        ),
+        (
+            "d:review-2",
+            "Review step two",
+            "Check it before the release.",
+        ),
+        (
+            "d:review-3",
+            "Review step three",
+            "Check it before the release.",
+        ),
+        (
+            "d:review-4",
+            "Review step four",
+            "Check it before the release.",
+        ),
+    ];
+    named.extend_from_slice(more);
+    generic_ledger(23, &named)
+}
+
+const PAYWALL_QUESTION: &str = "anything paywalled before people try";
+
+#[test]
+fn fluent_search_answers_the_decision_that_owns_the_questions_one_rare_word() -> Result<()> {
+    // "anything", "people" and "try" are held by none, so the words some decision holds are a
+    // third of the question's weight, and "before" is held by five decisions: neither the pair rule
+    // nor the subject rule reaches d:paywall. It is the only decision whose title says a word that
+    // no other decision says, and it holds a second word of the question.
+    let scenario = paywall_ledger(
+        "Self-hosting stays free. Support is charged before anyone asks.",
+        &[],
+    )?;
+
+    let (items, _) = fluent_answer(&scenario, PAYWALL_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["d:paywall"], "{ids:?}");
+    let missing = &items[0].1;
+    assert_eq!(missing.len(), 3, "{missing:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_decision_for_a_rare_word_it_holds_alone() -> Result<()> {
+    // The same question, but d:paywall says nothing else the question says: a rare word on its own
+    // is what a stray question meets, and the answer stays empty.
+    let scenario = paywall_ledger("Self-hosting stays free.", &[])?;
+
+    let (items, _) = fluent_answer(&scenario, PAYWALL_QUESTION, 10)?;
+
+    assert_eq!(items, Vec::new(), "{items:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_decision_when_two_decisions_each_own_a_word_of_the_question() -> Result<()>
+{
+    // "invoices" is a word only d:invoice holds, in its title: the question's rare words are
+    // scattered over two decisions, and neither is its subject.
+    let scenario = paywall_ledger(
+        "Self-hosting stays free. Support is charged before anyone asks.",
+        &[(
+            "d:invoice",
+            "Invoices are sent monthly",
+            "Billing runs once.",
+        )],
+    )?;
+
+    let (items, _) = fluent_answer(
+        &scenario,
+        "anything paywalled before people try invoices",
+        10,
+    )?;
+
+    assert_eq!(items, Vec::new(), "{items:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_adds_no_owner_of_a_rare_word_to_an_answer_that_says_more_in_its_title(
+) -> Result<()> {
+    // d:answer says "people" and "try" in its title (d:friends says them too, so neither is a word
+    // only one decision holds) and "before" in its rationale: it is at the bar, and its title
+    // carries more of the question than d:paywall's one rare word.
+    let scenario = paywall_ledger(
+        "Self-hosting stays free. Support is charged before anyone asks.",
+        &[
+            (
+                "d:answer",
+                "People try pricing early",
+                "Ask about it before launch.",
+            ),
+            ("d:friends", "Friends try the demo", "People like it."),
+        ],
+    )?;
+
+    let (items, _) = fluent_answer(&scenario, PAYWALL_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids.first(), Some(&"d:answer"), "{ids:?}");
+    assert!(!ids.contains(&"d:paywall"), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_puts_the_owner_of_a_rare_word_before_an_answer_that_says_none_of_it_in_its_title(
+) -> Result<()> {
+    // d:talk holds "people", "try" and "before" in its rationale and so is at the bar, with nothing
+    // of the question in its title. d:paywall owns "paywalled" and is more about the question.
+    let scenario = paywall_ledger(
+        "Self-hosting stays free. Support is charged before anyone asks.",
+        &[(
+            "d:talk",
+            "Interviews with testers",
+            "People try the demo before launch.",
+        )],
+    )?;
+
+    let (items, _) = fluent_answer(&scenario, PAYWALL_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids.first(), Some(&"d:paywall"), "{ids:?}");
+    assert!(ids.contains(&"d:talk"), "{ids:?}");
     Ok(())
 }
 

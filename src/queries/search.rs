@@ -1607,6 +1607,9 @@ const FAR_PAIR_WORDS_MIN: usize = 5;
 /// A decision left out below the bar outweighs one admitted there (`outweighed_below_bar`) only
 /// when it holds this many of the question's words, one of them in its title or topic keys.
 const OUTWEIGHING_WORDS_MIN: usize = 2;
+/// The decision that owns the question's one rare word (`lone_below_bar`) is added only when it
+/// holds this many of the question's words.
+const LONE_SUBJECT_WORDS_MIN: usize = 2;
 
 /// Which decisions that lack too many of the terms (`SearchMatchInfo::below_bar`) are still
 /// answered. A long question names one thing among generic words ("CLI query xpath css text
@@ -1643,7 +1646,8 @@ const OUTWEIGHING_WORDS_MIN: usize = 2;
 /// terms than any decision at the bar and each is labelled with the terms it lacks. Where they
 /// stand among the others is the search's own order, by where the question's words sit. One more
 /// is added when it is the question's subject (`subject_below_bar`) or, failing that, the one its
-/// title or topic keys hold two words of (`titled_below_bar`). The words a decision shares with the
+/// title or topic keys hold two words of (`titled_below_bar`) or, failing that, the one that owns
+/// the question's one rare word (`lone_below_bar`). The words a decision shares with the
 /// question are counted once per stem: it says "job" or "jobs" and holds the question's "job" and
 /// its "jobs" alike, which is one word, not two (`TermWeights::once`). An admitted decision that a
 /// left-out one outweighs is flagged (`outweighed_below_bar`). No word list, nothing learned: the
@@ -1712,6 +1716,7 @@ fn admit_below_bar(
     if let Some(extra) =
         subject_below_bar(&scored, &holdings, &admitted, weights, term_count, total)
             .or_else(|| titled_below_bar(&scored, &holdings, &admitted, weights))
+            .or_else(|| lone_below_bar(&holdings, &admitted, weights))
     {
         admitted.insert(extra);
     }
@@ -1837,6 +1842,58 @@ fn titled_below_bar(
             && (side_by_side(&holding.headline) || held.len() >= FAR_PAIR_WORDS_MIN)
             && shared >= SHARED_WORDS_RARITY * weights.ledger().ln()
     })
+}
+
+/// The decision below the bar that owns the question's one rare word, if there is one: a person who
+/// asks "is anything paywalled before people try it?" names one thing and adds everyday words, and
+/// the ledger holds "paywalled" in one decision's title and not in any other. That decision holds
+/// one more of the words ("before", in its rationale), which is not chance, but the other rules
+/// lose it: the pair test (`SHARED_WORDS_RARITY`) by a hair, because "before" weighs little, the
+/// share of the words some decision holds (`SUBJECT_WORD_KNOWN_SHARE`) on a ledger that holds
+/// neither "anything" nor "try", and the subject rule wants a decision of the answer to outrank.
+///
+/// A decision below the bar, not already admitted, is it when
+///
+/// - its title or topic keys hold a word of the question that no other decision holds, and it is
+///   the only decision whose title or topic keys hold such a word: where two decisions each own a
+///   word, the question's rare words are scattered and none is its subject ("which cdn provider
+///   serves static assets for the marketing site?" meets "static" in one title and "marketing" in
+///   another), and
+/// - it holds `LONE_SUBJECT_WORDS_MIN` of the question's words, each stem once, wherever: a rare
+///   word on its own is what a stray everyday question meets (the standing controls prove it), and
+/// - it is more about the question (`About`) than every decision of the answer, when the answer
+///   has one.
+///
+/// At most one decision is added, since only one decision holds the word.
+fn lone_below_bar(
+    holdings: &[Holding],
+    admitted: &BTreeSet<usize>,
+    weights: &TermWeights,
+) -> Option<usize> {
+    let owns = |holding: &Holding| {
+        holding
+            .headline
+            .iter()
+            .any(|term| weights.holders.get(term) == Some(&1))
+    };
+    let mut owners = holdings
+        .iter()
+        .enumerate()
+        .filter(|(_, holding)| owns(holding))
+        .map(|(index, _)| index);
+    let (Some(owner), None) = (owners.next(), owners.next()) else {
+        return None;
+    };
+    let holding = holdings.get(owner)?;
+    if !holding.below_bar
+        || admitted.contains(&owner)
+        || weights.once(&holding.held).len() < LONE_SUBJECT_WORDS_MIN
+    {
+        return None;
+    }
+    let outranks = answer_about(holdings, admitted, weights)
+        .is_none_or(|answer| holding.about(weights).cmp_about(&answer).is_gt());
+    outranks.then_some(owner)
 }
 
 /// One decision is about the question as much as another when it weighs (`About`) at least this

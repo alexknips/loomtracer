@@ -790,6 +790,34 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`recall`, `why` and `verify` find the decision whose title says the one word a question names,
+  when the question adds everyday words the ledger does not hold.** "Is anything paywalled before
+  people try it?" and "what is paywalled before people have used it themselves?" answered that no
+  decision matches, though one decision's title says "paywalled" and no other decision does, while
+  "is anything paywalled before people have had a go?" found it. None of the rules that admit a
+  decision below the half-of-the-words bar reached it: the pair test wants both words rare and
+  "before" is said by a decision in ten, the subject rule wants a decision in the answer to outrank
+  and two thirds of the question's weight in words some decision holds ("anything" and "try" are
+  held by none on a small ledger), and the titled rule wants two words in the title. A decision
+  below the bar is now also added when it owns the question's one rare word: its title or topic
+  keys hold a word of the question that no other decision holds, no other decision's title or topic
+  keys hold such a word, it holds a second word of the question wherever it sits (each stem once; a
+  rare word on its own is what a stray question meets, and still adds nothing), and it is more
+  about the question than every decision in the answer when there is one. Where two decisions each
+  own a different word, nothing is added ("which cdn provider serves static assets for the
+  marketing site?"). Measured against master: on the crew copy (690 standing questions) the three
+  paywalled questions put the decision first and `why` lists it, the controls ("do we need a
+  licence to play music in the office?", "what did we decide about the coffee machine in the
+  kitchen?") stay empty, and three standing questions change, all gains and none lost from the
+  top 3: the survival-curve question that asks how far the leftover reaches (BB2, W12), which
+  hivemind-wdxx0 left unfixed, and the bug scanner that skips nested checkouts (BU4) now list
+  their decision first, from none. On a cell-sized copy (694 questions) no standing question
+  changes, the checker's 19 p1 questions and the dog's 17 answer identically, and the paywalled
+  questions put the decision first, from none. Not fixed: "at what number of pixels do we stop
+  putting the names in?" still finds nothing on the cell, because three decisions say "pixels" in
+  their title and the rule wants a word that one decision holds. `docs/AGENT_FLUENT_QUERYING.md`
+  states the rule. (hivemind-vxepq)
+
 - **`why` no longer answers a close match that holds only a few of the question's words when a
   decision it left out says more of them, a word the question says in two forms is counted
   once, and a peer does not come before a decision that says as much of the question.** The

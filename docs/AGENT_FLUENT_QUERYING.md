@@ -574,7 +574,23 @@ decision below the bar is returned when
   rationale) carries 0.198 of it, and the three decisions that say "run", "finish",
   "time" or "need" in a rationale outweigh it. It is the most about the question of
   them all, so it comes first, labelled with the words it lacks. An empty answer has no
-  decision to outrank, and nothing is added.
+  decision to outrank, and nothing is added, or
+- failing both, it owns the question's one rare word: its title or topic keys hold a word
+  of the question that no other decision holds, no other decision's title or topic keys hold
+  such a word, the decision holds at least two of the question's words (each stem once),
+  wherever, and it is more about the question than every decision in the answer when the
+  answer has one. "Is anything paywalled before people try it?" adds to "paywalled", which
+  the title of one decision of the ledger says, "anything", "people" and "try", which are
+  everyday, and "before", which that decision's rationale says along with four reviews: the
+  pair test misses it by a hair ("before" weighs little), the subject test wants two thirds
+  of the weight to be words some decision holds, which a small ledger that holds neither
+  "anything" nor "try" never has, and the titled test wants two words in the title. The
+  second word is what a stray question lacks: "paywalled" alone is a rare word met by
+  chance as often as any, and the standing controls prove it. Where two decisions each own a
+  word the question says, its rare words are scattered and none is its subject ("which cdn
+  provider serves static assets for the marketing site?" meets "static" in one title and
+  "marketing" in another), and nothing is added. At most one decision is added, since only
+  one decision holds the word.
 
 Then the peers of the answer's best-titled decision, which the first two items cannot reach
 when one word of the question is common. "Does the graph draw anyone in it at all, or do we
@@ -619,7 +635,8 @@ single one is admitted.
 At most three such decisions are added (the ones holding the most weight, then
 decision id), and the subject or the titled one, then the peers, on top of them, each carrying
 `missing_terms` like any close match. Of two that fit the subject or the titled test,
-the more about the question is added; between two equally about it, the one that
+the more about the question is added (the one that owns the question's rare word is added
+only when neither fits); between two equally about it, the one that
 holds a word of the question in both its title and its topic keys (the decision
 filed under the word, as the order of close candidates above has it), then the lower id. `why` and `verify` read the same list. There is no word list and nothing learned: the counts
 are the ledger's own, so this part of recall, unlike the ordering of close
