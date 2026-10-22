@@ -1,0 +1,66 @@
+# The frozen stray questions (hivemind-k25y8): questions about everyday things the ledger holds nothing on. DO NOT EDIT
+# ROWS: a build is judged by running this same set next to questions.tsv, so a change to it makes two runs incomparable.
+# A new set is a new file; this one stays.
+#
+# Each question uses one word of `WORD_GROUPS` (src/queries/terms.rs) in its everyday sense, or a word a ledger of
+# decisions would not use that way: a cake at a retirement presentation, the repository of old family photos, a vacuum
+# bot. Every one of the 18 groups has at least one row. Master 45f15984 and the controls' own ledger copies answered
+# all of them with nothing; the synonym groups of hivemind-y7b6c (e30fb741) made three of them list decisions.
+#
+# Columns (tab separated): id, kind, expect, question, role.
+#   id      dog-<build>:<id> for a question the product check filed, k25y8:<id> for one written for the bead.
+#   kind    STRAY: a question about nothing the ledger holds. It FAILS when `why` lists or answers a decision, or
+#           `recall` returns any (stricter than a NEARBY control, which only fails on a one-call answer).
+#   expect  always `none`.
+#   role    `fail` = e30fb741 failed this row on the crew copy or the cell-sized copy; `guard` = it passed on both.
+#
+# Ledger copies it was measured on: the crew ledger (534 events) and a fresh copy of the live cell, 166,971 events (2026-10-22).
+dog-e30fb741d4ea:GP1	STRAY	none	does the chat bot on the dentist's website book appointments?	guard
+dog-e30fb741d4ea:GP2	STRAY	none	which group is driving to the lake on Saturday?	guard
+dog-e30fb741d4ea:GP3	STRAY	none	who brings the cake to the retirement presentation?	fail
+dog-e30fb741d4ea:GP4	STRAY	none	do we pay the window cleaner in cash?	guard
+dog-e30fb741d4ea:GP6	STRAY	none	did the bakery rename its sourdough loaf?	guard
+dog-e30fb741d4ea:GP7	STRAY	none	who is the strongest competitor in the chess tournament this weekend?	guard
+dog-e30fb741d4ea:GP9	STRAY	none	does the repository of old family photos live in the attic?	fail
+dog-e30fb741d4ea:GP10	STRAY	none	what is the price of a bus ticket downtown?	guard
+dog-e30fb741d4ea:GP12	STRAY	none	did the band rebrand after the drummer left?	guard
+dog-e30fb741d4ea:GP14	STRAY	none	which rival football club won on Sunday?	guard
+k25y8:N04	STRAY	none	does the boiler interface with the heating pipes in the cellar?	guard
+k25y8:N05	STRAY	none	who hung the picture of grandma in the hallway?	guard
+k25y8:N08	STRAY	none	did the archer shoot the arrow past the barn?	guard
+k25y8:N09	STRAY	none	what is the delivery address of the florist on Elm Street?	guard
+k25y8:N11	STRAY	none	is the wooden deck on the sailing boat slippery after rain?	guard
+k25y8:N15	STRAY	none	does the travel agent book the hotel for the honeymoon?	guard
+k25y8:N19	STRAY	none	can the hospital chart be read from the nurse desk?	guard
+k25y8:N20	STRAY	none	who drives the community choir to the harvest festival?	guard
+k25y8:N22	STRAY	none	who sharpens the knife edge of the garden shears?	guard
+k25y8:N23	STRAY	none	is the telephone link to the neighbour farm still working?	guard
+k25y8:N24	STRAY	none	does the rival bakery sell sourdough on Sundays?	guard
+k25y8:C01	STRAY	none	did the vicar replace the church bells after the storm?	guard
+k25y8:C02	STRAY	none	when will the school replace the broken gym windows?	guard
+k25y8:C06	STRAY	none	did anyone falsify the raffle tickets at the stadium?	guard
+k25y8:C07	STRAY	none	is the premise of the cooking show about a haunted bakery?	guard
+k25y8:C08	STRAY	none	was the scientist's hypothesis about the garden snails correct?	guard
+k25y8:C09	STRAY	none	what is the assumption behind the bakery loyalty card?	guard
+k25y8:C10	STRAY	none	which story did the librarian read to the toddlers on Monday?	guard
+k25y8:C12	STRAY	none	is the camping site by the river fully booked in August?	guard
+k25y8:C13	STRAY	none	did the florist update the website with the spring flowers?	guard
+k25y8:C14	STRAY	none	does the grandmother's phone ring loudly in the kitchen?	guard
+k25y8:C17	STRAY	none	is the clock tower in the village square closed on Sundays?	guard
+k25y8:C19	STRAY	none	did the village pub rename its Sunday roast menu?	guard
+k25y8:C20	STRAY	none	will the bicycle shop rebrand its winter sale posters?	guard
+k25y8:C21	STRAY	none	does the ferry charge extra for bicycles on weekends?	guard
+k25y8:C22	STRAY	none	who will pay for the wedding cake on Friday?	guard
+k25y8:C24	STRAY	none	is the repository of antique maps open to visitors?	guard
+k25y8:C27	STRAY	none	who drew the diagram of the church roof in the pamphlet?	guard
+k25y8:C30	STRAY	none	what is the postal address of the village bakery?	guard
+k25y8:C31	STRAY	none	did the kids click the link in the grandfather's email?	guard
+k25y8:C32	STRAY	none	who prepared the presentation for the garden club meeting?	guard
+k25y8:C34	STRAY	none	did the secret agent in the film escape by train?	guard
+k25y8:C35	STRAY	none	can the vacuum bot climb the staircase?	fail
+k25y8:C36	STRAY	none	who was the fastest competitor in the swimming gala?	guard
+k25y8:C37	STRAY	none	which community garden has free tomato seedlings?	guard
+k25y8:C38	STRAY	none	is the walking group meeting at the bridge on Thursday?	guard
+k25y8:C39	STRAY	none	does the browser of the old fishing boat leak at the stern?	guard
+k25y8:C42	STRAY	none	who sold the laptop sleeve at the craft fair?	guard
+k25y8:C43	STRAY	none	did the rival choir lose the singing contest in spring?	guard

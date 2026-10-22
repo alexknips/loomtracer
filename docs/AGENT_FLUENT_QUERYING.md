@@ -473,18 +473,28 @@ asked with another form or a synonym of a decision's words still finds it
   of words that say the same thing in this product's own vocabulary: `supersede` and
   `replace` (the site draws a supersession as "replaces"), `assumption`, `hypothesis`
   and `premise`, `ui` and `interface`, `graph`, `diagram`, `chart` and `picture`,
-  `site` and `website`, `edge` and `arrow`, `link`, `url` and `address`, `refute` and
-  `wrong`, `browser`, `laptop` and `phone`, and the everyday words for what the ledger writes
-  another way: `competitor` and `rival`, `deck` and `presentation`, `clock`
-  and `zone`, `rename` and `rebrand`, `community` and `group`, `charge`, `price` and `pay`,
-  `repo` and `repository`, and `agent` and `bot`. The list is fixed and literal, like the question
+  `site` and `website`, `edge` and `arrow`, `story` and `chapter`, `link`, `url` and
+  `address`, `refute` and `wrong`, `browser`, `device`, `laptop`, `phone`, `mobile` and
+  `desktop`, and the everyday words for what the ledger writes
+  another way: `competitor` and `rival`, `deck` and `presentation`, `clock`,
+  `zone` and `timezone`, `rename` and `rebrand`, `community` and `group`, `charge`, `price`,
+  `pay` and `paywall`, `repo` and `repository`, and `agent` and `bot`. The list is fixed and literal, like the question
   words: nothing is learned, and a word belongs in it only when people ask about the
   same decision with either. A stand-in is never the word itself: among decisions that
   lack the same number of words, the one that matches fewer of them only through a
   stand-in comes first (after the one whose title or topic keys carry more of the words,
   where a stand-in in the title or a topic key counts for half a word), so
   among decisions that match equally well, one that says "interface" outranks one that says
-  "UI" for a question about the interface.
+  "UI" for a question about the interface. Toward the bar for a close match (at least half
+  of the question's words), a word that a decision reaches only through a stand-in of the
+  everyday groups (`competitor` onward in the list above) is half a word, not a whole one,
+  unless the decision is about it: its title says the stand-in and a topic key or the
+  recorded question says it too, or its title also holds two of the question's other words
+  as words. The groups before them, which say the same thing in this product's own
+  vocabulary, keep a whole word for a stand-in anywhere in the decision. So "who brings the
+  cake to the retirement presentation?" lists no decision for a rationale that says "deck"
+  and "brings" somewhere, while a question about the investor presentation still finds the
+  decision titled "Pitch deck", whose topic keys say "deck" too (hivemind-k25y8).
 
 A verb that writes (`disagree`, `supersede`, `retitle`, `ground`, ...) keeps the
 resolver's own match, the word and its inflections: a synonym never picks the

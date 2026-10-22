@@ -18,6 +18,10 @@
 #
 # Ledger copies it was frozen on (scripts/recall_frozen_set.py --ledger-dir): the crew ledger
 # (/home/ubuntu/gc/hivemind/ledger.sqlite, 534 events, 69 decisions) and a copy of the live cell, 165,352 events.
+#
+# One row was corrected after the freeze (hivemind-k25y8, mayor ruling on the accepted-first order of hivemind-rgv7a):
+# checker:AN1 expects `a42ca00a|19a98974`. a42ca00a, the accepted successor with the same title, is only in the cell
+# copy; the crew copy holds 19a98974 alone, so either one answers.
 checker:D1	NEARBY	c2da11a6	why do the website diagrams say replaces instead of supersedes?	guard
 checker:E1	SYNONYM	05695fd8	where does the web app get the address part of a decision link from?	fail
 checker:F2	SYNONYM	05695fd8	does a decision's web address change when someone renames the decision?	fail
@@ -113,7 +117,7 @@ checker:AK6	SYNONYM	df474de6	is shadcn what everybody grabs when they need a fre
 checker:AK7	NEARBY	6ab3791e	how come the Loomtracer switch never touched what people type into their terminal?	fail
 checker:AL1	NEARBY	19a98974	is the switch to the Upheld name on hold for now?	fail
 checker:AM2	NEARBY	af1961fc	what happens when the beadline.toml file lists some repos and nobody set a path?	guard
-checker:AN1	SYNONYM	19a98974	did the Upheld rebrand get shelved?	fail
+checker:AN1	SYNONYM	a42ca00a|19a98974	did the Upheld rebrand get shelved?	fail
 checker:AN2	NEARBY	6cd1dd8f	if the classifier hands us the same choice twice with an identical time, do we keep both?	fail
 checker:AO3	NEARBY	9237423c	how do we know the demo data file was not changed, is there a SHA check?	guard
 checker:AO6	NEARBY	none	did we decide to replace ELK with dagre for the graph layout?	fail

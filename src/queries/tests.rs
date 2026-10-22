@@ -21,7 +21,7 @@ use super::misfiled::scan_in_pages;
 use super::neighborhood::neighborhood_structure;
 use super::terms::{
     content_query, outside_negation, resolver_question, resolver_terms, stem,
-    topic_key_parts_within, RelatedWord, WordMatch, WORD_GROUPS,
+    topic_key_parts_within, RelatedWord, WordMatch, FIRST_EVERYDAY_GROUP, WORD_GROUPS,
 };
 use super::test_fixtures::Scenario;
 use super::*;
@@ -1652,6 +1652,77 @@ fn a_decision_with_the_word_asked_for_comes_before_one_with_a_stand_in() -> Resu
             ("d:mmm-close-stand-in".to_owned(), vec!["layout".to_owned()]),
         ],
         "full matches before close ones; within each, the word before its stand-in"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_everyday_stand_in_alone_in_a_rationale_or_a_title_is_half_a_word_toward_the_close_bar(
+) -> Result<()> {
+    // "presentation layout" finds a decision lacking "layout" only when "presentation" is half of
+    // the question. The everyday groups hold words used in their everyday sense: who brings the
+    // cake to the retirement presentation is not about the pitch deck (hivemind-k25y8).
+    let scenario = titled_decisions(&[
+        // The rationale says "deck"; the title and the topic keys say nothing of a presentation.
+        ("d:rationale", "Colours of the page", "The deck stays dark."),
+        // The title says "deck", the topic keys do not.
+        ("d:title-alone", "Deck colours", "Dark and light."),
+    ])?;
+    // The title and the topic keys both say "deck": the decision is about the presentation.
+    titled_proposal(&scenario, "d:about", "Deck colours", &["deck"])?;
+
+    let (items, _) = fluent_answer(&scenario, "presentation layout", 10)?;
+
+    assert_eq!(
+        items,
+        vec![("d:about".to_owned(), vec!["layout".to_owned()])],
+        "an everyday stand-in in a rationale or in a title alone is half a word: one of two terms is a quarter"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_everyday_stand_in_in_a_title_that_holds_two_other_words_of_the_question_is_a_whole_word(
+) -> Result<()> {
+    // Three of six terms: "presentation" through the title's "deck", "names" and "agent" as words.
+    let scenario = titled_decisions(&[(
+        "d:deck",
+        "The deck names every agent 'an agent'",
+        "A reader needs to know a person from an agent.",
+    )])?;
+
+    let (items, _) = fluent_answer(
+        &scenario,
+        "presentation names agent colour spacing font",
+        10,
+    )?;
+
+    assert_eq!(
+        items,
+        vec![(
+            "d:deck".to_owned(),
+            vec!["colour".to_owned(), "spacing".to_owned(), "font".to_owned()]
+        )]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_stand_in_of_the_products_own_vocabulary_is_a_whole_word_wherever_it_sits() -> Result<()> {
+    // The older groups (`supersede` and `replace`, `ui` and `interface`) say the same thing in
+    // this product's own words, so a rationale that says "UI" answers a question about the
+    // interface as it did before the everyday groups (hivemind-k25y8).
+    assert!(FIRST_EVERYDAY_GROUP > 0 && FIRST_EVERYDAY_GROUP < WORD_GROUPS.len());
+    assert_eq!(WORD_GROUPS[FIRST_EVERYDAY_GROUP][0], "competitor");
+    assert_eq!(WORD_GROUPS[FIRST_EVERYDAY_GROUP - 1][0], "browser");
+    let scenario =
+        titled_decisions(&[("d:rationale", "Colours of the page", "The UI stays dark.")])?;
+
+    let (items, _) = fluent_answer(&scenario, "interface layout", 10)?;
+
+    assert_eq!(
+        items,
+        vec![("d:rationale".to_owned(), vec!["layout".to_owned()])]
     );
     Ok(())
 }
@@ -3829,6 +3900,28 @@ fn every_word_of_a_group_stands_in_for_every_other_and_no_group_reaches_another(
                 );
             }
         }
+    }
+}
+
+#[test]
+fn every_group_of_synonyms_has_a_stray_question_that_uses_one_of_its_words() {
+    // The groups are what made a stray question list decisions (hivemind-k25y8), so a group added
+    // later needs a stray row of its own: a build that adds one shows its cost in the frozen set.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/recall_frozen/strays.tsv");
+    let text = std::fs::read_to_string(&path).expect("the frozen stray questions");
+    let questions: Vec<String> = text
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .map(|line| line.split('\t').nth(3).unwrap_or_default().to_lowercase())
+        .collect();
+    for group in WORD_GROUPS {
+        let used = questions.iter().any(|question| {
+            question
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|word| group.iter().any(|member| word.starts_with(member)))
+        });
+        assert!(used, "no stray question uses a word of {group:?}");
     }
 }
 

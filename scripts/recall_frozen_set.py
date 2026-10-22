@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Run the frozen recall question set against a hivemind build and print counts per kind.
 
-The set is `tests/fixtures/recall_frozen/questions.tsv`: one row per question with the decision it
-should find (or `none`) and the kind of wrong answer the row watches for. It is kept the same from
-build to build, so two runs of two builds on the same ledger copy say whether a build got better or
-worse. Rules for the set and the two kinds are in the header of that file.
+The set is `tests/fixtures/recall_frozen/questions.tsv` (NEARBY and SYNONYM) and `strays.tsv` (STRAY):
+one row per question with the decision it should find (or `none`) and the kind of wrong answer the
+row watches for. Both are kept the same from build to build, so two runs of two builds on the same
+ledger copy say whether a build got better or worse. Rules for the set and the kinds are in the
+header of each file.
 
     scripts/recall_frozen_set.py --bin target/debug/hivemind --ledger-dir /path/with/ledger.sqlite
     scripts/recall_frozen_set.py ... --out new.json --compare old.json    # rows that gained or lost
@@ -27,10 +28,9 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-KINDS = ("NEARBY", "SYNONYM")
-DEFAULT_QUESTIONS = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "tests", "fixtures", "recall_frozen", "questions.tsv"
-)
+KINDS = ("NEARBY", "SYNONYM", "STRAY")
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "fixtures", "recall_frozen")
+DEFAULT_QUESTIONS = [os.path.join(FIXTURES, "questions.tsv"), os.path.join(FIXTURES, "strays.tsv")]
 TOP = 3
 
 
@@ -96,6 +96,8 @@ def judge(kind, targets, result):
         flags.append("not_top3" if targets & set(recall) else "not_found")
     if kind == "SYNONYM":
         return [f for f in flags if f != "wrong_answer"]
+    if kind == "STRAY":
+        return ["stray"] if why["outcome"] != "none" or recall else []
     return flags
 
 
@@ -138,14 +140,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--bin", required=True, help="the hivemind binary to measure")
     parser.add_argument("--ledger-dir", required=True, help="folder holding ledger.sqlite (only read)")
-    parser.add_argument("--questions", default=DEFAULT_QUESTIONS, help="the question set (default: the frozen one)")
+    parser.add_argument("--questions", nargs="+", default=DEFAULT_QUESTIONS, help="the question files (default: the frozen set and its strays)")
     parser.add_argument("--port", type=int, default=19311, help="loopback port for the temporary server")
     parser.add_argument("--out", help="write every row's answer as JSON")
     parser.add_argument("--compare", help="a JSON from an earlier run: list the rows that gained or lost")
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
 
-    rows = load_questions(args.questions)
+    rows = [row for path in args.questions for row in load_questions(path)]
     workdir = tempfile.mkdtemp(prefix="recall-frozen-")
     process, events = serve(args.bin, args.ledger_dir, args.port, workdir)
     try:
@@ -185,7 +187,10 @@ def report(results, build, events, ledger_dir):
         of_kind = [r for r in results if r["kind"] == kind]
         count = lambda flag: sum(flag in r["flags"] for r in of_kind)  # noqa: E731
         failed = sum(bool(r["flags"]) for r in of_kind)
-        print(f"{kind:<8} {len(of_kind):>4} {failed:>4}  {count('wrong_answer')} / {count('not_top3') + count('not_found')} / {count('not_found')}")
+        if kind == "STRAY":
+            print(f"{kind:<8} {len(of_kind):>4} {failed:>4}  questions about nothing the ledger holds that found a decision (why listed or answered, or recall returned any)")
+        else:
+            print(f"{kind:<8} {len(of_kind):>4} {failed:>4}  {count('wrong_answer')} / {count('not_top3') + count('not_found')} / {count('not_found')}")
     with_target = [r for r in results if r["expect"]]
     top3 = sum(bool(set(r["expect"]) & set(r["recall"][:TOP])) for r in with_target)
     classes = {}

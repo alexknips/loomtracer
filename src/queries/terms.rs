@@ -607,6 +607,12 @@ pub(crate) const WORD_GROUPS: &[&[&str]] = &[
     &["agent", "bot"],
 ];
 
+/// Where the everyday-word groups start in `WORD_GROUPS`: the groups before it are this product's
+/// own vocabulary, the ones from it on are everyday words for what the ledger writes another way
+/// ("deck" for a "presentation"). A word that those everyday groups alone reach counts less toward
+/// a close match than a word of the product's own vocabulary (`evaluate_search_match`).
+pub(crate) const FIRST_EVERYDAY_GROUP: usize = 10;
+
 struct Vocabulary {
     /// The group each key of a listed word belongs to.
     group_of: HashMap<&'static str, usize>,
@@ -653,6 +659,12 @@ impl<'a> RelatedWord<'a> {
             .iter()
             .find_map(|key| VOCABULARY.group_of.get(*key).copied());
         Self { keys, group }
+    }
+
+    /// Whether this word belongs to one of the everyday groups (`FIRST_EVERYDAY_GROUP`).
+    pub(crate) fn is_everyday(&self) -> bool {
+        self.group
+            .is_some_and(|group| group >= FIRST_EVERYDAY_GROUP)
     }
 
     /// How `text` (lowercase) holds this word: as itself or a form of it, else as a stand-in, else

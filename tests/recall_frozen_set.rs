@@ -1,14 +1,17 @@
 //! The frozen recall question set (`tests/fixtures/recall_frozen/questions.tsv`, run by
 //! `scripts/recall_frozen_set.py`) is how a build is judged better or worse on the two kinds of
-//! wrong recall answer, NEARBY and SYNONYM (hivemind-y7b6c). Two runs only compare when they ask
-//! the same questions, so this pins the set: a change to a row, a kind or the row count fails here
-//! and says to start a new file instead of editing this one.
+//! wrong recall answer, NEARBY and SYNONYM (hivemind-y7b6c), and `strays.tsv` beside it on the
+//! third, a question about nothing the ledger holds that finds a decision (STRAY,
+//! hivemind-k25y8). Two runs only compare when they ask the same questions, so this pins both
+//! files: a change to a row, a kind or the row count fails here and says to start a new file
+//! instead of editing this one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
 const FIXTURE: &str = "tests/fixtures/recall_frozen/questions.tsv";
+const STRAYS: &str = "tests/fixtures/recall_frozen/strays.tsv";
 
 /// The rows the bead names (CB4, BQ4, H1, K3, R4, V2, the beadline question, the coffee control,
 /// the backups control, BB2) must stay in the set.
@@ -32,8 +35,8 @@ struct Row {
     role: String,
 }
 
-fn data_lines() -> Vec<String> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE);
+fn data_lines(fixture: &str) -> Vec<String> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture);
     let text = fs::read_to_string(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
     text.lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
@@ -42,7 +45,10 @@ fn data_lines() -> Vec<String> {
 }
 
 fn rows() -> Vec<Row> {
-    data_lines()
+    [FIXTURE, STRAYS]
+        .into_iter()
+        .flat_map(data_lines)
+        .collect::<Vec<_>>()
         .iter()
         .map(|line| {
             let cols: Vec<&str> = line.split('\t').collect();
@@ -59,8 +65,8 @@ fn rows() -> Vec<Row> {
 }
 
 /// FNV-1a over the data rows, each with its newline: the fixture's identity.
-fn fingerprint() -> u64 {
-    data_lines()
+fn fingerprint(fixture: &str) -> u64 {
+    data_lines(fixture)
         .iter()
         .flat_map(|line| line.bytes().chain(std::iter::once(b'\n')))
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
@@ -74,7 +80,7 @@ fn every_row_names_a_kind_a_role_and_the_decision_it_expects() {
     for row in rows() {
         assert!(ids.insert(row.id.clone()), "{} appears twice", row.id);
         assert!(
-            matches!(row.kind.as_str(), "NEARBY" | "SYNONYM"),
+            matches!(row.kind.as_str(), "NEARBY" | "SYNONYM" | "STRAY"),
             "{}: kind {:?}",
             row.id,
             row.kind
@@ -96,11 +102,18 @@ fn every_row_names_a_kind_a_role_and_the_decision_it_expects() {
                 row.id
             );
         }
+        if row.kind == "STRAY" {
+            assert_eq!(
+                row.expect, "none",
+                "{}: a stray row asks about nothing the ledger holds",
+                row.id
+            );
+        }
     }
 }
 
 #[test]
-fn the_set_holds_the_rows_the_bead_names_and_both_kinds() {
+fn the_set_holds_the_rows_the_bead_names_and_all_three_kinds() {
     let rows = rows();
     let ids: BTreeSet<&str> = rows.iter().map(|row| row.id.as_str()).collect();
     for named in NAMED_ROWS {
@@ -117,6 +130,8 @@ fn the_set_holds_the_rows_the_bead_names_and_both_kinds() {
         BTreeMap::from([
             (("NEARBY", "fail"), 123),
             (("NEARBY", "guard"), 59),
+            (("STRAY", "fail"), 3),
+            (("STRAY", "guard"), 46),
             (("SYNONYM", "fail"), 94),
         ]),
         "the set changed: start a new file instead"
@@ -125,10 +140,15 @@ fn the_set_holds_the_rows_the_bead_names_and_both_kinds() {
 
 #[test]
 fn the_set_is_the_one_that_was_frozen() {
-    assert_eq!(
-        format!("{:#018x}", fingerprint()),
-        "0x3fb830c357cd91d0",
-        "a row of {FIXTURE} changed, so two builds' counts no longer compare. A new question set \
-         is a new file; this one stays as it was."
-    );
+    for (fixture, pinned) in [
+        (FIXTURE, "0xeff30fed9627fb7a"),
+        (STRAYS, "0xb4714603b5a392e3"),
+    ] {
+        assert_eq!(
+            format!("{:#018x}", fingerprint(fixture)),
+            pinned,
+            "a row of {fixture} changed, so two builds' counts no longer compare. A new question \
+             set is a new file; this one stays as it was."
+        );
+    }
 }

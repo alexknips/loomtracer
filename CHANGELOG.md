@@ -790,6 +790,53 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A question about an unrelated everyday thing no longer lists decisions because one of its words
+  is the everyday form of a synonym group, where it used to find nothing.** Since the eight groups of
+  the entry below landed, "does the repository of old family photos live in the attic?" listed six
+  decisions on a cell-sized copy and "who brings the cake to the retirement presentation?" listed one,
+  where `45f15984` found nothing: a word that a decision reaches only through a stand-in counted as a
+  whole word toward the bar for a close match (at least half of the question's words), so a rationale
+  that says "presentation" or "repository" was enough. Toward that bar a word that only an everyday
+  stand-in reaches (`competitor` onward in `WORD_GROUPS`, `FIRST_EVERYDAY_GROUP` in
+  `src/queries/terms.rs`) is now half a word, and a whole word only when the decision is about it: its
+  title says the stand-in and a topic key or the recorded question says it too, or its title also holds
+  two of the question's other words. The older groups, which say the same thing in this product's own
+  vocabulary (`supersede` and `replace`, `ui` and `interface`, `chart` and `graph`, ...), keep a whole
+  word for a stand-in anywhere: applying the half to them too lost the question "when a replaced
+  decision had been voted down by someone, is their name shown?" from the top three. Measured against
+  `e30fb741` on the crew copy (534 events) and a fresh copy of the live cell (166,971 events): crew
+  NEARBY 43 (24 / 26 / 14) unchanged, SYNONYM 58 -> 57, recall top three 167 -> 168 of 251, wrong
+  one-call answers 24 unchanged; cell NEARBY 116, SYNONYM 79, top three 93 and 52 wrong one-call
+  answers, all unchanged; no row of the frozen set loses on either copy. On the 82 off-topic controls
+  (the bead's 14 and 68 more, each using a group word in its everyday sense) the number that list
+  something is crew 24 on master, 26 on `e30fb741`, 24 here, and cell 33, 36, 33: the three that
+  `e30fb741` made list (the repository of old family photos, the cake at the presentation, a vacuum
+  bot that climbs stairs; a flight's timezone on the crew copy) find nothing again, and every control
+  is at its master level except two that already listed rows and list more than on master: "will the
+  estate agent charge us to list the house?" (cell 3 -> 8, crew 1 -> 5, as on `e30fb741`) and "is the
+  parking zone near the harbour free after six?" (cell 4 -> 5, crew 3 -> 4). On the standing batteries,
+  `e30fb741` against this change: crew (760 questions) one gains a place in the top three ("is the
+  rebrand on hold?", fourth to third), none loses one, `why` is unchanged on every question; cell
+  (764) none gains and none loses a place, `why` gives no new and no wrong one-call answer, and
+  one right one-call answer becomes a list of two with the right decision still first: "are any
+  features paywalled before testers have tried the product themselves?" (`abb50678` resolved,
+  now `abb50678` and `04ea64f9`). Not fixed, said plainly: that row is a cost of this change, not a
+  gain. The two decisions that only a stand-in reached ("paywalled" through "pay" in a rationale)
+  used to sit between the two close candidates and are rightly dropped now, so the resolver, which
+  compares only the first two close candidates by how many words they lack, now sees the tie that
+  was hidden before; breaking that tie by the words the title holds is a change to the resolver
+  and is left for its own bead. `tests/fixtures/recall_frozen/strays.tsv` adds 49 stray questions to the frozen
+  set (one or more per group, so every one of the 18 groups has a row; 3 of them `e30fb741` fails) as
+  a new file, `STRAY` is a new kind of `scripts/recall_frozen_set.py` that fails when `why` lists or
+  answers a decision or `recall` returns any, and a unit test fails when a group added to
+  `WORD_GROUPS` has no stray row. The row `checker:AN1` of `questions.tsv` expects `a42ca00a|19a98974`
+  now, not `19a98974` alone (mayor ruling, for the accepted-first order of `hivemind-rgv7a`:
+  `a42ca00a` is the accepted successor with the same title and is only in the cell copy, so on the
+  crew copy `19a98974` still answers); it is a fixture correction, not a gain, and the pin of
+  `tests/recall_frozen_set.rs` changed with it. `docs/AGENT_FLUENT_QUERYING.md` now names every group
+  of `terms.rs` (`timezone` and `paywall` were missing) and says which groups get the half word.
+  (hivemind-k25y8)
+
 - **One frozen set of 276 recall questions now says whether a build got better or worse at the two
   kinds of wrong recall answer, and `recall`, `why` and `verify` find a decision from the everyday
   word for what it calls something else.** `scripts/recall_frozen_set.py` runs

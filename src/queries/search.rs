@@ -2678,12 +2678,14 @@ pub(crate) enum CloseMatch {
 }
 
 impl CloseMatch {
-    /// Whether a decision matching `matched` of `total` terms (`matched < total`) is returned.
+    /// Whether a decision matching `matched` of `total` terms (`matched < total`) is returned. Both
+    /// count half words: a term a field holds as the word is two, one only a stand-in reaches is
+    /// two or one (`evaluate_search_match`), so the bar is the same in whole words.
     fn accepts(self, matched: usize, total: usize) -> bool {
         match self {
             Self::Never => false,
-            Self::Majority => matched >= 2 && matched * 2 > total,
-            Self::Half => matched >= 1 && matched * 2 >= total,
+            Self::Majority => matched >= 4 && matched * 2 > total,
+            Self::Half => matched >= 2 && matched * 2 >= total,
         }
     }
 }
@@ -2793,6 +2795,7 @@ fn evaluate_search_match(
     let mut spelled_words = BTreeSet::new();
     let mut stand_in_headline = BTreeSet::new();
     let mut stand_in_title = BTreeSet::new();
+    let mut stand_in_about = BTreeSet::new();
     let mut reached = BTreeSet::new();
     let mut headline_hits = 0_usize;
     let mut matched_fields = BTreeSet::new();
@@ -2848,6 +2851,9 @@ fn evaluate_search_match(
                     }
                 }
                 if track_words && how == WordMatch::StandIn {
+                    if matches!(field.field.as_str(), "decision.topic" | "decision.question") {
+                        stand_in_about.insert(index);
+                    }
                     reached.insert(index);
                     if in_headline {
                         stand_in_headline.insert(index);
@@ -2912,11 +2918,36 @@ fn evaluate_search_match(
         .cloned()
         .collect();
     let mut below_bar = false;
-    if !missing_terms.is_empty()
-        && !search_terms
-            .close
-            .accepts(terms.len() - missing_terms.len(), terms.len())
-    {
+    // What each term is worth toward the close bar, in half words. A word a field holds is two, and
+    // so is a word of the product's own vocabulary that a stand-in reaches. A word only an
+    // everyday stand-in reaches (`FIRST_EVERYDAY_GROUP`) is two when the title says the stand-in
+    // and the topic or question says it too, or the title also holds two of the question's own
+    // words: the decision is about that thing. Anywhere else (a rationale, a title that stands
+    // alone) it is one. Else a question about the cake at a retirement presentation lists the
+    // pitch-deck decisions, whose rationale says "presentation", for a word the question uses in
+    // its everyday sense (hivemind-k25y8).
+    let halves: usize = terms
+        .iter()
+        .enumerate()
+        .map(|(index, term)| {
+            if worded_terms.contains(term) {
+                2
+            } else if !matched_terms.contains(term) {
+                0
+            } else if !search_terms
+                .related
+                .get(index)
+                .is_some_and(RelatedWord::is_everyday)
+                || (stand_in_title.contains(&index)
+                    && (stand_in_about.contains(&index) || title_words.len() >= 2))
+            {
+                2
+            } else {
+                1
+            }
+        })
+        .sum();
+    if !missing_terms.is_empty() && !search_terms.close.accepts(halves, 2 * terms.len()) {
         // Too few of the words for the bar. A decision holding one of them as a word is not
         // dropped yet: whether the words it holds are rare is known only across all decisions
         // (`admit_below_bar`).
