@@ -607,7 +607,8 @@ decision below the bar is returned when
   them all, so it comes first, labelled with the words it lacks. An empty answer has no
   decision to outrank, and nothing is added, or
 - failing both, it owns the question's one rare word: its title or topic keys hold a word
-  of the question that no other decision holds, no other decision's title or topic keys hold
+  of the question that no other decision holds (a decision that mentions the word in passing,
+  see the end of this section, is not another), no other decision's title or topic keys hold
   such a word, the decision holds at least two of the question's words (each stem once),
   wherever, and it is more about the question than every decision in the answer when the
   answer has one. "Is anything paywalled before people try it?" adds to "paywalled", which
@@ -632,8 +633,9 @@ question in its title or topic keys (a review whose rationale holds "number", "s
 "names" is such an answer), the words some decision holds carry at
 least 85% of the weight of all the question's words, exactly one word of the question is held
 by three decisions or fewer and said in a title or topic keys, every decision that holds that
-word says it there (a rationale that mentions it in passing is a sign it is not the subject,
-and a fourth title is a word too common to be one), and the decision holds two of the
+word says it there (a rationale that says it beside another word of the question is a sign it is
+not the subject; one that says it in passing is not counted, see the end of this section; and a
+fourth title is a word too common to be one), and the decision holds two of the
 question's words, each stem once. A session draft counts as a decision here: where an agent's
 note about this very question titles "pixels" too, that is a fourth title and the rule is off.
 They are listed with `missing_terms` and never named alone.
@@ -716,6 +718,26 @@ question tells them from the decision titled for the word. At most one decision 
 decision that titles the word turns the rule off, as does a word that so many decisions hold that
 it weighs less than that.
 
+**Mentions in passing do not count (hivemind-sn5ge).** The rules that look for a word's owner (the
+one rare word, the rare words several decisions title, the word a decision is filed under and the
+decision that alone titles a word) count the decisions that hold the word by more than a passing
+mention. A decision only mentions a word in passing when it is below the bar, neither its title
+nor its topic keys hold the word, and it holds fewer than two of the question's words, each stem
+once: it can never be the answer, so one more of them in the ledger must not change who owns the
+word. Before, a ruling that quoted "paywalled" once in a rationale made the word's seventh holder
+and "is anything paywalled before people try it?" stopped finding the decision titled for it, with
+no change to that decision or the question, and answered a draft about something else in one call.
+A decision that says the word beside another word of the question is not in passing: it is a
+rival of the owner, and it counts. The weight of the word in the answer's score (what makes a
+rare word worth more than a common one) is unchanged, passing mentions included.
+
+The peers (above) are measured against the answer's best, and the best leaves out a decision
+that was admitted below the bar only by the subject test (the one that asks a word to carry 0.4
+of the question's weight), which some questions meet by a hair. Before, one more capture could
+move that weight enough to let such a decision in, raise the best and drop a peer that was one the
+day before ("who gets to merge the slides we show investors?" lost the decision about who merges
+the deck when a ruling said "investor" once, the first decision of the ledger to do so).
+
 **Known gaps of these rules.** They are tuned on a ledger of a few thousand decisions, where a
 word that three to six decisions hold is rare. On a ledger of sixty-nine decisions the same words
 (shelf, timeline, legend) are held by three to five, which is not rare enough to tell a title from
@@ -723,7 +745,7 @@ chance, so a long question that adds everyday words to one of them still misses 
 titled for it there. On a large ledger the decision titled for the shelf is listed second, not
 first, when a session draft that holds more of the question's words comes first. And the rules turn
 off when drafts that talk about the same word pile up: once eight decisions of two thousand hold
-"shelf", two of them titled for it, the word weighs less than the rules ask for and the question
+"shelf" other than in passing, two of them titled for it, the word weighs less than the rules ask for and the question
 is answered by the draft again, as it was before them. A decision that no rule above lists is
 found by asking with the word alone: among the decisions that hold the word equally an accepted
 one is listed before a proposed draft (hivemind-rgv7a), and behind another accepted decision

@@ -1494,6 +1494,11 @@ impl Holding {
 struct TermWeights {
     /// How many matched decisions hold each term (by position in the question's terms).
     holders: HashMap<usize, usize>,
+    /// How many of those are more than a passing mention of it (`TermWeights::in_passing`): the
+    /// holders the rules that look for a word's owner count, since a decision that says a word
+    /// of the question once in a rationale and nothing else of it can never be the answer and so
+    /// cannot move who is.
+    standing: HashMap<usize, usize>,
     /// How many matched decisions hold each term as a word, a form of one or a stand-in.
     reachers: HashMap<usize, usize>,
     /// How many matched decisions spell each term together with the term after it in their title
@@ -1508,20 +1513,6 @@ struct TermWeights {
 
 impl TermWeights {
     fn new(holdings: &[Holding], searched: usize, terms: &[String]) -> Self {
-        let mut holders: HashMap<usize, usize> = HashMap::new();
-        let mut reachers: HashMap<usize, usize> = HashMap::new();
-        let mut spellers: HashMap<usize, usize> = HashMap::new();
-        for holding in holdings {
-            for term in &holding.spelled {
-                *spellers.entry(*term).or_default() += 1;
-            }
-            for term in &holding.held {
-                *holders.entry(*term).or_default() += 1;
-            }
-            for term in &holding.reached {
-                *reachers.entry(*term).or_default() += 1;
-            }
-        }
         let first_of_stem = terms
             .iter()
             .map(|term| {
@@ -1531,13 +1522,40 @@ impl TermWeights {
                     .unwrap_or_default()
             })
             .collect();
-        Self {
-            holders,
-            reachers,
-            spellers,
+        let mut weights = Self {
+            holders: HashMap::new(),
+            standing: HashMap::new(),
+            reachers: HashMap::new(),
+            spellers: HashMap::new(),
             searched,
             first_of_stem,
+        };
+        for holding in holdings {
+            for term in &holding.spelled {
+                *weights.spellers.entry(*term).or_default() += 1;
+            }
+            for term in &holding.held {
+                *weights.holders.entry(*term).or_default() += 1;
+                if !weights.in_passing(holding, *term) {
+                    *weights.standing.entry(*term).or_default() += 1;
+                }
+            }
+            for term in &holding.reached {
+                *weights.reachers.entry(*term).or_default() += 1;
+            }
         }
+        weights
+    }
+
+    /// Whether `holding` only mentions `term` in passing: it is below the bar, its title and topic
+    /// keys do not hold the term, and it holds fewer than `PASSING_WORDS_MIN` of the question's
+    /// words, each stem once. Every rule that admits a decision below the bar wants it to hold
+    /// two words or to title one, so such a decision is never added, and whether the ledger holds
+    /// one more of it must not change who is.
+    fn in_passing(&self, holding: &Holding, term: usize) -> bool {
+        holding.below_bar
+            && !holding.headline.contains(&term)
+            && self.once(&holding.held).len() < PASSING_WORDS_MIN
     }
 
     /// The words of the question that `terms` hold, each stem once: a decision that says "job"
@@ -1576,7 +1594,25 @@ impl TermWeights {
             .get(&term)
             .map_or(0.0, |count| self.weight_for(*count))
     }
+
+    /// How many decisions hold the term as more than a passing mention (`in_passing`).
+    fn standing_of(&self, term: usize) -> usize {
+        self.standing.get(&term).copied().unwrap_or(0)
+    }
+
+    /// The weight of a term when only the decisions that do not mention it in passing hold it;
+    /// nothing for one that none does. What a rule that names a word's owner measures rarity by.
+    fn standing_weight(&self, term: usize) -> f64 {
+        match self.standing_of(term) {
+            0 => 0.0,
+            count => self.weight_for(count),
+        }
+    }
 }
+
+/// A decision below the bar that holds fewer than this many of the question's words, none in its
+/// title or topic keys, only mentions them in passing (`TermWeights::in_passing`).
+const PASSING_WORDS_MIN: usize = 2;
 
 /// What a title or topic key that says a word of the question only through a stand-in word is worth,
 /// next to one that says the word itself: half. A decision that puts the question in other words
@@ -1628,7 +1664,8 @@ const LONE_OWNERS_HOLDERS_MAX: usize = 3;
 /// words: a question with words nobody holds is mostly about something the ledger lacks.
 const LONE_OWNERS_KNOWN_SHARE: f64 = 0.85;
 /// The word that a decision is filed under (`dominant_owner_below_bar`) weighs at least this times
-/// `ln(searched + 1)`: a word four decisions hold, in a ledger of eighteen hundred.
+/// `ln(searched + 1)`: a word four decisions hold, in a ledger of eighteen hundred. Decisions that
+/// mention it in passing (`TermWeights::in_passing`) are not counted among the holders.
 const DOMINANT_WORD_RARITY: f64 = 0.78;
 /// ... and the answer is at least this many decisions: a question whose everyday words many
 /// decisions hold, and whose rare word none of them titles.
@@ -1638,8 +1675,9 @@ const DOMINANT_ANSWER_MIN: usize = 4;
 const DOMINANT_FILED_HITS_MIN: usize = 2;
 /// The word that exactly one decision says in its title (`title_owner_below_bar`) weighs at least
 /// this times `ln(searched + 1)`: a word five or six decisions of two thousand hold, whereas the
-/// dominant word of `DOMINANT_WORD_RARITY` is held by four, so that one more decision saying it in
-/// passing does not take the title's owner out of the answer.
+/// dominant word of `DOMINANT_WORD_RARITY` is held by four. Decisions that mention the word in
+/// passing (`TermWeights::in_passing`) are not counted among the holders, so that one more of them
+/// does not take the title's owner out of the answer.
 const TITLE_OWNER_RARITY: f64 = 0.75;
 
 /// Which decisions that lack too many of the terms (`SearchMatchInfo::below_bar`) are still
@@ -1680,11 +1718,14 @@ const TITLE_OWNER_RARITY: f64 = 0.75;
 /// title or topic keys hold two words of (`titled_below_bar`) or, failing that, the one that owns
 /// the question's one rare word (`lone_below_bar`). A decision that owns a rare word several others
 /// hold is listed beside the answer, never named alone, by the first of `lone_owners_below_bar`,
-/// `dominant_owner_below_bar` and `title_owner_below_bar` that finds one. The words a decision shares with the
-/// question are counted once per stem: it says "job" or "jobs" and holds the question's "job" and
-/// its "jobs" alike, which is one word, not two (`TermWeights::once`). An admitted decision that a
-/// left-out one outweighs is flagged (`outweighed_below_bar`). No word list, nothing learned: the
-/// counts are the ledger's own.
+/// `dominant_owner_below_bar` and `title_owner_below_bar` that finds one. Every rule that names the
+/// owner of a word counts the decisions that hold it other than in passing
+/// (`TermWeights::in_passing`), since a decision that says the word once in a rationale and nothing
+/// else of the question can never be the answer, and one more of them in the ledger must not change
+/// who is. The words a decision shares with the question are counted once per stem: it says "job"
+/// or "jobs" and holds the question's "job" and its "jobs" alike, which is one word, not two
+/// (`TermWeights::once`). An admitted decision that a left-out one outweighs is flagged
+/// (`outweighed_below_bar`). No word list, nothing learned: the counts are the ledger's own.
 /// `scored` and `holdings` are in the same order; the terms are the question's, `term_count` of
 /// them, and the holdings name them by position.
 fn admit_below_bar(
@@ -1704,6 +1745,7 @@ fn admit_below_bar(
         .sum();
 
     let mut below: Vec<(f64, &str, usize)> = Vec::new();
+    let mut by_subject_only: BTreeSet<usize> = BTreeSet::new();
     for (index, (decision, holding)) in scored.iter().zip(&holdings).enumerate() {
         if !holding.below_bar {
             continue;
@@ -1738,6 +1780,9 @@ fn admit_below_bar(
             headline >= SUBJECT_RARITY * weights.ledger().ln() && headline >= SUBJECT_SHARE * total;
         if pair || named || subject || spelled {
             below.push((shared, decision.id.as_str(), index));
+            if subject && !(pair || named || spelled) {
+                by_subject_only.insert(index);
+            }
         }
     }
     let below = order_below_bar(below, &scored, &holdings, weights);
@@ -1754,7 +1799,7 @@ fn admit_below_bar(
         admitted.insert(extra);
     }
     let ceiling = answer_about(&holdings, &admitted, weights);
-    let peers = peers_below_bar(&scored, &holdings, &admitted, weights);
+    let peers = peers_below_bar(&scored, &holdings, &admitted, &by_subject_only, weights);
     admitted.extend(peers.iter().copied());
     let mut outweighed = outweighed_below_bar(&holdings, &admitted, weights);
     let mut listed: BTreeSet<usize> = BTreeSet::new();
@@ -1906,7 +1951,10 @@ fn titled_below_bar(
 ///
 /// A decision below the bar, not already admitted, is it when
 ///
-/// - its title or topic keys hold a word of the question that no other decision holds, and it is
+/// - its title or topic keys hold a word of the question that no other decision holds, apart from
+///   those that only mention it in passing (`TermWeights::in_passing`: a decision below the bar that
+///   says the word once in a rationale and nothing else of the question, such as a ruling that
+///   quotes "paywalled" to say a question got a list of two), and it is
 ///   the only decision whose title or topic keys hold such a word: where two decisions each own a
 ///   word, the question's rare words are scattered and none is its subject ("which cdn provider
 ///   serves static assets for the marketing site?" meets "static" in one title and "marketing" in
@@ -1926,7 +1974,7 @@ fn lone_below_bar(
         holding
             .headline
             .iter()
-            .any(|term| weights.holders.get(term) == Some(&1))
+            .any(|term| weights.standing.get(term) == Some(&1))
     };
     let mut owners = holdings
         .iter()
@@ -2009,10 +2057,12 @@ fn order_below_bar<'a>(
 ///   keys (`About` of nothing), and
 /// - the words some decision holds carry at least `LONE_OWNERS_KNOWN_SHARE` of the weight of all the
 ///   question's words, and
-/// - exactly one word of the question is held by `LONE_OWNERS_HOLDERS_MAX` decisions or fewer and said
-///   in the title or topic keys of one of them, and
-/// - every decision that holds that word says it in its title or topic keys: nobody mentions it in
-///   passing, and
+/// - exactly one word of the question is held by `LONE_OWNERS_HOLDERS_MAX` decisions or fewer, not
+///   counting those that only mention it in passing (`TermWeights::in_passing`), and said in the
+///   title or topic keys of one of them, and
+/// - every decision that holds that word, other than in passing, says it in its title or topic keys:
+///   nobody else mentions it in a rationale, and a decision that does so in passing is not a rival
+///   but noise that one more capture of the ledger may add, and
 /// - the decision holds `LONE_SUBJECT_WORDS_MIN` of the question's words, each stem once.
 ///
 /// The word held by one decision only is `lone_below_bar`'s, which also answers a question with an
@@ -2034,7 +2084,7 @@ fn lone_owners_below_bar(
     }
     let mut rare = (0..term_count).filter(|term| {
         weights
-            .holders
+            .standing
             .get(term)
             .is_some_and(|n| *n <= LONE_OWNERS_HOLDERS_MAX)
             && holdings
@@ -2044,10 +2094,11 @@ fn lone_owners_below_bar(
     let (Some(word), None) = (rare.next(), rare.next()) else {
         return Vec::new();
     };
-    if holdings
-        .iter()
-        .any(|holding| holding.held.contains(&word) != holding.headline.contains(&word))
-    {
+    if holdings.iter().any(|holding| {
+        holding.held.contains(&word)
+            && !holding.headline.contains(&word)
+            && !weights.in_passing(holding, word)
+    }) {
         return Vec::new();
     }
     let mut owners: Vec<usize> = holdings
@@ -2092,7 +2143,8 @@ fn lone_owners_below_bar(
 /// - the words some decision holds carry at least `SUBJECT_WORD_KNOWN_SHARE` of the weight of all the
 ///   question's words, and
 /// - the rarest word of the question that a decision below the bar says in its title or topic keys
-///   weighs at least `DOMINANT_WORD_RARITY` times `ln(searched + 1)`, and
+///   weighs at least `DOMINANT_WORD_RARITY` times `ln(searched + 1)`, counting its holders other
+///   than those that mention it in passing (`TermWeights::in_passing`), and
 /// - no decision of the answer says that word in its title or topic keys, and
 /// - the decision that is the most about the question of those that do is filed under a word of the
 ///   question (`DOMINANT_FILED_HITS_MIN`).
@@ -2136,7 +2188,7 @@ fn dominant_owner_below_bar(
                 .weight_of(*left)
                 .total_cmp(&weights.weight_of(*right))
         })?;
-    if weights.weight_of(word) < DOMINANT_WORD_RARITY * weights.ledger().ln() {
+    if weights.standing_weight(word) < DOMINANT_WORD_RARITY * weights.ledger().ln() {
         return None;
     }
     if holdings.iter().enumerate().any(|(index, holding)| {
@@ -2189,9 +2241,11 @@ fn dominant_owner_below_bar(
 /// - the words some decision holds carry at least `SUBJECT_WORD_KNOWN_SHARE` of the weight of all the
 ///   question's words, and
 /// - the answer is not empty and a decision of it holds the word, and
-/// - the word weighs at least `TITLE_OWNER_RARITY` times `ln(searched + 1)` and no other decision
-///   says it in its title; where two decisions each own such a word, the question's rare words are
-///   scattered and none is its subject, and
+/// - the word weighs at least `TITLE_OWNER_RARITY` times `ln(searched + 1)`, counting its holders
+///   other than those that mention it in passing (`TermWeights::in_passing`), so that one more
+///   decision quoting the word in a rationale does not take the owner out of the answer, and no
+///   other decision says it in its title; where two decisions each own such a word, the question's
+///   rare words are scattered and none is its subject, and
 /// - the decision holds `LONE_SUBJECT_WORDS_MIN` of the question's words, each stem once.
 ///
 /// It is listed with the answer and never named alone, and it comes no higher than the answer's
@@ -2214,7 +2268,7 @@ fn title_owner_below_bar(
     let mut owner: Option<usize> = None;
     let mut words: BTreeSet<usize> = BTreeSet::new();
     for term in weights.once(&terms) {
-        if weights.weight_of(term) < TITLE_OWNER_RARITY * weights.ledger().ln() {
+        if weights.standing_weight(term) < TITLE_OWNER_RARITY * weights.ledger().ln() {
             continue;
         }
         let mut titles = holdings
@@ -2274,7 +2328,11 @@ pub(crate) const SAYS_AS_MUCH_SHARE: f64 = 0.9;
 /// topic keys say as much of the question as its does, `SHARED_HEADLINE_WORDS_MIN` words at least
 /// (a word the question says in two forms counted once), two of them the words the question says
 /// side by side, and they are about the question as much
-/// (`SAYS_AS_MUCH_SHARE`). "does the graph draw anyone in it at all, or do we tell you who made the
+/// (`SAYS_AS_MUCH_SHARE`). The decision they are measured against is the best of the answer other
+/// than one that passed `admit_below_bar` only by the subject test (`by_subject_only`): that test
+/// is met by a hair, and one more capture of the ledger moves `total` enough to let a decision in,
+/// raise the measure and drop a peer that was one before. An answer made of such decisions alone is
+/// measured by its best. "does the graph draw anyone in it at all, or do we tell you who made the
 /// call?" is answered by the decision whose title says "graph" and "made", whereas the two
 /// decisions whose titles say "graph draw" are the ones asked about: one rare word does not tell
 /// them apart when "graph" is held by a decision in three, so the weight test of `titled_below_bar`
@@ -2300,9 +2358,13 @@ fn peers_below_bar(
     scored: &[ScoredDecisionSearchResult],
     holdings: &[Holding],
     admitted: &BTreeSet<usize>,
+    by_subject_only: &BTreeSet<usize>,
     weights: &TermWeights,
 ) -> Vec<usize> {
-    let Some(best) = answer_about(holdings, admitted, weights) else {
+    let counted: BTreeSet<usize> = admitted.difference(by_subject_only).copied().collect();
+    let Some(best) = answer_about(holdings, &counted, weights)
+        .or_else(|| answer_about(holdings, admitted, weights))
+    else {
         return Vec::new();
     };
     let titled = holdings

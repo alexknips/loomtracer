@@ -849,6 +849,50 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`recall`, `why` and `verify` no longer lose a decision because an unrelated new decision mentions
+  one of the question's words in passing.** Two questions that had been verified stopped finding their
+  decision with no change to it or to the build, only because the ledger grew. "Is anything paywalled
+  before people try it?" listed the decision titled for "paywalled" second until a ruling about a
+  tie-break said "paywalled" once in its rationale (the word's seventh holder): the rarity test of the
+  rule that lists the decision a word's title owns (`title_owner_below_bar`) counted every holder, the
+  word fell below it, and `why` answered a session draft in one call instead. "Who gets to merge the
+  slides we show investors?" lost the decision about who merges the deck when a ruling said
+  "investor" once, the first decision of the ledger to do so: the weight of the question's words
+  fell enough for the subject test (a word that carries 0.4 of the question) to admit one more
+  decision by a hair, which raised the decision the peers are measured against (`peers_below_bar`)
+  and dropped the peer. Now the rules that look for a word's owner (`lone_below_bar`,
+  `lone_owners_below_bar`, `dominant_owner_below_bar`, `title_owner_below_bar`) count the
+  decisions that hold the word by more than a passing mention: a decision below the bar whose title
+  and topic keys do not hold the word and that holds fewer than two of the question's words
+  (`TermWeights::in_passing`) can never be the answer, so one more of them no longer changes who
+  owns the word. A decision that says the word beside another word of the question is still a rival.
+  The peers are measured against the answer's best without a decision that was admitted by the
+  subject test alone, and the weight of a word in the score is unchanged. Measured on a fresh copy
+  of the live cell (170,899 events), master `1296a475` against this change: the four probe
+  questions (the three paywall wordings and the investors question) list the right decision in the
+  top three on the copy cut before the flip (events 167260 and 168537), at the flip (167261 and
+  168538) and on the full copy, where master answers a draft in one call for the first paywall
+  wording, misses the other two and misses the investors question; the first wording no longer
+  answers in one call. On the frozen set (`questions.tsv`, `strays.tsv`, `shorts.tsv`, 366 rows)
+  two rows gain a place in the top three (the investors question and `hold:P18`, the missing-link
+  question), none loses one, six change their list without changing their verdict (`checker:S4`,
+  `AH8`, `BF4`, `BG2`, `hard:HD01`, `ctrl2:D27`; lists grow by one to three), no STRAY or short
+  control goes from nothing found to a result and no wrong one-call answer is gained. On the crew
+  copy (534 events) no row gains or loses and one moves from second to third inside the top three
+  (`hard:HD02`). Unit tests: four pairs fail on master's `search.rs` and pass here (the title owner,
+  the one rare word, the rare words several decisions title and the word a decision is filed under,
+  each with unrelated decisions that say the word in a rationale), and a fifth test keeps the rule
+  off when a rationale says the word beside another word of the question. Said plainly: the peers
+  change has no unit test of its own and is covered by `checker:BD1` on the cell copy; a fixture of
+  the job/jobs test changed because its waiting decisions now say two question words, so they are
+  no longer passing mentions; and a decision that holds two of the question's words in a rationale
+  still counts, so a ledger can move these rules in another way than the one fixed here. The same
+  commit moves `ctutils` from 0.4.2 to 0.4.5 in `Cargo.lock` only (RUSTSEC-2026-0385, a
+  non-constant-time mask generation pulled in by `digest`), because the required dependency audit
+  failed on it on master too and no commit could merge; `cargo audit` now reports no vulnerability,
+  only the warnings it allowed before.
+  (hivemind-sn5ge)
+
 - **A question about an unrelated everyday thing no longer lists decisions because one of its words
   is the everyday form of a synonym group, where it used to find nothing.** Since the eight groups of
   the entry below landed, "does the repository of old family photos live in the attic?" listed six

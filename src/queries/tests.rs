@@ -2828,9 +2828,11 @@ fn fluent_search_adds_no_peer_to_an_answer_that_says_none_of_the_words_in_its_ti
 
 #[test]
 fn fluent_search_counts_a_word_the_question_says_in_two_forms_once() -> Result<()> {
-    // Thirty decisions. "job", "jobs", "run" and "night" are each held by four of them. d:schedule
+    // Thirty decisions. "job" and "night" are each held by four of them, "run" by seven. d:schedule
     // says "job" in its title and "jobs" and "run" in its rationale, and the question has eight
-    // words, so it holds three of them: below the half that the bar asks.
+    // words, so it holds three of them: below the half that the bar asks. The decisions that wait
+    // say "job" and "run" each, two words of the question: more than a passing mention of "job",
+    // which no longer counts as a holder of it (`TermWeights::in_passing`).
     let scenario = generic_ledger(
         23,
         &[
@@ -2839,9 +2841,9 @@ fn fluent_search_counts_a_word_the_question_says_in_two_forms_once() -> Result<(
                 "Schedule a job at night",
                 "The jobs run once.",
             ),
-            ("d:wait-1", "Queue entry one", "A job waits at night."),
-            ("d:wait-2", "Queue entry two", "A job waits at night."),
-            ("d:wait-3", "Queue entry three", "A job waits at night."),
+            ("d:wait-1", "Queue entry one", "A job will run at night."),
+            ("d:wait-2", "Queue entry two", "A job will run at night."),
+            ("d:wait-3", "Queue entry three", "A job will run at night."),
             ("d:go-1", "Worker entry one", "Then it will run."),
             ("d:go-2", "Worker entry two", "Then it will run."),
             ("d:go-3", "Worker entry three", "Then it will run."),
@@ -3055,6 +3057,36 @@ fn fluent_search_answers_the_decision_that_owns_the_questions_one_rare_word() ->
     assert_eq!(ids, vec!["d:paywall"], "{ids:?}");
     let missing = &items[0].1;
     assert_eq!(missing.len(), 3, "{missing:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_answers_the_owner_of_the_rare_word_when_unrelated_decisions_say_it_in_passing(
+) -> Result<()> {
+    // The same ledger and question as above, and two decisions that say "paywalled" once in a
+    // rationale and nothing else of the question. The word is no longer one decision's alone, but
+    // the decision that is the only one to title it is still the question's subject: what other
+    // decisions happen to mention does not bear on it.
+    let scenario = paywall_ledger(
+        "Self-hosting stays free. Support is charged before anyone asks.",
+        &[
+            (
+                "d:aside-1",
+                "Pricing notes",
+                "Nothing is paywalled in the draft.",
+            ),
+            (
+                "d:aside-2",
+                "Launch notes",
+                "Features stay paywalled for now.",
+            ),
+        ],
+    )?;
+
+    let (items, _) = fluent_answer(&scenario, PAYWALL_QUESTION, 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, vec!["d:paywall"], "{ids:?}");
     Ok(())
 }
 
@@ -3405,9 +3437,11 @@ fn fluent_search_lists_none_of_them_beside_an_answer_whose_title_says_a_word_of_
 }
 
 #[test]
-fn fluent_search_lists_none_of_them_when_a_rationale_says_the_rare_word_in_passing() -> Result<()> {
-    // The same three, and a fourth decision that says "pixels" only in its rationale: the word is
-    // mentioned in passing, so the three titles are no sign that it is the subject.
+fn fluent_search_lists_them_all_when_unrelated_decisions_say_the_rare_word_once_in_a_rationale(
+) -> Result<()> {
+    // The same three, and decisions that say "pixels" and nothing else of the question in a
+    // rationale: they are passing mentions, and no number of them takes the three titles out of
+    // the answer. The answer was found before they were written, and nothing they say bears on it.
     let scenario = pixels_ledger(&[
         (
             "d:px-1",
@@ -3424,7 +3458,46 @@ fn fluent_search_lists_none_of_them_when_a_rationale_says_the_rare_word_in_passi
             "Pixels set the smallest title",
             "The query is read.",
         ),
-        ("d:aside", "Screens differ", "Count the pixels."),
+        ("d:aside-1", "Screens differ", "Count the pixels."),
+        ("d:aside-2", "Phones differ", "Mind the pixels."),
+        ("d:aside-3", "Tablets differ", "Pixels vary."),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
+
+    let mut ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, vec!["d:px-1", "d:px-2", "d:px-3"], "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_none_of_them_when_a_rationale_says_the_rare_word_beside_another_of_the_question(
+) -> Result<()> {
+    // The same three, and a fourth decision that says "pixels" and "query" in its rationale: it is
+    // no passing mention, since it holds two words of the question, so the word has a holder that
+    // no title explains and the three titles are no sign that it is the subject.
+    let scenario = pixels_ledger(&[
+        (
+            "d:px-1",
+            "Names stop at this many pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-2",
+            "Labels hide under some pixels",
+            "The query is read.",
+        ),
+        (
+            "d:px-3",
+            "Pixels set the smallest title",
+            "The query is read.",
+        ),
+        (
+            "d:aside",
+            "Screens differ",
+            "Count the pixels in the query.",
+        ),
     ])?;
 
     let (items, _) = fluent_answer(&scenario, PIXELS_QUESTION, 10)?;
@@ -3503,6 +3576,47 @@ fn fluent_search_lists_the_decision_filed_under_the_one_word_no_title_of_the_ans
     // Four decisions say two of the question's everyday words in their titles and pass the bar; the
     // ledger holds "shelf" in two decisions and one is filed under it.
     let scenario = dominant_shelf_ledger(&["public-shelf"])?;
+
+    let (items, _) = fluent_answer(&scenario, "people ask point shelf", 10)?;
+
+    let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(ids.contains(&"d:shelf-filed"), "{ids:?}");
+    for answer in ["d:r1", "d:r2", "d:r3", "d:r4"] {
+        assert!(ids.contains(&answer), "{ids:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_the_filed_decision_when_unrelated_decisions_say_its_word_in_passing(
+) -> Result<()> {
+    // The same ledger and question as above, with three decisions that say "shelf" once in a
+    // rationale and nothing else of the question: the word has five holders instead of two, and
+    // the decision filed under it is still listed with the answer.
+    let scenario = dominant_shelf_ledger(&["public-shelf"])?;
+    for (index, rationale) in [
+        "Put it on the shelf.",
+        "The shelf is dusty.",
+        "Shelf space is limited.",
+    ]
+    .iter()
+    .enumerate()
+    {
+        scenario.proposal(
+            "human:alice",
+            "2026-01-01T00:00:00Z",
+            json!({
+                "decision_id": format!("d:shelf-aside-{index}"),
+                "title": format!("Office note {index}"),
+                "rationale": rationale,
+                "topic_keys": ["office"],
+                "option_ids": [],
+                "chosen_option_id": null,
+                "hypothesis_ids": [],
+                "evidence_ids": []
+            }),
+        )?;
+    }
 
     let (items, _) = fluent_answer(&scenario, "people ask point shelf", 10)?;
 
@@ -3602,17 +3716,46 @@ fn fluent_search_lists_no_title_owner_that_holds_only_the_rare_word() -> Result<
 
 #[test]
 fn fluent_search_lists_no_title_owner_of_a_word_five_decisions_hold() -> Result<()> {
-    // Three more decisions say "embargo" in a rationale: five hold it, and it no longer names one.
+    // Three more decisions say "embargo" and "budget" in a rationale: five hold it as more than a
+    // passing mention, and it no longer names one.
     let scenario = embargo_ledger(&[
         ("d:owner", "Embargo lifts at launch", "People wait for it."),
-        ("d:aside-1", "Agenda one", "Mind the embargo."),
-        ("d:aside-2", "Agenda two", "Mind the embargo."),
-        ("d:aside-3", "Agenda three", "Mind the embargo."),
+        ("d:aside-1", "Agenda one", "Mind the embargo budget."),
+        ("d:aside-2", "Agenda two", "Mind the embargo budget."),
+        ("d:aside-3", "Agenda three", "Mind the embargo budget."),
     ])?;
 
     let ids = embargo_ids(&scenario)?;
 
     assert!(!ids.contains(&"d:owner".to_owned()), "{ids:?}");
+    Ok(())
+}
+
+#[test]
+fn fluent_search_lists_the_title_owner_whatever_number_of_decisions_mention_the_word_in_passing(
+) -> Result<()> {
+    // The owner was listed beside the draft before these were written. Eight decisions that say
+    // "embargo" once in a rationale, and nothing else of the question, change nothing about it:
+    // each holds one word of ten, so none can be an answer, and the ledger holds one more of the
+    // word with every one of them. (In the live ledger it was the seventh holder of "paywalled"
+    // that took the decision titled for it out of every answer to "is anything paywalled before
+    // people try it?")
+    let scenario = embargo_ledger(&[
+        ("d:owner", "Embargo lifts at launch", "People wait for it."),
+        ("d:aside-1", "Agenda one", "Mind the embargo."),
+        ("d:aside-2", "Agenda two", "Mind the embargo."),
+        ("d:aside-3", "Agenda three", "Mind the embargo."),
+        ("d:aside-4", "Agenda four", "Mind the embargo."),
+        ("d:aside-5", "Agenda five", "Mind the embargo."),
+        ("d:aside-6", "Agenda six", "Mind the embargo."),
+        ("d:aside-7", "Agenda seven", "Mind the embargo."),
+        ("d:aside-8", "Agenda eight", "Mind the embargo."),
+    ])?;
+
+    let ids = embargo_ids(&scenario)?;
+
+    assert!(ids.contains(&"d:draft".to_owned()), "{ids:?}");
+    assert!(ids.contains(&"d:owner".to_owned()), "{ids:?}");
     Ok(())
 }
 
