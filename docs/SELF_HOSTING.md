@@ -188,6 +188,11 @@ server falls back to SQLite stored in the `loomtracer-data` volume. With
 `LOOMTRACER_ADMIN_KEY` set, the same `POST /v1/users` endpoint works for
 per-user SQLite tokens (default tenant `local`; omit `tenant_id` in body).
 
+A SQLite-mode cell from before 0.8.0 kept its ledger in the volume `hivemind-data`, which the
+current compose file does not mount: copy it across with the SQLite steps of
+[Upgrading a cell from before 0.8.0](#upgrading-a-cell-from-before-080), or the server starts on an
+empty ledger.
+
 For a single static key instead:
 
 ```bash
@@ -726,6 +731,14 @@ order, from the cell's directory, with the **old** compose files still in place.
 the last keeps the data where it is, and the rename of the tables and of the project handle can be
 rehearsed on a copy first.
 
+Which steps are yours depends on where the cell keeps its ledger. A cell on Postgres (the default
+compose file) follows **Postgres mode**. A cell in [SQLite mode](#sqlite-mode-no-postgres), with
+the `LOOMTRACER_DATABASE_URL` line removed from `docker-compose.yml`, keeps its whole ledger in
+the old `hivemind-data` volume, which the new compose file does not mount: it follows **SQLite
+mode**, further down, and does not remove that volume until its last step says so.
+
+#### Postgres mode
+
 1. **Stop the server, keep Postgres, and take a backup.**
 
    ```bash
@@ -754,9 +767,11 @@ rehearsed on a copy first.
 3. **Switch to the new compose files** (`git pull`, or copy the new `docker-compose.yml` and keep
    your overrides, renaming the `hivemind` service in them to `loomtracer`). Compose recreates the
    `postgres` container because its settings changed; its data is in the `postgres-data` volume
-   and stays. The `hivemind-data` volume held nothing in Postgres mode (check:
+   and stays. The `hivemind-data` volume holds nothing in Postgres mode (check:
    `docker run --rm -v <project>_hivemind-data:/d:ro alpine ls -A /d` prints nothing), so the new
-   `loomtracer-data` volume starts empty.
+   `loomtracer-data` volume starts empty. If that check lists `ledger.sqlite`, the cell is in
+   SQLite mode and the volume holds its ledger: stop here and follow
+   [SQLite mode](#sqlite-mode-a-ledger-in-the-hivemind-data-volume) below instead.
 
 4. **Rename the tables**, keeping every row. `--dry-run` runs it and rolls it back, printing the
    tables and the row counts a real run would produce:
@@ -788,17 +803,96 @@ rehearsed on a copy first.
    ```bash
    docker compose up -d --remove-orphans
    curl http://localhost:8080/v1/health
+   ```
+
+   Check that `/v1/version` and a known query answer as before. Then remove the old volume, which
+   step 3 showed empty (never in SQLite mode, where it holds the ledger):
+
+   ```bash
    docker volume rm <project>_hivemind-data
    ```
 
-   Check that `/v1/version` and a known query answer as before. To go back, restore
-   `cell-before-0.8.0.sql` into a fresh Postgres and run the old image.
+   To go back, restore `cell-before-0.8.0.sql` into a fresh Postgres and run the old image.
 
-A SQLite ledger holds only `hm_users` and `hm_tokens` to rename: run `loomtracer migrate-storage`
-in the project (or with `--loomtracer-dir`), then `loomtracer project rename` for a registered
-handle. The server refuses to start on a ledger that still has the old tables (exit 4, naming
-`loomtracer migrate-storage`), so no user or agent token is signed out by an upgrade run in the wrong
-order.
+#### SQLite mode: a ledger in the `hivemind-data` volume
+
+The ledger is the file `ledger.sqlite` in the `hivemind-data` volume (beside it the `slack-app`
+folder, if the cell runs the Slack app). The new compose file mounts `loomtracer-data` at `/data`
+instead, so a server started on it, without these steps, answers on a new, empty ledger: the graph
+is empty and recall finds nothing, while the real ledger sits untouched in the old volume. Carry
+it across, rename its tables (`hm_users` and `hm_tokens`), and remove the old volume last. Run it
+from the cell's directory, the first step with the **old** compose files still in place:
+
+1. **Count the decisions, stop the server and take a backup.** The count is what the new server
+   has to answer in step 6 (the key is the one the old server runs with, `HIVEMIND_API_KEY` in
+   its `.env`):
+
+   ```bash
+   curl -s -H "Authorization: Bearer $HIVEMIND_API_KEY" http://localhost:8080/v1/graph \
+     | jq '(.data // .).decisions | length'
+   docker compose stop hivemind
+   docker run --rm -v <project>_hivemind-data:/d:ro -v "$PWD":/backup alpine \
+     tar czf /backup/cell-before-0.8.0.tgz -C /d .
+   ```
+
+2. **Switch to the new compose files** (`git pull`, or copy the new `docker-compose.yml` and keep
+   your overrides, renaming the `hivemind` service in them to `loomtracer`), and remove the
+   `LOOMTRACER_DATABASE_URL` line again, as for [SQLite mode](#sqlite-mode-no-postgres). Rename
+   `HIVEMIND_API_KEY` in `.env` to `LOOMTRACER_API_KEY` (and every other `HIVEMIND_*` setting to
+   its `LOOMTRACER_*` name): SQLite mode without the key refuses to start.
+
+3. **Carry the ledger into the new volume.** This copies and leaves `hivemind-data` as it was.
+   Compose makes `<project>_loomtracer-data` on the way, and the server is not started:
+
+   ```bash
+   docker compose run --rm --no-deps -v <project>_hivemind-data:/old:ro \
+     --entrypoint cp loomtracer -a /old/. /data/
+   docker compose run --rm --no-deps --entrypoint ls loomtracer -A /data   # lists ledger.sqlite
+   ```
+
+4. **Rename the tables**, keeping every row (the same command as step 4 above; it works on the
+   ledger under `/data`):
+
+   ```bash
+   docker compose run --rm --no-deps loomtracer migrate-storage --dry-run
+   docker compose run --rm --no-deps loomtracer migrate-storage
+   ```
+
+   Run before step 3 it stops with "there is none under /data": nothing has been copied yet, so
+   there is no ledger to rename, and it created none.
+
+5. **Rename the project handle** if a project is still registered under `hivemind`: the command of
+   step 5 above, with `--tenant local`.
+
+6. **Start the cell and check the ledger came with it,** then remove the old volume:
+
+   ```bash
+   docker compose up -d --remove-orphans
+   curl http://localhost:8080/v1/health
+   curl -s -H "Authorization: Bearer $LOOMTRACER_API_KEY" http://localhost:8080/v1/graph \
+     | jq '(.data // .).decisions | length'
+   ```
+
+   The count is the one from step 1, and a known query (`loomtracer query recall`, or
+   `GET /v1/decisions/recall?q=`) answers as before. Only then:
+
+   ```bash
+   docker volume rm <project>_hivemind-data
+   ```
+
+   If the new server answers 0 decisions and `docker run --rm -v <project>_hivemind-data:/d:ro
+   alpine ls -A /d` still lists `ledger.sqlite`, it started on an empty ledger: step 3 was skipped
+   or failed. Take the server down (`docker compose down`), keep a copy of
+   `<project>_loomtracer-data` if anything was captured on it meanwhile, remove that volume
+   (`docker volume rm <project>_loomtracer-data`) and run steps 3 to 6 again, so the old ledger
+   lands on a fresh volume and not beside the files the empty one left. To go back, restore
+   `cell-before-0.8.0.tgz` into a volume and run the old image.
+
+Outside a container, a SQLite ledger holds only `hm_users` and `hm_tokens` to rename: run
+`loomtracer migrate-storage` in the project (or with `--loomtracer-dir`), then
+`loomtracer project rename` for a registered handle. The server refuses to start on a ledger that
+still has the old tables (exit 4, naming `loomtracer migrate-storage`), so no user or agent token is
+signed out by an upgrade run in the wrong order.
 
 ---
 
@@ -808,6 +902,12 @@ order.
 `docker compose logs loomtracer`. Common cause: Postgres not yet healthy when
 the server starts (the `depends_on: condition: service_healthy` guard handles
 this; if it races, restart with `docker compose restart loomtracer`).
+
+**The cell answers 0 decisions after upgrading to 0.8.0 (SQLite mode)**: the server started on the
+new, empty `loomtracer-data` volume while the ledger is still in the old one. Check with
+`docker run --rm -v <project>_hivemind-data:/d:ro alpine ls -A /d`: if it lists `ledger.sqlite`,
+do not remove that volume; follow the SQLite steps of
+[Upgrading a cell from before 0.8.0](#upgrading-a-cell-from-before-080).
 
 **`POST /v1/tenants` returns 500 "LOOMTRACER_ADMIN_KEY not configured"**: set
 `LOOMTRACER_ADMIN_KEY` in your `.env` and restart the stack.

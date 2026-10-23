@@ -79,7 +79,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   4. **Rename the stored names** of a SQLite ledger, a Postgres database or a cell with
      `loomtracer migrate-storage`, and of a registered project with `loomtracer project rename`;
      a cell follows "Upgrading a cell from before 0.8.0" in `docs/SELF_HOSTING.md` (database and
-     role, tables, project handle, then the new compose files).
+     role, tables, project handle, then the new compose files). A cell in SQLite mode keeps its
+     whole ledger in the old `hivemind-data` volume, which the new compose file does not mount:
+     its steps copy the ledger into `loomtracer-data` before renaming the tables, and remove the
+     old volume last, only once the new server answers the same decisions.
 
   (hivemind-rfr5h, hivemind-x4xl7)
 - **An MCP tool call that sends an argument the tool does not take is refused.** A tool used to
