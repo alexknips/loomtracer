@@ -837,6 +837,38 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   of `terms.rs` (`timezone` and `paywall` were missing) and says which groups get the half word.
   (hivemind-k25y8)
 
+- **A short question about an everyday thing no longer lists the decision titled with its stand-in.**
+  In a question of two or three words that matter, one everyday stand-in that the decision is about
+  (title and topic key both say it) was already half the question's words, so "did the cafe rebrand?"
+  listed the decision about renaming the website, "how long was the school presentation?" the "Pitch
+  deck" decision and "did the rival team win?" the competitor check, where `45f15984` found nothing.
+  A word that only an everyday stand-in reaches (`competitor` onward in `WORD_GROUPS`) now counts only
+  beside company: a second word of the question that the decision's title or topic keys hold, or two
+  more words that it holds anywhere (`company` in `evaluate_search_match`, `src/queries/search.rs`).
+  Beside company the rule of `hivemind-k25y8` applies unchanged (a whole word when the decision is about
+  it, half a word anywhere else), and the older groups keep a whole word for a stand-in anywhere.
+  Measured on fresh copies of the crew ledger (534 events) and of the live cell (168,131 events),
+  `45f15984` against `39f0f658` against this change: of 42 short off-topic controls (the product check's
+  ST1-ST13 and 24 more written for the bead) the number that find something is crew 12 / 19 / 12 and
+  cell 25 / 29 / 26; on the crew copy every control is back at master's class and list size, and the
+  seven that master answered with nothing (ST1, ST3, ST8 and four more) find nothing again. On the cell
+  copy `4fzjf:S07` ("who hosted the wedding presentation?", one decision) still lists a decision where
+  master found nothing, and two controls that already listed rows on master list more than it does
+  ("where does the window bot sleep?" 2 -> 9, "is the lawn bot broken?" 3 -> 7); said plainly, not
+  fixed. The frozen set (`questions.tsv` and `strays.tsv`) is unchanged against `39f0f658` on the cell
+  copy (NEARBY 108, SYNONYM 78, recall top three 103, 52 wrong one-call answers) and on the crew copy
+  loses one row: SYNONYM 57 -> 58, top three 168 -> 167, 24 wrong one-call answers unchanged. That row
+  is a trade, said plainly: "is the rebrand on hold?" (`checker:P5`) found the rename decision through
+  the stand-in alone, the same shape as "did the cafe rebrand?" (one stand-in word and one word the
+  decision lacks), and no rule that reads the decision tells them apart. The docs' own example,
+  a question about the investor presentation, is the same shape (no decision holds "investor") and is
+  lost for the same reason; the docs now use "why does the presentation keep eight slides for
+  investors?", which finds "Pitch deck". `tests/fixtures/recall_frozen/shorts.tsv` adds the 42 controls
+  and four questions that ask about the thing (still found) to the frozen set as a new file, wired into
+  `scripts/recall_frozen_set.py` and pinned in `tests/recall_frozen_set.rs`. The group list in
+  `docs/AGENT_FLUENT_QUERYING.md` now names `disprove`, `disproven`, `falsify`, `invalidate` and
+  `hypotheses`, which the older groups already held. (hivemind-4fzjf)
+
 - **A question of one word lists the accepted decision titled for it before the drafts that say the
   same word.** "shelf", "timeline" and "pixels" asked alone put three or four proposed session drafts
   first (a note on how the question was found, a bug filed against the decision) and the accepted

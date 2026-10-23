@@ -2,8 +2,9 @@
 //! `scripts/recall_frozen_set.py`) is how a build is judged better or worse on the two kinds of
 //! wrong recall answer, NEARBY and SYNONYM (hivemind-y7b6c), and `strays.tsv` beside it on the
 //! third, a question about nothing the ledger holds that finds a decision (STRAY,
-//! hivemind-k25y8). Two runs only compare when they ask the same questions, so this pins both
-//! files: a change to a row, a kind or the row count fails here and says to start a new file
+//! hivemind-k25y8), and `shorts.tsv` on the same third kind for questions of two or three
+//! words, with the SYNONYM rows that ask about the thing (hivemind-4fzjf). Two runs only compare
+//! when they ask the same questions, so this pins all three files: a change to a row, a kind or the row count fails here and says to start a new file
 //! instead of editing this one.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,6 +13,7 @@ use std::path::Path;
 
 const FIXTURE: &str = "tests/fixtures/recall_frozen/questions.tsv";
 const STRAYS: &str = "tests/fixtures/recall_frozen/strays.tsv";
+const SHORTS: &str = "tests/fixtures/recall_frozen/shorts.tsv";
 
 /// The rows the bead names (CB4, BQ4, H1, K3, R4, V2, the beadline question, the coffee control,
 /// the backups control, BB2) must stay in the set.
@@ -45,7 +47,7 @@ fn data_lines(fixture: &str) -> Vec<String> {
 }
 
 fn rows() -> Vec<Row> {
-    [FIXTURE, STRAYS]
+    [FIXTURE, STRAYS, SHORTS]
         .into_iter()
         .flat_map(data_lines)
         .collect::<Vec<_>>()
@@ -130,9 +132,10 @@ fn the_set_holds_the_rows_the_bead_names_and_all_three_kinds() {
         BTreeMap::from([
             (("NEARBY", "fail"), 123),
             (("NEARBY", "guard"), 59),
-            (("STRAY", "fail"), 3),
-            (("STRAY", "guard"), 46),
+            (("STRAY", "fail"), 13),
+            (("STRAY", "guard"), 73),
             (("SYNONYM", "fail"), 94),
+            (("SYNONYM", "guard"), 4),
         ]),
         "the set changed: start a new file instead"
     );
@@ -143,6 +146,7 @@ fn the_set_is_the_one_that_was_frozen() {
     for (fixture, pinned) in [
         (FIXTURE, "0xeff30fed9627fb7a"),
         (STRAYS, "0xb4714603b5a392e3"),
+        (SHORTS, "0x7a78c7868b77c594"),
     ] {
         assert_eq!(
             format!("{:#018x}", fingerprint(fixture)),

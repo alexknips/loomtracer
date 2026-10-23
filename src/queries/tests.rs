@@ -1657,26 +1657,71 @@ fn a_decision_with_the_word_asked_for_comes_before_one_with_a_stand_in() -> Resu
 }
 
 #[test]
-fn an_everyday_stand_in_alone_in_a_rationale_or_a_title_is_half_a_word_toward_the_close_bar(
+fn an_everyday_stand_in_alone_in_a_rationale_or_a_title_counts_for_nothing_toward_the_close_bar(
 ) -> Result<()> {
-    // "presentation layout" finds a decision lacking "layout" only when "presentation" is half of
-    // the question. The everyday groups hold words used in their everyday sense: who brings the
-    // cake to the retirement presentation is not about the pitch deck (hivemind-k25y8).
+    // "presentation layout" finds nothing that lacks "layout" while "presentation" is all the
+    // decision shares with it. The everyday groups hold words used in their everyday sense: who
+    // brings the cake to the retirement presentation is not about the pitch deck, nor is a
+    // question about a cafe's rebrand about the website's renaming (hivemind-k25y8,
+    // hivemind-4fzjf).
     let scenario = titled_decisions(&[
         // The rationale says "deck"; the title and the topic keys say nothing of a presentation.
         ("d:rationale", "Colours of the page", "The deck stays dark."),
         // The title says "deck", the topic keys do not.
         ("d:title-alone", "Deck colours", "Dark and light."),
     ])?;
-    // The title and the topic keys both say "deck": the decision is about the presentation.
+    // The title and the topic keys both say "deck": the decision is about the presentation, yet
+    // it holds no other word of the question.
     titled_proposal(&scenario, "d:about", "Deck colours", &["deck"])?;
 
     let (items, _) = fluent_answer(&scenario, "presentation layout", 10)?;
 
     assert_eq!(
         items,
-        vec![("d:about".to_owned(), vec!["layout".to_owned()])],
-        "an everyday stand-in in a rationale or in a title alone is half a word: one of two terms is a quarter"
+        Vec::<(String, Vec<String>)>::new(),
+        "an everyday stand-in with no company is not a word of the question"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_everyday_stand_in_beside_a_word_of_the_title_is_a_whole_word_when_the_decision_is_about_it(
+) -> Result<()> {
+    // The title holds "layout" and, with the topic keys, says "deck": company, and about it.
+    let scenario = titled_decisions(&[(
+        "d:rationale",
+        "Colours of the page",
+        "The deck stays dark, with the layout kept.",
+    )])?;
+    titled_proposal(&scenario, "d:about", "Deck layout", &["deck"])?;
+
+    let (items, _) = fluent_answer(&scenario, "presentation layout margins", 10)?;
+
+    assert_eq!(
+        items,
+        vec![("d:about".to_owned(), vec!["margins".to_owned()])],
+        "two of three terms: the stand-in is a whole word beside the title's \"layout\"; a rationale that holds one of them is not company"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_everyday_stand_in_beside_two_words_of_a_rationale_is_company() -> Result<()> {
+    let scenario = titled_decisions(&[
+        (
+            "d:two",
+            "Deck colours",
+            "Wide margins and generous spacing.",
+        ),
+        ("d:one", "Deck shades", "Wide margins."),
+    ])?;
+
+    let (items, _) = fluent_answer(&scenario, "presentation margins spacing layout", 10)?;
+
+    assert_eq!(
+        items,
+        vec![("d:two".to_owned(), vec!["layout".to_owned()])],
+        "the rationale holds two more words, one is chance"
     );
     Ok(())
 }

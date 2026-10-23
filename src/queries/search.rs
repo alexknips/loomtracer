@@ -2936,12 +2936,17 @@ fn evaluate_search_match(
     let mut below_bar = false;
     // What each term is worth toward the close bar, in half words. A word a field holds is two, and
     // so is a word of the product's own vocabulary that a stand-in reaches. A word only an
-    // everyday stand-in reaches (`FIRST_EVERYDAY_GROUP`) is two when the title says the stand-in
-    // and the topic or question says it too, or the title also holds two of the question's own
-    // words: the decision is about that thing. Anywhere else (a rationale, a title that stands
-    // alone) it is one. Else a question about the cake at a retirement presentation lists the
-    // pitch-deck decisions, whose rationale says "presentation", for a word the question uses in
-    // its everyday sense (hivemind-k25y8).
+    // everyday stand-in reaches (`FIRST_EVERYDAY_GROUP`) is worth something only beside company:
+    // a second word of the question that the title or topic keys hold, or two more words the
+    // decision holds anywhere. Else one everyday word ("rebrand") meets the bar of a question of
+    // two or three words, and the cafe's rebrand lists the decision about renaming the website
+    // (hivemind-4fzjf). With company it is two when the title says the stand-in and the topic or
+    // question says it too, or the title also holds two of the question's own words: the decision
+    // is about that thing. Anywhere else (a rationale, a title that stands alone) it is one. Else
+    // a question about the cake at a retirement presentation lists the pitch-deck decisions,
+    // whose rationale says "presentation", for a word the question uses in its everyday sense
+    // (hivemind-k25y8).
+    let company = !headline_words.is_empty() || held_words.len() >= 2;
     let halves: usize = terms
         .iter()
         .enumerate()
@@ -2954,8 +2959,12 @@ fn evaluate_search_match(
                 .related
                 .get(index)
                 .is_some_and(RelatedWord::is_everyday)
-                || (stand_in_title.contains(&index)
-                    && (stand_in_about.contains(&index) || title_words.len() >= 2))
+            {
+                2
+            } else if !company {
+                0
+            } else if stand_in_title.contains(&index)
+                && (stand_in_about.contains(&index) || title_words.len() >= 2)
             {
                 2
             } else {

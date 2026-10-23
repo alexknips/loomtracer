@@ -1,0 +1,64 @@
+# The frozen SHORT questions (hivemind-4fzjf): questions of two or three words that matter, each using a word of
+# `WORD_GROUPS` (src/queries/terms.rs) in its everyday sense where a decision's title and topic keys say the stand-in:
+# the cafe's rebrand against the decision about renaming the website, the school presentation against "Pitch deck", the
+# rival team against the competitor check. In a question that short one whole word already met the bar of half the
+# words (183cb447, 39f0f658); strays.tsv, whose questions run six to nine words, could not see it. DO NOT EDIT ROWS: a
+# build is judged by running this set next to questions.tsv and strays.tsv. A new set is a new file; this one stays.
+#
+# Rows: 24 hand-written for the bead (4fzjf:S01-S24) and the product check's short rows ST1-ST13 (dog-183cb447;
+# ST14-ST18 are older groups and direct words that master 45f15984 already answered, so they are not here), all STRAY.
+# Then four SYNONYM rows that ask ABOUT the thing and must keep finding it (4fzjf:P1-P4): the question names the
+# decision's subject and a second word the decision holds (the docs example, a question about the investor presentation,
+# names no word the ledger holds besides the stand-in, so it is a stray row of this class, not a positive).
+#
+# Columns (tab separated): id, kind, expect, question, role.
+#   id      dog-<build>:<id> for a question the product check filed, 4fzjf:<id> for one written for the bead.
+#   kind    STRAY: a question about nothing the ledger holds. It FAILS when `why` lists or answers a decision, or
+#           `recall` returns any. SYNONYM: asks about a decision in other words; it FAILS when recall misses it.
+#   expect  `none` for STRAY; for SYNONYM the 8-character id prefix of the decision (`|` between alternatives).
+#   role    `fail` = 39f0f658 listed a decision for this row where master 45f15984 listed nothing, on the crew copy
+#           or the cell-sized copy; `guard` = it did not. The SYNONYM rows are guards.
+#
+# Ledger copies it was measured on, both taken 2026-10-23: the crew ledger (534 events) and a copy of the live cell
+# (168,131 events).
+4fzjf:S01	STRAY	none	did the florist rebrand last spring?	guard
+4fzjf:S02	STRAY	none	will the airline rebrand its planes?	fail
+4fzjf:S03	STRAY	none	why did the brewery rebrand?	fail
+4fzjf:S04	STRAY	none	when did the dance academy rebrand?	guard
+4fzjf:S05	STRAY	none	was the graduation presentation recorded?	guard
+4fzjf:S06	STRAY	none	when does the gallery presentation start?	guard
+4fzjf:S07	STRAY	none	who hosted the wedding presentation?	fail
+4fzjf:S08	STRAY	none	is the thesis presentation public?	guard
+4fzjf:S09	STRAY	none	did the rival bakery close?	guard
+4fzjf:S10	STRAY	none	who is the rival choir?	fail
+4fzjf:S11	STRAY	none	was the rival orchestra on tour?	guard
+4fzjf:S12	STRAY	none	did the rival fishermen catch more?	fail
+4fzjf:S13	STRAY	none	does the kitchen bot sing?	guard
+4fzjf:S14	STRAY	none	can the garden bot swim?	guard
+4fzjf:S15	STRAY	none	who painted the toy bot?	fail
+4fzjf:S16	STRAY	none	where does the window bot sleep?	fail
+4fzjf:S17	STRAY	none	is the kitchen clock slow?	guard
+4fzjf:S18	STRAY	none	which clock tower chimes at noon?	guard
+4fzjf:S19	STRAY	none	who winds the village clock?	guard
+4fzjf:S20	STRAY	none	does the ferry charge for bikes?	guard
+4fzjf:S21	STRAY	none	who guards the seed repository?	guard
+4fzjf:S22	STRAY	none	is the choir group friendly?	guard
+4fzjf:S23	STRAY	none	what does the barber charge?	guard
+4fzjf:S24	STRAY	none	how old is the pottery community?	guard
+dog-183cb447:ST1	STRAY	none	did the cafe rebrand?	fail
+dog-183cb447:ST2	STRAY	none	when did the corner pharmacy rebrand?	guard
+dog-183cb447:ST3	STRAY	none	how long was the school presentation?	fail
+dog-183cb447:ST4	STRAY	none	is the presentation at the museum free?	guard
+dog-183cb447:ST5	STRAY	none	where is the recipe repository?	guard
+dog-183cb447:ST6	STRAY	none	is the lawn bot broken?	guard
+dog-183cb447:ST7	STRAY	none	who repairs the pool cleaning bot?	guard
+dog-183cb447:ST8	STRAY	none	did the rival team win?	fail
+dog-183cb447:ST9	STRAY	none	did the rival shop change its shelf in the showcase window?	guard
+dog-183cb447:ST10	STRAY	none	which community garden has tomatoes?	guard
+dog-183cb447:ST11	STRAY	none	is the alarm clock broken?	guard
+dog-183cb447:ST12	STRAY	none	how much does the plumber charge?	guard
+dog-183cb447:ST13	STRAY	none	which group hikes on Sunday?	guard
+4fzjf:P1	SYNONYM	5174d1df	why does the presentation keep eight slides for investors?	guard
+4fzjf:P2	SYNONYM	a42ca00a|19a98974	did the Upheld rebrand go ahead?	guard
+4fzjf:P3	SYNONYM	83e67825	has any rival moved onto the shelf this month?	guard
+4fzjf:P4	SYNONYM	5174d1df	which slides did the presentation drop for install steps?	guard

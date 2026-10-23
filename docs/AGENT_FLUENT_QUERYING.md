@@ -483,10 +483,10 @@ asked with another form or a synonym of a decision's words still finds it
   a prefix, so `string` does not match `strategy`.
 - **A stand-in word.** `WORD_GROUPS` in `src/queries/terms.rs` lists the few groups
   of words that say the same thing in this product's own vocabulary: `supersede` and
-  `replace` (the site draws a supersession as "replaces"), `assumption`, `hypothesis`
-  and `premise`, `ui` and `interface`, `graph`, `diagram`, `chart` and `picture`,
+  `replace` (the site draws a supersession as "replaces"), `assumption`, `hypothesis`,
+  `hypotheses` and `premise`, `ui` and `interface`, `graph`, `diagram`, `chart` and `picture`,
   `site` and `website`, `edge` and `arrow`, `story` and `chapter`, `link`, `url` and
-  `address`, `refute` and `wrong`, `browser`, `device`, `laptop`, `phone`, `mobile` and
+  `address`, `refute`, `disprove`, `disproven`, `falsify`, `invalidate` and `wrong`, `browser`, `device`, `laptop`, `phone`, `mobile` and
   `desktop`, and the everyday words for what the ledger writes
   another way: `competitor` and `rival`, `deck` and `presentation`, `clock`,
   `zone` and `timezone`, `rename` and `rebrand`, `community` and `group`, `charge`, `price`,
@@ -499,14 +499,18 @@ asked with another form or a synonym of a decision's words still finds it
   among decisions that match equally well, one that says "interface" outranks one that says
   "UI" for a question about the interface. Toward the bar for a close match (at least half
   of the question's words), a word that a decision reaches only through a stand-in of the
-  everyday groups (`competitor` onward in the list above) is half a word, not a whole one,
-  unless the decision is about it: its title says the stand-in and a topic key or the
-  recorded question says it too, or its title also holds two of the question's other words
-  as words. The groups before them, which say the same thing in this product's own
-  vocabulary, keep a whole word for a stand-in anywhere in the decision. So "who brings the
-  cake to the retirement presentation?" lists no decision for a rationale that says "deck"
-  and "brings" somewhere, while a question about the investor presentation still finds the
-  decision titled "Pitch deck", whose topic keys say "deck" too (hivemind-k25y8).
+  everyday groups (`competitor` onward in the list above) counts only beside company: a
+  second word of the question that the decision's title or topic keys hold, or two more
+  words of it that the decision holds anywhere. Beside company it is a whole word when the
+  decision is about it (its title says the stand-in and a topic key or the recorded question
+  says it too, or its title also holds two of the question's other words as words) and half
+  a word anywhere else. The groups before them, which say the same thing in this product's
+  own vocabulary, keep a whole word for a stand-in anywhere in the decision. So "who brings
+  the cake to the retirement presentation?" lists no decision for a rationale that says
+  "deck" and "brings" somewhere, and "did the cafe rebrand?" lists no decision titled for
+  renaming the website, while "why does the presentation keep eight slides for investors?"
+  still finds the decision titled "Pitch deck", whose topic keys say "deck" too
+  (hivemind-k25y8, hivemind-4fzjf).
 
 A verb that writes (`disagree`, `supersede`, `retitle`, `ground`, ...) keeps the
 resolver's own match, the word and its inflections: a synonym never picks the

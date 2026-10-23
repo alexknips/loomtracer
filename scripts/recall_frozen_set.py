@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Run the frozen recall question set against a hivemind build and print counts per kind.
 
-The set is `tests/fixtures/recall_frozen/questions.tsv` (NEARBY and SYNONYM) and `strays.tsv` (STRAY):
+The set is `tests/fixtures/recall_frozen/questions.tsv` (NEARBY and SYNONYM), `strays.tsv` (STRAY) and
+`shorts.tsv` (STRAY questions of two or three words, and SYNONYM rows that ask about the thing):
 one row per question with the decision it should find (or `none`) and the kind of wrong answer the
 row watches for. Both are kept the same from build to build, so two runs of two builds on the same
 ledger copy say whether a build got better or worse. Rules for the set and the kinds are in the
@@ -30,7 +31,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 KINDS = ("NEARBY", "SYNONYM", "STRAY")
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tests", "fixtures", "recall_frozen")
-DEFAULT_QUESTIONS = [os.path.join(FIXTURES, "questions.tsv"), os.path.join(FIXTURES, "strays.tsv")]
+DEFAULT_QUESTIONS = [
+    os.path.join(FIXTURES, "questions.tsv"),
+    os.path.join(FIXTURES, "strays.tsv"),
+    os.path.join(FIXTURES, "shorts.tsv"),
+]
 TOP = 3
 
 
@@ -140,7 +145,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--bin", required=True, help="the hivemind binary to measure")
     parser.add_argument("--ledger-dir", required=True, help="folder holding ledger.sqlite (only read)")
-    parser.add_argument("--questions", nargs="+", default=DEFAULT_QUESTIONS, help="the question files (default: the frozen set and its strays)")
+    parser.add_argument("--questions", nargs="+", default=DEFAULT_QUESTIONS, help="the question files (default: the frozen set, its strays and its short questions)")
     parser.add_argument("--port", type=int, default=19311, help="loopback port for the temporary server")
     parser.add_argument("--out", help="write every row's answer as JSON")
     parser.add_argument("--compare", help="a JSON from an earlier run: list the rows that gained or lost")
