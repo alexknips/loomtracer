@@ -760,6 +760,25 @@ the `LOOMTRACER_DATABASE_URL` line removed from `docker-compose.yml`, keeps its 
 the old `hivemind-data` volume, which the new compose file does not mount: it follows **SQLite
 mode**, further down, and does not remove that volume until its last step says so.
 
+**A cell from v0.7.0 or earlier has tokens whose prefix needs changing, and no step below can do
+that for you; a cell on v0.8.0 has nothing to change.** A token from `POST /v1/users`,
+`POST /v1/agent-tokens` or `POST /v1/tenants` started `hm_tk_` up to v0.7.0 and starts `lt_tk_`
+from v0.8.0 on, and a server from v0.8.0 on answers `401` to a token that still starts `hm_tk_`.
+So on a cell from v0.7.0 or earlier, whoever holds a token changes `hm_tk_` to `lt_tk_` where they
+keep it (a shell variable, the `Authorization: Bearer` line of an MCP config, `LOOMTRACER_API_KEY`
+on a machine that captures into the cell). Nothing was revoked or lost: the server keeps a hash of
+the part after the prefix, `migrate-storage` carries that row across, and `lt_tk_` followed by the
+same 64 hex characters is the same token:
+
+```bash
+NEW_TOKEN="lt_tk_${OLD_TOKEN#hm_tk_}"
+```
+
+On a cell on v0.8.0 the tokens already start `lt_tk_` (the v0.8.0 install steps changed the older
+ones, and the cell minted the rest under the new prefix). Step 6 of each mode checks one either
+way. The shared `LOOMTRACER_API_KEY` of SQLite mode is a string you chose, not a token with a
+prefix: it only changes its name in `.env`.
+
 #### Postgres mode
 
 1. **Stop the server, keep Postgres, and take a backup.**
@@ -830,8 +849,18 @@ mode**, further down, and does not remove that volume until its last step says s
    curl http://localhost:8080/v1/health
    ```
 
-   Check that `/v1/version` and a known query answer as before. Then remove the old volume, which
-   step 3 showed empty (never in SQLite mode, where it holds the ledger):
+   Check that `/v1/version` and a known query answer as before. In Postgres mode the static key
+   is ignored, so a query is asked with a token: use a user, agent or tenant token issued before
+   the upgrade (on a cell from v0.7.0 or earlier with its prefix changed to `lt_tk_`, see above),
+   and it answers who it is:
+
+   ```bash
+   curl -s http://localhost:8080/v1/whoami -H "Authorization: Bearer lt_tk_<64-hex of an old token>"
+   ```
+
+   A token with `hm_tk_` still in front answers `401 invalid or missing bearer token`: its holder
+   has not changed the prefix yet. Then remove the old volume, which step 3 showed empty (never in
+   SQLite mode, where it holds the ledger):
 
    ```bash
    docker volume rm <project>_hivemind-data
@@ -903,7 +932,16 @@ from the cell's directory, the first step with the **old** compose files still i
    ```
 
    The count is the one from step 1, and a known query (`loomtracer query recall`, or
-   `GET /v1/decisions/recall?q=`) answers as before. Only then:
+   `GET /v1/decisions/recall?q=`) answers as before. That key is not a user's token, so it does
+   not show whether the users' and agents' tokens came across: ask `GET /v1/whoami` with one
+   issued before the upgrade (on a cell from v0.7.0 or earlier with its prefix changed to
+   `lt_tk_`, see above), and it answers who it is (with `hm_tk_` still in front it answers `401`):
+
+   ```bash
+   curl -s http://localhost:8080/v1/whoami -H "Authorization: Bearer lt_tk_<64-hex of an old token>"
+   ```
+
+   Only then:
 
    ```bash
    docker volume rm <project>_hivemind-data
@@ -920,8 +958,11 @@ from the cell's directory, the first step with the **old** compose files still i
 Outside a container, a SQLite ledger holds only `hm_users` and `hm_tokens` to rename: run
 `loomtracer migrate-storage` in the project (or with `--loomtracer-dir`), then
 `loomtracer project rename` for a registered handle. The server refuses to start on a ledger that
-still has the old tables (exit 4, naming `loomtracer migrate-storage`), so no user or agent token is
-signed out by an upgrade run in the wrong order.
+still has the old tables (exit 4, naming `loomtracer migrate-storage`), so an upgrade run in the
+wrong order does not start on empty tables and answer every token with `401`. The storage rename
+revokes and mints no user, agent or tenant token: one that starts `lt_tk_` keeps working, and one
+that still starts `hm_tk_` (a cell from v0.7.0 or earlier whose holders have not changed it, see
+above) is refused.
 
 ---
 
@@ -937,6 +978,12 @@ server started on the new, empty `loomtracer-data` volume while the ledger is st
 That happens to a cell on v0.8.0 as much as to one from before it. Check with
 `docker run --rm -v <project>_hivemind-data:/d:ro alpine ls -A /d`: if it lists `ledger.sqlite`,
 do not remove that volume; follow the SQLite steps of
+[Upgrading a cell from v0.8.0 or earlier](#upgrading-a-cell-from-v080-or-earlier).
+
+**Every user and agent token answers 401 after a cell from v0.7.0 or earlier is upgraded**: the
+tokens still start `hm_tk_`, which v0.8.0 and every server after it refuse. Change that to `lt_tk_`
+and keep the 64 hex characters after it: the same secret works, because nothing was revoked. See
+the tokens paragraph of
 [Upgrading a cell from v0.8.0 or earlier](#upgrading-a-cell-from-v080-or-earlier).
 
 **`POST /v1/tenants` returns 500 "LOOMTRACER_ADMIN_KEY not configured"**: set
