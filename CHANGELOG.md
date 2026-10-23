@@ -49,6 +49,18 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
   (hivemind-x4xl7, hivemind-n33h7, hivemind-r9cs1)
 
+### Changed
+
+- **The web UI moved to its own repository,
+  [`alexknips/loomtracer-web`](https://github.com/alexknips/loomtracer-web), with its history.**
+  `web/`, `packages/reasoning/` and the npm workspace files at the root (`package.json`,
+  `package-lock.json`) are gone from this repository, and so is the "Web UI (build and unit
+  tests)" CI job. The server and its HTTP API are unchanged, and 0.8.0 already serves everything
+  the UI reads. The two repositories meet at one contract, `web/LOOMTRACER_API_MAP.md` in the new
+  one, which says which endpoint each page reads: a change to both sides is two pull requests,
+  the server's landing and being released first, then the UI's raising the release it is pinned
+  to. (hivemind-14zub)
+
 ### Fixed
 
 - **A Postgres server that refuses a login now says so: "password authentication failed for user

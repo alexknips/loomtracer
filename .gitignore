@@ -44,15 +44,3 @@ snapshots/golden/
 
 # Local tool cache (downloaded actionlint/shellcheck binaries from lint-workflows.sh)
 /.cache/
-
-# Web UI (web/, packages/reasoning/)
-/node_modules/
-/packages/*/node_modules/
-/web/node_modules/
-/web/.next/
-/web/.next-*/
-/web/test-results/
-/web/playwright-report/
-/web/*.tsbuildinfo
-/web/.env*
-!/web/.env.example

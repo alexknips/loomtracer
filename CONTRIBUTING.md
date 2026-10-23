@@ -35,6 +35,15 @@ judged against.
 4. Implement the change. Keep the diff scoped to the bead — file follow-up
    beads for anything bigger that surfaces.
 
+## The web UI is a separate repository
+
+The web UI lives in [`alexknips/loomtracer-web`](https://github.com/alexknips/loomtracer-web),
+not here. Its `web/LOOMTRACER_API_MAP.md` is the contract between the two repositories: which
+endpoint each page reads. A change that needs both sides is two pull requests. The change here
+lands and is released first; the UI's pull request then raises the release it is pinned to
+(`LOOMTRACER_VERSION` in that repository). Do not change an endpoint the UI reads without saying
+so in the pull request, so the UI's side can follow.
+
 ## Quality gates (PRINCIPLES §8)
 
 Which gates you run locally depends on your diff. See

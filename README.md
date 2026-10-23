@@ -612,6 +612,11 @@ Site and reference docs:
   — guides, concepts, the CLI and MCP reference, and the live demo. The site
   lives in its own repo,
   [`alexknips/loomtracer-site`](https://github.com/alexknips/loomtracer-site).
+- [`alexknips/loomtracer-web`](https://github.com/alexknips/loomtracer-web) — the
+  web UI (a Next.js app that reads a Loomtracer server over its HTTP API). Its
+  `web/LOOMTRACER_API_MAP.md` is the contract between the two repositories: a
+  change to both sides is two pull requests, this one landing and being released
+  first, then the UI's raising the release it is pinned to.
 
 Architecture and surfaces:
 
