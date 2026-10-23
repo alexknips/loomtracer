@@ -43,13 +43,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     > summaries, plans that hold only for this session, or a choice binding nothing and
     > cheap to undo.
 
-  - Unchanged on purpose: stored names. The `hm_*` tables, the Postgres database and role
-    `hivemind`, the docker volume `hivemind-data` and the compose service `hivemind` keep their
-    names, because renaming them without a migration would start a cell on empty tables and
-    orphan its users and tokens. Events already written, and this repository's project handle in
-    `.loomtracer-project`, are history and keep their text.
+  - Stored names, renamed with a migration: the `hm_*` tables are `lt_*` (`hm_tenants`,
+    `hm_users`, `hm_tokens`, `hm_oidc_users`, `hm_nodes`, `hm_edges` in Postgres; `hm_users` and
+    `hm_tokens` in a SQLite ledger), the Postgres database and role `hivemind` are `loomtracer`
+    (and the default `POSTGRES_PASSWORD` is `loomtracer`), the compose service `hivemind` is
+    `loomtracer` and the docker volume `hivemind-data` is `loomtracer-data`. The new server and
+    the token commands refuse to start on a database that still has the old tables, rather than
+    create empty ones beside them and lose every tenant, user and token. Events already written
+    are history and keep their text.
+  - `loomtracer migrate-storage` is the step that renames the tables: one transaction that checks
+    every table holds the same number of rows before and after (and changes nothing if one does
+    not), reports each table, and does nothing on a database already renamed. `--dry-run` runs it
+    and rolls it back.
+  - `loomtracer project rename <from> <to>` makes a new handle the successor of a registered
+    project: it registers the new handle, moves the old project's anchors and links, declares its
+    topic keys and moves each of its decisions, all as recorded events (`decision.moved` per
+    decision), so nothing is rewritten and the same command with the handles swapped undoes it.
+    This repository's own handle, the content of `.loomtracer-project`, is now `loomtracer`.
 
-  An existing install takes three steps:
+  An existing install takes these steps (four, for a cell or a database that stores users):
 
   1. **Move the ledger folder:** rename `hivemind` to `loomtracer` in each project (or pass
      `--loomtracer-dir` the old folder), and rename `~/.hivemind` to `~/.loomtracer` so a capture
@@ -64,8 +76,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
      the `--hivemind-*` flags in your shell, service units, compose `.env` and MCP config
      (`claude mcp add loomtracer ...`). Remove the old `hivemind` binary from your path: it
      keeps running without an error and reads none of the new names.
+  4. **Rename the stored names** of a SQLite ledger, a Postgres database or a cell with
+     `loomtracer migrate-storage`, and of a registered project with `loomtracer project rename`;
+     a cell follows "Upgrading a cell from before 0.8.0" in `docs/SELF_HOSTING.md` (database and
+     role, tables, project handle, then the new compose files).
 
-  (hivemind-rfr5h)
+  (hivemind-rfr5h, hivemind-x4xl7)
 - **An MCP tool call that sends an argument the tool does not take is refused.** A tool used to
   read the keys it knew and skip the rest, so `recall_decisions` with `query` (it takes `q`) ran
   unfiltered and `link_supersession` with `decided_by` succeeded without carrying it, while

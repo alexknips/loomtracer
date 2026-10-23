@@ -83,6 +83,22 @@ impl SqliteEventLedger {
         loomtracer_dir.as_ref().join(LEDGER_DB_NAME).is_file() // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
     }
 
+    /// Renames the old-named tables of the ledger under `loomtracer_dir` to their Loomtracer
+    /// names, in one transaction (see [`super::legacy_storage`]). Opens the file as it is,
+    /// without the schema setup `open` runs, and never makes a ledger where there is none:
+    /// the caller checks [`SqliteEventLedger::exists_in`] first.
+    pub fn rename_legacy_storage(
+        loomtracer_dir: impl AsRef<Path>,
+        dry_run: bool,
+    ) -> Result<super::StorageRenameReport> {
+        let path = loomtracer_dir.as_ref().join(LEDGER_DB_NAME); // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
+        let mut connection = Connection::open(&path).map_err(storage_error)?;
+        connection
+            .busy_timeout(Duration::from_millis(SQLITE_BUSY_TIMEOUT_MS))
+            .map_err(storage_error)?;
+        super::legacy_storage::rename_sqlite_storage(&mut connection, dry_run)
+    }
+
     /// Errors unless `tenant_id` has a row in the local `tenants` registry.
     /// Called once at ledger-open time (the CLI/stdio-MCP seam in
     /// [`crate::ledger::AnyLedger::open`] and the HTTP API's per-request
@@ -707,7 +723,7 @@ mod tests;
 pub const SQLITE_TOKEN_PREFIX: &str = "lt_tk_";
 
 pub struct SqliteResolvedToken {
-    /// `None` for an agent token minted with no associated `hm_users` row
+    /// `None` for an agent token minted with no associated `lt_users` row
     /// (`mint_agent_token`).
     pub user_id: Option<Uuid>,
     pub tenant_id: String,
@@ -724,7 +740,7 @@ pub struct SqliteProvisionedUser {
 }
 
 /// A bearer token minted directly against an agent identity, with no
-/// associated `hm_users` row.
+/// associated `lt_users` row.
 pub struct SqliteProvisionedAgentToken {
     pub token_id: Uuid,
     pub actor_id: String,
@@ -748,6 +764,9 @@ impl SqliteUserStore {
         fs::create_dir_all(loomtracer_dir).map_err(storage_error)?;
         let path = loomtracer_dir.join(LEDGER_DB_NAME); // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
         let conn = Connection::open(&path).map_err(storage_error)?;
+        // A ledger from before the rename to Loomtracer keeps its users and tokens under the old
+        // table names; creating empty ones beside them would sign every token out.
+        super::legacy_storage::require_current_sqlite_names(&conn)?;
         initialize_user_schema(&conn).map_err(storage_error)?;
         Ok(Self { path })
     }
@@ -781,12 +800,12 @@ impl SqliteUserStore {
         let conn = self.connect()?;
         retry_sqlite_lock(|| {
             conn.execute(
-                "INSERT INTO hm_users (user_id, tenant_id, email, display_name, role)
+                "INSERT INTO lt_users (user_id, tenant_id, email, display_name, role)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![user_id.to_string(), tenant_id, email, display_name, role],
             )?;
             conn.execute(
-                "INSERT INTO hm_tokens (token_id, token_hash, tenant_id, user_id, actor_id, label)
+                "INSERT INTO lt_tokens (token_id, token_hash, tenant_id, user_id, actor_id, label)
                  VALUES (?1, ?2, ?3, ?4, ?5, 'default')",
                 params![
                     token_id.to_string(),
@@ -811,7 +830,7 @@ impl SqliteUserStore {
     }
 
     /// Mint a bearer token bound directly to an agent identity
-    /// (`agent:<tool>:<name>`), with no associated `hm_users` row. Lets an
+    /// (`agent:<tool>:<name>`), with no associated `lt_users` row. Lets an
     /// admin provision automation/role tokens that read as agents in the
     /// ledger instead of being forced through `create_user`'s
     /// `human:<email>` shape (hivemind-zdsh.19).
@@ -829,7 +848,7 @@ impl SqliteUserStore {
         let conn = self.connect()?;
         retry_sqlite_lock(|| {
             conn.execute(
-                "INSERT INTO hm_tokens (token_id, token_hash, tenant_id, actor_id, label)
+                "INSERT INTO lt_tokens (token_id, token_hash, tenant_id, actor_id, label)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![token_id.to_string(), token_hash, tenant_id, actor_id, label],
             )
@@ -855,7 +874,7 @@ impl SqliteUserStore {
         let conn = self.connect()?;
         let actor_id: String = retry_sqlite_lock(|| {
             conn.query_row(
-                "SELECT 'human:' || email FROM hm_users WHERE user_id = ?1 AND tenant_id = ?2",
+                "SELECT 'human:' || email FROM lt_users WHERE user_id = ?1 AND tenant_id = ?2",
                 params![user_id.to_string(), tenant_id],
                 |r| r.get(0),
             )
@@ -864,7 +883,7 @@ impl SqliteUserStore {
 
         retry_sqlite_lock(|| {
             conn.execute(
-                "INSERT INTO hm_tokens (token_id, token_hash, tenant_id, user_id, actor_id, label)
+                "INSERT INTO lt_tokens (token_id, token_hash, tenant_id, user_id, actor_id, label)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     token_id.to_string(),
@@ -885,7 +904,7 @@ impl SqliteUserStore {
         let conn = self.connect()?;
         let n = retry_sqlite_lock(|| {
             conn.execute(
-                "UPDATE hm_tokens SET revoked_at = datetime('now')
+                "UPDATE lt_tokens SET revoked_at = datetime('now')
                  WHERE token_id = ?1 AND tenant_id = ?2 AND revoked_at IS NULL",
                 params![token_id.to_string(), tenant_id],
             )
@@ -898,7 +917,7 @@ impl SqliteUserStore {
         let conn = self.connect()?;
         let mut stmt = conn
             .prepare(
-                "SELECT user_id, email, display_name, role FROM hm_users
+                "SELECT user_id, email, display_name, role FROM lt_users
                  WHERE tenant_id = ?1 ORDER BY rowid",
             )
             .map_err(storage_error)?;
@@ -926,7 +945,7 @@ impl SqliteUserStore {
         let row = retry_sqlite_lock(|| {
             conn.query_row(
                 "SELECT t.tenant_id, t.user_id, t.actor_id
-                 FROM hm_tokens t
+                 FROM lt_tokens t
                  WHERE t.token_hash = ?1 AND t.revoked_at IS NULL",
                 params![token_hash],
                 |r| {
@@ -951,7 +970,7 @@ impl SqliteUserStore {
 
 fn initialize_user_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS hm_users (
+        "CREATE TABLE IF NOT EXISTS lt_users (
              user_id      TEXT PRIMARY KEY,
              tenant_id    TEXT NOT NULL DEFAULT 'local',
              email        TEXT NOT NULL,
@@ -960,17 +979,17 @@ fn initialize_user_schema(conn: &Connection) -> rusqlite::Result<()> {
              created_at   TEXT NOT NULL DEFAULT (datetime('now')),
              UNIQUE (tenant_id, email)
          );
-         CREATE TABLE IF NOT EXISTS hm_tokens (
+         CREATE TABLE IF NOT EXISTS lt_tokens (
              token_id    TEXT PRIMARY KEY,
              token_hash  TEXT NOT NULL UNIQUE,
              tenant_id   TEXT NOT NULL DEFAULT 'local',
-             user_id     TEXT REFERENCES hm_users(user_id),
+             user_id     TEXT REFERENCES lt_users(user_id),
              actor_id    TEXT NOT NULL DEFAULT 'service:api',
              label       TEXT,
              revoked_at  TEXT,
              created_at  TEXT NOT NULL DEFAULT (datetime('now'))
          );
-         CREATE INDEX IF NOT EXISTS hm_tokens_hash_idx ON hm_tokens (token_hash);",
+         CREATE INDEX IF NOT EXISTS lt_tokens_hash_idx ON lt_tokens (token_hash);",
     )
 }
 

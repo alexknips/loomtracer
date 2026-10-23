@@ -2448,7 +2448,7 @@ fn database_url_without_feature_errors_before_any_write() -> CliTestResult {
         "--loomtracer-dir",
         dir,
         "--database-url",
-        "postgres://user:pass@127.0.0.1/hivemind",
+        "postgres://user:pass@127.0.0.1/loomtracer",
         "emit",
         "decision.proposed",
         "--title",
@@ -7264,7 +7264,7 @@ impl TestBackend {
     /// Provisions the per-test tenant before returning: since hivemind-rkbf.1,
     /// an unregistered tenant hard-errors at ledger-open time instead of
     /// silently opening a fresh scope, so every CLI-against-Postgres test
-    /// needs a real `hm_tenants` row first.
+    /// needs a real `lt_tenants` row first.
     fn postgres(name: &str) -> Option<Self> {
         let database_url = std::env::var("LOOMTRACER_TEST_POSTGRES_URL")
             .ok()
@@ -14581,4 +14581,191 @@ fn list_rows_end_a_below_floor_decision_in_floor_below_postgres() -> CliTestResu
         return Ok(());
     };
     list_rows_end_in_floor_below_body(&backend)
+}
+
+#[test]
+fn project_rename_registers_the_new_handle_and_reports_what_it_moved() -> CliTestResult {
+    let backend = TestBackend::sqlite("project-rename");
+    run(&Cli::parse_from(cli_args(
+        &backend,
+        &[
+            "--actor",
+            "human:alice",
+            "project",
+            "register",
+            "old-name",
+            "--display-name",
+            "Old Name",
+        ],
+    )))?;
+    run(&Cli::parse_from(cli_args(
+        &backend,
+        &[
+            "--actor",
+            "human:alice",
+            "project",
+            "anchor",
+            "--handle",
+            "old-name",
+            "--kind",
+            "rig",
+            "--value",
+            "old-rig",
+        ],
+    )))?;
+
+    let renamed = run(&Cli::parse_from(cli_args(
+        &backend,
+        &[
+            "--actor",
+            "human:alice",
+            "--json",
+            "project",
+            "rename",
+            "old-name",
+            "new-name",
+        ],
+    )))?;
+    let renamed: serde_json::Value = serde_json::from_str(&renamed)?;
+    ensure_json_eq(
+        &renamed,
+        serde_json::json!({
+            "from": "old-name",
+            "to": "new-name",
+            "registered": true,
+            "anchors_moved": 1,
+            "links_moved": 0,
+            "topics_declared": 0,
+            "decisions_moved": 0,
+        }),
+        "rename outcome",
+    )?;
+
+    let shown = run(&Cli::parse_from(cli_args(
+        &backend,
+        &["--json", "project", "show", "new-name"],
+    )))?;
+    ensure(
+        shown.contains("Old Name") && shown.contains("old-rig"),
+        "the new handle carries the display name and the rig anchor",
+    )?;
+
+    let again = run(&Cli::parse_from(cli_args(
+        &backend,
+        &[
+            "--actor",
+            "human:alice",
+            "project",
+            "rename",
+            "old-name",
+            "new-name",
+        ],
+    )))?;
+    ensure_eq(
+        again.as_str(),
+        "from=old-name to=new-name registered=false anchors_moved=0 links_moved=0 topics_declared=0 decisions_moved=0",
+        "a repeated rename says it had nothing to do",
+    )?;
+
+    let refused = run(&Cli::parse_from(cli_args(
+        &backend,
+        &[
+            "--actor",
+            "human:alice",
+            "project",
+            "rename",
+            "ghost",
+            "other",
+        ],
+    )))
+    .expect_err("an unregistered handle cannot be renamed");
+    ensure(
+        refused
+            .to_string()
+            .contains("project not registered: ghost"),
+        "the refusal names the handle",
+    )
+}
+
+/// Makes a ledger under `dir` the way 0.7 did: the events table, and the token tables under the
+/// names they had before the rename to Loomtracer.
+fn make_ledger_with_old_storage_names(dir: &std::path::Path) -> CliTestResult {
+    drop(SqliteEventLedger::open(dir)?);
+    let connection = rusqlite::Connection::open(dir.join("ledger.sqlite"))?;
+    connection.execute_batch(
+        "CREATE TABLE hm_users (
+             user_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'local',
+             email TEXT NOT NULL, display_name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+             created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (tenant_id, email));
+         CREATE TABLE hm_tokens (
+             token_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+             tenant_id TEXT NOT NULL DEFAULT 'local', user_id TEXT REFERENCES hm_users(user_id),
+             actor_id TEXT NOT NULL DEFAULT 'service:api', label TEXT, revoked_at TEXT,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')));
+         CREATE INDEX hm_tokens_hash_idx ON hm_tokens (token_hash);
+         INSERT INTO hm_users (user_id, email, display_name) VALUES ('u1', 'a@example.test', 'A');
+         INSERT INTO hm_tokens (token_id, token_hash, user_id) VALUES ('t1', 'h1', 'u1'), ('t2', 'h2', 'u1');",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn migrate_storage_renames_a_local_ledgers_tables_and_a_second_run_does_nothing() -> CliTestResult {
+    let backend = TestBackend::sqlite("migrate-storage");
+    make_ledger_with_old_storage_names(&backend.loomtracer_dir)?;
+
+    let dry = run(&Cli::parse_from(cli_args(
+        &backend,
+        &["--json", "migrate-storage", "--dry-run"],
+    )))?;
+    let dry: serde_json::Value = serde_json::from_str(&dry)?;
+    ensure_eq(
+        json_at(&dry, "/dry_run")?,
+        &serde_json::json!(true),
+        "dry run flag",
+    )?;
+    ensure_eq(
+        json_at(&dry, "/renamed/1/rows_before")?,
+        &serde_json::json!(2),
+        "rows counted in the dry run",
+    )?;
+    let still_old = run(&Cli::parse_from(cli_args(
+        &backend,
+        &["migrate-storage", "--dry-run"],
+    )))?;
+    ensure(
+        still_old.starts_with("Dry run: 2 tables would be renamed in the sqlite storage")
+            && still_old.contains("hm_tokens -> lt_tokens: 2 rows before, 2 after"),
+        "a dry run says what it would do",
+    )?;
+
+    let done = run(&Cli::parse_from(cli_args(&backend, &["migrate-storage"])))?;
+    ensure(
+        done.starts_with("Storage names: 2 tables renamed in the sqlite storage, every row kept")
+            && done.contains("hm_users -> lt_users: 1 rows before, 1 after"),
+        "the run says what it did",
+    )?;
+
+    let again = run(&Cli::parse_from(cli_args(&backend, &["migrate-storage"])))?;
+    ensure(
+        again.contains("nothing to rename in the sqlite storage; 2 tables already have"),
+        "a second run has nothing to do",
+    )
+}
+
+#[test]
+fn migrate_storage_in_a_folder_with_no_ledger_creates_none() -> CliTestResult {
+    let backend = TestBackend::sqlite("migrate-storage-none");
+
+    let refused = run(&Cli::parse_from(cli_args(&backend, &["migrate-storage"])))
+        .expect_err("there is no ledger to rename the tables of");
+
+    ensure(
+        refused.to_string().contains("none was created"),
+        "the refusal says nothing was made",
+    )?;
+    ensure(
+        !backend.loomtracer_dir.join("ledger.sqlite").exists(),
+        "no ledger was created",
+    )
 }

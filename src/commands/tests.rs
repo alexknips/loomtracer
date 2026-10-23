@@ -17,8 +17,9 @@ use crate::ledger::{EventLedger, InMemoryEventLedger, SqliteEventLedger};
 use super::{
     agent_actor_session, find_bare_list_reference, normalize_topic_key, personal_project_handle,
     CommandContext, Commands, DecisionPlacement, DecisionProposalInput, DeterminedProject,
-    FloorInput, GroundInput, Grounding, GroundingPlan, NewBet, NewEvidence, RestsOnKind,
-    SupersedeInput, SupersedeOutcome, MAX_TITLE_LEN, MAX_TOPIC_KEY_LEN, PERSONAL_FALLBACK_NOTICE,
+    FloorInput, GroundInput, Grounding, GroundingPlan, NewBet, NewEvidence, ProjectRenameInput,
+    ProjectRenameOutcome, RestsOnKind, SupersedeInput, SupersedeOutcome, MAX_TITLE_LEN,
+    MAX_TOPIC_KEY_LEN, PERSONAL_FALLBACK_NOTICE,
 };
 
 #[test]
@@ -8089,4 +8090,358 @@ fn a_supersede_nobody_asked_records_no_answers() {
     let payloads = proposal_payloads(&ledger);
     let replacement = payloads.last().expect("the replacement proposal");
     assert!(replacement.get("binds").is_none() && replacement.get("undo_cost").is_none());
+}
+
+/// A tenant with `hivemind` registered the way the live ledger has it: a display name, a rig
+/// anchor, a parent, a topic vocabulary, and decisions filed under it. A decision in `pricing`
+/// and one moved into `hivemind` from there show the rename follows a decision's current
+/// project, not the one it was proposed under.
+struct RenameFixture {
+    own: Vec<String>,
+    elsewhere: String,
+}
+
+impl RenameFixture {
+    fn new(commands: &Commands<'_, InMemoryEventLedger>) -> Self {
+        let fixture = PlacementFixture::new(commands, &["pricing", "platform"]);
+        commands
+            .register_project(
+                "actor:alice",
+                "hivemind",
+                Some("HiveMind"),
+                Some("Memory for decisions"),
+            )
+            .expect("register hivemind");
+        commands
+            .declare_project_topic("actor:alice", "hivemind", "topic")
+            .expect("declare topic");
+        commands
+            .anchor_project(
+                "actor:alice",
+                "hivemind",
+                ProjectAnchorKind::Rig,
+                "hivemind",
+            )
+            .expect("rig anchor");
+        commands
+            .anchor_project(
+                "actor:alice",
+                "hivemind",
+                ProjectAnchorKind::Folder,
+                "/data/projects/hivemind",
+            )
+            .expect("folder anchor");
+        commands
+            .link_project(
+                "actor:alice",
+                "hivemind",
+                "platform",
+                ProjectLinkKind::PartOf,
+            )
+            .expect("hivemind is part of platform");
+        commands
+            .link_project(
+                "actor:alice",
+                "pricing",
+                "hivemind",
+                ProjectLinkKind::DependsOn,
+            )
+            .expect("pricing depends on hivemind");
+        commands
+            .declare_project_topic("actor:alice", "hivemind", "rename")
+            .expect("declare rename");
+
+        let mut own = Vec::new();
+        for title in ["First", "Second"] {
+            own.push(
+                commands
+                    .propose_decision(fixture.proposal(
+                        "actor:alice",
+                        title,
+                        Some(DeterminedProject::stated("hivemind")),
+                    ))
+                    .expect("propose in hivemind"),
+            );
+        }
+        let moved_in = commands
+            .propose_decision(fixture.proposal(
+                "actor:alice",
+                "Third",
+                Some(DeterminedProject::stated("pricing")),
+            ))
+            .expect("propose in pricing");
+        commands
+            .move_decision("actor:alice", &moved_in, "pricing", "hivemind", None)
+            .expect("move into hivemind");
+        own.push(moved_in);
+        let moved_out = commands
+            .propose_decision(fixture.proposal(
+                "actor:alice",
+                "Fourth",
+                Some(DeterminedProject::stated("hivemind")),
+            ))
+            .expect("propose in hivemind");
+        commands
+            .move_decision("actor:alice", &moved_out, "hivemind", "pricing", None)
+            .expect("move out of hivemind");
+        let elsewhere = moved_out;
+        Self { own, elsewhere }
+    }
+}
+
+fn rename_input<'a>(from: &'a str, to: &'a str) -> ProjectRenameInput<'a> {
+    ProjectRenameInput {
+        actor_id: "actor:alice",
+        from,
+        to,
+        display_name: None,
+        purpose: None,
+    }
+}
+
+#[test]
+fn rename_project_carries_the_registration_anchors_links_topics_and_decisions() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let fixture = RenameFixture::new(&commands);
+
+    let outcome = commands
+        .rename_project(rename_input("hivemind", "loomtracer"))
+        .expect("rename succeeds");
+
+    assert_eq!(
+        outcome,
+        ProjectRenameOutcome {
+            from: "hivemind".to_owned(),
+            to: "loomtracer".to_owned(),
+            registered: true,
+            anchors_moved: 2,
+            links_moved: 2,
+            topics_declared: 2,
+            decisions_moved: 3,
+        }
+    );
+    for decision_id in &fixture.own {
+        assert_eq!(
+            commands
+                .current_decision_project(decision_id)
+                .expect("project"),
+            Some("loomtracer".to_owned()),
+            "{decision_id} follows the rename"
+        );
+    }
+    assert_eq!(
+        commands
+            .current_decision_project(&fixture.elsewhere)
+            .expect("project"),
+        Some("pricing".to_owned()),
+        "a decision moved out of the old project stays where it was moved"
+    );
+    let registered = commands
+        .find_project_registered("loomtracer")
+        .expect("lookup")
+        .expect("registered");
+    assert_eq!(registered.display_name.as_deref(), Some("HiveMind"));
+    assert_eq!(registered.purpose.as_deref(), Some("Memory for decisions"));
+    let anchors = commands.active_project_anchors().expect("anchors");
+    assert!(
+        anchors.iter().all(|(handle, _, _)| handle == "loomtracer"),
+        "the old handle keeps no anchor: {anchors:?}"
+    );
+    assert_eq!(anchors.len(), 2);
+    assert_eq!(
+        commands.rig_anchor_owner("hivemind").expect("owner"),
+        Some("loomtracer".to_owned())
+    );
+    let mut links = commands.active_project_links().expect("links");
+    links.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(
+        links,
+        vec![
+            (
+                "loomtracer".to_owned(),
+                "platform".to_owned(),
+                ProjectLinkKind::PartOf
+            ),
+            (
+                "pricing".to_owned(),
+                "loomtracer".to_owned(),
+                ProjectLinkKind::DependsOn
+            ),
+        ]
+    );
+    let vocabulary = commands
+        .project_topic_vocabulary("loomtracer")
+        .expect("topics");
+    assert!(vocabulary.contains("rename") && vocabulary.contains("topic"));
+    assert!(
+        commands.project_exists("hivemind").expect("exists"),
+        "the old handle stays registered"
+    );
+}
+
+#[test]
+fn rename_project_gives_each_moved_decision_a_reason_and_leaves_the_proposals_alone() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    RenameFixture::new(&commands);
+    let proposals_before = ledger
+        .read(0, 1000)
+        .expect("read")
+        .into_iter()
+        .filter(|event| event.event_type == EventType::DecisionProposed)
+        .count();
+
+    commands
+        .rename_project(rename_input("hivemind", "loomtracer"))
+        .expect("rename succeeds");
+
+    let events = ledger.read(0, 1000).expect("read");
+    let moves: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.event_type == EventType::DecisionMoved
+                && event.payload.get("to").and_then(|to| to.as_str()) == Some("loomtracer")
+        })
+        .collect();
+    assert_eq!(moves.len(), 3);
+    for event in moves {
+        assert_eq!(
+            event.payload.get("from").and_then(|from| from.as_str()),
+            Some("hivemind")
+        );
+        assert_eq!(
+            event
+                .payload
+                .get("reason")
+                .and_then(|reason| reason.as_str()),
+            Some("project renamed from hivemind to loomtracer")
+        );
+        assert_eq!(event.actor_id, "actor:alice");
+    }
+    let proposals_after = events
+        .iter()
+        .filter(|event| event.event_type == EventType::DecisionProposed)
+        .count();
+    assert_eq!(
+        proposals_before, proposals_after,
+        "no proposal is rewritten or added"
+    );
+}
+
+#[test]
+fn rename_project_can_be_repeated_and_the_second_run_records_nothing() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    RenameFixture::new(&commands);
+    commands
+        .rename_project(rename_input("hivemind", "loomtracer"))
+        .expect("first run");
+    let events_after_first = ledger.read(0, 1000).expect("read").len();
+
+    let again = commands
+        .rename_project(rename_input("hivemind", "loomtracer"))
+        .expect("second run");
+
+    assert_eq!(
+        again,
+        ProjectRenameOutcome {
+            from: "hivemind".to_owned(),
+            to: "loomtracer".to_owned(),
+            registered: false,
+            anchors_moved: 0,
+            links_moved: 0,
+            topics_declared: 0,
+            decisions_moved: 0,
+        }
+    );
+    assert_eq!(
+        ledger.read(0, 1000).expect("read").len(),
+        events_after_first
+    );
+}
+
+#[test]
+fn rename_project_is_undone_by_swapping_the_handles() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let fixture = RenameFixture::new(&commands);
+    commands
+        .rename_project(rename_input("hivemind", "loomtracer"))
+        .expect("rename");
+
+    let back = commands
+        .rename_project(rename_input("loomtracer", "hivemind"))
+        .expect("rename back");
+
+    assert!(!back.registered, "hivemind was never unregistered");
+    assert_eq!(back.decisions_moved, 3);
+    for decision_id in &fixture.own {
+        assert_eq!(
+            commands
+                .current_decision_project(decision_id)
+                .expect("project"),
+            Some("hivemind".to_owned())
+        );
+    }
+    assert_eq!(
+        commands.rig_anchor_owner("hivemind").expect("owner"),
+        Some("hivemind".to_owned())
+    );
+}
+
+#[test]
+fn rename_project_into_an_existing_project_merges_the_two() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let fixture = RenameFixture::new(&commands);
+
+    let outcome = commands
+        .rename_project(rename_input("hivemind", "pricing"))
+        .expect("merge into pricing");
+
+    assert!(!outcome.registered);
+    assert_eq!(outcome.decisions_moved, 3);
+    for decision_id in &fixture.own {
+        assert_eq!(
+            commands
+                .current_decision_project(decision_id)
+                .expect("project"),
+            Some("pricing".to_owned())
+        );
+    }
+    // pricing depended on hivemind; a link from a project to itself would be meaningless, so it ends.
+    assert!(commands
+        .active_project_links()
+        .expect("links")
+        .iter()
+        .all(|(from, to, _)| from != to));
+}
+
+#[test]
+fn rename_project_refuses_what_it_cannot_carry_out() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    RenameFixture::new(&commands);
+
+    for (from, to, expected) in [
+        ("missing", "loomtracer", "project not registered: missing"),
+        ("hivemind", "hivemind", "from and to must differ"),
+        ("hivemind", "personal:agent:claude", "reserved"),
+        ("hivemind", "x", "2-40 characters"),
+        ("hivemind", "Not A Handle", "lowercase letters"),
+    ] {
+        let error = commands
+            .rename_project(rename_input(from, to))
+            .expect_err("must be refused")
+            .to_string();
+        assert!(
+            error.contains(expected),
+            "{from} -> {to}: expected {expected:?} in {error}"
+        );
+    }
+    assert!(
+        !commands.project_exists("loomtracer").expect("exists"),
+        "a refused rename registers nothing"
+    );
 }

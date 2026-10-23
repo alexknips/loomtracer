@@ -4,5 +4,5 @@
 # Both postgres and loomtracer start; loomtracer waits for postgres to be healthy
 # before accepting connections (depends_on: condition: service_healthy in base).
 services:
-  hivemind:
+  loomtracer:
     image: loomtracer:e2e

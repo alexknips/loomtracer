@@ -18,7 +18,7 @@ tenant writes to and reads from an isolated ledger path. Verified by the
 `rls_cross_tenant_decision_not_visible` HTTP API test.
 
 **Production mode (Postgres):** `POST /v1/tenants` provisions a tenant and returns a
-`lt_tk_<64-hex>` bearer token whose SHA-256 hash is stored in `hm_tokens`. The
+`lt_tk_<64-hex>` bearer token whose SHA-256 hash is stored in `lt_tokens`. The
 `TenantStore::resolve_token` path looks up the tenant from the hash. Verified by
 `tenant_store_tests::provision_creates_tenant_and_resolves_token` (requires
 `LOOMTRACER_TEST_POSTGRES_URL`; skipped without a real Postgres instance).

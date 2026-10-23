@@ -72,25 +72,28 @@ impl PostgresGraphView {
     /// as one implicit transaction, so the lock releases as soon as this call
     /// returns (hivemind-ot72.3: the shared-backend-postgres CI job was ~40%
     /// flaky with `duplicate key value violates unique constraint
-    /// "pg_type_typname_nsp_index"` on `hm_nodes` once tests started running
+    /// "pg_type_typname_nsp_index"` on `lt_nodes` once tests started running
     /// concurrently against a live Postgres instead of skipping — same bug class
     /// as hivemind-g9kv, which fixed the ledger and tenant-store schema init the
     /// same way).
     fn initialize_schema(&self) -> Result<()> {
         let mut client = self.pool.get().map_err(pg_error)?;
+        // A database from before the rename to Loomtracer keeps its graph under the old table
+        // names; creating empty ones beside them would show a graph with nothing in it.
+        crate::ledger::require_current_postgres_names(&mut *client)?;
         client
             .batch_execute(
                 "SELECT pg_advisory_xact_lock(hashtext('loomtracer_schema_init'));
-                CREATE TABLE IF NOT EXISTS hm_nodes (
+                CREATE TABLE IF NOT EXISTS lt_nodes (
                     tenant_id   text    NOT NULL,
                     node_kind   text    NOT NULL,
                     node_id     text    NOT NULL,
                     properties  jsonb   NOT NULL DEFAULT '{}',
                     PRIMARY KEY (tenant_id, node_kind, node_id)
                 );
-                CREATE INDEX IF NOT EXISTS hm_nodes_tenant_kind_idx
-                    ON hm_nodes (tenant_id, node_kind);
-                CREATE TABLE IF NOT EXISTS hm_edges (
+                CREATE INDEX IF NOT EXISTS lt_nodes_tenant_kind_idx
+                    ON lt_nodes (tenant_id, node_kind);
+                CREATE TABLE IF NOT EXISTS lt_edges (
                     tenant_id     text    NOT NULL,
                     relation_kind text    NOT NULL,
                     from_id       text    NOT NULL,
@@ -98,13 +101,13 @@ impl PostgresGraphView {
                     event_origin  bigint,
                     PRIMARY KEY (tenant_id, relation_kind, from_id, to_id)
                 );
-                ALTER TABLE hm_edges ADD COLUMN IF NOT EXISTS causation_event_id bigint;
-                ALTER TABLE hm_edges ADD COLUMN IF NOT EXISTS added_by text;
-                ALTER TABLE hm_edges ADD COLUMN IF NOT EXISTS added_at text;
-                CREATE INDEX IF NOT EXISTS hm_edges_from_idx
-                    ON hm_edges (tenant_id, relation_kind, from_id);
-                CREATE INDEX IF NOT EXISTS hm_edges_to_idx
-                    ON hm_edges (tenant_id, relation_kind, to_id);",
+                ALTER TABLE lt_edges ADD COLUMN IF NOT EXISTS causation_event_id bigint;
+                ALTER TABLE lt_edges ADD COLUMN IF NOT EXISTS added_by text;
+                ALTER TABLE lt_edges ADD COLUMN IF NOT EXISTS added_at text;
+                CREATE INDEX IF NOT EXISTS lt_edges_from_idx
+                    ON lt_edges (tenant_id, relation_kind, from_id);
+                CREATE INDEX IF NOT EXISTS lt_edges_to_idx
+                    ON lt_edges (tenant_id, relation_kind, to_id);",
             )
             .map_err(pg_error)?;
         Ok(())
@@ -117,10 +120,10 @@ impl GraphView for PostgresGraphView {
         let mut client = self.pool.get().map_err(pg_error)?;
         client
             .execute(
-                "INSERT INTO hm_nodes (tenant_id, node_kind, node_id, properties)
+                "INSERT INTO lt_nodes (tenant_id, node_kind, node_id, properties)
                  VALUES ($1, $2, $3, $4)
                  ON CONFLICT (tenant_id, node_kind, node_id)
-                 DO UPDATE SET properties = hm_nodes.properties || EXCLUDED.properties",
+                 DO UPDATE SET properties = lt_nodes.properties || EXCLUDED.properties",
                 &[&self.tenant_id, &kind.table_name(), &id, &props],
             )
             .map_err(pg_error)?;
@@ -155,7 +158,7 @@ impl GraphView for PostgresGraphView {
         let mut client = self.pool.get().map_err(pg_error)?;
         client
             .execute(
-                "INSERT INTO hm_edges (tenant_id, relation_kind, from_id, to_id, event_origin,
+                "INSERT INTO lt_edges (tenant_id, relation_kind, from_id, to_id, event_origin,
                                        causation_event_id, added_by, added_at)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                  ON CONFLICT (tenant_id, relation_kind, from_id, to_id) DO NOTHING",
@@ -183,13 +186,13 @@ impl GraphView for PostgresGraphView {
         let mut client = self.pool.get().map_err(pg_error)?;
         client
             .execute(
-                "DELETE FROM hm_nodes WHERE tenant_id = $1",
+                "DELETE FROM lt_nodes WHERE tenant_id = $1",
                 &[&self.tenant_id],
             )
             .map_err(pg_error)?;
         client
             .execute(
-                "DELETE FROM hm_edges WHERE tenant_id = $1",
+                "DELETE FROM lt_edges WHERE tenant_id = $1",
                 &[&self.tenant_id],
             )
             .map_err(pg_error)?;
@@ -366,7 +369,7 @@ fn query_edge_count(
     let count: i64 = if incoming {
         client
             .query_one(
-                "SELECT COUNT(*)::bigint FROM hm_edges
+                "SELECT COUNT(*)::bigint FROM lt_edges
                  WHERE tenant_id=$1 AND relation_kind=$2 AND to_id=$3",
                 &[&tenant_id, &relation.table_name(), &id],
             )
@@ -375,7 +378,7 @@ fn query_edge_count(
     } else {
         client
             .query_one(
-                "SELECT COUNT(*)::bigint FROM hm_edges
+                "SELECT COUNT(*)::bigint FROM lt_edges
                  WHERE tenant_id=$1 AND relation_kind=$2 AND from_id=$3",
                 &[&tenant_id, &relation.table_name(), &id],
             )
@@ -396,7 +399,7 @@ fn query_decision_by_id(
     let id = required_string_param(params, "id")?;
     let row = client
         .query_opt(
-            "SELECT node_id, properties FROM hm_nodes
+            "SELECT node_id, properties FROM lt_nodes
              WHERE tenant_id=$1 AND node_kind='Decision' AND node_id=$2
              LIMIT 1",
             &[&tenant_id, &id],
@@ -426,7 +429,7 @@ fn query_node_exists(
     let id = required_string_param(params, "id")?;
     let exists = client
         .query_opt(
-            "SELECT node_id FROM hm_nodes
+            "SELECT node_id FROM lt_nodes
              WHERE tenant_id=$1 AND node_kind=$2 AND node_id=$3
              LIMIT 1",
             &[&tenant_id, &kind.table_name(), &id],
@@ -451,7 +454,7 @@ fn query_supersedes_outgoing(
     let id = required_string_param(params, "id")?;
     let rows = client
         .query(
-            "SELECT to_id FROM hm_edges
+            "SELECT to_id FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind='SUPERSEDES' AND from_id=$2
              ORDER BY to_id",
             &[&tenant_id, &id],
@@ -474,7 +477,7 @@ fn query_supersedes_incoming(
     let id = required_string_param(params, "id")?;
     let rows = client
         .query(
-            "SELECT from_id FROM hm_edges
+            "SELECT from_id FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind='SUPERSEDES' AND to_id=$2
              ORDER BY from_id",
             &[&tenant_id, &id],
@@ -501,7 +504,7 @@ fn query_neighbor_pairs(
     let rows = if incoming {
         client
             .query(
-                "SELECT from_id, event_origin, added_at FROM hm_edges
+                "SELECT from_id, event_origin, added_at FROM lt_edges
                  WHERE tenant_id=$1 AND relation_kind=$2 AND to_id=$3
                  ORDER BY from_id",
                 &[&tenant_id, &relation.table_name(), &id],
@@ -510,7 +513,7 @@ fn query_neighbor_pairs(
     } else {
         client
             .query(
-                "SELECT to_id, event_origin, added_at FROM hm_edges
+                "SELECT to_id, event_origin, added_at FROM lt_edges
                  WHERE tenant_id=$1 AND relation_kind=$2 AND from_id=$3
                  ORDER BY to_id",
                 &[&tenant_id, &relation.table_name(), &id],
@@ -558,7 +561,7 @@ fn query_grounding_edges(
     let id = required_string_param(params, "id")?;
     let rows = client
         .query(
-            "SELECT to_id, event_origin, causation_event_id, added_by, added_at FROM hm_edges
+            "SELECT to_id, event_origin, causation_event_id, added_by, added_at FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind=$2 AND from_id=$3
              ORDER BY to_id",
             &[&tenant_id, &relation.table_name(), &id],
@@ -616,7 +619,7 @@ fn query_neighbor_ids(
     };
     let rows = client
         .query(
-            "SELECT to_id FROM hm_edges
+            "SELECT to_id FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind=$2 AND from_id=$3
              ORDER BY to_id",
             &[&tenant_id, &relation.table_name(), &id],
@@ -647,7 +650,7 @@ fn query_edge_list(
     let with_added_at = cypher.contains("r.added_at AS added_at");
     let rows = client
         .query(
-            "SELECT from_id, to_id, event_origin, added_at FROM hm_edges
+            "SELECT from_id, to_id, event_origin, added_at FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind=$2
              ORDER BY from_id, to_id",
             &[&tenant_id, &relation.table_name()],
@@ -694,7 +697,7 @@ fn query_all_nodes(
         let id = required_string_param(params, "id")?;
         let row = client
             .query_opt(
-                "SELECT node_id, properties FROM hm_nodes
+                "SELECT node_id, properties FROM lt_nodes
                  WHERE tenant_id=$1 AND node_kind=$2 AND node_id=$3",
                 &[&tenant_id, &kind.table_name(), &id],
             )
@@ -710,7 +713,7 @@ fn query_all_nodes(
     }
     let rows = client
         .query(
-            "SELECT node_id, properties FROM hm_nodes
+            "SELECT node_id, properties FROM lt_nodes
              WHERE tenant_id=$1 AND node_kind=$2
              ORDER BY node_id",
             &[&tenant_id, &kind.table_name()],
@@ -736,7 +739,7 @@ fn query_superseder(
     let id = required_string_param(params, "id")?;
     let row = client
         .query_opt(
-            "SELECT from_id, event_origin FROM hm_edges
+            "SELECT from_id, event_origin FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind='SUPERSEDES' AND to_id=$2
              ORDER BY event_origin DESC NULLS LAST
              LIMIT 1",
@@ -775,7 +778,7 @@ fn query_refuted_premises(
 
     let refuted_hypotheses: std::collections::BTreeSet<String> = client
         .query(
-            "SELECT DISTINCT to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='REFUTES'",
+            "SELECT DISTINCT to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='REFUTES'",
             &[&tenant_id],
         )
         .map_err(pg_error)?
@@ -785,7 +788,7 @@ fn query_refuted_premises(
 
     let chosen_options: std::collections::BTreeSet<String> = client
         .query(
-            "SELECT to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='CHOSE' AND from_id=$2",
+            "SELECT to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='CHOSE' AND from_id=$2",
             &[&tenant_id, &id],
         )
         .map_err(pg_error)?
@@ -798,7 +801,7 @@ fn query_refuted_premises(
     if !chosen_options.is_empty() {
         let premised_rows = client
             .query(
-                "SELECT from_id, to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON'",
+                "SELECT from_id, to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON'",
                 &[&tenant_id],
             )
             .map_err(pg_error)?;
@@ -812,7 +815,7 @@ fn query_refuted_premises(
 
     let direct_rows = client
         .query(
-            "SELECT to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON_DIRECT' AND from_id=$2",
+            "SELECT to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON_DIRECT' AND from_id=$2",
             &[&tenant_id, &id],
         )
         .map_err(pg_error)?;
@@ -864,7 +867,7 @@ fn count_outgoing(
 ) -> Result<i64> {
     client
         .query_one(
-            "SELECT COUNT(*)::bigint FROM hm_edges
+            "SELECT COUNT(*)::bigint FROM lt_edges
              WHERE tenant_id=$1 AND relation_kind=$2 AND from_id=$3",
             &[&tenant_id, &relation, &from_id],
         )
@@ -884,7 +887,7 @@ fn query_decisions_with_origin(
     let rows = if let Some(since) = since {
         client
             .query(
-                "SELECT node_id, properties FROM hm_nodes
+                "SELECT node_id, properties FROM lt_nodes
                  WHERE tenant_id=$1 AND node_kind='Decision'
                    AND COALESCE((properties->>'event_origin')::bigint, 0) >= $2
                  ORDER BY COALESCE((properties->>'event_origin')::bigint, 0), node_id",
@@ -894,7 +897,7 @@ fn query_decisions_with_origin(
     } else {
         client
             .query(
-                "SELECT node_id, properties FROM hm_nodes
+                "SELECT node_id, properties FROM lt_nodes
                  WHERE tenant_id=$1 AND node_kind='Decision'
                  ORDER BY COALESCE((properties->>'event_origin')::bigint, 0), node_id",
                 &[&tenant_id],
@@ -927,7 +930,7 @@ fn query_node_property(
     let id = required_string_param(params, "id")?;
     let row = client
         .query_opt(
-            "SELECT properties FROM hm_nodes
+            "SELECT properties FROM lt_nodes
              WHERE tenant_id=$1 AND node_kind=$2 AND node_id=$3
              LIMIT 1",
             &[&tenant_id, &kind.table_name(), &id],
@@ -957,7 +960,7 @@ fn query_hypothesis_grounding(
     let id = required_string_param(params, "id")?;
     let row = client
         .query_opt(
-            "SELECT properties FROM hm_nodes
+            "SELECT properties FROM lt_nodes
              WHERE tenant_id=$1 AND node_kind='Hypothesis' AND node_id=$2
              LIMIT 1",
             &[&tenant_id, &id],
@@ -983,7 +986,7 @@ fn query_hypothesis_grounding(
 }
 
 /// `(actor_id, kind)` pairs for actors connected via one relationship label (PROPOSED_BY or
-/// ACCEPTED_BY), sourced from `hm_edges` joined against `hm_nodes` for the actor's stored
+/// ACCEPTED_BY), sourced from `lt_edges` joined against `lt_nodes` for the actor's stored
 /// `kind` property. `kind` is `Null` when the actor node is missing or has no `kind` key,
 /// matching memory.rs's `.unwrap_or(GraphValue::Null)` fallback. Truncated to one row when the
 /// cypher carries `LIMIT 1` (the single-proposer lookup); otherwise every match is returned,
@@ -998,8 +1001,8 @@ fn query_actor_kind_pairs(
     let id = required_string_param(params, "id")?;
     let rows = client
         .query(
-            "SELECT e.to_id, n.properties->>'kind' FROM hm_edges e
-             LEFT JOIN hm_nodes n
+            "SELECT e.to_id, n.properties->>'kind' FROM lt_edges e
+             LEFT JOIN lt_nodes n
                ON n.tenant_id = e.tenant_id AND n.node_kind = 'Actor' AND n.node_id = e.to_id
              WHERE e.tenant_id = $1 AND e.relation_kind = $2 AND e.from_id = $3
              ORDER BY e.to_id",
@@ -1042,7 +1045,7 @@ fn query_hypothesis_ids(
 
     let chosen_options: std::collections::BTreeSet<String> = client
         .query(
-            "SELECT to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='CHOSE' AND from_id=$2",
+            "SELECT to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='CHOSE' AND from_id=$2",
             &[&tenant_id, &id],
         )
         .map_err(pg_error)?
@@ -1055,7 +1058,7 @@ fn query_hypothesis_ids(
     if !chosen_options.is_empty() {
         let premised_rows = client
             .query(
-                "SELECT from_id, to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON'",
+                "SELECT from_id, to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON'",
                 &[&tenant_id],
             )
             .map_err(pg_error)?;
@@ -1068,7 +1071,7 @@ fn query_hypothesis_ids(
 
     let direct_rows = client
         .query(
-            "SELECT to_id FROM hm_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON_DIRECT' AND from_id=$2",
+            "SELECT to_id FROM lt_edges WHERE tenant_id=$1 AND relation_kind='PREMISED_ON_DIRECT' AND from_id=$2",
             &[&tenant_id, &id],
         )
         .map_err(pg_error)?;

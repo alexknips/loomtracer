@@ -2,6 +2,7 @@
 
 mod any;
 mod backend_error;
+mod legacy_storage;
 mod memory;
 #[cfg(feature = "shared-backend-postgres")]
 mod postgres;
@@ -20,7 +21,10 @@ use crate::events::{Event, EventId, EventType, TenantId};
 use crate::Result;
 
 pub use any::{AnyLedger, LedgerConfig};
+pub use legacy_storage::{StorageRenameReport, TableRename};
 pub use memory::InMemoryEventLedger;
+#[cfg(feature = "shared-backend-postgres")]
+pub(crate) use postgres::require_current_names as require_current_postgres_names;
 #[cfg(feature = "shared-backend-postgres")]
 pub use postgres::{PostgresEventLedger, ProvisionedUser, ResolvedToken, TenantStore, UserInfo};
 pub use received_batch::ReceivedBatchFacts;

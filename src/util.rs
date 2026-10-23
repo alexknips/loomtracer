@@ -44,7 +44,7 @@ pub(crate) fn require_valid_actor_id(actor_id: &str) -> Result<()> {
 }
 
 /// The agent-token provisioning path (hivemind-zdsh.19) mints identities directly,
-/// with no `hm_users` row to derive an email from -- unlike `create_user`/
+/// with no `lt_users` row to derive an email from -- unlike `create_user`/
 /// `mint_user_token`, which always produce `human:<email>`. Require the
 /// `agent:<tool>:<name>` shape here so that path can't be used to mint a
 /// human-shaped or otherwise untyped identity.

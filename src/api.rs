@@ -385,7 +385,7 @@ impl ApiBackend {
     /// Errors with 404 `unknown_tenant` unless `tenant_id` is registered on the selected backend,
     /// without opening a tenant-scoped ledger. For the admin routes that take a `tenant_id` from
     /// the body or query and write a credential row for it (`POST /v1/users`,
-    /// `POST /v1/agent-tokens`, ...): SQLite's `hm_tokens` has no foreign key to `tenants`, so
+    /// `POST /v1/agent-tokens`, ...): SQLite's `lt_tokens` has no foreign key to `tenants`, so
     /// without this check a typo'd tenant would be minted a token that signs in and then fails
     /// every call, and Postgres's foreign key would refuse it as a raw 500.
     fn ensure_known_tenant(&self, tenant_id: &str) -> ApiResult<()> {

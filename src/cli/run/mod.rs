@@ -5,6 +5,7 @@ mod floor;
 mod ground;
 mod grounding;
 mod migrate;
+mod migrate_storage;
 mod reaffirm;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -17,7 +18,7 @@ use uuid::Uuid;
 
 use crate::commands::{
     CaptureWarning, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
-    DeterminedProject, FloorInput, Grounding, SupersedeInput,
+    DeterminedProject, FloorInput, Grounding, ProjectRenameInput, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, LedgerError};
 use crate::events::{
@@ -85,10 +86,10 @@ use super::args::{
     ImportArgs, ImportCommand, ImportConnectorCommand, ImportDocumentsArgs, IngestArgs,
     IngestCommand, IngestSlackThreadArgs, MapArgs, McpArgs, MoveArgs, OptionLabelArgs,
     ProjectAnchorArgs, ProjectArgs, ProjectCommand, ProjectDecisionsArgs, ProjectDeclareTopicArgs,
-    ProjectLinkArgs, ProjectListArgs, ProjectRegisterArgs, ProjectShowArgs, ProjectSourceArg,
-    ProjectUseArgs, QualityScanArgs, QueryAddedSinceArgs, QueryArgs, QueryBlockerPriority,
-    QueryChangedDecisionsArgs, QueryChangedSinceArgs, QueryCommand, QueryDecisionStatus,
-    QueryExportKind, QueryExportReadOnlySummaryArgs, QueryHistoryFilterArgs,
+    ProjectLinkArgs, ProjectListArgs, ProjectRegisterArgs, ProjectRenameArgs, ProjectShowArgs,
+    ProjectSourceArg, ProjectUseArgs, QualityScanArgs, QueryAddedSinceArgs, QueryArgs,
+    QueryBlockerPriority, QueryChangedDecisionsArgs, QueryChangedSinceArgs, QueryCommand,
+    QueryDecisionStatus, QueryExportKind, QueryExportReadOnlySummaryArgs, QueryHistoryFilterArgs,
     QueryRankDecisionsByImportanceArgs, QueryRecentActivityArgs, QueryRecentDecisionsArgs,
     QueryRelationKind, QueryScanDecisionQualityArgs, QuerySearchDecisionsArgs,
     QuerySituationalArgs, QuickstartArgs, RestatementsArgs, RestatementsCommand, RetitleArgs,
@@ -104,9 +105,10 @@ use super::render::{
     format_output, format_prepare_documents_output, format_project_anchor_output,
     format_project_decisions_output, format_project_declare_topic_output,
     format_project_link_output, format_project_list_output, format_project_register_output,
-    format_project_show_output, format_query_response, format_retitle_output, format_review_output,
-    format_supersede_output, render_active_blockers_summary, render_added_since_summary,
-    render_applied_links, render_blocker_notifications_summary, render_changed_decisions_summary,
+    format_project_rename_output, format_project_show_output, format_query_response,
+    format_retitle_output, format_review_output, format_supersede_output,
+    render_active_blockers_summary, render_added_since_summary, render_applied_links,
+    render_blocker_notifications_summary, render_changed_decisions_summary,
     render_changed_since_summary, render_compact_view_summary, render_contested_decisions_summary,
     render_decision_brief_summary, render_decision_list_summary, render_decision_summary,
     render_dot, render_importance_summary, render_misfiled_scan_summary,
@@ -213,6 +215,7 @@ enum CellBesideVerb {
     RestatementsApply,
     QualityScan,
     ProjectRegister,
+    ProjectRename,
     ProjectLink,
     ProjectUnlink,
     ProjectAnchor,
@@ -294,6 +297,8 @@ impl CellBesideVerb {
             // Reads the explicit source dir it is given and writes to the destination it names.
             // It refuses a source with no ledger itself, before it opens one.
             Command::Migrate(_) => return None,
+            // Names its database itself: --database-url, else the ledger under --loomtracer-dir.
+            Command::MigrateStorage(_) => return None,
             Command::Map(_) => Self::Map,
             Command::Digest(_) => Self::Digest,
             // Honours LOOMTRACER_API_URL: with it set, it talks to the server instead of opening a
@@ -317,6 +322,7 @@ impl CellBesideVerb {
             },
             Command::Project(args) => match &args.command {
                 ProjectCommand::Register(_) => Self::ProjectRegister,
+                ProjectCommand::Rename(_) => Self::ProjectRename,
                 ProjectCommand::Link(_) => Self::ProjectLink,
                 ProjectCommand::Unlink(_) => Self::ProjectUnlink,
                 ProjectCommand::Anchor(_) => Self::ProjectAnchor,
@@ -356,6 +362,7 @@ impl CellBesideVerb {
             Self::RestatementsApply => "restatements apply",
             Self::QualityScan => "quality-scan",
             Self::ProjectRegister => "project register",
+            Self::ProjectRename => "project rename",
             Self::ProjectLink => "project link",
             Self::ProjectUnlink => "project unlink",
             Self::ProjectAnchor => "project anchor",
@@ -417,6 +424,7 @@ impl CellBesideVerb {
             | Self::RestatementsApply
             // These act on projects the registry already holds, and `project use` checks its
             // handle against the registry before it stores the setting.
+            | Self::ProjectRename
             | Self::ProjectLink
             | Self::ProjectUnlink
             | Self::ProjectAnchor
@@ -523,6 +531,7 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::Reaffirm
             | CellBesideVerb::RestatementsApply
             | CellBesideVerb::QualityScan
+            | CellBesideVerb::ProjectRename
             | CellBesideVerb::ProjectLink
             | CellBesideVerb::ProjectUnlink
             | CellBesideVerb::ProjectAnchor
@@ -662,6 +671,7 @@ impl LocalLedgerBesideCell {
                  {url}/mcp)"
             ),
             CellBesideVerb::ProjectRegister
+            | CellBesideVerb::ProjectRename
             | CellBesideVerb::ProjectLink
             | CellBesideVerb::ProjectUnlink
             | CellBesideVerb::ProjectAnchor
@@ -770,6 +780,7 @@ fn dispatch(cli: &Cli) -> Result<String> {
         Command::Mcp(args) => run_mcp(cli, args),
         Command::Serve(args) => run_serve(cli, args),
         Command::Migrate(args) => migrate::run_migrate(cli, args),
+        Command::MigrateStorage(args) => migrate_storage::run_migrate_storage(cli, args),
         Command::Map(args) => run_map(cli, args),
         Command::Digest(args) => run_digest(cli, args),
         Command::ClassifyQueue(args) => run_classify_queue(cli, args),
@@ -4817,6 +4828,7 @@ fn run_tenant_create(cli: &Cli, args: &TenantCreateArgs) -> Result<String> {
 fn run_project(cli: &Cli, args: &ProjectArgs) -> Result<String> {
     match &args.command {
         ProjectCommand::Register(register_args) => run_project_register(cli, register_args),
+        ProjectCommand::Rename(rename_args) => run_project_rename(cli, rename_args),
         ProjectCommand::Link(link_args) => {
             run_project_link(cli, link_args, ProjectLinkAction::Link)
         }
@@ -4853,6 +4865,22 @@ fn run_project_register(cli: &Cli, args: &ProjectRegisterArgs) -> Result<String>
             purpose: args.purpose.clone(),
         },
     )
+}
+
+fn run_project_rename(cli: &Cli, args: &ProjectRenameArgs) -> Result<String> {
+    let ledger = open_ledger(cli)?;
+    let commands =
+        Commands::new_with_context(&ledger, cli_command_context(cli, EventProvenance::cli())?);
+
+    let outcome = commands.rename_project(ProjectRenameInput {
+        actor_id: &cli.actor,
+        from: &args.from,
+        to: &args.to,
+        display_name: args.display_name.as_deref(),
+        purpose: args.purpose.as_deref(),
+    })?;
+
+    format_project_rename_output(cli.json, &outcome)
 }
 
 #[derive(Clone, Copy)]

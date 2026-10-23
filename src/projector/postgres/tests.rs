@@ -2570,7 +2570,7 @@ fn grounding_states_and_stale_premises_read_right_on_postgres() -> Result<()> {
             )));
         }
 
-        // Attributed later: who and when survive the round trip through hm_edges.
+        // Attributed later: who and when survive the round trip through lt_edges.
         let later = grounding_of_at(pg, "d:later", now)?;
         let later_actors: Vec<Option<String>> = later
             .items
@@ -2747,7 +2747,7 @@ fn failure_modes_by_profile_match_memory() -> Result<()> {
 // ── reaffirmation nodes (hivemind-ottw.1) ───────────────────────────────────────────
 //
 // A "still holds" is a node id'd by its event, not an edge from the dependent to the premise:
-// `hm_edges` is unique on (tenant, relation, from, to), so a second reaffirmation of one pair
+// `lt_edges` is unique on (tenant, relation, from, to), so a second reaffirmation of one pair
 // would be dropped. The shared bulk node read returns every one of them, in ledger order.
 
 #[test]

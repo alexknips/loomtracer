@@ -1,8 +1,9 @@
-# The compose service, the `hivemind-data` volume and the Postgres database and role keep the
-# name `hivemind`: they name stored data, and a cell that renamed them would start on an empty
-# database and volume. Everything a user types is Loomtracer; these follow with a migration.
+# A cell created before 0.8.0 has its Postgres database, role and tables, its volume and its
+# compose service under the old name `hivemind`. Starting these files on it would make a second,
+# empty stack beside the old one: rename it first, with the steps in docs/SELF_HOSTING.md
+# ("Upgrading a cell from before 0.8.0").
 services:
-  hivemind:
+  loomtracer:
     # Pre-built server image from ghcr; `docker compose pull` fetches it.
     # To build from source instead: docker compose up --build
     # LOOMTRACER_IMAGE overrides this — scripts/cell-update.sh sets it to a
@@ -26,8 +27,8 @@ services:
       LOOMTRACER_DIR: /data
       LOOMTRACER_PORT: "8080"
       # Postgres backend — resolves to the companion postgres service.
-      # Remove to fall back to SQLite stored in the hivemind-data volume.
-      LOOMTRACER_DATABASE_URL: "postgres://hivemind:${POSTGRES_PASSWORD:-hivemind}@postgres:5432/hivemind"
+      # Remove to fall back to SQLite stored in the loomtracer-data volume.
+      LOOMTRACER_DATABASE_URL: "postgres://loomtracer:${POSTGRES_PASSWORD:-loomtracer}@postgres:5432/loomtracer"
       # Per-tenant bearer tokens are issued via POST /v1/tenants (admin-gated).
       # Set LOOMTRACER_ADMIN_KEY before provisioning your first tenant.
       LOOMTRACER_ADMIN_KEY: "${LOOMTRACER_ADMIN_KEY:-}"
@@ -42,7 +43,7 @@ services:
       # Optional: comma-separated CORS origins for browser SPA access.
       LOOMTRACER_CORS_ORIGINS: "${LOOMTRACER_CORS_ORIGINS:-}"
     volumes:
-      - hivemind-data:/data
+      - loomtracer-data:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,18 +58,18 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: hivemind
-      POSTGRES_USER: hivemind
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-hivemind}"
+      POSTGRES_DB: loomtracer
+      POSTGRES_USER: loomtracer
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-loomtracer}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hivemind -d hivemind"]
+      test: ["CMD-SHELL", "pg_isready -U loomtracer -d loomtracer"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
 volumes:
-  hivemind-data:
+  loomtracer-data:
   postgres-data:

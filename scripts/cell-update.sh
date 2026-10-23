@@ -111,7 +111,7 @@ pinned=1
 (umask 077 && cat "$env_new" > "$env_file")
 
 echo "Restarting cell with ${image}..."
-LOOMTRACER_IMAGE="$image" docker compose "$@" --env-file "$env_file" up -d --no-deps hivemind
+LOOMTRACER_IMAGE="$image" docker compose "$@" --env-file "$env_file" up -d --no-deps loomtracer
 
 echo "Waiting for ${health_url} to report healthy..."
 attempt=0
@@ -121,7 +121,7 @@ until curl -fsS "$health_url" >/dev/null 2>&1; do
     echo "cell did not become healthy after ${health_retries} attempts." >&2
     echo "leaving the container running for inspection — it was NOT rolled back;" >&2
     echo "anything reconciling with 'docker compose up -d' will move it back to the previous image." >&2
-    echo "check logs with: docker compose $* --env-file ${env_file} logs hivemind" >&2
+    echo "check logs with: docker compose $* --env-file ${env_file} logs loomtracer" >&2
     exit 1
   fi
   sleep 2

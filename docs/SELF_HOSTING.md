@@ -184,7 +184,7 @@ actor from an `X-Loomtracer-Actor` header when the caller sends one.)
 ### SQLite mode (no Postgres)
 
 If you remove the `LOOMTRACER_DATABASE_URL` line from `docker-compose.yml` the
-server falls back to SQLite stored in the `hivemind-data` volume. With
+server falls back to SQLite stored in the `loomtracer-data` volume. With
 `LOOMTRACER_ADMIN_KEY` set, the same `POST /v1/users` endpoint works for
 per-user SQLite tokens (default tenant `local`; omit `tenant_id` in body).
 
@@ -223,7 +223,7 @@ project root, or from the shell environment.
 | `LOOMTRACER_API_KEY` | *(unset)* | Static bearer token (SQLite mode only; forwarded by `docker-compose.yml`). With neither this nor `LOOMTRACER_DATABASE_URL` set the server runs in development mode (no auth), which refuses a non-loopback bind. |
 | `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `LOOMTRACER_DATABASE_URL` is set, which is the compose default: the server logs one warning at start and classifies nothing. Optional; see [Keyless capture](#keyless-capture--no-anthropic_api_key-required). |
 | `LOOMTRACER_CORS_ORIGINS` | *(unset)* | Comma-separated origins allowed for browser cross-origin requests. |
-| `POSTGRES_PASSWORD` | `hivemind` | Password for the bundled Postgres service. Change before production. |
+| `POSTGRES_PASSWORD` | `loomtracer` | Password for the bundled Postgres service. Change before production. |
 | `LOOMTRACER_TENANT` | `local` | Default tenant. For the CLI and `loomtracer mcp` this selects the Postgres tenant scope when `LOOMTRACER_DATABASE_URL`/`--database-url` is also set. Not used by `serve`, which resolves the tenant per request from the caller's auth token instead. |
 
 ### CLI and MCP direct-Postgres mode
@@ -234,7 +234,7 @@ read by every `loomtracer` subcommand, not only `serve` — including
 directly instead of a local SQLite file. Two facts worth knowing before
 using this:
 
-- The CLI and `loomtracer mcp` never provision tenants in the `hm_tenants`
+- The CLI and `loomtracer mcp` never provision tenants in the `lt_tenants`
   table that `POST /v1/tenants` manages (see above) — you must provision a
   tenant through the API first, then point `--tenant` at it.
 - A binary built without the `shared-backend-postgres` Cargo feature fails
@@ -460,7 +460,7 @@ docker compose -f docker-compose.yml -f docker-compose.local-agents.yml up -d
 Then point the CLI or `loomtracer mcp` at it directly:
 
 ```bash
-LOOMTRACER_DATABASE_URL=postgres://hivemind:<POSTGRES_PASSWORD>@127.0.0.1:5432/hivemind \
+LOOMTRACER_DATABASE_URL=postgres://loomtracer:<POSTGRES_PASSWORD>@127.0.0.1:5432/loomtracer \
 LOOMTRACER_TENANT=<tenant> \
 loomtracer query situational --diff
 ```
@@ -478,11 +478,11 @@ work for your setup.
 
 ### Option B — run the CLI inside the container
 
-No port publishing needed. Exec into the running `hivemind` service container, which
+No port publishing needed. Exec into the running `loomtracer` service container, which
 already has `LOOMTRACER_DATABASE_URL` pointed at the compose network address:
 
 ```bash
-docker compose exec hivemind loomtracer --tenant <tenant> query situational --diff
+docker compose exec loomtracer loomtracer --tenant <tenant> query situational --diff
 ```
 
 This is the safer default — no database credential ever leaves the
@@ -661,7 +661,7 @@ and the address it bound.
 Builds the server image from the given ref (default `origin/master`), tags
 it by commit sha — never `:latest`, which only moves when a `v*` tag is
 pushed (see `.github/workflows/release.yml`) and can otherwise sit behind
-master for weeks — restarts the `hivemind` service with it, and waits for
+master for weeks — restarts the `loomtracer` service with it, and waits for
 `/v1/health` before declaring success. Confirm what's actually running with
 `curl http://localhost:8080/v1/version`.
 
@@ -715,14 +715,97 @@ pin before updating by hand.
 
 Postgres schema migrations run automatically at startup.
 
+### Upgrading a cell from before 0.8.0
+
+0.8.0 renames what a cell stores, along with everything else: the tables `hm_*` are `lt_*`,
+the Postgres database and role `hivemind` are `loomtracer` (the default password too), the compose
+service `hivemind` is `loomtracer` and the volume `hivemind-data` is `loomtracer-data`. Starting
+the new compose file on an old cell would make a second, empty stack beside it, and the new
+server refuses to start on a database that still has the old tables. Rename them first, in this
+order, from the cell's directory, with the **old** compose files still in place. Every step but
+the last keeps the data where it is, and the rename of the tables and of the project handle can be
+rehearsed on a copy first.
+
+1. **Stop the server, keep Postgres, and take a backup.**
+
+   ```bash
+   docker compose stop hivemind
+   docker compose exec -T postgres pg_dump -U hivemind -d hivemind > cell-before-0.8.0.sql
+   ```
+
+2. **Rename the database and the role.** A role cannot rename the session it is logged in on, so
+   a temporary superuser does it (Postgres in the container trusts its own socket, so no password
+   is asked):
+
+   ```bash
+   docker compose exec -T postgres psql -U hivemind -d postgres -v ON_ERROR_STOP=1 \
+     -c 'CREATE ROLE lt_rename SUPERUSER LOGIN'
+   docker compose exec -T postgres psql -U lt_rename -d postgres -v ON_ERROR_STOP=1 \
+     -c 'ALTER DATABASE hivemind RENAME TO loomtracer' \
+     -c 'ALTER ROLE hivemind RENAME TO loomtracer'
+   docker compose exec -T postgres psql -U loomtracer -d postgres -v ON_ERROR_STOP=1 \
+     -c 'DROP ROLE lt_rename'
+   ```
+
+   If the second command prints `MD5 password cleared because of role rename`, set the password
+   again with `\password loomtracer` in `psql`. A SCRAM password (the default since Postgres 14)
+   survives the rename.
+
+3. **Switch to the new compose files** (`git pull`, or copy the new `docker-compose.yml` and keep
+   your overrides, renaming the `hivemind` service in them to `loomtracer`). Compose recreates the
+   `postgres` container because its settings changed; its data is in the `postgres-data` volume
+   and stays. The `hivemind-data` volume held nothing in Postgres mode (check:
+   `docker run --rm -v <project>_hivemind-data:/d:ro alpine ls -A /d` prints nothing), so the new
+   `loomtracer-data` volume starts empty.
+
+4. **Rename the tables**, keeping every row. `--dry-run` runs it and rolls it back, printing the
+   tables and the row counts a real run would produce:
+
+   ```bash
+   docker compose run --rm --no-deps loomtracer migrate-storage --dry-run
+   docker compose run --rm --no-deps loomtracer migrate-storage
+   ```
+
+   It is one transaction that checks every table holds the same number of rows before and after
+   and changes nothing if one does not. Running it again says there is nothing to rename.
+
+5. **Rename the project handle** if a project is still registered under `hivemind`, once per
+   tenant. This registers the new handle, moves the old project's anchors and links to it,
+   declares its topic keys and moves each of its decisions, all as recorded events (a
+   `decision.moved` per decision), so nothing is rewritten and the same command with the two
+   handles swapped undoes it. Put the same handle in the `.loomtracer-project` file of every
+   repository that used the old one:
+
+   ```bash
+   docker compose run --rm --no-deps loomtracer --actor human:you --tenant local \
+     project rename hivemind loomtracer --display-name Loomtracer
+   ```
+
+   The old handle stays registered with nothing left under it.
+
+6. **Start the cell** and remove what the old stack left behind:
+
+   ```bash
+   docker compose up -d --remove-orphans
+   curl http://localhost:8080/v1/health
+   docker volume rm <project>_hivemind-data
+   ```
+
+   Check that `/v1/version` and a known query answer as before. To go back, restore
+   `cell-before-0.8.0.sql` into a fresh Postgres and run the old image.
+
+A SQLite ledger holds only `hm_users` and `hm_tokens` to rename: run `loomtracer migrate-storage`
+in the project (or with `--loomtracer-dir`), then `loomtracer project rename` for a registered
+handle. The token commands and the server refuse a ledger that still has the old tables.
+
 ---
 
 ## Troubleshooting
 
-**`hivemind` container exits immediately**: check logs with
-`docker compose logs hivemind`. Common cause: Postgres not yet healthy when
+**`loomtracer` container exits immediately**: check logs with
+`docker compose logs loomtracer`. Common cause: Postgres not yet healthy when
 the server starts (the `depends_on: condition: service_healthy` guard handles
-this; if it races, restart with `docker compose restart hivemind`).
+this; if it races, restart with `docker compose restart loomtracer`).
 
 **`POST /v1/tenants` returns 500 "LOOMTRACER_ADMIN_KEY not configured"**: set
 `LOOMTRACER_ADMIN_KEY` in your `.env` and restart the stack.

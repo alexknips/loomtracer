@@ -21,6 +21,10 @@ fn every_verb_that_opens_the_ledger_is_guarded_under_its_own_name() -> TestResul
     let cases: &[(&[&str], &str)] = &[
         (&["project", "register", "pricing"], "project register"),
         (
+            &["project", "rename", "pricing", "billing"],
+            "project rename",
+        ),
+        (
             &[
                 "project", "link", "--from", "a-app", "--to", "b-app", "--kind", "part_of",
             ],
@@ -86,6 +90,7 @@ fn the_verbs_left_out_on_purpose_are_not_guarded() -> TestResult {
             "acme",
             "--dry-run",
         ],
+        &["migrate-storage", "--dry-run"],
         &["connector", "auth", "gdocs"],
         &["import", "prepare-documents", "notes.md"],
         &[
@@ -213,6 +218,7 @@ const ACT_ON_VERBS: &[(&[&str], &str)] = &[
     (&["review", "--since", "1d"], "review"),
     (&["quality-scan", "--dry-run"], "quality-scan"),
     (&["restatements", "apply", "--all"], "restatements apply"),
+    (&["project", "rename", "a-app", "b-app"], "project rename"),
     (
         &[
             "project", "link", "--from", "a-app", "--to", "b-app", "--kind", "part_of",

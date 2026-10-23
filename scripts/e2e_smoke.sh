@@ -26,10 +26,10 @@
 # The script does NOT start or stop the server — call it after compose is up.
 #
 # The "Fluent CLI leg (in-container, both backends)" section below shells out to
-# `docker compose exec hivemind loomtracer ...` to run the CLI against whichever
+# `docker compose exec loomtracer loomtracer ...` to run the CLI against whichever
 # backend the running compose stack is wired to (LOOMTRACER_DIR/LOOMTRACER_DATABASE_URL
 # already set in the container's own environment — this script never branches on
-# backend). It SKIPs cleanly when no `docker compose`-managed `hivemind` service is
+# backend). It SKIPs cleanly when no `docker compose`-managed `loomtracer` service is
 # running (e.g. a bare `cargo run` local server) — see hivemind-ot72.13a.
 
 set -euo pipefail
@@ -118,12 +118,12 @@ curl_json() {
 # provisioning path, so register its tenants directly against its ledger via
 # `docker compose exec` instead. Runs only in dev/no-auth mode (an API key
 # implies Postgres/auth mode, already provisioned externally) and only when a
-# compose-managed `hivemind` service is actually running; a bare local server
+# compose-managed `loomtracer` service is actually running; a bare local server
 # (e.g. `cargo run`) is assumed to already have its tenant(s) registered.
 if [[ -z "$API_KEY" ]] && command -v docker > /dev/null 2>&1 \
-   && docker compose ps --status running --services 2>/dev/null | grep -qx hivemind; then
+   && docker compose ps --status running --services 2>/dev/null | grep -qx loomtracer; then
   for t in "$TENANT" "$TENANT_B"; do
-    if ! out=$(docker compose exec -T hivemind loomtracer tenant create "$t" 2>&1); then
+    if ! out=$(docker compose exec -T loomtracer loomtracer tenant create "$t" 2>&1); then
       echo "WARNING: failed to provision SQLite tenant '$t': $out" >&2
     fi
   done
@@ -587,13 +587,13 @@ CLI_IC_ACTOR="agent:e2e:smoke-cli-incontainer"
 CLI_IC_REVIEWER="agent:e2e:smoke-cli-incontainer-reviewer"
 CLI_IC_TOPIC="smokeclifluent"
 
-hm_ic() {
-  docker compose exec -T hivemind loomtracer \
+lt_ic() {
+  docker compose exec -T loomtracer loomtracer \
     --tenant "$CLI_IC_TENANT" --actor "$CLI_IC_ACTOR" --json "$@" 2>&1
 }
 
-hm_ic_reviewer() {
-  docker compose exec -T hivemind loomtracer \
+lt_ic_reviewer() {
+  docker compose exec -T loomtracer loomtracer \
     --tenant "$CLI_IC_TENANT" --actor "$CLI_IC_REVIEWER" --json "$@" 2>&1
 }
 
@@ -609,23 +609,23 @@ ic_position_of() {
 }
 
 if ! command -v docker > /dev/null 2>&1 \
-   || ! docker compose ps --status running --services 2>/dev/null | grep -qx hivemind; then
-  skip "CLI (in-container): emit decision.proposed — ingestion decision — no running 'hivemind' compose service"
-  skip "CLI (in-container): emit decision.proposed — notification decision — no running 'hivemind' compose service"
-  skip "CLI (in-container): query situational — no running 'hivemind' compose service"
-  skip "CLI (in-container): query recall — no running 'hivemind' compose service"
-  skip "CLI (in-container): query why — no running 'hivemind' compose service"
-  skip "CLI (in-container): query verify (pre-supersede) — no running 'hivemind' compose service"
-  skip "CLI (in-container): disagree (ambiguous description) — no running 'hivemind' compose service"
-  skip "CLI (in-container): ledger offset unmoved after ambiguous disagree — no running 'hivemind' compose service"
-  skip "CLI (in-container): disagree --pick N — no running 'hivemind' compose service"
-  skip "CLI (in-container): supersede --pick N — no running 'hivemind' compose service"
-  skip "CLI (in-container): query verify (post-supersede) — no running 'hivemind' compose service"
+   || ! docker compose ps --status running --services 2>/dev/null | grep -qx loomtracer; then
+  skip "CLI (in-container): emit decision.proposed — ingestion decision — no running 'loomtracer' compose service"
+  skip "CLI (in-container): emit decision.proposed — notification decision — no running 'loomtracer' compose service"
+  skip "CLI (in-container): query situational — no running 'loomtracer' compose service"
+  skip "CLI (in-container): query recall — no running 'loomtracer' compose service"
+  skip "CLI (in-container): query why — no running 'loomtracer' compose service"
+  skip "CLI (in-container): query verify (pre-supersede) — no running 'loomtracer' compose service"
+  skip "CLI (in-container): disagree (ambiguous description) — no running 'loomtracer' compose service"
+  skip "CLI (in-container): ledger offset unmoved after ambiguous disagree — no running 'loomtracer' compose service"
+  skip "CLI (in-container): disagree --pick N — no running 'loomtracer' compose service"
+  skip "CLI (in-container): supersede --pick N — no running 'loomtracer' compose service"
+  skip "CLI (in-container): query verify (post-supersede) — no running 'loomtracer' compose service"
 else
   # --project-from-context is what the capture plugins pass. The container's working directory
   # has no .loomtracer-project above it and no rig, so this lands in the actor's personal project
   # on whichever backend the stack runs -- and the reply must say so.
-  ic_d1=$(hm_ic emit decision.proposed \
+  ic_d1=$(lt_ic emit decision.proposed \
     --project-from-context \
     --title "Adopt async retry queue for the ingestion pipeline" \
     --rationale "Bounded retries avoid unbounded backlog growth under load" \
@@ -645,7 +645,7 @@ else
     IC_D1_ID=""
   fi
 
-  ic_d2=$(hm_ic emit decision.proposed \
+  ic_d2=$(lt_ic emit decision.proposed \
     --title "Adopt async retry queue for the notification pipeline" \
     --rationale "Consistent retry semantics simplify downstream alerting" \
     --topic-keys "$CLI_IC_TOPIC" \
@@ -658,28 +658,28 @@ else
     IC_D2_ID=""
   fi
 
-  ic_situational=$(hm_ic query situational --paths "$CLI_IC_TOPIC") || true
+  ic_situational=$(lt_ic query situational --paths "$CLI_IC_TOPIC") || true
   if echo "$ic_situational" | jq -e '.data.total_matches >= 2' > /dev/null 2>&1; then
     pass "CLI (in-container): query situational --paths=$CLI_IC_TOPIC — both decisions surfaced"
   else
     fail "CLI (in-container): query situational — response: $ic_situational"
   fi
 
-  ic_recall=$(hm_ic query recall "adopt async retry queue") || true
+  ic_recall=$(lt_ic query recall "adopt async retry queue") || true
   if echo "$ic_recall" | jq -e '(.data.ranked.items | length) >= 2' > /dev/null 2>&1; then
     pass "CLI (in-container): query recall — ranked items include both decisions"
   else
     fail "CLI (in-container): query recall — response: $ic_recall"
   fi
 
-  ic_why=$(hm_ic query why "adopt async retry queue ingestion") || true
+  ic_why=$(lt_ic query why "adopt async retry queue ingestion") || true
   if echo "$ic_why" | jq -e --arg id "$IC_D1_ID" '.data.root.id == $id' > /dev/null 2>&1; then
     pass "CLI (in-container): query why — resolves uniquely to the ingestion decision"
   else
     fail "CLI (in-container): query why — response: $ic_why"
   fi
 
-  ic_verify_pre=$(hm_ic query verify "adopt async retry queue ingestion") || true
+  ic_verify_pre=$(lt_ic query verify "adopt async retry queue ingestion") || true
   if echo "$ic_verify_pre" | jq -e --arg id "$IC_D1_ID" \
       '.data.decision_id == $id and .data.still_holds.held_up == true' > /dev/null 2>&1; then
     pass "CLI (in-container): query verify — ingestion decision still holds (pre-supersede)"
@@ -687,10 +687,10 @@ else
     fail "CLI (in-container): query verify (pre-supersede) — response: $ic_verify_pre"
   fi
 
-  ic_offset_before=$(hm_ic query get_recent_activity --limit 1) || true
+  ic_offset_before=$(lt_ic query get_recent_activity --limit 1) || true
   IC_OFFSET_BEFORE=$(echo "$ic_offset_before" | jq -r '.data.items[0].event_origin // empty')
 
-  ic_disagree_ambig=$(hm_ic_reviewer disagree "adopt async retry queue" \
+  ic_disagree_ambig=$(lt_ic_reviewer disagree "adopt async retry queue" \
     --reason "e2e smoke: ambiguous — must not resolve or write") || true
   if echo "$ic_disagree_ambig" | jq -e \
       '.data.outcome == "ambiguous" and (.data.candidates | length) == 2' > /dev/null 2>&1; then
@@ -699,7 +699,7 @@ else
     fail "CLI (in-container): disagree (ambiguous) — response: $ic_disagree_ambig"
   fi
 
-  ic_offset_after=$(hm_ic query get_recent_activity --limit 1) || true
+  ic_offset_after=$(lt_ic query get_recent_activity --limit 1) || true
   IC_OFFSET_AFTER=$(echo "$ic_offset_after" | jq -r '.data.items[0].event_origin // empty')
   if [[ -n "$IC_OFFSET_BEFORE" && "$IC_OFFSET_AFTER" == "$IC_OFFSET_BEFORE" ]]; then
     pass "CLI (in-container): ledger offset unmoved after ambiguous disagree short-circuit ($IC_OFFSET_BEFORE)"
@@ -710,7 +710,7 @@ else
   # --pick N follows the printed list. The ambiguous answer above is that list for the disagree.
   ic_pick_disagree=$(ic_position_of "$ic_disagree_ambig" "$IC_D1_ID")
   if [[ -n "$ic_pick_disagree" ]]; then
-    ic_disagree_pick=$(hm_ic_reviewer disagree "adopt async retry queue" --pick "$ic_pick_disagree" \
+    ic_disagree_pick=$(lt_ic_reviewer disagree "adopt async retry queue" --pick "$ic_pick_disagree" \
       --reason "e2e smoke: retries hide a slower systemic bottleneck") || true
     if echo "$ic_disagree_pick" | jq -e --arg id "$IC_D1_ID" '.decision_id == $id' > /dev/null 2>&1; then
       pass "CLI (in-container): disagree --pick N — resolves and contests the ingestion decision (N=$ic_pick_disagree)"
@@ -723,11 +723,11 @@ else
 
   # The disagree just contested the ingestion decision, which can move it in the list, so read
   # the list again (an ambiguous disagree writes nothing) before the supersede picks from it.
-  ic_candidates_now=$(hm_ic_reviewer disagree "adopt async retry queue" \
+  ic_candidates_now=$(lt_ic_reviewer disagree "adopt async retry queue" \
     --reason "e2e smoke: ambiguous — read the candidate order again, must not resolve or write") || true
   ic_pick_supersede=$(ic_position_of "$ic_candidates_now" "$IC_D1_ID")
   if [[ -n "$ic_pick_supersede" ]]; then
-    ic_supersede=$(hm_ic supersede "adopt async retry queue" --pick "$ic_pick_supersede" \
+    ic_supersede=$(lt_ic supersede "adopt async retry queue" --pick "$ic_pick_supersede" \
       --title "Batch ingestion writes instead of per-event retries" \
       --rationale "e2e smoke: batching removes the retry queue's backlog risk entirely" \
       --options "batched-writes" \
@@ -745,7 +745,7 @@ else
     fail "CLI (in-container): supersede --pick N — ingestion decision is not among the candidates: $ic_candidates_now"
   fi
 
-  ic_verify_post=$(hm_ic query verify "adopt async retry queue ingestion") || true
+  ic_verify_post=$(lt_ic query verify "adopt async retry queue ingestion") || true
   if echo "$ic_verify_post" | jq -e --arg id "$IC_D1_ID" \
       '.data.decision_id == $id and .data.still_holds.held_up == false' > /dev/null 2>&1; then
     pass "CLI (in-container): query verify — ingestion decision no longer holds (still_holds.held_up=false, post-supersede)"
@@ -980,7 +980,7 @@ else
   # unset (the elif above would have skipped otherwise), which is consistent
   # with the server's classifier/scorer workers logging themselves disabled
   # at startup. Corroborate directly with:
-  #   docker compose logs hivemind | grep 'Layer-3 classifier disabled'
+  #   docker compose logs loomtracer | grep 'Layer-3 classifier disabled'
   pass "server-side classifier/scorer dark: ANTHROPIC_API_KEY absent from this shell (proxy check — see comment for the direct log corroboration)"
 
   # LEG 1: classifier enrichment via the plugin's edge/Haiku-subagent batch

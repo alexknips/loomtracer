@@ -33,7 +33,7 @@ pub struct ResolvedToken {
 }
 
 /// A bearer token minted directly against an agent identity, with no
-/// associated `hm_users` row.
+/// associated `lt_users` row.
 pub struct ProvisionedAgentToken {
     pub token_id: Uuid,
     pub actor_id: String,
@@ -61,7 +61,7 @@ pub struct UserInfo {
 
 /// Provisioning and token resolution backed by Postgres.
 ///
-/// Manages `hm_tenants` and `hm_tokens` tables, enables RLS on the event
+/// Manages `lt_tenants` and `lt_tokens` tables, enables RLS on the event
 /// and projection tables, and resolves bearer tokens to `tenant_id`.
 #[derive(Clone)]
 pub struct TenantStore {
@@ -131,35 +131,39 @@ impl TenantStore {
         tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('loomtracer_schema_init'));")
             .map_err(storage_error)?;
 
+        // A database from before the rename to Loomtracer keeps its rows under the old names;
+        // creating the new tables beside them would hide every tenant, user and token.
+        super::legacy_storage::require_current_names(&mut tx)?;
+
         tx.batch_execute(
-            "CREATE TABLE IF NOT EXISTS hm_tenants (
+            "CREATE TABLE IF NOT EXISTS lt_tenants (
                     tenant_id    text PRIMARY KEY,
                     display_name text NOT NULL,
                     created_at   timestamptz NOT NULL DEFAULT now()
                 );
-                CREATE TABLE IF NOT EXISTS hm_users (
+                CREATE TABLE IF NOT EXISTS lt_users (
                     user_id      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tenant_id    text NOT NULL REFERENCES hm_tenants(tenant_id),
+                    tenant_id    text NOT NULL REFERENCES lt_tenants(tenant_id),
                     email        text NOT NULL,
                     display_name text NOT NULL,
                     role         text NOT NULL DEFAULT 'member',
                     created_at   timestamptz NOT NULL DEFAULT now(),
                     UNIQUE (tenant_id, email)
                 );
-                CREATE TABLE IF NOT EXISTS hm_tokens (
+                CREATE TABLE IF NOT EXISTS lt_tokens (
                     token_id    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
                     token_hash  text NOT NULL UNIQUE,
-                    tenant_id   text NOT NULL REFERENCES hm_tenants(tenant_id),
-                    user_id     uuid REFERENCES hm_users(user_id),
+                    tenant_id   text NOT NULL REFERENCES lt_tenants(tenant_id),
+                    user_id     uuid REFERENCES lt_users(user_id),
                     actor_id    text NOT NULL DEFAULT 'service:api',
                     label       text,
                     revoked_at  timestamptz,
                     created_at  timestamptz NOT NULL DEFAULT now()
                 );
-                CREATE INDEX IF NOT EXISTS hm_tokens_hash_idx ON hm_tokens (token_hash);
-                CREATE TABLE IF NOT EXISTS hm_oidc_users (
+                CREATE INDEX IF NOT EXISTS lt_tokens_hash_idx ON lt_tokens (token_hash);
+                CREATE TABLE IF NOT EXISTS lt_oidc_users (
                     sub        text PRIMARY KEY,
-                    tenant_id  text NOT NULL REFERENCES hm_tenants(tenant_id),
+                    tenant_id  text NOT NULL REFERENCES lt_tenants(tenant_id),
                     email      text,
                     created_at timestamptz NOT NULL DEFAULT now()
                 );",
@@ -168,14 +172,14 @@ impl TenantStore {
 
         // Idempotent column additions for deployments that predate this schema version.
         tx.batch_execute(
-            "ALTER TABLE hm_tokens ADD COLUMN IF NOT EXISTS user_id    uuid REFERENCES hm_users(user_id);
-                 ALTER TABLE hm_tokens ADD COLUMN IF NOT EXISTS actor_id   text NOT NULL DEFAULT 'service:api';
-                 ALTER TABLE hm_tokens ADD COLUMN IF NOT EXISTS revoked_at timestamptz;",
+            "ALTER TABLE lt_tokens ADD COLUMN IF NOT EXISTS user_id    uuid REFERENCES lt_users(user_id);
+                 ALTER TABLE lt_tokens ADD COLUMN IF NOT EXISTS actor_id   text NOT NULL DEFAULT 'service:api';
+                 ALTER TABLE lt_tokens ADD COLUMN IF NOT EXISTS revoked_at timestamptz;",
         )
         .map_err(storage_error)?;
 
         // Enable RLS on events if it exists.
-        // Graph projection tables (hm_nodes, hm_edges) are derived state; no RLS needed.
+        // Graph projection tables (lt_nodes, lt_edges) are derived state; no RLS needed.
         let events_exists: bool = tx
             .query_one(
                 "SELECT EXISTS (
@@ -239,7 +243,7 @@ impl TenantStore {
         let mut tx = client.transaction().map_err(storage_error)?;
 
         tx.execute(
-            "INSERT INTO hm_tenants (tenant_id, display_name)
+            "INSERT INTO lt_tenants (tenant_id, display_name)
              VALUES ($1, $2)
              ON CONFLICT (tenant_id) DO NOTHING",
             &[&tenant_id, &display_name],
@@ -248,7 +252,7 @@ impl TenantStore {
 
         let token_id: Uuid = tx
             .query_one(
-                "INSERT INTO hm_tokens (token_hash, tenant_id, label)
+                "INSERT INTO lt_tokens (token_hash, tenant_id, label)
                  VALUES ($1, $2, 'default')
                  RETURNING token_id",
                 &[&token_hash, &tenant_id],
@@ -274,7 +278,7 @@ impl TenantStore {
         // Fast path: already mapped.
         if let Some(row) = client
             .query_opt(
-                "SELECT tenant_id FROM hm_oidc_users WHERE sub = $1",
+                "SELECT tenant_id FROM lt_oidc_users WHERE sub = $1",
                 &[&sub],
             )
             .map_err(storage_error)?
@@ -289,14 +293,14 @@ impl TenantStore {
 
         let mut tx = client.transaction().map_err(storage_error)?;
         tx.execute(
-            "INSERT INTO hm_tenants (tenant_id, display_name)
+            "INSERT INTO lt_tenants (tenant_id, display_name)
              VALUES ($1, $2)
              ON CONFLICT (tenant_id) DO NOTHING",
             &[&tenant_id, &display_name],
         )
         .map_err(storage_error)?;
         tx.execute(
-            "INSERT INTO hm_oidc_users (sub, tenant_id, email)
+            "INSERT INTO lt_oidc_users (sub, tenant_id, email)
              VALUES ($1, $2, $3)
              ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email",
             &[&sub, &tenant_id, &email],
@@ -330,7 +334,7 @@ impl TenantStore {
 
         let user_id: Uuid = tx
             .query_one(
-                "INSERT INTO hm_users (tenant_id, email, display_name, role)
+                "INSERT INTO lt_users (tenant_id, email, display_name, role)
                  VALUES ($1, $2, $3, $4)
                  RETURNING user_id",
                 &[&tenant_id, &email, &display_name, &role],
@@ -340,7 +344,7 @@ impl TenantStore {
 
         let token_id: Uuid = tx
             .query_one(
-                "INSERT INTO hm_tokens (token_hash, tenant_id, user_id, actor_id, label)
+                "INSERT INTO lt_tokens (token_hash, tenant_id, user_id, actor_id, label)
                  VALUES ($1, $2, $3, $4, 'default')
                  RETURNING token_id",
                 &[&token_hash, &tenant_id, &user_id, &actor_id],
@@ -361,7 +365,7 @@ impl TenantStore {
     }
 
     /// Mint a bearer token bound directly to an agent identity
-    /// (`agent:<tool>:<name>`), with no associated `hm_users` row. Lets an
+    /// (`agent:<tool>:<name>`), with no associated `lt_users` row. Lets an
     /// admin provision automation/role tokens that read as agents in the
     /// ledger instead of being forced through `create_user`'s
     /// `human:<email>` shape (hivemind-zdsh.19).
@@ -378,7 +382,7 @@ impl TenantStore {
 
         let token_id: Uuid = client
             .query_one(
-                "INSERT INTO hm_tokens (token_hash, tenant_id, actor_id, label)
+                "INSERT INTO lt_tokens (token_hash, tenant_id, actor_id, label)
                  VALUES ($1, $2, $3, $4)
                  RETURNING token_id",
                 &[&token_hash, &tenant_id, &actor_id, &label],
@@ -406,7 +410,7 @@ impl TenantStore {
 
         let row = client
             .query_opt(
-                "SELECT email, display_name, role FROM hm_users WHERE user_id = $1 AND tenant_id = $2",
+                "SELECT email, display_name, role FROM lt_users WHERE user_id = $1 AND tenant_id = $2",
                 &[&user_id, &tenant_id],
             )
             .map_err(storage_error)?
@@ -419,7 +423,7 @@ impl TenantStore {
 
         let token_id: Uuid = client
             .query_one(
-                "INSERT INTO hm_tokens (token_hash, tenant_id, user_id, actor_id, label)
+                "INSERT INTO lt_tokens (token_hash, tenant_id, user_id, actor_id, label)
                  VALUES ($1, $2, $3, $4, $5)
                  RETURNING token_id",
                 &[&token_hash, &tenant_id, &user_id, &actor_id, &label],
@@ -437,12 +441,12 @@ impl TenantStore {
         })
     }
 
-    /// Whether `tenant_id` has an `hm_tenants` row.
+    /// Whether `tenant_id` has an `lt_tenants` row.
     pub fn tenant_exists(&self, tenant_id: &str) -> Result<bool> {
         let mut client = self.pool.get().map_err(storage_error)?;
         let exists: bool = client
             .query_one(
-                "SELECT EXISTS (SELECT 1 FROM hm_tenants WHERE tenant_id = $1)",
+                "SELECT EXISTS (SELECT 1 FROM lt_tenants WHERE tenant_id = $1)",
                 &[&tenant_id],
             )
             .map_err(storage_error)?
@@ -450,16 +454,16 @@ impl TenantStore {
         Ok(exists)
     }
 
-    /// Every tenant with an `hm_tenants` row, in id order.
+    /// Every tenant with an `lt_tenants` row, in id order.
     pub fn tenant_ids(&self) -> Result<Vec<String>> {
         let mut client = self.pool.get().map_err(storage_error)?;
         let rows = client
-            .query("SELECT tenant_id FROM hm_tenants ORDER BY tenant_id", &[])
+            .query("SELECT tenant_id FROM lt_tenants ORDER BY tenant_id", &[])
             .map_err(storage_error)?;
         Ok(rows.into_iter().map(|row| row.get(0)).collect())
     }
 
-    /// Errors unless `tenant_id` has an `hm_tenants` row. Called once at
+    /// Errors unless `tenant_id` has an `lt_tenants` row. Called once at
     /// ledger-open time (the CLI/stdio-MCP seam in
     /// [`crate::ledger::AnyLedger::open`] and the HTTP API's per-request
     /// seam) so a typo'd `--tenant`/token-resolved tenant cannot silently
@@ -482,7 +486,7 @@ impl TenantStore {
         let mut client = self.pool.get().map_err(storage_error)?;
         let n = client
             .execute(
-                "UPDATE hm_tokens SET revoked_at = now()
+                "UPDATE lt_tokens SET revoked_at = now()
                  WHERE token_id = $1 AND tenant_id = $2 AND revoked_at IS NULL",
                 &[&token_id, &tenant_id],
             )
@@ -495,7 +499,7 @@ impl TenantStore {
         let mut client = self.pool.get().map_err(storage_error)?;
         let rows = client
             .query(
-                "SELECT user_id, email, display_name, role FROM hm_users
+                "SELECT user_id, email, display_name, role FROM lt_users
                  WHERE tenant_id = $1 ORDER BY created_at",
                 &[&tenant_id],
             )
@@ -519,7 +523,7 @@ impl TenantStore {
         let mut client = self.pool.get().map_err(storage_error)?;
         let row = client
             .query_opt(
-                "SELECT tenant_id, user_id, actor_id FROM hm_tokens
+                "SELECT tenant_id, user_id, actor_id FROM lt_tokens
                  WHERE token_hash = $1 AND revoked_at IS NULL",
                 &[&token_hash],
             )

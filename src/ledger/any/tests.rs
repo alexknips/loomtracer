@@ -110,7 +110,7 @@ fn open_names_the_feature_when_url_set_but_not_compiled() {
 fn open_does_not_fall_back_to_sqlite_on_unreachable_postgres_url() {
     let config = LedgerConfig {
         loomtracer_dir: temp_loomtracer_dir("unreachable"),
-        database_url: Some("postgres://user:pass@127.0.0.1:1/hivemind_test".to_owned()),
+        database_url: Some("postgres://user:pass@127.0.0.1:1/loomtracer_test".to_owned()),
     };
     let result = AnyLedger::open(&config, &TenantId::local());
     assert!(

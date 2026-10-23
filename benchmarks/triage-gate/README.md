@@ -216,7 +216,7 @@ stays in a scratch directory and is not committed.
 
 ```bash
 # 1. Export the week's ingest events (read-only; no password inside the container)
-docker exec hivemind-cell-postgres-1 psql -U hivemind -d hivemind -At -c \
+docker exec hivemind-cell-postgres-1 psql -U loomtracer -d loomtracer -At -c \
   "select row_to_json(e) from (select event_id, ts, actor_id, event_type, payload from events
    where tenant_id='local' and event_type in ('ingest.batch_received','ingest.batch_classified')
    and ts >= '2026-09-21' and ts < '2026-09-28' order by event_id) e" > events.jsonl

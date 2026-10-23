@@ -74,13 +74,13 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: hivemind
-          POSTGRES_USER: hivemind
-          POSTGRES_PASSWORD: hivemind
+          POSTGRES_DB: loomtracer
+          POSTGRES_USER: loomtracer
+          POSTGRES_PASSWORD: loomtracer
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U hivemind -d hivemind"
+          --health-cmd "pg_isready -U loomtracer -d loomtracer"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -99,7 +99,7 @@ jobs:
 
       - name: Run tests
         env:
-          LOOMTRACER_TEST_POSTGRES_URL: postgres://hivemind:hivemind@localhost:5432/hivemind
+          LOOMTRACER_TEST_POSTGRES_URL: postgres://loomtracer:loomtracer@localhost:5432/loomtracer
           # Caps the r2d2 pool size opened per `PostgresEventLedger::connect`
           # call (production default is 16, eagerly filled). Each parallel
           # test thread opens its own pool through this path, directly or
@@ -414,7 +414,7 @@ jobs:
           docker compose \
             -f docker-compose.yml \
             -f docker-compose.e2e-sqlite.yml \
-            up -d --no-deps hivemind
+            up -d --no-deps loomtracer
           echo "Waiting for /v1/health..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8080/v1/health | grep -q '"ok"'; then
@@ -446,7 +446,7 @@ jobs:
           docker compose \
             -f docker-compose.yml \
             -f docker-compose.e2e-sqlite.yml \
-            logs hivemind
+            logs loomtracer
 
       - name: Stop compose
         if: always()
@@ -542,7 +542,7 @@ jobs:
           docker compose \
             -f docker-compose.yml \
             -f docker-compose.e2e-postgres.yml \
-            logs hivemind
+            logs loomtracer
           docker compose \
             -f docker-compose.yml \
             -f docker-compose.e2e-postgres.yml \

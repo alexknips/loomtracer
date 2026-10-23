@@ -560,7 +560,7 @@ fn check_bind_safety_matrix() {
             "{remote}"
         ); // ubs:ignore: test-only
         assert!(
-            config(remote, None, Some("postgres://u:p@db/hivemind"), false)
+            config(remote, None, Some("postgres://u:p@db/loomtracer"), false)
                 .check_bind_safety()
                 .is_ok(),
             "{remote}"

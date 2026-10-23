@@ -34,7 +34,7 @@ curl http://localhost:8080/v1/health
 # {"status":"ok"}
 ```
 
-Data is persisted in a Docker named volume (`hivemind-data`). The Postgres
+Data is persisted in a Docker named volume (`loomtracer-data`). The Postgres
 service is included for the `shared-backend-postgres` feature; Loomtracer
 defaults to SQLite stored in the same volume.
 
@@ -54,7 +54,7 @@ reads these from the shell or from an `.env` file in the project root.
 | `LOOMTRACER_TENANT` | `local` | Tenant to open. For the CLI and `loomtracer mcp` this selects the Postgres tenant scope when `LOOMTRACER_DATABASE_URL`/`--database-url` is also set (see below for what happens on an unrecognized value). Not used by `serve`, which resolves the tenant per request from the caller's auth instead. |
 | `LOOMTRACER_CORS_ORIGINS` | *(unset)* | Comma-separated origins for browser cross-origin requests. |
 | `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `LOOMTRACER_DATABASE_URL` is set: the server logs one warning at start and classifies nothing. Optional. |
-| `POSTGRES_PASSWORD` | `hivemind` | Password for the bundled Postgres service (compose only). |
+| `POSTGRES_PASSWORD` | `loomtracer` | Password for the bundled Postgres service (compose only). |
 
 ### CLI and MCP direct-Postgres mode
 
@@ -63,7 +63,7 @@ reads these from the shell or from an `.env` file in the project root.
 includes `loomtracer mcp`, so a stdio MCP server can talk to the shared Postgres
 backend directly instead of the local SQLite file.
 
-- The CLI and `loomtracer mcp` never provision tenants in the `hm_tenants`
+- The CLI and `loomtracer mcp` never provision tenants in the `lt_tenants`
   table that `POST /v1/tenants` manages (see
   [SELF_HOSTING.md](SELF_HOSTING.md)), but they do check against it: an
   unrecognized or typo'd `--tenant` on a Postgres-backed CLI/mcp invocation is

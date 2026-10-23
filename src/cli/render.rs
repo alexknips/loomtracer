@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::commands::{
     CaptureWarning, DecisionMoveOutcome, DecisionPlacement, DecisionRetitleOutcome,
-    ProjectTopicDeclaration, RestatedCapture, RestsOn, RestsOnKind,
+    ProjectRenameOutcome, ProjectTopicDeclaration, RestatedCapture, RestsOn, RestsOnKind,
 };
 use crate::error::{CliError, CommandError};
 use crate::events::{EventId, EventType, ModelDimension};
@@ -3105,6 +3105,28 @@ pub(crate) fn format_project_register_output(
         let _ = write!(rendered, " purpose={}", summary_cell(purpose));
     }
     Ok(rendered)
+}
+
+/// One line of counts: what a rename recorded. `registered=false` says the new handle already
+/// existed (a repeated run, or a merge into it); all counts zero says there was nothing left to
+/// move.
+pub(crate) fn format_project_rename_output(
+    as_json: bool,
+    outcome: &ProjectRenameOutcome,
+) -> Result<String> {
+    if as_json {
+        return format_json_value(true, outcome);
+    }
+    Ok(format!(
+        "from={} to={} registered={} anchors_moved={} links_moved={} topics_declared={} decisions_moved={}",
+        outcome.from,
+        outcome.to,
+        outcome.registered,
+        outcome.anchors_moved,
+        outcome.links_moved,
+        outcome.topics_declared,
+        outcome.decisions_moved
+    ))
 }
 
 pub(crate) fn format_project_link_output(

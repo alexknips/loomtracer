@@ -329,6 +329,7 @@ use uuid::Uuid;
 mod capture_warning;
 mod ground_later;
 mod grounding;
+mod project_rename;
 mod question;
 mod reaffirm;
 mod restatement;
@@ -342,6 +343,7 @@ pub use grounding::{
     GroundedProposal, GroundingPlan, NewBet, NewEvidence, RestsOn, RestsOnKind,
     GROUNDING_REQUIRED_MESSAGE,
 };
+pub use project_rename::{ProjectRenameInput, ProjectRenameOutcome};
 use question::{require_question_text, QuestionEventUuids};
 pub use question::{
     AnsweredQuestion, AskPlan, AskRecorded, AskedRequest, QuestionAnswerPlan, QuestionId,

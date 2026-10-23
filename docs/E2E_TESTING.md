@@ -36,7 +36,7 @@ docker compose build
 cargo build --locked --bin loomtracer --bin fidelity-eval
 
 # 2. Start the server (SQLite, no auth)
-docker compose up -d hivemind
+docker compose up -d loomtracer
 
 # 3. Wait for health
 until curl -sf http://localhost:8080/v1/health | grep -q '"ok"'; do sleep 1; done
@@ -218,7 +218,7 @@ every PR and `master` push:
 **`e2e-compose` (SQLite):**
 
 1. Builds the Docker image (`loomtracer:e2e`).
-2. Starts the `hivemind` service (SQLite, no-deps) via Docker Compose and waits for `/v1/health`.
+2. Starts the `loomtracer` service (SQLite, no-deps) via Docker Compose and waits for `/v1/health`.
 3. Builds `loomtracer` and `fidelity-eval` binaries.
 4. Runs `scripts/e2e_smoke.sh` (Slice 2 subscription/edge LLM legs always
    SKIP on CI runners — no Claude subscription; ceiling-mode fidelity smoke

@@ -59,7 +59,7 @@ what the local-first flow below wants: one tunnel URL for everything.
 
 Each Slack workspace (`team_id`) maps 1:1 onto its own Loomtracer tenant
 (`TenantId::new(team_id)`). The OAuth callback provisions this tenant
-automatically (SQLite: `tenants` row; Postgres: `hm_tenants` row + an unused
+automatically (SQLite: `tenants` row; Postgres: `lt_tenants` row + an unused
 initial token) on install, so no separate `loomtracer tenant create` step is
 needed for OAuth-installed workspaces. A `slack-app install` done by hand
 (the local-first flow above) still needs a matching

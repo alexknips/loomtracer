@@ -44,6 +44,8 @@ src/queries/follows_from/tests.rs
 src/commands/ground_later/tests.rs
 src/commands/question/tests.rs
 src/commands/reaffirm/tests.rs
+src/ledger/legacy_storage/tests.rs
+src/ledger/postgres/legacy_storage/tests.rs
 src/reaffirmation/tests.rs
 src/commands/transcript/tests.rs
 src/queries/question/tests.rs

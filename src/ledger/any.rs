@@ -59,7 +59,7 @@ impl AnyLedger {
     /// must fail loudly, not silently write to a local file.
     ///
     /// Errors if `tenant_id` is unknown on the selected backend (no
-    /// `tenants` row on SQLite, no `hm_tenants` row on Postgres) — a typo'd
+    /// `tenants` row on SQLite, no `lt_tenants` row on Postgres) — a typo'd
     /// `--tenant` must not silently open a fresh, empty tenant scope.
     pub fn open(config: &LedgerConfig, tenant_id: &TenantId) -> Result<Self> {
         match config.database_url.as_deref() {

@@ -247,7 +247,7 @@ fn update_pins_the_built_image_where_the_reconciler_reads_it() -> TestResult<()>
     assert!(
         calls.contains(&format!(
             "compose -f {d}/docker-compose.yml -f {d}/docker-compose.local-agents.yml \
-             --env-file {d}/.env up -d --no-deps hivemind",
+             --env-file {d}/.env up -d --no-deps loomtracer",
             d = dir.display()
         )),
         "{calls:?}"
@@ -342,7 +342,8 @@ fn default_run_pins_next_to_the_default_compose_file() -> TestResult<()> {
     );
     assert!(
         cell.docker_calls()?.contains(
-            &"compose -f docker-compose.yml --env-file ./.env up -d --no-deps hivemind".to_owned()
+            &"compose -f docker-compose.yml --env-file ./.env up -d --no-deps loomtracer"
+                .to_owned()
         ),
         "{:?}",
         cell.docker_calls()?

@@ -6747,7 +6747,7 @@ async fn assert_unknown_tenant(
     );
 }
 
-/// Rows in the SQLite `hm_users` and `hm_tokens` tables, to show a refused admin call wrote none.
+/// Rows in the SQLite `lt_users` and `lt_tokens` tables, to show a refused admin call wrote none.
 fn credential_rows(dir: &Path) -> (i64, i64) {
     let connection = rusqlite::Connection::open(dir.join("ledger.sqlite")).expect("open ledger");
     let count = |table: &str| -> i64 {
@@ -6757,12 +6757,12 @@ fn credential_rows(dir: &Path) -> (i64, i64) {
             })
             .expect("count rows")
     };
-    (count("hm_users"), count("hm_tokens"))
+    (count("lt_users"), count("lt_tokens"))
 }
 
 #[tokio::test]
 async fn admin_token_routes_refuse_an_unregistered_tenant_and_mint_nothing() {
-    // `hm_tokens` has no foreign key to `tenants` on SQLite, so a typo'd `tenant_id` used to get
+    // `lt_tokens` has no foreign key to `tenants` on SQLite, so a typo'd `tenant_id` used to get
     // 201 and a token that /v1/whoami accepted and every other call refused (hivemind-on7rr).
     let dir = test_ledger_dir();
     let admin_key = "unknown-tenant-admin";
@@ -7506,7 +7506,7 @@ mod admin_tokens_postgres {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn admin_token_routes_refuse_an_unregistered_tenant_over_postgres() {
-        // The foreign key on `hm_tokens` refuses a token for a missing tenant, but the handler
+        // The foreign key on `lt_tokens` refuses a token for a missing tenant, but the handler
         // used to hand the raw database message back as a 500 `internal_error`
         // (hivemind-on7rr). Now it is the same 404 `unknown_tenant` SQLite gives.
         let Some(pg_url) = skip_if_no_postgres() else {

@@ -21,7 +21,9 @@ use crate::Result;
 use super::backend_error::storage_error;
 use super::{EventFields, EventLedger, ReceivedBatchFacts};
 
+mod legacy_storage;
 mod tenant_store;
+pub(crate) use legacy_storage::require_current_names;
 pub use tenant_store::{ProvisionedUser, ResolvedToken, TenantStore, UserInfo};
 
 const DEFAULT_POOL_SIZE: u32 = 16;
