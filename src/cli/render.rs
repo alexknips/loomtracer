@@ -1585,6 +1585,18 @@ fn compact_rests_on(view: &CompactView) -> String {
     }
 }
 
+/// What became of a listed candidate, in a word or three: its status, and for a replaced decision
+/// the decisions that replaced it. Every list of candidates says it, so a decision that no longer
+/// stands is not offered as if it did (hivemind-erlbl).
+pub(crate) fn candidate_status_clause(candidate: &ResolvedCandidate) -> String {
+    let status = decision_status_label(candidate.status);
+    if candidate.superseded_by.is_empty() {
+        status.to_owned()
+    } else {
+        format!("{status} by {}", candidate.superseded_by.join(", "))
+    }
+}
+
 /// Renders a resolve-by-description outcome for a fluent verb: an unambiguous match, a numbered
 /// candidate list to disambiguate via `--pick N` / `#N` / `--id`, or a not-found notice.
 pub(crate) fn render_resolve_outcome_summary(outcome: &ResolveOutcome) -> String {
@@ -1627,6 +1639,7 @@ pub(crate) fn render_resolve_outcome_summary(outcome: &ResolveOutcome) -> String
                     candidate.decision_id,
                     summary_cell(&candidate.title)
                 );
+                let _ = write!(output, "\tstatus: {}", candidate_status_clause(candidate));
                 if !candidate.missing_terms.is_empty() {
                     let _ = write!(output, "\tmissing: {}", candidate.missing_terms.join(" "));
                 }

@@ -90,7 +90,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::projector::{GraphParams, GraphValue, GraphView};
+use crate::projector::{GraphParams, GraphValue, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
 use super::same_as::{fold_linked, RecordedCopy};
@@ -99,9 +99,10 @@ use super::search::{
     SAYS_AS_MUCH_SHARE,
 };
 use super::shared::{
-    normalized_topic_filter_values, optional_int, optional_string, query_error, query_timer_start,
-    MAX_QUERY_RESULTS,
+    neighbor_pairs, normalized_topic_filter_values, optional_int, optional_string, query_error,
+    query_timer_start, Direction, MAX_QUERY_RESULTS,
 };
+use super::status::{derive_decision_status, DecisionStatus};
 use super::terms::resolver_terms;
 use super::QueryResponse;
 
@@ -189,6 +190,12 @@ pub struct ResolvedCandidate {
     pub rank: u8,
     /// Ledger offset at creation — recency tiebreak, never a ranking input on its own.
     pub event_origin: i64,
+    /// What the graph says became of the decision. Listed with every candidate so a replaced or
+    /// contested decision is not offered as if it stood (hivemind-erlbl).
+    pub status: DecisionStatus,
+    /// The decisions that replaced it, by id; empty unless `status` is `superseded`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub superseded_by: Vec<String>,
     pub matched_fields: Vec<String>,
     /// Description terms this decision does not contain. Empty for a full match; non-empty only
     /// for the close candidates offered when no decision matches every term.
@@ -372,6 +379,8 @@ fn resolve_for(
             title: row.title,
             rank: row.rank,
             event_origin: row.event_origin,
+            status: row.status,
+            superseded_by: row.superseded_by,
             matched_fields: row.matched_fields,
             missing_terms: row.missing_terms,
             polarity_mismatch: row.polarity_mismatch,
@@ -686,6 +695,18 @@ pub fn resolve_decision_by_id(
                 title: optional_string(row, "title").unwrap_or_default(),
                 rank: 0,
                 event_origin: optional_int(row, "event_origin").unwrap_or(0),
+                status: derive_decision_status(graph, decision_id)?,
+                superseded_by: neighbor_pairs(
+                    graph,
+                    NodeKind::Decision,
+                    decision_id,
+                    RelationKind::Supersedes,
+                    NodeKind::Decision,
+                    Direction::Incoming,
+                )?
+                .into_iter()
+                .map(|(by_id, _)| by_id)
+                .collect(),
                 matched_fields: vec!["id".to_owned()],
                 missing_terms: Vec::new(),
                 polarity_mismatch: false,

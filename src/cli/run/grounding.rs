@@ -7,6 +7,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use crate::cli::args::GroundingArgs;
+use crate::cli::render::candidate_status_clause;
 use crate::commands::{NewBet, NewEvidence};
 use crate::error::CliError;
 use crate::events::TenantId;
@@ -177,6 +178,7 @@ fn refuse_unresolved(loomtracer_dir: &Path, unresolved: &UnresolvedPremise) -> C
             candidate.title,
             candidate.decision_id
         );
+        let _ = write!(message, " status: {}", candidate_status_clause(candidate));
         if !candidate.missing_terms.is_empty() {
             message.push_str(" missing:");
             for term in &candidate.missing_terms {

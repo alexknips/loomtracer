@@ -2531,6 +2531,10 @@ pub(crate) struct ResolverCandidateRow {
     /// accepted`): among candidates that tie on everything that says how fully the question
     /// matches, it comes before a proposed draft, which recency alone would put first.
     pub(crate) accepted: bool,
+    /// What the graph says became of the decision, so a list shows a replaced one as replaced.
+    pub(crate) status: DecisionStatus,
+    /// The decisions that replaced it, by id; empty unless it is `superseded`.
+    pub(crate) superseded_by: Vec<String>,
     pub(crate) matched_fields: Vec<String>,
     /// Description terms this decision does not contain; empty for a full match.
     pub(crate) missing_terms: Vec<String>,
@@ -2613,6 +2617,8 @@ pub(crate) fn collect_resolver_candidates(
             rank: scored.rank,
             event_origin: scored.event_origin,
             accepted: scored.accepted,
+            status: scored.result.decision.status,
+            superseded_by: scored.result.graph_context.superseded_by_decision_ids,
             matched_fields: scored.result.matched_fields,
             missing_terms: scored.result.missing_terms,
             polarity_mismatch: scored.polarity_mismatch,

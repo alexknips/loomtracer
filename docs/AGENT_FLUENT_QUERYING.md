@@ -806,6 +806,8 @@ pub struct ResolvedCandidate {
     pub title: String,
     pub rank: u8,              // reused tier from evaluate_search_match; 0 = exact
     pub event_origin: i64,     // recency tiebreak, ascending rank order first
+    pub status: DecisionStatus, // proposed | accepted | rejected | contested | superseded
+    pub superseded_by: Vec<String>, // what replaced it; empty unless superseded
     pub matched_fields: Vec<String>,
 }
 
@@ -825,6 +827,15 @@ pub fn resolve_decision_by_description(
     topic_hint: Option<&str>,   // optional --topic narrowing, same param search already accepts
 ) -> Result<QueryResponse<ResolveOutcome>>;
 ```
+
+Every candidate says what became of it. A list that left the status off would offer a
+replaced decision, or a contested one, as if it stood, and the asker would have to
+`verify` each candidate to learn it (hivemind-erlbl). `status` is the one status rule
+every other read uses, and a superseded candidate names its replacement in
+`superseded_by` (the key is absent for a decision nothing replaced). `--summary` prints
+it after the title, as `status: accepted` or `status: superseded by <decision-id>`, and a
+premise that is refused for being ambiguous prints the same clause. It changes neither
+which decisions are listed nor their order.
 
 `ResolveOutcome` is a **value**, not an `Err`. Ambiguity is an expected,
 common outcome (most descriptions will match more than zero decisions early

@@ -849,6 +849,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A listed `why` or `verify` answer now says what became of each candidate: a replaced decision
+  is no longer listed as if it stood.** When `why` or `verify` cannot pick one decision it lists
+  candidates, and the list showed no status, so a superseded decision could come first, above the
+  decision that replaced it, with nothing saying it had been replaced; `recall` and the one-call
+  answer already said so. Every candidate now carries its `status` and, when it was replaced,
+  `superseded_by` (the ids that replaced it) in `--json`, `GET /v1/decisions/why` and `/verify`, and
+  the MCP tools that return the list (the same list `disagree`, `supersede` and a capture's
+  `rests_on` premise give). `--summary` prints it after the title, as `status: accepted` or
+  `status: superseded by decision-7b572135`, and a refused ambiguous premise prints the same clause.
+  Which decisions are listed, and their order, are unchanged. (hivemind-erlbl)
+
 - **`recall`, `why` and `verify` no longer lose a decision because an unrelated new decision mentions
   one of the question's words in passing.** Two questions that had been verified stopped finding their
   decision with no change to it or to the build, only because the ledger grew. "Is anything paywalled

@@ -1779,3 +1779,79 @@ fn the_dot_export_draws_a_reaffirmation_with_the_decision_it_is_about() -> Resul
         .all(|line| line.trim_start().starts_with("\"Reaffirmation:")));
     Ok(())
 }
+
+fn listed_candidate(
+    id: &str,
+    title: &str,
+    status: DecisionStatus,
+    superseded_by: &[&str],
+) -> ResolvedCandidate {
+    ResolvedCandidate {
+        decision_id: id.to_owned(),
+        title: title.to_owned(),
+        rank: 1,
+        event_origin: 1,
+        status,
+        superseded_by: superseded_by.iter().map(|by| (*by).to_owned()).collect(),
+        matched_fields: vec!["title".to_owned()],
+        missing_terms: Vec::new(),
+        polarity_mismatch: false,
+        also_recorded_as: Vec::new(),
+    }
+}
+
+#[test]
+fn a_listed_candidate_says_its_status_and_a_replaced_one_names_what_replaced_it() {
+    let summary = render_resolve_outcome_summary(&ResolveOutcome::Ambiguous {
+        candidates: vec![
+            listed_candidate(
+                "decision-old",
+                "Paid shape is chosen after the testers",
+                DecisionStatus::Superseded,
+                &["decision-new"],
+            ),
+            listed_candidate(
+                "decision-new",
+                "Paid shape is chosen before the first testers",
+                DecisionStatus::Accepted,
+                &[],
+            ),
+            listed_candidate(
+                "decision-draft",
+                "Nothing is paywalled until the trial ends",
+                DecisionStatus::Proposed,
+                &[],
+            ),
+        ],
+    });
+
+    assert_eq!(
+        summary,
+        "ambiguous: 3 candidates match — resolve with --pick N, #N, or --id\n\
+         #1\tdecision-old\tPaid shape is chosen after the testers\tstatus: superseded by decision-new\n\
+         #2\tdecision-new\tPaid shape is chosen before the first testers\tstatus: accepted\n\
+         #3\tdecision-draft\tNothing is paywalled until the trial ends\tstatus: proposed"
+    );
+}
+
+#[test]
+fn a_close_candidate_says_its_status_before_the_words_it_lacks() {
+    let mut close = listed_candidate(
+        "decision-old",
+        "Paid shape is chosen after the testers",
+        DecisionStatus::Superseded,
+        &["decision-new"],
+    );
+    close.missing_terms = vec!["pricing".to_owned()];
+
+    let summary = render_resolve_outcome_summary(&ResolveOutcome::Ambiguous {
+        candidates: vec![close],
+    });
+
+    assert!(
+        summary.ends_with(
+            "#1\tdecision-old\tPaid shape is chosen after the testers\tstatus: superseded by decision-new\tmissing: pricing"
+        ),
+        "{summary}"
+    );
+}

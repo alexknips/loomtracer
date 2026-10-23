@@ -10603,7 +10603,7 @@ fn decision_capture_with_only_close_premise_candidates_says_what_they_lack_and_w
     );
     assert!(
         message.contains(&format!(
-            "#1 Adopt async queue for billing ({queue_id}) missing: unicorns"
+            "#1 Adopt async queue for billing ({queue_id}) status: proposed missing: unicorns"
         )),
         "{message}"
     );

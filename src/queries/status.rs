@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::projector::{actor_kind, GraphView, NodeKind, RelationKind};
 use crate::Result;
@@ -11,7 +11,7 @@ use super::shared::{
     relation_count, relation_edges_with_origin, relation_edges_with_time, Direction, EdgeStamp,
 };
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DecisionStatus {
     Proposed,

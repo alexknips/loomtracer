@@ -1254,6 +1254,8 @@ fn a_close_match_is_named_in_the_envelope_and_a_full_match_is_not() {
         title: LINKS_TITLE.to_owned(),
         rank: 1,
         event_origin: 1,
+        status: DecisionStatus::Accepted,
+        superseded_by: Vec::new(),
         matched_fields: vec!["title".to_owned()],
         missing_terms: vec!["keep".to_owned(), "stable".to_owned()],
         polarity_mismatch: false,
@@ -1451,6 +1453,8 @@ fn the_envelope_names_the_other_records_beside_data() {
         title: "Run every town seat on Fable".to_owned(),
         rank: 1,
         event_origin: 1,
+        status: DecisionStatus::Accepted,
+        superseded_by: Vec::new(),
         matched_fields: vec!["title".to_owned()],
         missing_terms: Vec::new(),
         polarity_mismatch: false,
@@ -2534,6 +2538,8 @@ fn headline_candidate(id: &str, said_as_word: u64, said_in_any_form: u64) -> Res
         rank: 1,
         event_origin: 0,
         accepted: false,
+        status: DecisionStatus::Proposed,
+        superseded_by: Vec::new(),
         matched_fields: Vec::new(),
         missing_terms: Vec::new(),
         polarity_mismatch: false,
@@ -2846,6 +2852,135 @@ fn a_close_candidate_whose_title_says_more_of_the_words_than_the_others_is_still
             assert_eq!(candidate.decision_id, "d:made");
         }
         other => panic!("expected the decision whose title says the most: {other:?}"),
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// A listed candidate says what became of it (hivemind-erlbl)
+// ---------------------------------------------------------------------------
+
+fn decision_superseded(sequence: u128, old_id: &str, new_id: &str) -> Event {
+    Event {
+        tenant_id: Default::default(),
+        event_id: None,
+        event_uuid: Uuid::from_u128(sequence),
+        correlation_id: Some("resolve-test".to_owned()),
+        causation_event_id: None,
+        event_type: EventType::DecisionSuperseded,
+        actor_id: "human:alex".to_owned(),
+        source: EventSource::Cli,
+        source_ref: None,
+        payload: json!({ "old_decision_id": old_id, "new_decision_id": new_id }),
+        ts: Some(ts("2026-01-03T00:00:00Z")),
+    }
+}
+
+/// A replaced decision, its replacement and a third that nobody has acted on, all about pricing.
+fn replaced_pricing_graph() -> Result<MemoryGraph> {
+    graph_from_events([
+        decision_proposed(
+            1,
+            "d:after",
+            "Pricing is chosen after the testers",
+            &["pricing"],
+        ),
+        decision_accepted(2, "d:after"),
+        decision_proposed(
+            3,
+            "d:before",
+            "Pricing is chosen before the testers",
+            &["pricing"],
+        ),
+        decision_accepted(4, "d:before"),
+        decision_superseded(5, "d:after", "d:before"),
+        decision_proposed(
+            6,
+            "d:later",
+            "Pricing is chosen once the trial ends",
+            &["pricing"],
+        ),
+    ])
+}
+
+fn listed(outcome: ResolveOutcome) -> Vec<ResolvedCandidate> {
+    match outcome {
+        ResolveOutcome::Ambiguous { candidates } => candidates,
+        other => panic!("expected a list of candidates: {other:?}"),
+    }
+}
+
+fn candidate_of<'a>(candidates: &'a [ResolvedCandidate], id: &str) -> &'a ResolvedCandidate {
+    candidates
+        .iter()
+        .find(|candidate| candidate.decision_id == id)
+        .unwrap_or_else(|| panic!("{id} is not listed: {candidates:?}"))
+}
+
+#[test]
+fn a_listed_candidate_says_its_status_and_a_replaced_one_names_what_replaced_it() -> Result<()> {
+    let graph = replaced_pricing_graph()?;
+
+    for outcome in [
+        resolve_decision_by_description(&graph, "pricing chosen", None)?.data,
+        resolve_decision_for_reading(&graph, "pricing chosen", None)?.data,
+    ] {
+        let candidates = listed(outcome);
+        assert_eq!(candidates.len(), 3);
+
+        let replaced = candidate_of(&candidates, "d:after");
+        assert_eq!(replaced.status, DecisionStatus::Superseded);
+        assert_eq!(replaced.superseded_by, ["d:before"]);
+
+        let replacement = candidate_of(&candidates, "d:before");
+        assert_eq!(replacement.status, DecisionStatus::Accepted);
+        assert!(replacement.superseded_by.is_empty());
+
+        let untouched = candidate_of(&candidates, "d:later");
+        assert_eq!(untouched.status, DecisionStatus::Proposed);
+        assert!(untouched.superseded_by.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn the_json_of_a_candidate_has_its_status_and_names_the_replacement_only_when_there_is_one(
+) -> Result<()> {
+    let graph = replaced_pricing_graph()?;
+    let candidates = listed(resolve_decision_for_reading(&graph, "pricing chosen", None)?.data);
+
+    let replaced = serde_json::to_value(candidate_of(&candidates, "d:after")).expect("serializes");
+    assert_eq!(replaced["status"], "superseded");
+    assert_eq!(replaced["superseded_by"], json!(["d:before"]));
+
+    let accepted = serde_json::to_value(candidate_of(&candidates, "d:before")).expect("serializes");
+    assert_eq!(accepted["status"], "accepted");
+    assert!(accepted.get("superseded_by").is_none());
+
+    // The `#N` continuation file keeps both.
+    let written = serde_json::to_value(&candidates).expect("serializes");
+    let kept: Vec<ResolvedCandidate> = serde_json::from_value(written).expect("reads back");
+    assert_eq!(kept, candidates);
+    Ok(())
+}
+
+#[test]
+fn a_decision_resolved_by_its_id_says_its_status_and_what_replaced_it() -> Result<()> {
+    let graph = replaced_pricing_graph()?;
+
+    match resolve_decision_by_id(&graph, "d:after")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.status, DecisionStatus::Superseded);
+            assert_eq!(candidate.superseded_by, ["d:before"]);
+        }
+        other => panic!("expected the decision named: {other:?}"),
+    }
+    match resolve_decision_by_id(&graph, "d:later")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.status, DecisionStatus::Proposed);
+            assert!(candidate.superseded_by.is_empty());
+        }
+        other => panic!("expected the decision named: {other:?}"),
     }
     Ok(())
 }

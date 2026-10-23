@@ -738,3 +738,119 @@ async fn a_decision_with_no_choice_lists_its_options_as_open_through_every_surfa
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
+
+/// hivemind-erlbl: a list of candidates says what became of each one. A decision that was
+/// replaced is listed as replaced and names its replacement, through every surface, in the JSON
+/// and in `--summary`; before, only the one-call answer and `recall` said so.
+#[tokio::test]
+async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replaced_it_through_every_surface(
+) -> TestResult<()> {
+    let dir = unique_temp_dir("read-surface-parity-listed-status");
+    let path = dir.to_str().ok_or("the ledger path is utf-8")?;
+    let propose = |title: &str, rationale: &str| -> TestResult<String> {
+        let id = run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            "human:alice",
+            "--loomtracer-dir",
+            path,
+            "emit",
+            "decision.proposed",
+            "--title",
+            title,
+            "--rationale",
+            rationale,
+            "--topic-keys",
+            "pricing",
+            "--options",
+            "Before testers,After testers",
+        ]))?;
+        Ok(id.trim().to_owned())
+    };
+    let replaced = propose(
+        "Pricing is chosen after the testers",
+        "The paid shape waits for what the first testers say",
+    )?;
+    let replacement = propose(
+        "Pricing is chosen before the testers",
+        "The waitlist page quotes a real price, so the paid shape is chosen first",
+    )?;
+    let untouched = propose(
+        "Pricing is chosen once the trial ends",
+        "Nothing is charged during the own-use trial",
+    )?;
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        "human:alice",
+        "--loomtracer-dir",
+        path,
+        "emit",
+        "decision.superseded",
+        "--old",
+        &replaced,
+        "--new",
+        &replacement,
+    ]))?;
+    let mut mcp = McpServer::start(&dir)?;
+
+    for verb in ["why", "verify"] {
+        let question = "pricing chosen";
+        let cli = without_latency(via_cli(&dir, verb, question)?);
+        let plugin = without_latency(via_plugin(&dir, verb, question)?);
+        let from_mcp = without_latency(mcp.call(mcp_tool(verb), question)?);
+        let (status, http) = via_http(&dir, verb, question).await?;
+
+        assert_eq!(cli["data"]["outcome"], "ambiguous", "{verb}: {cli}");
+        let candidates = cli["data"]["candidates"]
+            .as_array()
+            .ok_or("a list has candidates")?;
+        assert_eq!(candidates.len(), 3, "{verb}: {cli}");
+        let candidate = |id: &str| -> TestResult<&Value> {
+            candidates
+                .iter()
+                .find(|candidate| candidate["decision_id"] == id)
+                .ok_or_else(|| format!("{verb}: {id} is not listed: {cli}").into())
+        };
+
+        let old = candidate(&replaced)?;
+        assert_eq!(old["status"], "superseded", "{verb}: {cli}");
+        assert_eq!(old["superseded_by"], json!([replacement]), "{verb}: {cli}");
+        for standing in [&replacement, &untouched] {
+            let candidate = candidate(standing)?;
+            assert_eq!(candidate["status"], "proposed", "{verb}: {cli}");
+            assert!(candidate.get("superseded_by").is_none(), "{verb}: {cli}");
+        }
+
+        assert_eq!(plugin, cli, "{verb}: the plugin's reply differs");
+        assert_eq!(from_mcp, cli, "{verb}: the MCP reply differs");
+        assert_eq!(status, StatusCode::OK, "{verb}: {http}");
+        assert_eq!(without_latency(http), cli, "{verb}: the HTTP reply differs");
+
+        let summary = run(&Cli::parse_from([
+            "loomtracer",
+            "--loomtracer-dir",
+            path,
+            "query",
+            verb,
+            question,
+            "--summary",
+        ]))?;
+        let line = summary
+            .lines()
+            .find(|line| line.contains(&replaced))
+            .ok_or_else(|| format!("{verb}: {replaced} is not listed: {summary}"))?;
+        assert!(
+            line.ends_with(&format!("status: superseded by {replacement}")),
+            "{verb}: {line}"
+        );
+        let line = summary
+            .lines()
+            .find(|line| line.contains(&untouched))
+            .ok_or_else(|| format!("{verb}: {untouched} is not listed: {summary}"))?;
+        assert!(line.ends_with("status: proposed"), "{verb}: {line}");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
