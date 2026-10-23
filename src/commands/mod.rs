@@ -4507,8 +4507,8 @@ fn require_valid_expressed_confidence(value: Option<&str>) -> Result<()> {
 fn require_aligned_option_labels(option_ids: &[String], option_labels: &[String]) -> Result<()> {
     if option_labels.len() != option_ids.len() {
         return Err(CommandError::Validation(
-            "option_labels must have exactly one label per option_id (hivemind-zdsh.10: a \
-             label is a required part of the option entity, not optional)"
+            "option_labels must have exactly one label per option_id (a label is a required \
+             part of the option entity, not optional)"
                 .to_owned(),
         )
         .into());

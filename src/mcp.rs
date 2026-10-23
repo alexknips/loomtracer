@@ -1192,7 +1192,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "scan_misfiled_decisions",
-            "description": "Flag decisions carrying a caller-named \"foreign\" topic key — a decision tagged with another ledger's name most likely belongs there instead (hivemind-zdsh.14). Deterministic exact-match only, no LLM, no inference beyond topic-key membership: Loomtracer does not decide what is foreign, so the caller supplies the foreign keys. Each candidate names the project it is filed under; `project` scopes the report to one project and `move_to` names where the flagged decisions belong. Read-only report — never moves a decision: move each confirmed one with `move_decision`, recorded and reversible.",
+            "description": "Flag decisions carrying a caller-named \"foreign\" topic key — a decision tagged with another ledger's name most likely belongs there instead. Deterministic exact-match only, no LLM, no inference beyond topic-key membership: Loomtracer does not decide what is foreign, so the caller supplies the foreign keys. Each candidate names the project it is filed under; `project` scopes the report to one project and `move_to` names where the flagged decisions belong. Read-only report — never moves a decision: move each confirmed one with `move_decision`, recorded and reversible.",
             "inputSchema": {
                 "type": "object",
                 "required": ["foreign_topic_keys"],
@@ -1241,7 +1241,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "classify_queue_list",
-            "description": "List pending (unclassified) ingest batches with rendered turn text, plus today's classification budget. HTTP-transport only (hivemind-zdsh.18) — pass `session_id` to scope to one ingest session for the session-grouped classification cadence: one model call per session end, not one per batch.",
+            "description": "List pending (unclassified) ingest batches with rendered turn text, plus today's classification budget. HTTP-transport only — pass `session_id` to scope to one ingest session for the session-grouped classification cadence: one model call per session end, not one per batch.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1252,7 +1252,7 @@ pub fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "classify_queue_submit",
-            "description": "Submit captures for one or more pending ingest batches as a single classification event, moving every listed batch id from pending to classified together. HTTP-transport only (hivemind-zdsh.18). Pass more than one `batch_ids` entry to cover a whole session's batches in one model call, per the session-grouped cadence. Refuses a batch id the tenant never received, naming it, with nothing recorded. Refuses with an error once the daily classification cap is hit — batches stay pending for the next day rather than being dropped.",
+            "description": "Submit captures for one or more pending ingest batches as a single classification event, moving every listed batch id from pending to classified together. HTTP-transport only. Pass more than one `batch_ids` entry to cover a whole session's batches in one model call, per the session-grouped cadence. Refuses a batch id the tenant never received, naming it, with nothing recorded. Refuses with an error once the daily classification cap is hit — batches stay pending for the next day rather than being dropped.",
             "inputSchema": {
                 "type": "object",
                 "required": ["batch_ids", "captures"],

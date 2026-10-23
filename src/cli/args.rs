@@ -980,9 +980,8 @@ pub struct ClassifyQueueListArgs {
     pub limit: usize,
 
     /// Only list batches from this ingest session. Session-grouped
-    /// classification (hivemind-zdsh.18) uses this so one classify-queue run
-    /// at session end only sees, and later classifies, its own session's
-    /// pending batches.
+    /// classification uses this so one classify-queue run at session end
+    /// only sees, and later classifies, its own session's pending batches.
     #[arg(long = "session-id")]
     pub session_id: Option<String>,
 }
@@ -992,8 +991,7 @@ pub struct ClassifyQueueSubmitArgs {
     /// Batch ID(s) to classify (from `classify-queue list` output),
     /// comma-separated. Pass more than one to submit a single classification
     /// covering several batches from the same session in one model call
-    /// (hivemind-zdsh.18 cadence: one call per session end, not one per
-    /// batch).
+    /// (one call per session end, not one per batch).
     #[arg(long = "batch-id", value_delimiter = ',', required = true)]
     pub batch_id: Vec<String>,
 
@@ -1846,7 +1844,7 @@ pub struct EmitDecisionProposedArgs {
 
     /// Verbatim words of the decider, self-contained — not a bare reference like "1a" into
     /// an external numbered list. Requires `--question`. A quote with no stated question is
-    /// unreadable once the source conversation is gone (hivemind-zdsh.13).
+    /// unreadable once the source conversation is gone.
     #[arg(long = "quote", requires = "question")]
     pub quote: Option<String>,
 
@@ -1854,7 +1852,7 @@ pub struct EmitDecisionProposedArgs {
     /// `--quote`; otherwise optional. Two captures whose question is the same after lowercasing,
     /// collapsing spaces and dropping trailing punctuation share one question node, so a
     /// decision that answers the same question again, or one that answers it differently, is
-    /// findable (hivemind-zdsh.16).
+    /// findable.
     #[arg(long = "question")]
     pub question: Option<String>,
 
@@ -2340,25 +2338,24 @@ pub enum QueryCommand {
     GetActiveDecisionBlockers(QueryActiveDecisionBlockersArgs),
     /// Open requests with no answering decision yet, oldest first: what was asked, when, by
     /// whom, and the request id `capture --answers` takes. Read straight from `question.asked`
-    /// events and `ANSWERS` edges, nothing ranked or inferred (hivemind-bbnw.4).
+    /// events and `ANSWERS` edges, nothing ranked or inferred.
     #[command(name = "get_waiting_requests")]
     GetWaitingRequests(QueryWaitingRequestsArgs),
     /// Decisions in contest, oldest first: an accepted-and-rejected decision (who is on each
     /// side), or accepted answers to one question that choose different options (each naming the
-    /// other). Derived from the graph, nothing ranked, picked or resolved (hivemind-bbnw.7).
+    /// other). Derived from the graph, nothing ranked, picked or resolved.
     #[command(name = "get_contested_decisions")]
     GetContestedDecisions(QueryContestedDecisionsArgs),
     /// Binding decisions whose why is still to answer, oldest first: decisions in force that
     /// clear the decision floor and rest only on what their own capture brought (no earlier
     /// decision, no person who decided it, no observation, assumption or bet another decision
     /// shares), each with what it rests on. An open state, not a refusal: every one was written.
-    /// Nothing is suggested or linked (hivemind-lapcm).
+    /// Nothing is suggested or linked.
     #[command(name = "get_open_why_decisions")]
     GetOpenWhyDecisions(QueryOpenWhyDecisionsArgs),
     /// Decisions that were revised or superseded, or whose premise stopped standing, in a window
     /// (`--since`, default the last 7 days), most recently changed first: what changed, when, by
-    /// whom and by what. Facts from the ledger, cited by event offset; no verdict on the change
-    /// (hivemind-bbnw.7).
+    /// whom and by what. Facts from the ledger, cited by event offset; no verdict on the change.
     #[command(name = "get_changed_decisions")]
     GetChangedDecisions(QueryChangedDecisionsArgs),
     /// Which open blockers now warrant telling a human, under a notification policy

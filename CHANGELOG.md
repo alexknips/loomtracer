@@ -860,6 +860,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `status: superseded by decision-7b572135`, and a refused ambiguous premise prints the same clause.
   Which decisions are listed, and their order, are unchanged. (hivemind-erlbl)
 
+- **Help text, MCP tool descriptions and one refusal no longer show the team's internal tracker
+  ids.** `classify_queue_list` and `classify_queue_submit` said "HTTP-transport only
+  (hivemind-zdsh.18)", `scan_misfiled_decisions` ended its first sentence with "(hivemind-zdsh.14)",
+  `loomtracer query --help` carried four such ids (`get_waiting_requests`, `get_contested_decisions`,
+  `get_open_why_decisions`, `get_changed_decisions`), `classify-queue list|submit --help`,
+  `--quote` and `--question` carried one each, and the refusal for `option_labels` that do not match
+  `option_ids` named hivemind-zdsh.10. The ids are gone and each sentence says what it said. A test
+  walks `--help` at every level and every MCP tool and parameter description and fails on a tracker
+  id. (hivemind-brtn7)
+
 - **`recall`, `why` and `verify` no longer lose a decision because an unrelated new decision mentions
   one of the question's words in passing.** Two questions that had been verified stopped finding their
   decision with no change to it or to the build, only because the ledger grew. "Is anything paywalled

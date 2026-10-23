@@ -329,6 +329,109 @@ fn every_command_says_what_it_does() -> CliTestResult {
     )
 }
 
+/// A tracker (bead) id in `text`, such as `hivemind-zdsh.18` (found as `hivemind-zdsh`), `hc-4ec`
+/// or `hmd-ab12`: a prefix at the start of a word, a dash, then three to six lowercase letters or
+/// digits. The id means nothing outside the team that files them.
+fn first_tracker_id(text: &str) -> Option<&str> {
+    const PREFIXES: [&str; 4] = ["hivemind-", "hc-", "hu-", "hmd-"];
+    let in_word = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    for prefix in PREFIXES {
+        for (at, _) in text.match_indices(prefix) {
+            if text[..at].chars().next_back().is_some_and(in_word) {
+                continue;
+            }
+            let rest = &text[at + prefix.len()..];
+            let suffix = rest
+                .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()))
+                .unwrap_or(rest.len());
+            if (3..=6).contains(&suffix) {
+                return Some(&text[at..at + prefix.len() + suffix]);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn tracker_id_finder_reads_ids_and_leaves_words_alone() -> CliTestResult {
+    let id = |text| first_tracker_id(text);
+    ensure_eq(
+        id("HTTP only (hivemind-zdsh.18)"),
+        Some("hivemind-zdsh"),
+        "dotted id",
+    )?;
+    ensure_eq(id("see hc-4ec"), Some("hc-4ec"), "short prefix")?;
+    ensure_eq(id("hmd-ab12 first"), Some("hmd-ab12"), "id at the start")?;
+    ensure_eq(
+        id("a hivemind-compose service"),
+        None,
+        "a longer word is not an id",
+    )?;
+    ensure_eq(id("the no-hu-man test"), None, "prefix inside a word")?;
+    ensure_eq(id("hivemind-ab is too short"), None, "two characters")?;
+    ensure_eq(id("Loomtracer, per decision"), None, "plain text")
+}
+
+/// Nothing a user reads carries a tracker id: `--help` at every level and every MCP tool and
+/// parameter description. Code comments may keep ids; clap turns doc comments into help text, so
+/// an id in a doc comment on a command or flag lands here. Fails on the first id with where it
+/// sits (hivemind-brtn7).
+#[test]
+fn no_user_facing_text_carries_a_tracker_id() -> CliTestResult {
+    fn collect_help(command: &clap::Command, path: &str, found: &mut Vec<String>) {
+        let mut command = command.clone();
+        for (kind, help) in [
+            ("--help", command.render_help().to_string()),
+            ("--help (long)", command.render_long_help().to_string()),
+        ] {
+            if let Some(id) = first_tracker_id(&help) {
+                found.push(format!("`{path} {kind}` shows {id}"));
+            }
+        }
+        for subcommand in command.get_subcommands() {
+            if subcommand.get_name() != "help" {
+                let name = format!("{path} {}", subcommand.get_name());
+                collect_help(subcommand, &name, found);
+            }
+        }
+    }
+
+    fn collect_json(value: &serde_json::Value, pointer: &str, found: &mut Vec<String>) {
+        match value {
+            serde_json::Value::String(text) => {
+                if let Some(id) = first_tracker_id(text) {
+                    found.push(format!("MCP `{pointer}` shows {id}"));
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for (index, item) in items.iter().enumerate() {
+                    collect_json(item, &format!("{pointer}/{index}"), found);
+                }
+            }
+            serde_json::Value::Object(fields) => {
+                for (key, field) in fields {
+                    collect_json(field, &format!("{pointer}/{key}"), found);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut found = Vec::new();
+    collect_help(&Cli::command(), "loomtracer", &mut found);
+    for tool in crate::mcp::tool_definitions() {
+        let name = tool
+            .get("name")
+            .and_then(|name| name.as_str())
+            .unwrap_or("?");
+        collect_json(&tool, name, &mut found);
+    }
+    ensure(
+        found.is_empty(),
+        &format!("tracker ids in text users read: {found:#?}"),
+    )
+}
+
 /// `supersede`, `emit decision.capture` and `ground` share the grounding flags. Their shared
 /// comment must never become a command's description: `supersede --help` once opened with
 /// "What does this decision rest on?" instead of saying it replaces a decision (hivemind-pdeh).
