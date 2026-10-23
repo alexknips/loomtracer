@@ -42,11 +42,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   project handle, then the new compose files). A cell in SQLite mode keeps its whole ledger in the
   old `hivemind-data` volume, which the new compose file does not mount: its steps copy the ledger
   into `loomtracer-data` before renaming the tables, and remove the old volume last, only once the
-  new server answers the same decisions.
+  new server answers the same decisions. A Postgres cell whose `.env` never set `POSTGRES_PASSWORD`
+  ran on v0.8.0's default password `hivemind`, which the renamed role keeps while the new compose
+  file sends `loomtracer`: step 2 now gives the role the new default (`ALTER ROLE loomtracer
+  PASSWORD 'loomtracer'`) before the tables are renamed.
 
-  (hivemind-x4xl7, hivemind-n33h7)
+  (hivemind-x4xl7, hivemind-n33h7, hivemind-r9cs1)
 
 ### Fixed
+
+- **A Postgres server that refuses a login now says so: "password authentication failed for user
+  ...", not only "timed out waiting for connection: db error".** The connection pool kept only the
+  first line of the Postgres client's error, which for any server refusal is `db error`, so
+  `migrate-storage`, `serve`, `emit` and every other command on a Postgres ledger that could not log
+  in (a role whose password is not the one in `LOOMTRACER_DATABASE_URL`, a role or database that
+  does not exist) failed with a message that never said why, and the cause showed only in the
+  Postgres container's log. The error now ends with the server's own message, for example
+  `timed out waiting for connection: db error: FATAL: password authentication failed for user
+  "loomtracer"`. (hivemind-r9cs1)
 
 - **A listed `why` or `verify` answer now says what became of each candidate: a replaced decision
   is no longer listed as if it stood.** When `why` or `verify` cannot pick one decision it lists

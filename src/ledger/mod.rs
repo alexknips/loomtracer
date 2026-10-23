@@ -26,6 +26,8 @@ pub use memory::InMemoryEventLedger;
 #[cfg(feature = "shared-backend-postgres")]
 pub(crate) use postgres::require_current_names as require_current_postgres_names;
 #[cfg(feature = "shared-backend-postgres")]
+pub(crate) use postgres::PgConnectionManager;
+#[cfg(feature = "shared-backend-postgres")]
 pub use postgres::{PostgresEventLedger, ProvisionedUser, ResolvedToken, TenantStore, UserInfo};
 pub use received_batch::ReceivedBatchFacts;
 pub use sqlite::{SqliteEventLedger, SqliteUserStore, SQLITE_TOKEN_PREFIX};

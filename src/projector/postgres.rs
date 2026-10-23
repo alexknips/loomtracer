@@ -5,18 +5,17 @@ use std::str::FromStr;
 use postgres::{Client, Config};
 use postgres_native_tls::MakeTlsConnector;
 use r2d2::Pool;
-use r2d2_postgres::PostgresConnectionManager;
 use serde_json::Value as JsonValue;
 
 use crate::error::ProjectorError;
+use crate::ledger::PgConnectionManager;
 use crate::Result;
 
 use super::{
     GraphParams, GraphProperties, GraphRow, GraphValue, GraphView, NodeKind, RelationKind,
 };
 
-type PgManager = PostgresConnectionManager<MakeTlsConnector>;
-type PgPool = Pool<PgManager>;
+type PgPool = Pool<PgConnectionManager>;
 
 const DEFAULT_POOL_SIZE: u32 = 8;
 
@@ -40,7 +39,7 @@ impl PostgresGraphView {
         let tenant_id = validate_tenant_id(tenant_id.into())?;
         let config = Config::from_str(database_url).map_err(pg_error)?;
         let tls = MakeTlsConnector::new(native_tls::TlsConnector::new().map_err(pg_error)?);
-        let manager = PostgresConnectionManager::new(config, tls);
+        let manager = PgConnectionManager::new(config, tls);
         let pool = Pool::builder()
             .max_size(max_size)
             .build(manager)

@@ -3,7 +3,6 @@ use std::str::FromStr;
 use postgres::Config;
 use postgres_native_tls::MakeTlsConnector;
 use r2d2::Pool;
-use r2d2_postgres::PostgresConnectionManager;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -12,8 +11,9 @@ use crate::util::require_agent_actor_id;
 use crate::Result;
 
 use super::super::backend_error::{storage_error, unknown_tenant_error};
+use super::PgConnectionManager;
 
-type PgPool = Pool<PostgresConnectionManager<MakeTlsConnector>>;
+type PgPool = Pool<PgConnectionManager>;
 
 pub(crate) const TOKEN_PREFIX: &str = "lt_tk_";
 
@@ -76,7 +76,7 @@ impl TenantStore {
     pub fn connect(database_url: &str) -> Result<Self> {
         let config = Config::from_str(database_url).map_err(storage_error)?;
         let tls = MakeTlsConnector::new(native_tls::TlsConnector::new().map_err(storage_error)?);
-        let manager = PostgresConnectionManager::new(config, tls);
+        let manager = PgConnectionManager::new(config, tls);
         let pool = Pool::builder()
             .max_size(4)
             .build(manager)

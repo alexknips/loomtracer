@@ -728,8 +728,8 @@ The new name reached a cell in two steps. **v0.8.0**, the published release (Git
 a cell on v0.8.0 still has the tables `hm_*`, the Postgres database and role `hivemind`, the
 compose service `hivemind` and the volume `hivemind-data`. The files of this repository, and the
 first release after v0.8.0, rename those too: the tables `hm_*` are `lt_*`, the database and role
-are `loomtracer` (the default password too), the compose service is `loomtracer` and the volume is
-`loomtracer-data`.
+are `loomtracer` (the default password too, which a renamed role does not take on its own: step 2
+of Postgres mode sets it), the compose service is `loomtracer` and the volume is `loomtracer-data`.
 
 This section is for every cell that still stores the old names, a cell on v0.8.0 as much as one on
 v0.7.0 or earlier. If `docker compose ps` in the cell's directory lists a service `hivemind`, it is
@@ -805,6 +805,23 @@ prefix: it only changes its name in `.env`.
    If the second command prints `MD5 password cleared because of role rename`, set the password
    again with `\password loomtracer` in `psql`. A SCRAM password (the default since Postgres 14)
    survives the rename.
+
+   **A cell whose `.env` has no `POSTGRES_PASSWORD` needs one more command.** It has been running
+   on the password v0.8.0's compose file defaults to, `hivemind`, and the renamed role keeps it.
+   The new compose file connects as `loomtracer` with `${POSTGRES_PASSWORD:-loomtracer}`, so
+   without a change `migrate-storage` (step 4) and the server (step 6) are refused by Postgres.
+   Give the role the password the new file sends (or one you choose, then put the same in `.env` as
+   `POSTGRES_PASSWORD=...`):
+
+   ```bash
+   docker compose exec -T postgres psql -U loomtracer -d postgres -v ON_ERROR_STOP=1 \
+     -c "ALTER ROLE loomtracer PASSWORD 'loomtracer'"
+   ```
+
+   A cell that sets `POSTGRES_PASSWORD` in `.env` keeps it, and has nothing to do here. If a later
+   step ends with `password authentication failed for user "loomtracer"`, the role's password is
+   not the one `.env` (or the default) gives the server: run this command with the password you
+   mean. Putting `POSTGRES_PASSWORD=hivemind` in `.env` instead also works.
 
 3. **Switch to the new compose files** (`git pull`, or copy the new `docker-compose.yml` and keep
    your overrides, renaming the `hivemind` service in them to `loomtracer`), then build the image

@@ -11,7 +11,6 @@ use postgres::types::ToSql;
 use postgres::{Config, Row, Transaction};
 use postgres_native_tls::MakeTlsConnector;
 use r2d2::Pool;
-use r2d2_postgres::PostgresConnectionManager;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -22,8 +21,10 @@ use super::backend_error::storage_error;
 use super::{EventFields, EventLedger, ReceivedBatchFacts};
 
 mod legacy_storage;
+mod manager;
 mod tenant_store;
 pub(crate) use legacy_storage::require_current_names;
+pub(crate) use manager::PgConnectionManager;
 pub use tenant_store::{ProvisionedUser, ResolvedToken, TenantStore, UserInfo};
 
 const DEFAULT_POOL_SIZE: u32 = 16;
@@ -41,8 +42,7 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(25);
 /// instead of opening every connection up front.
 const POOL_SIZE_ENV: &str = "LOOMTRACER_POSTGRES_POOL_SIZE";
 
-type PgManager = PostgresConnectionManager<MakeTlsConnector>;
-type PgPool = Pool<PgManager>;
+type PgPool = Pool<PgConnectionManager>;
 
 /// Postgres-backed event ledger scoped to one tenant by default.
 ///
@@ -95,7 +95,7 @@ impl PostgresEventLedger {
     ) -> Result<Self> {
         let config = Config::from_str(database_url).map_err(storage_error)?;
         let tls = MakeTlsConnector::new(native_tls::TlsConnector::new().map_err(storage_error)?);
-        let manager = PostgresConnectionManager::new(config, tls);
+        let manager = PgConnectionManager::new(config, tls);
         let pool = Pool::builder()
             .max_size(max_size)
             .min_idle(min_idle)
