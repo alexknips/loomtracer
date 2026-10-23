@@ -1,7 +1,8 @@
-# A cell created before 0.8.0 has its Postgres database, role and tables, its volume and its
-# compose service under the old name `hivemind`. Starting these files on it would make a second,
-# empty stack beside the old one: rename it first, with the steps in docs/SELF_HOSTING.md
-# ("Upgrading a cell from before 0.8.0").
+# A cell created with v0.8.0 or an earlier release (v0.8.0 renamed the settings and the image, not
+# what a cell stores) has its Postgres database, role and tables, its volume and its compose
+# service under the old name `hivemind`. Starting these files on it would make a second, empty
+# stack beside the old one: rename it first, with the steps in docs/SELF_HOSTING.md ("Upgrading a
+# cell from v0.8.0 or earlier").
 services:
   loomtracer:
     # Pre-built server image from ghcr; `docker compose pull` fetches it.

@@ -188,10 +188,10 @@ server falls back to SQLite stored in the `loomtracer-data` volume. With
 `LOOMTRACER_ADMIN_KEY` set, the same `POST /v1/users` endpoint works for
 per-user SQLite tokens (default tenant `local`; omit `tenant_id` in body).
 
-A SQLite-mode cell from before 0.8.0 kept its ledger in the volume `hivemind-data`, which the
+A SQLite-mode cell on v0.8.0 or earlier keeps its ledger in the volume `hivemind-data`, which the
 current compose file does not mount: copy it across with the SQLite steps of
-[Upgrading a cell from before 0.8.0](#upgrading-a-cell-from-before-080), or the server starts on an
-empty ledger.
+[Upgrading a cell from v0.8.0 or earlier](#upgrading-a-cell-from-v080-or-earlier), or the server
+starts on an empty ledger.
 
 For a single static key instead:
 
@@ -720,16 +720,39 @@ pin before updating by hand.
 
 Postgres schema migrations run automatically at startup.
 
-### Upgrading a cell from before 0.8.0
+### Upgrading a cell from v0.8.0 or earlier
 
-0.8.0 renames what a cell stores, along with everything else: the tables `hm_*` are `lt_*`,
-the Postgres database and role `hivemind` are `loomtracer` (the default password too), the compose
-service `hivemind` is `loomtracer` and the volume `hivemind-data` is `loomtracer-data`. Starting
-the new compose file on an old cell would make a second, empty stack beside it, and the new
-server refuses to start on a database that still has the old tables. Rename them first, in this
-order, from the cell's directory, with the **old** compose files still in place. Every step but
-the last keeps the data where it is, and the rename of the tables and of the project handle can be
-rehearsed on a copy first.
+The new name reached a cell in two steps. **v0.8.0**, the published release (GitHub's "Latest",
+`1296a475`), renamed everything you type: the binary, the `LOOMTRACER_*` settings, the image
+`ghcr.io/alexknips/loomtracer`, the `lt_tk_` token prefix. It did not rename what a cell stores:
+a cell on v0.8.0 still has the tables `hm_*`, the Postgres database and role `hivemind`, the
+compose service `hivemind` and the volume `hivemind-data`. The files of this repository, and the
+first release after v0.8.0, rename those too: the tables `hm_*` are `lt_*`, the database and role
+are `loomtracer` (the default password too), the compose service is `loomtracer` and the volume is
+`loomtracer-data`.
+
+This section is for every cell that still stores the old names, a cell on v0.8.0 as much as one on
+v0.7.0 or earlier. If `docker compose ps` in the cell's directory lists a service `hivemind`, it is
+yours. Starting the new compose file on such a cell would make a second, empty stack beside it, and
+the new server refuses to start on a database that still has the old tables. Rename them first, in
+this order, from the cell's directory, with the **old** compose files still in place. Every step
+but the last keeps the data where it is, and the rename of the tables and of the project handle can
+be rehearsed on a copy first.
+
+The cell's settings differ by release:
+
+- A cell on **v0.8.0** already has its settings under their `LOOMTRACER_*` names
+  (`LOOMTRACER_API_KEY`, `LOOMTRACER_ADMIN_KEY`, ...) and pulls `ghcr.io/alexknips/loomtracer`.
+  Nothing below renames a setting for it.
+- A cell on **v0.7.0 or earlier** has `HIVEMIND_*` settings and pulls `ghcr.io/alexknips/hivemind`.
+  It also takes the install steps of the v0.8.0 entry in [CHANGELOG.md](../CHANGELOG.md) (the
+  ledger folder, the tokens, its own settings).
+
+**The steps need an image newer than v0.8.0.** `loomtracer migrate-storage` and
+`loomtracer project rename` are not in v0.8.0, and a v0.8.0 server does not read the renamed
+tables. Release images are published only when a `v*` tag is pushed, so until a release newer than
+v0.8.0 exists, `ghcr.io/alexknips/loomtracer:latest` is v0.8.0's image: build the image from the
+files you pulled (`docker compose build`, in step 3 below) and do not `docker compose pull`.
 
 Which steps are yours depends on where the cell keeps its ledger. A cell on Postgres (the default
 compose file) follows **Postgres mode**. A cell in [SQLite mode](#sqlite-mode-no-postgres), with
@@ -743,7 +766,7 @@ mode**, further down, and does not remove that volume until its last step says s
 
    ```bash
    docker compose stop hivemind
-   docker compose exec -T postgres pg_dump -U hivemind -d hivemind > cell-before-0.8.0.sql
+   docker compose exec -T postgres pg_dump -U hivemind -d hivemind > cell-before-storage-rename.sql
    ```
 
 2. **Rename the database and the role.** A role cannot rename the session it is logged in on, so
@@ -765,9 +788,11 @@ mode**, further down, and does not remove that volume until its last step says s
    survives the rename.
 
 3. **Switch to the new compose files** (`git pull`, or copy the new `docker-compose.yml` and keep
-   your overrides, renaming the `hivemind` service in them to `loomtracer`). Compose recreates the
-   `postgres` container because its settings changed; its data is in the `postgres-data` volume
-   and stays. The `hivemind-data` volume holds nothing in Postgres mode (check:
+   your overrides, renaming the `hivemind` service in them to `loomtracer`), then build the image
+   they run with `docker compose build`: the next step needs a `loomtracer` that has
+   `migrate-storage`, which v0.8.0's image does not. Compose recreates the `postgres` container
+   because its settings changed; its data is in the `postgres-data` volume and stays. The
+   `hivemind-data` volume holds nothing in Postgres mode (check:
    `docker run --rm -v <project>_hivemind-data:/d:ro alpine ls -A /d` prints nothing), so the new
    `loomtracer-data` volume starts empty. If that check lists `ledger.sqlite`, the cell is in
    SQLite mode and the volume holds its ledger: stop here and follow
@@ -812,7 +837,7 @@ mode**, further down, and does not remove that volume until its last step says s
    docker volume rm <project>_hivemind-data
    ```
 
-   To go back, restore `cell-before-0.8.0.sql` into a fresh Postgres and run the old image.
+   To go back, restore `cell-before-storage-rename.sql` into a fresh Postgres and run the old image.
 
 #### SQLite mode: a ledger in the `hivemind-data` volume
 
@@ -824,22 +849,26 @@ it across, rename its tables (`hm_users` and `hm_tokens`), and remove the old vo
 from the cell's directory, the first step with the **old** compose files still in place:
 
 1. **Count the decisions, stop the server and take a backup.** The count is what the new server
-   has to answer in step 6 (the key is the one the old server runs with, `HIVEMIND_API_KEY` in
-   its `.env`):
+   has to answer in step 6. `LOOMTRACER_API_KEY` below is the key the old server runs with: set it
+   in your shell from the cell's `.env`, where a v0.8.0 cell holds it as `LOOMTRACER_API_KEY` and a
+   cell on v0.7.0 or earlier as `HIVEMIND_API_KEY`:
 
    ```bash
-   curl -s -H "Authorization: Bearer $HIVEMIND_API_KEY" http://localhost:8080/v1/graph \
+   curl -s -H "Authorization: Bearer $LOOMTRACER_API_KEY" http://localhost:8080/v1/graph \
      | jq '(.data // .).decisions | length'
    docker compose stop hivemind
    docker run --rm -v <project>_hivemind-data:/d:ro -v "$PWD":/backup alpine \
-     tar czf /backup/cell-before-0.8.0.tgz -C /d .
+     tar czf /backup/cell-before-storage-rename.tgz -C /d .
    ```
 
 2. **Switch to the new compose files** (`git pull`, or copy the new `docker-compose.yml` and keep
    your overrides, renaming the `hivemind` service in them to `loomtracer`), and remove the
-   `LOOMTRACER_DATABASE_URL` line again, as for [SQLite mode](#sqlite-mode-no-postgres). Rename
-   `HIVEMIND_API_KEY` in `.env` to `LOOMTRACER_API_KEY` (and every other `HIVEMIND_*` setting to
-   its `LOOMTRACER_*` name): SQLite mode without the key refuses to start.
+   `LOOMTRACER_DATABASE_URL` line again, as for [SQLite mode](#sqlite-mode-no-postgres). Then
+   build the image they run with `docker compose build`: step 4 needs a `loomtracer` that has
+   `migrate-storage`, which v0.8.0's image does not. `.env` must hold `LOOMTRACER_API_KEY`: SQLite
+   mode without the key refuses to start. A v0.8.0 cell has it already. A cell on v0.7.0 or
+   earlier renames `HIVEMIND_API_KEY` to it (and every other `HIVEMIND_*` setting to its
+   `LOOMTRACER_*` name).
 
 3. **Carry the ledger into the new volume.** This copies and leaves `hivemind-data` as it was.
    Compose makes `<project>_loomtracer-data` on the way, and the server is not started:
@@ -886,7 +915,7 @@ from the cell's directory, the first step with the **old** compose files still i
    `<project>_loomtracer-data` if anything was captured on it meanwhile, remove that volume
    (`docker volume rm <project>_loomtracer-data`) and run steps 3 to 6 again, so the old ledger
    lands on a fresh volume and not beside the files the empty one left. To go back, restore
-   `cell-before-0.8.0.tgz` into a volume and run the old image.
+   `cell-before-storage-rename.tgz` into a volume and run the old image.
 
 Outside a container, a SQLite ledger holds only `hm_users` and `hm_tokens` to rename: run
 `loomtracer migrate-storage` in the project (or with `--loomtracer-dir`), then
@@ -903,11 +932,12 @@ signed out by an upgrade run in the wrong order.
 the server starts (the `depends_on: condition: service_healthy` guard handles
 this; if it races, restart with `docker compose restart loomtracer`).
 
-**The cell answers 0 decisions after upgrading to 0.8.0 (SQLite mode)**: the server started on the
-new, empty `loomtracer-data` volume while the ledger is still in the old one. Check with
+**The cell answers 0 decisions after you moved to the new compose files (SQLite mode)**: the
+server started on the new, empty `loomtracer-data` volume while the ledger is still in the old one.
+That happens to a cell on v0.8.0 as much as to one from before it. Check with
 `docker run --rm -v <project>_hivemind-data:/d:ro alpine ls -A /d`: if it lists `ledger.sqlite`,
 do not remove that volume; follow the SQLite steps of
-[Upgrading a cell from before 0.8.0](#upgrading-a-cell-from-before-080).
+[Upgrading a cell from v0.8.0 or earlier](#upgrading-a-cell-from-v080-or-earlier).
 
 **`POST /v1/tenants` returns 500 "LOOMTRACER_ADMIN_KEY not configured"**: set
 `LOOMTRACER_ADMIN_KEY` in your `.env` and restart the stack.

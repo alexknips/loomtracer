@@ -7,6 +7,120 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Breaking changes
 
+- **The names a cell stores are Loomtracer's too, with a migration; a cell on the published v0.8.0
+  release needs it.** v0.8.0 renamed what a user types and left what a cell stores under the old
+  names (its entry below says "Unchanged on purpose: stored names"). A cell running v0.8.0 (image
+  `ghcr.io/alexknips/loomtracer`, `LOOMTRACER_*` settings) therefore still has the `hm_*` tables,
+  the Postgres database and role `hivemind`, the compose service `hivemind` and the docker volume
+  `hivemind-data`, and it needs the migration below. A cell from v0.7.0 or earlier takes the
+  install steps of the v0.8.0 entry first.
+  - Stored names, renamed with a migration: the `hm_*` tables are `lt_*` (`hm_tenants`,
+    `hm_users`, `hm_tokens`, `hm_oidc_users`, `hm_nodes`, `hm_edges` in Postgres; `hm_users` and
+    `hm_tokens` in a SQLite ledger), the Postgres database and role `hivemind` are `loomtracer`
+    (and the default `POSTGRES_PASSWORD` is `loomtracer`), the compose service `hivemind` is
+    `loomtracer` and the docker volume `hivemind-data` is `loomtracer-data`. The new server
+    refuses to start (exit 4, SQLite and Postgres alike) on a database that still has the old
+    tables, rather than create empty ones beside them and lose every tenant, user and token.
+    Events already written are history and keep their text.
+  - `loomtracer migrate-storage` is the step that renames the tables: one transaction that checks
+    every table holds the same number of rows before and after (and changes nothing if one does
+    not), reports each table, and does nothing on a database already renamed. `--dry-run` runs it
+    and rolls it back.
+  - `loomtracer project rename <from> <to>` makes a new handle the successor of a registered
+    project: it registers the new handle, moves the old project's anchors and links, declares its
+    topic keys and moves each of its decisions, all as recorded events (`decision.moved` per
+    decision), so nothing is rewritten and the same command with the handles swapped undoes it.
+    This repository's own handle, the content of `.loomtracer-project`, is now `loomtracer`.
+
+  The image of v0.8.0 has neither of these commands, and a v0.8.0 server does not read the renamed
+  tables. Until a release newer than v0.8.0 is published, build the cell's image from this
+  repository's files (`docker compose build`) instead of pulling `:latest`.
+
+  An existing cell renames its stored names with `loomtracer migrate-storage` (a SQLite ledger, a
+  Postgres database or a cell) and `loomtracer project rename` (a registered project), following
+  "Upgrading a cell from v0.8.0 or earlier" in `docs/SELF_HOSTING.md` (database and role, tables,
+  project handle, then the new compose files). A cell in SQLite mode keeps its whole ledger in the
+  old `hivemind-data` volume, which the new compose file does not mount: its steps copy the ledger
+  into `loomtracer-data` before renaming the tables, and remove the old volume last, only once the
+  new server answers the same decisions.
+
+  (hivemind-x4xl7, hivemind-n33h7)
+
+### Fixed
+
+- **A listed `why` or `verify` answer now says what became of each candidate: a replaced decision
+  is no longer listed as if it stood.** When `why` or `verify` cannot pick one decision it lists
+  candidates, and the list showed no status, so a superseded decision could come first, above the
+  decision that replaced it, with nothing saying it had been replaced; `recall` and the one-call
+  answer already said so. Every candidate now carries its `status` and, when it was replaced,
+  `superseded_by` (the ids that replaced it) in `--json`, `GET /v1/decisions/why` and `/verify`, and
+  the MCP tools that return the list (the same list `disagree`, `supersede` and a capture's
+  `rests_on` premise give). `--summary` prints it after the title, as `status: accepted` or
+  `status: superseded by decision-7b572135`, and a refused ambiguous premise prints the same clause.
+  Which decisions are listed, and their order, are unchanged. (hivemind-erlbl)
+
+- **Help text, MCP tool descriptions and one refusal no longer show the team's internal tracker
+  ids.** `classify_queue_list` and `classify_queue_submit` said "HTTP-transport only
+  (hivemind-zdsh.18)", `scan_misfiled_decisions` ended its first sentence with "(hivemind-zdsh.14)",
+  `loomtracer query --help` carried four such ids (`get_waiting_requests`, `get_contested_decisions`,
+  `get_open_why_decisions`, `get_changed_decisions`), `classify-queue list|submit --help`,
+  `--quote` and `--question` carried one each, and the refusal for `option_labels` that do not match
+  `option_ids` named hivemind-zdsh.10. The ids are gone and each sentence says what it said. A test
+  walks `--help` at every level and every MCP tool and parameter description and fails on a tracker
+  id. (hivemind-brtn7)
+
+- **`recall`, `why` and `verify` no longer lose a decision because an unrelated new decision mentions
+  one of the question's words in passing.** Two questions that had been verified stopped finding their
+  decision with no change to it or to the build, only because the ledger grew. "Is anything paywalled
+  before people try it?" listed the decision titled for "paywalled" second until a ruling about a
+  tie-break said "paywalled" once in its rationale (the word's seventh holder): the rarity test of the
+  rule that lists the decision a word's title owns (`title_owner_below_bar`) counted every holder, the
+  word fell below it, and `why` answered a session draft in one call instead. "Who gets to merge the
+  slides we show investors?" lost the decision about who merges the deck when a ruling said
+  "investor" once, the first decision of the ledger to do so: the weight of the question's words
+  fell enough for the subject test (a word that carries 0.4 of the question) to admit one more
+  decision by a hair, which raised the decision the peers are measured against (`peers_below_bar`)
+  and dropped the peer. Now the rules that look for a word's owner (`lone_below_bar`,
+  `lone_owners_below_bar`, `dominant_owner_below_bar`, `title_owner_below_bar`) count the
+  decisions that hold the word by more than a passing mention: a decision below the bar whose title
+  and topic keys do not hold the word and that holds fewer than two of the question's words
+  (`TermWeights::in_passing`) can never be the answer, so one more of them no longer changes who
+  owns the word. A decision that says the word beside another word of the question is still a rival.
+  The peers are measured against the answer's best without a decision that was admitted by the
+  subject test alone, and the weight of a word in the score is unchanged. Measured on a fresh copy
+  of the live cell (170,899 events), master `1296a475` against this change: the four probe
+  questions (the three paywall wordings and the investors question) list the right decision in the
+  top three on the copy cut before the flip (events 167260 and 168537), at the flip (167261 and
+  168538) and on the full copy, where master answers a draft in one call for the first paywall
+  wording, misses the other two and misses the investors question; the first wording no longer
+  answers in one call. On the frozen set (`questions.tsv`, `strays.tsv`, `shorts.tsv`, 366 rows)
+  two rows gain a place in the top three (the investors question and `hold:P18`, the missing-link
+  question), none loses one, six change their list without changing their verdict (`checker:S4`,
+  `AH8`, `BF4`, `BG2`, `hard:HD01`, `ctrl2:D27`; lists grow by one to three), no STRAY or short
+  control goes from nothing found to a result and no wrong one-call answer is gained. On the crew
+  copy (534 events) no row gains or loses and one moves from second to third inside the top three
+  (`hard:HD02`). Unit tests: four pairs fail on master's `search.rs` and pass here (the title owner,
+  the one rare word, the rare words several decisions title and the word a decision is filed under,
+  each with unrelated decisions that say the word in a rationale), and a fifth test keeps the rule
+  off when a rationale says the word beside another word of the question. Said plainly: the peers
+  change has no unit test of its own and is covered by `checker:BD1` on the cell copy; a fixture of
+  the job/jobs test changed because its waiting decisions now say two question words, so they are
+  no longer passing mentions; and a decision that holds two of the question's words in a rationale
+  still counts, so a ledger can move these rules in another way than the one fixed here. The same
+  commit moves `ctutils` from 0.4.2 to 0.4.5 in `Cargo.lock` only (RUSTSEC-2026-0385, a
+  non-constant-time mask generation pulled in by `digest`), because the required dependency audit
+  failed on it on master too and no commit could merge; `cargo audit` now reports no vulnerability,
+  only the warnings it allowed before.
+  (hivemind-sn5ge)
+
+## v0.8.0 — 2026-10-23 — The product is Loomtracer
+
+v0.8.0 renames what a user types, not what a cell stores: the `hm_*` tables, the Postgres database
+and role, the compose service and the volume keep the name `hivemind`. A cell on this release takes
+the migration under Unreleased above.
+
+### Breaking changes
+
 - **HiveMind is now Loomtracer, everywhere a user or agent sees it (0.8.0).** Every old name
   stops working and nothing is aliased: the new binary does not look for the old folder, read
   the old variables or accept the old token prefix.
@@ -43,25 +157,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     > summaries, plans that hold only for this session, or a choice binding nothing and
     > cheap to undo.
 
-  - Stored names, renamed with a migration: the `hm_*` tables are `lt_*` (`hm_tenants`,
-    `hm_users`, `hm_tokens`, `hm_oidc_users`, `hm_nodes`, `hm_edges` in Postgres; `hm_users` and
-    `hm_tokens` in a SQLite ledger), the Postgres database and role `hivemind` are `loomtracer`
-    (and the default `POSTGRES_PASSWORD` is `loomtracer`), the compose service `hivemind` is
-    `loomtracer` and the docker volume `hivemind-data` is `loomtracer-data`. The new server
-    refuses to start (exit 4, SQLite and Postgres alike) on a database that still has the old
-    tables, rather than create empty ones beside them and lose every tenant, user and token. Events already written
-    are history and keep their text.
-  - `loomtracer migrate-storage` is the step that renames the tables: one transaction that checks
-    every table holds the same number of rows before and after (and changes nothing if one does
-    not), reports each table, and does nothing on a database already renamed. `--dry-run` runs it
-    and rolls it back.
-  - `loomtracer project rename <from> <to>` makes a new handle the successor of a registered
-    project: it registers the new handle, moves the old project's anchors and links, declares its
-    topic keys and moves each of its decisions, all as recorded events (`decision.moved` per
-    decision), so nothing is rewritten and the same command with the handles swapped undoes it.
-    This repository's own handle, the content of `.loomtracer-project`, is now `loomtracer`.
+  - Unchanged on purpose: stored names. The `hm_*` tables, the Postgres database and role
+    `hivemind`, the docker volume `hivemind-data` and the compose service `hivemind` keep their
+    names, because renaming them without a migration would start a cell on empty tables and
+    orphan its users and tokens. Events already written, and this repository's project handle in
+    `.loomtracer-project`, are history and keep their text.
 
-  An existing install takes these steps (four, for a cell or a database that stores users):
+  An existing install takes three steps:
 
   1. **Move the ledger folder:** rename `hivemind` to `loomtracer` in each project (or pass
      `--loomtracer-dir` the old folder), and rename `~/.hivemind` to `~/.loomtracer` so a capture
@@ -76,15 +178,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
      the `--hivemind-*` flags in your shell, service units, compose `.env` and MCP config
      (`claude mcp add loomtracer ...`). Remove the old `hivemind` binary from your path: it
      keeps running without an error and reads none of the new names.
-  4. **Rename the stored names** of a SQLite ledger, a Postgres database or a cell with
-     `loomtracer migrate-storage`, and of a registered project with `loomtracer project rename`;
-     a cell follows "Upgrading a cell from before 0.8.0" in `docs/SELF_HOSTING.md` (database and
-     role, tables, project handle, then the new compose files). A cell in SQLite mode keeps its
-     whole ledger in the old `hivemind-data` volume, which the new compose file does not mount:
-     its steps copy the ledger into `loomtracer-data` before renaming the tables, and remove the
-     old volume last, only once the new server answers the same decisions.
 
-  (hivemind-rfr5h, hivemind-x4xl7)
+  (hivemind-rfr5h)
 - **An MCP tool call that sends an argument the tool does not take is refused.** A tool used to
   read the keys it knew and skip the rest, so `recall_decisions` with `query` (it takes `q`) ran
   unfiltered and `link_supersession` with `decided_by` succeeded without carrying it, while
@@ -867,71 +962,6 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `/capture`. No capability changed. (hivemind-ptqk7)
 
 ### Fixed
-
-- **A listed `why` or `verify` answer now says what became of each candidate: a replaced decision
-  is no longer listed as if it stood.** When `why` or `verify` cannot pick one decision it lists
-  candidates, and the list showed no status, so a superseded decision could come first, above the
-  decision that replaced it, with nothing saying it had been replaced; `recall` and the one-call
-  answer already said so. Every candidate now carries its `status` and, when it was replaced,
-  `superseded_by` (the ids that replaced it) in `--json`, `GET /v1/decisions/why` and `/verify`, and
-  the MCP tools that return the list (the same list `disagree`, `supersede` and a capture's
-  `rests_on` premise give). `--summary` prints it after the title, as `status: accepted` or
-  `status: superseded by decision-7b572135`, and a refused ambiguous premise prints the same clause.
-  Which decisions are listed, and their order, are unchanged. (hivemind-erlbl)
-
-- **Help text, MCP tool descriptions and one refusal no longer show the team's internal tracker
-  ids.** `classify_queue_list` and `classify_queue_submit` said "HTTP-transport only
-  (hivemind-zdsh.18)", `scan_misfiled_decisions` ended its first sentence with "(hivemind-zdsh.14)",
-  `loomtracer query --help` carried four such ids (`get_waiting_requests`, `get_contested_decisions`,
-  `get_open_why_decisions`, `get_changed_decisions`), `classify-queue list|submit --help`,
-  `--quote` and `--question` carried one each, and the refusal for `option_labels` that do not match
-  `option_ids` named hivemind-zdsh.10. The ids are gone and each sentence says what it said. A test
-  walks `--help` at every level and every MCP tool and parameter description and fails on a tracker
-  id. (hivemind-brtn7)
-
-- **`recall`, `why` and `verify` no longer lose a decision because an unrelated new decision mentions
-  one of the question's words in passing.** Two questions that had been verified stopped finding their
-  decision with no change to it or to the build, only because the ledger grew. "Is anything paywalled
-  before people try it?" listed the decision titled for "paywalled" second until a ruling about a
-  tie-break said "paywalled" once in its rationale (the word's seventh holder): the rarity test of the
-  rule that lists the decision a word's title owns (`title_owner_below_bar`) counted every holder, the
-  word fell below it, and `why` answered a session draft in one call instead. "Who gets to merge the
-  slides we show investors?" lost the decision about who merges the deck when a ruling said
-  "investor" once, the first decision of the ledger to do so: the weight of the question's words
-  fell enough for the subject test (a word that carries 0.4 of the question) to admit one more
-  decision by a hair, which raised the decision the peers are measured against (`peers_below_bar`)
-  and dropped the peer. Now the rules that look for a word's owner (`lone_below_bar`,
-  `lone_owners_below_bar`, `dominant_owner_below_bar`, `title_owner_below_bar`) count the
-  decisions that hold the word by more than a passing mention: a decision below the bar whose title
-  and topic keys do not hold the word and that holds fewer than two of the question's words
-  (`TermWeights::in_passing`) can never be the answer, so one more of them no longer changes who
-  owns the word. A decision that says the word beside another word of the question is still a rival.
-  The peers are measured against the answer's best without a decision that was admitted by the
-  subject test alone, and the weight of a word in the score is unchanged. Measured on a fresh copy
-  of the live cell (170,899 events), master `1296a475` against this change: the four probe
-  questions (the three paywall wordings and the investors question) list the right decision in the
-  top three on the copy cut before the flip (events 167260 and 168537), at the flip (167261 and
-  168538) and on the full copy, where master answers a draft in one call for the first paywall
-  wording, misses the other two and misses the investors question; the first wording no longer
-  answers in one call. On the frozen set (`questions.tsv`, `strays.tsv`, `shorts.tsv`, 366 rows)
-  two rows gain a place in the top three (the investors question and `hold:P18`, the missing-link
-  question), none loses one, six change their list without changing their verdict (`checker:S4`,
-  `AH8`, `BF4`, `BG2`, `hard:HD01`, `ctrl2:D27`; lists grow by one to three), no STRAY or short
-  control goes from nothing found to a result and no wrong one-call answer is gained. On the crew
-  copy (534 events) no row gains or loses and one moves from second to third inside the top three
-  (`hard:HD02`). Unit tests: four pairs fail on master's `search.rs` and pass here (the title owner,
-  the one rare word, the rare words several decisions title and the word a decision is filed under,
-  each with unrelated decisions that say the word in a rationale), and a fifth test keeps the rule
-  off when a rationale says the word beside another word of the question. Said plainly: the peers
-  change has no unit test of its own and is covered by `checker:BD1` on the cell copy; a fixture of
-  the job/jobs test changed because its waiting decisions now say two question words, so they are
-  no longer passing mentions; and a decision that holds two of the question's words in a rationale
-  still counts, so a ledger can move these rules in another way than the one fixed here. The same
-  commit moves `ctutils` from 0.4.2 to 0.4.5 in `Cargo.lock` only (RUSTSEC-2026-0385, a
-  non-constant-time mask generation pulled in by `digest`), because the required dependency audit
-  failed on it on master too and no commit could merge; `cargo audit` now reports no vulnerability,
-  only the warnings it allowed before.
-  (hivemind-sn5ge)
 
 - **A question about an unrelated everyday thing no longer lists decisions because one of its words
   is the everyday form of a synonym group, where it used to find nothing.** Since the eight groups of
