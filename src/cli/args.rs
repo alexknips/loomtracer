@@ -395,8 +395,8 @@ pub enum Command {
     /// --loomtracer-dir. One transaction that checks every table holds the same number of rows
     /// before and after, and changes nothing if it does not. A database already renamed has
     /// nothing to do, so a re-run is safe. `--dry-run` runs it and rolls it back, printing what
-    /// a real run would do. Until it has run, the server and the token commands refuse to start
-    /// on such a database, so no empty `lt_*` tables are made beside the old ones.
+    /// a real run would do. Until it has run, the server refuses to start on such a database
+    /// (SQLite or Postgres, exit 4), so no empty `lt_*` tables are made beside the old ones.
     MigrateStorage(MigrateStorageArgs),
     /// Compute the 2-D spectral decision map (x=time, y=semantic embedding).
     /// Outputs a JSON point-set to stdout. Use --alpha to blend semantic and

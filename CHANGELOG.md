@@ -47,9 +47,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     `hm_users`, `hm_tokens`, `hm_oidc_users`, `hm_nodes`, `hm_edges` in Postgres; `hm_users` and
     `hm_tokens` in a SQLite ledger), the Postgres database and role `hivemind` are `loomtracer`
     (and the default `POSTGRES_PASSWORD` is `loomtracer`), the compose service `hivemind` is
-    `loomtracer` and the docker volume `hivemind-data` is `loomtracer-data`. The new server and
-    the token commands refuse to start on a database that still has the old tables, rather than
-    create empty ones beside them and lose every tenant, user and token. Events already written
+    `loomtracer` and the docker volume `hivemind-data` is `loomtracer-data`. The new server
+    refuses to start (exit 4, SQLite and Postgres alike) on a database that still has the old
+    tables, rather than create empty ones beside them and lose every tenant, user and token. Events already written
     are history and keep their text.
   - `loomtracer migrate-storage` is the step that renames the tables: one transaction that checks
     every table holds the same number of rows before and after (and changes nothing if one does

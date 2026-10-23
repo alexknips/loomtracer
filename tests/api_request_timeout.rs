@@ -207,8 +207,11 @@ async fn a_read_slower_than_the_read_timeout_answers_408() {
     let (status, health) = call(default_app(&dir), get_req("/v1/health")).await;
     assert_eq!(status, StatusCode::OK, "warm-up health: {health}");
 
+    // The server opens its user store at start, so it is built before the ledger is taken: a
+    // start on a locked ledger is refused, not served without that store.
+    let app = short_timeout_app(&dir);
     let lock = hold_ledger_exclusively(&dir);
-    let (status, body) = call(short_timeout_app(&dir), get_req("/v1/health")).await;
+    let (status, body) = call(app, get_req("/v1/health")).await;
     drop(lock);
 
     assert_eq!(
@@ -345,13 +348,12 @@ async fn a_read_tool_over_mcp_slower_than_the_read_timeout_answers_a_timeout_err
     assert_eq!(status, StatusCode::OK, "warm-up read: {warm}");
     assert_eq!(warm["result"]["isError"], false, "warm-up read: {warm}");
 
+    let app = short_timeout_app(&dir);
     let lock = hold_ledger_exclusively(&dir);
-    let (status, body) = tokio::time::timeout(
-        Duration::from_secs(10),
-        call(short_timeout_app(&dir), post_json("/mcp", read)),
-    )
-    .await
-    .expect("a read tool is cut off at the read timeout, not left running");
+    let (status, body) =
+        tokio::time::timeout(Duration::from_secs(10), call(app, post_json("/mcp", read)))
+            .await
+            .expect("a read tool is cut off at the read timeout, not left running");
     drop(lock);
 
     assert_eq!(status, StatusCode::OK, "{body}");

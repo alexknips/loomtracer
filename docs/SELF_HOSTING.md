@@ -796,7 +796,9 @@ rehearsed on a copy first.
 
 A SQLite ledger holds only `hm_users` and `hm_tokens` to rename: run `loomtracer migrate-storage`
 in the project (or with `--loomtracer-dir`), then `loomtracer project rename` for a registered
-handle. The token commands and the server refuse a ledger that still has the old tables.
+handle. The server refuses to start on a ledger that still has the old tables (exit 4, naming
+`loomtracer migrate-storage`), so no user or agent token is signed out by an upgrade run in the wrong
+order.
 
 ---
 

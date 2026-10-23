@@ -535,15 +535,16 @@ impl AppState {
             });
         }
 
-        let sqlite_user_store = SqliteUserStore::open(&config.loomtracer_dir)
-            .ok()
-            .map(Arc::new);
+        // Not `.ok()`: a ledger that still has the pre-rename `hm_*` tables makes this refuse
+        // (naming `loomtracer migrate-storage`), and a server that swallowed that would start
+        // without a user store and answer every existing user and agent token with a 401.
+        let sqlite_user_store = Arc::new(SqliteUserStore::open(&config.loomtracer_dir)?);
 
         Ok(Self {
             backend: Arc::new(ApiBackend::Sqlite(Arc::new(config.loomtracer_dir.clone()))),
             api_key: config.api_key.clone(),
             admin_key: config.admin_key.clone(),
-            sqlite_user_store,
+            sqlite_user_store: Some(sqlite_user_store),
             #[cfg(feature = "shared-backend-postgres")]
             tenant_store: None,
             workos_config,

@@ -408,6 +408,123 @@ fn serve_builds_the_graph_before_it_listens() {
 }
 
 // ---------------------------------------------------------------------------
+// A ledger that still has the tables from before the rename (hivemind-3kwfd)
+// ---------------------------------------------------------------------------
+
+/// The hex secret of the one token [`ledger_with_old_storage_names`] issues, as a client holds it
+/// (after the `lt_tk_` prefix).
+const OLD_TOKEN_HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+/// A ledger folder as 0.7 left it: the event ledger plus `hm_users` and `hm_tokens` holding Alice
+/// and one token for her.
+fn ledger_with_old_storage_names(label: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+
+    let dir = unique_dir(label);
+    drop(loomtracer::ledger::SqliteEventLedger::open(&dir).expect("open the ledger")); // ubs:ignore: test-only
+    let connection = rusqlite::Connection::open(dir.join("ledger.sqlite")).expect("open the file"); // ubs:ignore: test-only
+    connection
+        .execute_batch(
+            "CREATE TABLE hm_users (
+                 user_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL DEFAULT 'local',
+                 email TEXT NOT NULL, display_name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (tenant_id, email));
+             CREATE TABLE hm_tokens (
+                 token_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE,
+                 tenant_id TEXT NOT NULL DEFAULT 'local', user_id TEXT REFERENCES hm_users(user_id),
+                 actor_id TEXT NOT NULL DEFAULT 'service:api', label TEXT, revoked_at TEXT,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')));
+             CREATE INDEX hm_tokens_hash_idx ON hm_tokens (token_hash);
+             INSERT INTO hm_users (user_id, email, display_name, role)
+                 VALUES ('user-alice', 'alice@example.test', 'Alice', 'admin');",
+        )
+        .expect("old tables"); // ubs:ignore: test-only
+    let hash = format!("{:x}", Sha256::digest(OLD_TOKEN_HEX.as_bytes()));
+    connection
+        .execute(
+            "INSERT INTO hm_tokens (token_id, token_hash, user_id, actor_id)
+             VALUES ('token-alice', ?1, 'user-alice', 'human:alice@example.test')",
+            [hash],
+        )
+        .expect("alice's token"); // ubs:ignore: test-only
+    dir
+}
+
+/// The user and token tables of the ledger file under `dir`, sorted.
+fn table_names(dir: &std::path::Path) -> Vec<String> {
+    let connection = rusqlite::Connection::open(dir.join("ledger.sqlite")).expect("open the file"); // ubs:ignore: test-only
+    let mut statement = connection
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' \
+             AND name IN ('hm_users', 'hm_tokens', 'lt_users', 'lt_tokens') ORDER BY name",
+        )
+        .expect("prepare"); // ubs:ignore: test-only
+    statement
+        .query_map([], |row| row.get(0))
+        .expect("query") // ubs:ignore: test-only
+        .collect::<Result<_, _>>()
+        .expect("names") // ubs:ignore: test-only
+}
+
+#[test]
+fn sqlite_server_refuses_a_ledger_with_the_old_table_names_until_migrate_storage_has_run() {
+    // Starting anyway came up as a healthy server that answered every existing user and agent
+    // token with a plain 401, which reads as "revoked", and the user store answered 500. The
+    // Postgres server already refuses; a SQLite one must say the same thing.
+    let dir = ledger_with_old_storage_names("old-names");
+
+    let (ok, stderr) = Serve::spawn_in(dir.clone(), &[], &[]).wait_exit();
+    assert!(!ok, "the server must exit non-zero, not start: {stderr}"); // ubs:ignore: test-only
+    assert!(
+        stderr.contains("loomtracer migrate-storage") && stderr.contains("hm_users, hm_tokens"),
+        "the refusal names the step and the old tables: {stderr}"
+    ); // ubs:ignore: test-only
+    assert!(
+        !stderr.contains(LISTENING_MARKER),
+        "must refuse before listening: {stderr}"
+    ); // ubs:ignore: test-only
+    assert_eq!(
+        table_names(&dir),
+        vec!["hm_tokens", "hm_users"],
+        "the refusal made no lt_* table beside the old ones"
+    ); // ubs:ignore: test-only
+
+    loomtracer::cli::run(&loomtracer::cli::Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        &dir.display().to_string(),
+        "migrate-storage",
+    ]))
+    .expect("migrate-storage"); // ubs:ignore: test-only
+
+    let serve = Serve::spawn_in(dir, &[], &[("LOOMTRACER_API_KEY", "static-dev-key")]);
+    let (_, addr) = serve.wait_listening();
+    let alice = format!("Bearer lt_tk_{OLD_TOKEN_HEX}");
+    assert_eq!(
+        http_status(
+            &addr,
+            "GET",
+            "/v1/decisions/recall?q=pricing",
+            &[("Authorization", alice.as_str())],
+            ""
+        ),
+        200,
+        "a token issued before the upgrade answers after migrate-storage"
+    ); // ubs:ignore: test-only
+    assert_eq!(
+        http_status(
+            &addr,
+            "GET",
+            "/v1/decisions/recall?q=pricing",
+            &[("Authorization", "Bearer lt_tk_nope")],
+            ""
+        ),
+        401,
+        "an unknown token is still refused"
+    ); // ubs:ignore: test-only
+}
+
+// ---------------------------------------------------------------------------
 // Layer-3 workers run only on the ledger they can read (hivemind-tbu78)
 // ---------------------------------------------------------------------------
 
