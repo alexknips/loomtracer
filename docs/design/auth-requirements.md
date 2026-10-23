@@ -10,7 +10,7 @@ consolidated here for the hivemind-ni7f bead.
 
 ## Context: Correcting a Wrong Assumption
 
-Earlier thinking treated HiveMind's primary user as a **deployed, headless
+Earlier thinking treated Loomtracer's primary user as a **deployed, headless
 agent** — a service token, a CI bot, or an autonomous fleet member calling the
 API without any human in the loop.
 
@@ -63,7 +63,7 @@ and auth flows must not assume solo users, even in the near term.
 
 ---
 
-## Inbound Auth (Agent → HiveMind)
+## Inbound Auth (Agent → Loomtracer)
 
 ### Identity providers (login)
 
@@ -79,12 +79,12 @@ an additive identity provider, not a new auth architecture.
 
 ### Primary form: browser OAuth
 
-When a developer runs Claude Code or Cursor and connects to HiveMind for the
+When a developer runs Claude Code or Cursor and connects to Loomtracer for the
 first time, the flow is browser OAuth with a human completing the consent step:
 
-1. Agent opens a browser to the HiveMind authorization endpoint.
+1. Agent opens a browser to the Loomtracer authorization endpoint.
 2. Developer logs in with GitHub or Google.
-3. HiveMind issues a **workspace-scoped session**.
+3. Loomtracer issues a **workspace-scoped session**.
 4. Session lasts **one week**; on expiry, full browser re-auth is required.
 
 Session renewal is not optimized — re-auth after a week is acceptable. The
@@ -96,11 +96,11 @@ developer with multiple workspaces authenticates separately for each.
 ### Second form: device/headless authorization (later)
 
 For agents that run where no browser can open (CI-like contexts, remote shells),
-HiveMind will support a **device-code-style flow**:
+Loomtracer will support a **device-code-style flow**:
 
 1. Agent generates a short link and displays it.
 2. Developer approves it on another device (phone, browser tab).
-3. HiveMind issues a session tied to the device.
+3. Loomtracer issues a session tied to the device.
 
 This is coarse-grained — it is a **setup/integration-level grant**, like
 authorizing a Slack MCP integration. It is not per-action step-up approval.
@@ -120,7 +120,7 @@ exists.
 
 ## Outbound Connectors (Later)
 
-Connectors are the flows that pull context *into* HiveMind from external sources
+Connectors are the flows that pull context *into* Loomtracer from external sources
 (Slack, Google Docs, etc.). They are what makes browser OAuth important
 structurally: outbound grants are OAuth grants, and those require a human
 present to approve.
@@ -147,7 +147,7 @@ Which connector ships first is an **open question** (see below).
 ### Sidecar, not baked into the Rust server
 
 Auth — the OAuth authorization server, session management, and login flows —
-lives in a **sidecar service**, not inside `hivemind serve`.
+lives in a **sidecar service**, not inside `loomtracer serve`.
 
 The Rust server's role is to be a thin **OAuth resource server**:
 - Validate incoming tokens.
@@ -169,7 +169,7 @@ The OAuth authorization server provider is **not yet decided**:
 - Custom Rust broker
 
 This is a downstream decision. Do not resolve it here. It should be surfaced as
-a formal decision in HiveMind once the trade-offs are evaluated.
+a formal decision in Loomtracer once the trade-offs are evaluated.
 
 ---
 
@@ -203,7 +203,7 @@ These are flagged for alex to resolve. Do not answer them here.
 
 3. **Account-linking.** If the same developer uses both GitHub and Google to
    log in (at different times or on different devices), are they the same
-   workspace or two separate ones? How does HiveMind link those identities to
+   workspace or two separate ones? How does Loomtracer link those identities to
    one `principal_id`?
 
 ---

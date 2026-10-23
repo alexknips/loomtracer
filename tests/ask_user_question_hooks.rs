@@ -6,7 +6,7 @@
 //! Code delivered in a recorded interactive session (paths made generic): one call with two
 //! questions, a single choice whose label contains a comma, and a multi-select answered with two
 //! offered options plus the person's own words. The tests replay them through the real hook
-//! script and the real `hivemind` binary.
+//! script and the real `loomtracer` binary.
 //!
 //! A registered project accepts only the topic keys it declared (hivemind-zywz), so the tests that
 //! name a project anchor it to a rig and run the hooks in that rig (`GC_RIG`), the way a Gas City
@@ -24,14 +24,14 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use tempfile::TempDir;
 
 type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-const HOOK: &str = "plugins/hivemind-capture/scripts/ask-hook.sh";
+const HOOK: &str = "plugins/loomtracer-capture/scripts/ask-hook.sh";
 const FIXTURES: &str = "tests/fixtures/claude_code/ask_user_question";
 const ASKER: &str = "agent:claude:test/askbot";
 const HUMAN: &str = "human:alice";
@@ -100,18 +100,18 @@ fn run_hook(
         .current_dir(scratch.work())
         .env_remove("GC_ALIAS")
         .env_remove("GC_RIG")
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_API_KEY")
-        .env_remove("HIVEMIND_AGENT_SESSION")
-        .env_remove("HIVEMIND_ASK_HOOK_DISABLE")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_PROJECT")
-        .env_remove("HIVEMIND_TENANT")
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_API_KEY")
+        .env_remove("LOOMTRACER_AGENT_SESSION")
+        .env_remove("LOOMTRACER_ASK_HOOK_DISABLE")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_PROJECT")
+        .env_remove("LOOMTRACER_TENANT")
         .env_remove("CLAUDE_SESSION_ID")
         .env("GC_AGENT", "test/askbot")
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", scratch.ledger())
-        .env("HIVEMIND_HUMAN_ACTOR", HUMAN)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", scratch.ledger())
+        .env("LOOMTRACER_HUMAN_ACTOR", HUMAN)
         .env("CLAUDE_PLUGIN_DATA", scratch.state())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -165,15 +165,15 @@ fn events_of(ledger_dir: &Path, kind: EventType) -> TestResult<Vec<Event>> {
 }
 
 fn cli(ledger_dir: &Path, args: &[&str]) -> TestResult<Value> {
-    let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
+    let output = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
         .arg(ledger_dir)
         .arg("--json")
         .args(args)
         .output()?;
     assert!(
         output.status.success(),
-        "hivemind {args:?} failed: {}",
+        "loomtracer {args:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(serde_json::from_slice(&output.stdout)?)
@@ -974,16 +974,16 @@ fn the_hooks_never_get_in_the_agents_way() -> TestResult<()> {
         &scratch,
         "pre",
         &pre.to_string(),
-        &[("HIVEMIND_ASK_HOOK_DISABLE", "1")],
+        &[("LOOMTRACER_ASK_HOOK_DISABLE", "1")],
     )?;
     assert!(events(&ledger)?.is_empty(), "none of those wrote anything");
 
-    // No hivemind binary: the question is still asked, the failure is logged.
+    // No loomtracer binary: the question is still asked, the failure is logged.
     let output = run_hook_ok(
         &scratch,
         "pre",
         &pre.to_string(),
-        &[("HIVEMIND_CAPTURE_BIN", "/nonexistent/hivemind")],
+        &[("LOOMTRACER_CAPTURE_BIN", "/nonexistent/loomtracer")],
     )?;
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("could not start"),
@@ -1010,17 +1010,17 @@ impl Drop for Server {
     }
 }
 
-/// `hivemind serve` on a free loopback port with `HIVEMIND_API_KEY` set, once it accepts
+/// `loomtracer serve` on a free loopback port with `LOOMTRACER_API_KEY` set, once it accepts
 /// connections.
 fn start_server(ledger: &Path, api_key: &str) -> TestResult<(Server, u16)> {
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
-    let child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
+    let child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
         .arg(ledger)
         .args(["serve", "--port", &port.to_string()])
-        .env("HIVEMIND_API_KEY", api_key)
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_TENANT")
+        .env("LOOMTRACER_API_KEY", api_key)
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_TENANT")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -1048,8 +1048,8 @@ fn with_an_api_url_the_hooks_write_to_that_server_using_its_key() -> TestResult<
 
     // The wrong key is refused by the server: nothing is written, the agent is not disturbed.
     let wrong = [
-        ("HIVEMIND_API_URL", url.as_str()),
-        ("HIVEMIND_API_KEY", "wrong-key"),
+        ("LOOMTRACER_API_URL", url.as_str()),
+        ("LOOMTRACER_API_KEY", "wrong-key"),
     ];
     let output = run_hook_ok(&scratch, "pre", &pre, &wrong)?;
     assert!(
@@ -1061,8 +1061,8 @@ fn with_an_api_url_the_hooks_write_to_that_server_using_its_key() -> TestResult<
 
     // The right key: the same two hooks, the same result as against a local ledger.
     let right = [
-        ("HIVEMIND_API_URL", url.as_str()),
-        ("HIVEMIND_API_KEY", "test-key"),
+        ("LOOMTRACER_API_URL", url.as_str()),
+        ("LOOMTRACER_API_KEY", "test-key"),
     ];
     run_hook_ok(&scratch, "pre", &pre, &right)?;
     assert_eq!(events_of(&ledger, EventType::QuestionAsked)?.len(), 2);
@@ -1077,7 +1077,7 @@ fn with_an_api_url_the_hooks_write_to_that_server_using_its_key() -> TestResult<
 #[test]
 fn the_plugin_registers_the_hooks_for_ask_user_question() -> TestResult<()> {
     let hooks: Value = serde_json::from_str(&fs::read_to_string(
-        root().join("plugins/hivemind-capture/hooks/hooks.json"),
+        root().join("plugins/loomtracer-capture/hooks/hooks.json"),
     )?)?;
     for (event, phase) in [("PreToolUse", "pre"), ("PostToolUse", "post")] {
         let entries = hooks["hooks"][event]
@@ -1098,9 +1098,13 @@ fn the_plugin_registers_the_hooks_for_ask_user_question() -> TestResult<()> {
     #[cfg(unix)]
     {
         for script in ["ask-hook.sh", "ask_hook.py"] {
-            let mode = fs::metadata(root().join("plugins/hivemind-capture/scripts").join(script))?
-                .permissions()
-                .mode();
+            let mode = fs::metadata(
+                root()
+                    .join("plugins/loomtracer-capture/scripts")
+                    .join(script),
+            )?
+            .permissions()
+            .mode();
             assert!(mode & 0o111 != 0, "{script} is executable");
         }
     }

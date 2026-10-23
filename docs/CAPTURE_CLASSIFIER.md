@@ -10,19 +10,19 @@ disagreement.
 
 Three workers run it today: the optional server-side worker
 (`src/classifier.rs`, which needs `ANTHROPIC_API_KEY` and a SQLite server), the agent-seat
-`/hivemind-capture:classify-queue` command, and the keyless
-`/hivemind-capture:batch-capture` command (a Haiku subagent inside the agent's
+`/loomtracer-capture:classify-queue` command, and the keyless
+`/loomtracer-capture:batch-capture` command (a Haiku subagent inside the agent's
 own session). The canonical write path remains the commands layer: each worker
 hands its result to it.
 
 **This is not the classifier behind `/capture` with `--kind` omitted.**
-`/hivemind-capture:capture` does not call this classifier, and no
-`hivemind-classifier` subagent ships. `capture.sh` classifies the one text it was
+`/loomtracer-capture:capture` does not call this classifier, and no
+`loomtracer-classifier` subagent ships. `capture.sh` classifies the one text it was
 given with its own, smaller prompt into four kinds (`decision`, `evidence`,
 `hypothesis` or `none`; it has no capture path for blocker or notification). Which
 classifier it runs, the environment variables that replace it, and what it does
 when none is available are in
-[`plugins/hivemind-capture/commands/capture.md`](../plugins/hivemind-capture/commands/capture.md).
+[`plugins/loomtracer-capture/commands/capture.md`](../plugins/loomtracer-capture/commands/capture.md).
 The five kinds in this document are the batch classifier's.
 
 ## Model Choice
@@ -33,7 +33,7 @@ model id `claude-haiku-4-5-20251001`. The scorer (see
 for the same reasons.
 
 An operator override is implemented, not aspirational: set
-`HIVEMIND_CLASSIFIER_MODEL` (and, independently, `HIVEMIND_SCORER_MODEL` for
+`LOOMTRACER_CLASSIFIER_MODEL` (and, independently, `LOOMTRACER_SCORER_MODEL` for
 the scorer) to any Anthropic model id to replace the default for that worker.
 An empty or unset value falls back to the pinned default. This is a single
 flat override per worker, not multi-model routing — there is no per-batch or
@@ -57,7 +57,7 @@ Haiku 4.5 is still the right tier because the classifier task is small,
 latency-sensitive, mostly qualitative, and conservative misses are acceptable.
 The prompt asks for a handful of node-kind decisions over 3 to 5 recent turns,
 not long-horizon planning or full-transcript reasoning. Sonnet 5 is the
-fallback choice — via the `HIVEMIND_CLASSIFIER_MODEL` override above — if
+fallback choice — via the `LOOMTRACER_CLASSIFIER_MODEL` override above — if
 real-session tuning shows Haiku missing durable decisions that humans and
 Sonnet consistently catch, but that should be proven with false negative
 samples before paying the extra latency and cost.
@@ -227,7 +227,7 @@ time from the classifier.
   answered.
 - No ask is written for an agent deciding alone: a decision records its
   question and nothing more. No "first raised" time is inferred from earlier
-  mentions. An ask comes from `hivemind ask` or the `AskUserQuestion` hook, at
+  mentions. An ask comes from `loomtracer ask` or the `AskUserQuestion` hook, at
   the moment the question was put.
 
 A decision answering an ask from an earlier session links only if it states the
@@ -344,16 +344,16 @@ Do not capture:
 
 This is the design baseline of the prompt the batch classifier runs, with the
 output schema enforced by structured outputs where available. No
-`.claude/agents/hivemind-classifier.md` ships. The shipped prompts live in
+`.claude/agents/loomtracer-classifier.md` ships. The shipped prompts live in
 `CLASSIFIER_PROMPT` in `src/classifier.rs`, in `SKILL.md` and in
 `commands/batch-capture.md`; a test holds their decision-test paragraph identical
 to the one below, and they add fields this baseline leaves out (who decided; the
 server-side prompt also has the relational ids).
 
 ```markdown
-You are the HiveMind capture classifier.
+You are the Loomtracer capture classifier.
 
-HiveMind stores organizational decision memory: durable decisions, evidence,
+Loomtracer stores organizational decision memory: durable decisions, evidence,
 hypotheses, blockers, and notifications with provenance. It does not store chat
 history, task tracking, private scratch notes, or raw tool logs.
 
@@ -421,7 +421,7 @@ This design choice is captured as `decision.proposed` in the rig ledger:
 - Event id: `decision-74dfd81b-7c84-4591-89e7-20732b449fe7`
 - Captured at: `2026-06-07T03:19:23Z`
 - Actor: `agent:codex:019e9fcd-566f-7851-9932-8ba41f5a5c30`
-- Ledger: `/data/projects/hivemind/hivemind/ledger.sqlite`
+- Ledger: `/data/projects/hivemind/loomtracer/ledger.sqlite`
 - Verification: `query get_decision --id
   decision-74dfd81b-7c84-4591-89e7-20732b449fe7 --summary` returned
   `proposed` with title `Use Haiku 4.5 for capture classification` and topics

@@ -30,7 +30,7 @@ use crate::Result;
 
 use super::PostgresGraphView;
 
-const TEST_DATABASE_URL_ENV: &str = "HIVEMIND_TEST_POSTGRES_URL";
+const TEST_DATABASE_URL_ENV: &str = "LOOMTRACER_TEST_POSTGRES_URL";
 
 // ── Replay parity ─────────────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ fn postgres_projects_projection_matches_memory_with_links_and_anchors() -> Resul
             make_event(
                 EventType::ProjectAnchored,
                 "actor:alice",
-                json!({"handle": "billing", "anchor_kind": "rig", "value": "hivemind"}),
+                json!({"handle": "billing", "anchor_kind": "rig", "value": "loomtracer"}),
             ),
         ] {
             ledger.append(event)?;
@@ -153,7 +153,7 @@ fn postgres_projects_projection_matches_memory_with_links_and_anchors() -> Resul
                 sorted.sort();
                 let expected = vec![
                     "folder:services/billing".to_owned(),
-                    "rig:hivemind".to_owned(),
+                    "rig:loomtracer".to_owned(),
                 ];
                 if sorted != expected {
                     return Err(test_error(format!(
@@ -1700,7 +1700,7 @@ fn recall_on_both_backends(
     };
 
     let memory_graph = MemoryGraph::default();
-    let sqlite_dir = temp_hivemind_dir(prefix);
+    let sqlite_dir = temp_loomtracer_dir(prefix);
     let sqlite_ledger = SqliteEventLedger::open(&sqlite_dir)?;
     for event in events.iter().cloned() {
         sqlite_ledger.append(event)?;
@@ -1769,11 +1769,14 @@ fn unique_tenant(prefix: &str) -> String {
     format!("tenant:test:{prefix}:{nanos}:{}", std::process::id())
 }
 
-fn temp_hivemind_dir(prefix: &str) -> PathBuf {
+fn temp_loomtracer_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    std::env::temp_dir().join(format!("hivemind-{prefix}-{nanos}-{}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "loomtracer-{prefix}-{nanos}-{}",
+        std::process::id()
+    ))
 }
 
 fn make_event(event_type: EventType, actor_id: &str, payload: serde_json::Value) -> Event {
@@ -2197,7 +2200,7 @@ fn outcome_fixture_ledger() -> Result<InMemoryEventLedger> {
     Ok(ledger)
 }
 
-fn test_error(message: impl Into<String>) -> crate::HivemindError {
+fn test_error(message: impl Into<String>) -> crate::LoomtracerError {
     crate::error::ProjectorError::Projection(message.into()).into()
 }
 

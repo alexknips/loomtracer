@@ -1,4 +1,4 @@
-# HiveMind capture-fidelity benchmark — smoke subset (2 cases)
+# Loomtracer capture-fidelity benchmark — smoke subset (2 cases)
 # Used by scripts/e2e_smoke.sh for the LLM-gated fidelity smoke:
 # runs the real Haiku classifier on 2 simple cases to verify the pipeline
 # is wired end-to-end without the cost of the full 39-case corpus.

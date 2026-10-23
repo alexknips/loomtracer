@@ -7,7 +7,7 @@ time; there is no ask recorded (a closed ticket records that something was
 decided, not when it was first asked).
 
 Decision:
-  id: tracker-ticket-hivemind-ex01
+  id: tracker-ticket-loomtracer-ex01
   title: Ship the weekly digest as email, not a Slack DM
   status: accepted
   actor: actor:bob

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "loomtracer": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "flag=; loomtracer mcp --help 2>/dev/null | grep -q -e --project-from-context && flag=--project-from-context; exec loomtracer --loomtracer-dir ./loomtracer/ mcp --agent-tool claude $flag"
+      ],
+      "env": {
+        "LOOMTRACER_DIR": "./loomtracer/"
+      }
+    }
+  }
+}

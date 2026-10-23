@@ -1,4 +1,4 @@
-//! CLI side of `hivemind migrate` (hivemind-jawy): move a SQLite ledger into a shared deployment,
+//! CLI side of `loomtracer migrate` (hivemind-jawy): move a SQLite ledger into a shared deployment,
 //! event for event.
 //!
 //! Two destinations, one set of rules ([`crate::replay`]): `--to-url` sends the events to a
@@ -32,7 +32,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 pub(super) fn run_migrate(cli: &Cli, args: &MigrateArgs) -> Result<String> {
     let source_dir = match &args.from {
         Some(s) => std::path::PathBuf::from(s.strip_prefix("sqlite://").unwrap_or(s.as_str())),
-        None => cli.hivemind_dir.clone(),
+        None => cli.loomtracer_dir.clone(),
     };
     check_destination_flags(args)?;
     let source_tenant = cli_tenant(cli)?;
@@ -42,8 +42,8 @@ pub(super) fn run_migrate(cli: &Cli, args: &MigrateArgs) -> Result<String> {
     // behind for every later read to answer "0 decisions" from.
     if !SqliteEventLedger::exists_in(&source_dir) {
         return Err(CliError::InvalidInput(format!(
-            "`hivemind migrate` moves the events of a local ledger, and there is none under {}: \
-             nothing was moved and none was created. Check --from (or --hivemind-dir) for a typo \
+            "`loomtracer migrate` moves the events of a local ledger, and there is none under {}: \
+             nothing was moved and none was created. Check --from (or --loomtracer-dir) for a typo \
              and point it at the folder that holds the ledger",
             source_dir.display()
         ))

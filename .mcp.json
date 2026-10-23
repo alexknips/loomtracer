@@ -1,14 +1,14 @@
 {
   "mcpServers": {
-    "hivemind": {
-      "command": "hivemind",
+    "loomtracer": {
+      "command": "loomtracer",
       "args": [
-        "--hivemind-dir",
-        "./hivemind/",
+        "--loomtracer-dir",
+        "./loomtracer/",
         "mcp"
       ],
       "env": {
-        "HIVEMIND_DIR": "./hivemind/"
+        "LOOMTRACER_DIR": "./loomtracer/"
       }
     }
   }

@@ -1,0 +1,147 @@
+---
+name: capture
+description: Capture one Loomtracer decision-memory item in the configured ledger
+argument-hint: '"<text>" [--kind decision|evidence|hypothesis] [decision flags, incl. what it rests on, what it binds and what undoing it costs] [--source agent|human]'
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh:*)
+disable-model-invocation: true
+---
+
+Capture exactly one Loomtracer decision-memory item from the supplied arguments:
+
+`$ARGUMENTS`
+
+Run the plugin helper:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/capture.sh $ARGUMENTS
+```
+
+The helper writes a local ledger; it never contacts a server. With `LOOMTRACER_API_URL` set it
+refuses (exit 2, nothing recorded) when the project holds no local ledger, and otherwise records
+there and prints a `notice:` line on stderr saying the cell did not get it. Pass that on; do not
+tell the person the decision is on the cell.
+
+Use `/loomtracer-capture:capture "<observation>" --kind evidence` for durable
+observations and `/loomtracer-capture:capture "<claim>" --kind hypothesis` for
+assumptions that may later be supported or refuted.
+
+For decisions, keep using structured decision fields:
+
+```text
+/loomtracer-capture:capture "selected direction" --kind decision --title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--option "Label"]... [--chose "Label"] [--decided-by actor-id] [--delegated-by human:name] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo)
+```
+
+Answer two questions before you write: what does this rest on (it looks back),
+then what does it bind and what would undoing it cost (it looks forward).
+
+Every decision must say what it rests on. Before writing, answer "what does
+this rest on?" with one or more of:
+
+- a decision we already made: `--rests-on-decision "<described the way you
+  would describe it>"`, or `'#N'` / the `decision-...` id from the consult you
+  made before acting;
+- something observed: `--rests-on-evidence "<what>" --evidence-source "<where:
+  URL, file@commit, test run, measurement>"`;
+- something we assume: `--rests-on-assumption "<statement>"`;
+- nothing yet: `--bet ["<statement>"]`, optionally `--would-change-if "<what
+  would change our mind>"` and `--check-by YYYY-MM-DD`.
+
+An answer that fits none of the four is recorded as an assumption, as given.
+The usual loop is consult (`/loomtracer-context:situational` or `recall`), decide,
+then capture with the consulted decision as the premise.
+
+The decider's own words are not a grounding: never pass a Slack message or chat
+reply as `--rests-on-evidence`. They go in `--quote` (verbatim), paired with
+`--question` (what they answered). `--question` alone names the question the decision
+answers, one line (optional; decisions that answer the same question share a node). Pass `--confidence low|medium|high` only when
+the decider's own words state it; omit it otherwise.
+
+A question someone asked with `loomtracer ask` waits until a decision answers it
+(`loomtracer query get_waiting_requests` lists them with their request ids). To
+answer one, pass its request id as `--answers <request id>` in place of
+`--question`: the decision is linked to the request and the request stops waiting.
+
+Then say what the decision binds and what undoing it would cost. Both answers
+are required:
+
+- what it binds beyond the edit in front of you (other people, other code, a
+  later choice): `--binds "<one sentence saying what>"`, or `--binds-nothing`;
+- what undoing it would cost: `--undo-cost "<one sentence saying what>"`, or
+  `--cheap-to-undo` when undoing it is an ordinary edit.
+
+A choice is a decision when it binds something or is costly to undo. Typing
+"apple" rather than "Apple" in one comment binds nothing and is cheap to undo:
+not a decision, so do not capture it. Merging tonight despite a failing check
+binds nothing later but is costly to undo: a decision. A request ("make this a
+bead", "please fix X") is not a decision at all: a request goes to your tracker.
+A capture that answers `--binds-nothing --cheap-to-undo` is still recorded, and
+the reply says it is below the decision floor (`below_floor: true`); if it is a
+real choice and you left a leg out, supersede it with the missing answer.
+
+The four answer flags need a `loomtracer` newer than v0.7.0: on an older CLI the
+helper leaves them out, says so on stderr, and the answers are not recorded.
+
+A capture that names nothing it rests on, or leaves either answer out, exits 2
+and writes nothing. After any refusal (no grounding, an ambiguous premise, no
+match, a missing binds or undo-cost answer), add the answer and re-run: never
+drop the capture. For an ambiguous premise, re-run with `--rests-on-decision
+'#N'` in place of the description.
+
+Write `--title` as one plain sentence a stranger understands, and keep
+`--rationale` readable without the tracker. A tracker or ticket id (a bead,
+Jira, or GitHub issue) goes in `--evidence-source` or a linked reference —
+never in the title, and not as the rationale's subject.
+
+Options are short human labels (`"Direct CLI"`, `"Cap at 30 seconds"`), never
+slugs (`direct-cli`) or letter codes (`q1-a-...`); `why` and `verify` print them
+as written. `--options` splits on every comma, so a label that holds a comma goes
+on its own `--option "Label, with a comma"` (repeatable, taken whole; it needs a
+`loomtracer` newer than v0.7.0, and the helper refuses rather than split the label
+when the CLI lacks it). `--chose "Label"` repeats one of them exactly and means
+the decision was already made: it self-accepts
+immediately (or accepts from `--decided-by <actor-id>` when someone else
+decided). Pass `--still-proposed` instead to float a leaning that still
+awaits someone else's decision.
+
+When you decided within a scope a human explicitly delegated to you, add
+`--delegated-by <human:name>` so the record shows the delegation rather than an
+agent deciding alone. It requires `--chose` and an agent actor.
+
+When `--kind` is omitted, the helper classifies the text itself. It uses the
+first of these that is set up: `$LOOMTRACER_CAPTURE_CLASSIFIER_JSON` (a ready
+answer, taken as given), `$LOOMTRACER_CAPTURE_CLASSIFIER_CMD` (a shell command that
+gets the text on stdin and prints the answer), or a one-shot `claude --print`
+call on the model in `$LOOMTRACER_CLASSIFIER_MODEL` (default `haiku`) when `claude`
+is on the PATH. No `loomtracer-classifier` subagent ships. The answer is a JSON
+object whose `kind` is `decision`, `evidence`, `hypothesis` or `none`. Evidence
+and hypothesis are recorded from the text alone; a `decision` still needs the
+structured decision fields above, and without them the helper exits 2 and writes
+nothing.
+Blocker and notification are schema kinds with no canonical capture path yet
+(planned): `--kind blocker` and `--kind notification` exit 2 and record nothing.
+The classifier is not offered them. An omitted `--kind` records nothing and
+exits 0 when the classifier answers `none`, answers any other kind (the line
+names it), or returns output that is not a JSON object with a `kind`. It does the
+same, with "No Loomtracer capture emitted: --kind was omitted and the classifier is
+unavailable." on stderr, when no classifier can run: none of the three is set up,
+or the one that is fails.
+There is no decision-request kind to capture either: a request goes to your
+tracker.
+
+Default to `--source agent`, which records `actor_id=agent:claude:<name>`
+(`LOOMTRACER_AGENT_SESSION` when set, then Gas City's `GC_AGENT`/`GC_ALIAS`, otherwise the
+raw session id, so with none of them each session is its own actor) and `source=agent`. Use `--source human` only when the user
+explicitly asks you to record their write as human-authored.
+
+A decision's confirmation also names its project (`project: billing
+(folder_marker)`): the helper has the CLI work it out from the working folder,
+or pass `--project <handle>` only when you were told which project. When the
+confirmation says the decision was saved to the personal project and the folder
+is not attached to a project yet, tell the user, with the attach hint it prints
+(a folder is attached by registering the project and committing a
+`.loomtracer-project` file holding the project handle; `loomtracer project anchor
+--kind folder` does not attach it).
+
+This command is a write-layer path only: it does not query, rank, summarize, or
+infer related decisions itself. Consulting is a separate step you take before
+deciding, and it never decides whether to capture.

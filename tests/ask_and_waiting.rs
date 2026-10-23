@@ -1,4 +1,4 @@
-//! `hivemind ask` and `emit decision.capture --answers` (hivemind-bbnw.4): recording an explicit
+//! `loomtracer ask` and `emit decision.capture --answers` (hivemind-bbnw.4): recording an explicit
 //! ask before any decision answers it, linking a later capture to it without repeating the
 //! words, and listing open requests as "waiting" until answered.
 
@@ -6,9 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -22,7 +22,7 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
-        let path = std::env::temp_dir().join(format!("hivemind-ask-{label}-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("loomtracer-ask-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -38,10 +38,10 @@ impl Drop for Scratch {
     }
 }
 
-fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> hivemind::Result<String> {
+fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),

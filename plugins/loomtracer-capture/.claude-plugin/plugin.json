@@ -1,0 +1,30 @@
+{
+  "name": "loomtracer-capture",
+  "version": "0.1.3",
+  "description": "Capture Loomtracer decisions from Claude Code with explicit actor provenance, through the deterministic local CLI and MCP server.",
+  "author": {
+    "name": "Loomtracer contributors",
+    "url": "https://github.com/alexknips/loomtracer"
+  },
+  "homepage": "https://github.com/alexknips/loomtracer/blob/master/plugins/loomtracer-capture/README.md",
+  "repository": "https://github.com/alexknips/loomtracer",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "loomtracer",
+    "decision-memory",
+    "claude-code",
+    "mcp",
+    "provenance"
+  ],
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "loomtracer_dir": {
+      "type": "directory",
+      "title": "Loomtracer ledger directory",
+      "description": "Local or shared Loomtracer ledger directory used by slash commands.",
+      "default": "./loomtracer/"
+    }
+  }
+}

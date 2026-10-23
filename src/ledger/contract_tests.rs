@@ -897,7 +897,7 @@ pub fn assert_plain_methods_address_the_bound_tenant<L: EventLedger>(
     Ok(())
 }
 
-fn contract_failure(message: impl Into<String>) -> crate::HivemindError {
+fn contract_failure(message: impl Into<String>) -> crate::LoomtracerError {
     CommandError::Invariant(message.into()).into()
 }
 

@@ -1,15 +1,15 @@
-//! `hivemind ground` (hivemind-gwhr.4): give an existing decision what it rests on, after the
+//! `loomtracer ground` (hivemind-gwhr.4): give an existing decision what it rests on, after the
 //! fact, attributed to whoever runs it. CLI behaviour, the refusals that must write nothing, and
-//! the hivemind-context plugin script that wraps the verb.
+//! the loomtracer-context plugin script that wraps the verb.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -22,7 +22,8 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
-        let path = std::env::temp_dir().join(format!("hivemind-ground-{label}-{}", Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("loomtracer-ground-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -38,10 +39,10 @@ impl Drop for Scratch {
     }
 }
 
-fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> hivemind::Result<String> {
+fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),
@@ -82,7 +83,7 @@ fn capture_raw(dir: &Path, title: &str) -> TestResult<String> {
         .to_owned())
 }
 
-fn ground(dir: &Path, args: &[&str]) -> hivemind::Result<String> {
+fn ground(dir: &Path, args: &[&str]) -> loomtracer::Result<String> {
     let mut full = vec!["ground"];
     full.extend_from_slice(args);
     run_cli(dir, GROUNDER, true, &full)
@@ -120,7 +121,7 @@ fn assert_refused_writing_nothing(
     dir: &Path,
     args: &[&str],
     expected: &str,
-) -> TestResult<hivemind::HivemindError> {
+) -> TestResult<loomtracer::LoomtracerError> {
     let before = events(dir)?.len();
     let error = ground(dir, args).expect_err("the call must be refused");
     assert!(
@@ -579,13 +580,13 @@ fn ground_script_wraps_the_verb_and_joins_an_unquoted_description() -> TestResul
     let target_id = capture_raw(dir, "Adopt the shared admin token")?;
     let premise_id = capture_raw(dir, "Keep audit boundaries")?;
     let already = events(dir)?.len();
-    let script = root.join("plugins/hivemind-context/scripts/ground.sh");
+    let script = root.join("plugins/loomtracer-context/scripts/ground.sh");
 
     let run_script = |args: &[&str]| -> TestResult<std::process::Output> {
         Ok(Command::new(&script)
             .current_dir(root)
-            .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-            .env("HIVEMIND_DIR", dir)
+            .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+            .env("LOOMTRACER_DIR", dir)
             .env("CLAUDE_PROJECT_DIR", root)
             .env("CLAUDE_SESSION_ID", "plugin-ground-session")
             .env_remove("GC_AGENT")

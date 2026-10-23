@@ -4,20 +4,20 @@ use super::*;
 
 #[test]
 fn domain_errors_convert_to_crate_error() {
-    let ledger_error: HivemindError = LedgerError::Storage("disk full".to_owned()).into();
-    assert!(matches!(ledger_error, HivemindError::Ledger(_)));
+    let ledger_error: LoomtracerError = LedgerError::Storage("disk full".to_owned()).into();
+    assert!(matches!(ledger_error, LoomtracerError::Ledger(_)));
 
-    let projector_error: HivemindError =
+    let projector_error: LoomtracerError =
         ProjectorError::Projection("missing node".to_owned()).into();
-    assert!(matches!(projector_error, HivemindError::Projector(_)));
+    assert!(matches!(projector_error, LoomtracerError::Projector(_)));
 
-    let command_error: HivemindError =
+    let command_error: LoomtracerError =
         CommandError::Invariant("actor_id is required".to_owned()).into();
-    assert!(matches!(command_error, HivemindError::Command(_)));
+    assert!(matches!(command_error, LoomtracerError::Command(_)));
 
-    let query_error: HivemindError = QueryError::Execution("timeout".to_owned()).into();
-    assert!(matches!(query_error, HivemindError::Query(_)));
+    let query_error: LoomtracerError = QueryError::Execution("timeout".to_owned()).into();
+    assert!(matches!(query_error, LoomtracerError::Query(_)));
 
-    let cli_error: HivemindError = CliError::InvalidInput("--actor is empty".to_owned()).into();
-    assert!(matches!(cli_error, HivemindError::Cli(_)));
+    let cli_error: LoomtracerError = CliError::InvalidInput("--actor is empty".to_owned()).into();
+    assert!(matches!(cli_error, LoomtracerError::Cli(_)));
 }

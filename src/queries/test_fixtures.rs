@@ -431,7 +431,7 @@ impl Scenario {
         timestamp: &str,
     ) -> Result<EventId> {
         self.push(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             EventType::DecisionScored,
             json!({
                 "schema_version": 2,
@@ -460,7 +460,7 @@ impl Scenario {
     ) -> Result<EventId> {
         let (stakes, irreversibility, actionability) = importance;
         self.push(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             EventType::DecisionScored,
             json!({
                 "schema_version": 2,

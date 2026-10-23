@@ -3,20 +3,20 @@ use std::io::Write;
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use hivemind::cli;
+use loomtracer::cli;
 
 fn main() {
     let cli_args = cli::parse();
     init_tracing(cli_args.verbose);
-    info!(target: "hivemind", actor = %cli_args.actor, "hivemind starting");
+    info!(target: "loomtracer", actor = %cli_args.actor, "loomtracer starting");
 
     match cli::run(&cli_args) {
         Ok(output) => {
             // print!/println! panic on write failure; a reader that closes the
-            // pipe early (e.g. `| head`) must not crash hivemind (hivemind-t75k).
+            // pipe early (e.g. `| head`) must not crash loomtracer (hivemind-t75k).
             if let Err(error) = writeln!(std::io::stdout(), "{output}") {
                 if error.kind() != std::io::ErrorKind::BrokenPipe {
-                    eprintln!("hivemind: failed to write output: {error}");
+                    eprintln!("loomtracer: failed to write output: {error}");
                     std::process::exit(1);
                 }
             }
@@ -30,9 +30,9 @@ fn main() {
 
 fn init_tracing(verbose: u8) {
     let level = match verbose {
-        0 => "hivemind=warn",
-        1 => "hivemind=info",
-        _ => "hivemind=trace",
+        0 => "loomtracer=warn",
+        1 => "loomtracer=info",
+        _ => "loomtracer=trace",
     };
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));

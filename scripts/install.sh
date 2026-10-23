@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-repo="${HIVEMIND_REPO:-alexknips/hivemind}"
-install_dir="${HIVEMIND_INSTALL_DIR:-$HOME/.local/bin}"
-version="${HIVEMIND_VERSION:-}"
+repo="${LOOMTRACER_REPO:-alexknips/loomtracer}"
+install_dir="${LOOMTRACER_INSTALL_DIR:-$HOME/.local/bin}"
+version="${LOOMTRACER_VERSION:-}"
 
 os="$(uname -s)"
 arch="$(uname -m)"
@@ -31,11 +31,11 @@ esac
 if [ "$platform" = "macos" ] && [ "$cpu" = "x86_64" ]; then
   echo "No prebuilt binary for macOS Intel (x86_64)." >&2
   echo "Install from source with:" >&2
-  echo "  cargo install --git https://github.com/${repo} --locked hivemind" >&2
+  echo "  cargo install --git https://github.com/${repo} --locked loomtracer" >&2
   exit 1
 fi
 
-asset="hivemind-${platform}-${cpu}.tar.gz"
+asset="loomtracer-${platform}-${cpu}.tar.gz"
 if [ -n "$version" ]; then
   base_url="https://github.com/${repo}/releases/download/${version}"
 else
@@ -64,6 +64,6 @@ fi
 
 tar -xzf "${tmp_dir}/${asset}" -C "$tmp_dir"
 mkdir -p "$install_dir"
-install -m 0755 "${tmp_dir}/hivemind" "${install_dir}/hivemind"
+install -m 0755 "${tmp_dir}/loomtracer" "${install_dir}/loomtracer"
 
-echo "installed hivemind to ${install_dir}/hivemind"
+echo "installed loomtracer to ${install_dir}/loomtracer"

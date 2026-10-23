@@ -18,7 +18,7 @@ use crate::queries::{
 };
 
 const SUBMITTER: &str = "agent:claude:hook";
-const RECORDER: &str = "agent:hivemind:classifier";
+const RECORDER: &str = "agent:loomtracer:classifier";
 
 /// A received batch and the classifier's captures for it, as the transcript fixtures hold them.
 #[derive(Deserialize)]
@@ -599,7 +599,7 @@ fn a_decision_dropped_as_the_same_moment_seen_again_writes_no_link() {
 //
 // A classified decision is accepted only when the capture names an acceptor, and the classifier
 // names one only when the text shows that actor deciding (`CLASSIFIER_PROMPT` and
-// `plugins/hivemind-capture/commands/classify-queue.md` carry the rule). Each fixture below is a
+// `plugins/loomtracer-capture/commands/classify-queue.md` carry the rule). Each fixture below is a
 // transcript with the answer that rule gives; replaying it through the write path and the status
 // read shows the status and decider it lands in.
 
@@ -734,7 +734,7 @@ fn names_a_submission_carries_for_its_session_are_dropped() {
     assert_eq!(drafted.participants, [SUBMITTER]);
 }
 
-/// A classification of a batch the ledger never received (a `hivemind emit` capture) names a
+/// A classification of a batch the ledger never received (a `loomtracer emit` capture) names a
 /// draft with an empty conversation: nothing is guessed, and it is no error.
 #[test]
 fn a_draft_of_an_unreceived_batch_names_no_session_and_nobody() {
@@ -1019,7 +1019,7 @@ fn batches_the_tenant_received_are_known_and_a_classified_one_still_is() {
 
 #[test]
 fn a_batch_nobody_received_is_refused_by_name_and_writes_nothing() {
-    use crate::error::{CommandError, HivemindError};
+    use crate::error::{CommandError, LoomtracerError};
 
     let ledger = InMemoryEventLedger::new();
     receive_batch(&ledger, "s:0-1");
@@ -1031,7 +1031,7 @@ fn a_batch_nobody_received_is_refused_by_name_and_writes_nothing() {
 
     // Named in the order given, each once, and the received one is not among them.
     assert!(
-        matches!(&error, HivemindError::Command(CommandError::Invariant(message))
+        matches!(&error, LoomtracerError::Command(CommandError::Invariant(message))
             if message.contains("ingest batch does not exist: typo:0-1, other:0-1. ")),
         "{error}"
     );

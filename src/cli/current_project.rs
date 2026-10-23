@@ -3,11 +3,11 @@
 //! epic hivemind-s15q child D2). Deliberately NOT a ledger fact — Alex,
 //! choice 5a (2026-09-21): "local per machine, no fact in the record".
 //! Setting or clearing it never appends an event and carries no
-//! `event_origin`; it lives in a local JSON file under `--hivemind-dir`,
+//! `event_origin`; it lives in a local JSON file under `--loomtracer-dir`,
 //! next to `connector-tokens.json` (see `crate::connector::GoogleTokenStore`,
 //! the precedent this mirrors for "local file, not the ledger").
 //!
-//! Keyed by tenant then actor: one `--hivemind-dir` can serve several
+//! Keyed by tenant then actor: one `--loomtracer-dir` can serve several
 //! tenants (see `--tenant`), and a setting made under one tenant must never
 //! leak into another.
 
@@ -32,9 +32,9 @@ pub(crate) struct CurrentProjectStore {
 }
 
 impl CurrentProjectStore {
-    pub(crate) fn new(hivemind_dir: &Path) -> Self {
+    pub(crate) fn new(loomtracer_dir: &Path) -> Self {
         Self {
-            path: hivemind_dir.join("current-project.json"),
+            path: loomtracer_dir.join("current-project.json"),
         }
     }
 

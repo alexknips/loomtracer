@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{EventSource, EventType, TenantId};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{EventSource, EventType, TenantId};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -12,10 +12,10 @@ type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[test]
 fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult<()> {
     let scratch = TempDir::new("slack-app")?;
-    let hivemind_dir = scratch.path().join("hivemind");
+    let loomtracer_dir = scratch.path().join("loomtracer");
 
     let manifest = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "manifest".to_owned(),
@@ -31,7 +31,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     )?;
     assert_eq!(
         manifest["features"]["slash_commands"][0]["command"],
-        "/hivemind"
+        "/loomtracer"
     );
     assert_eq!(
         manifest["features"]["slash_commands"][0]["url"],
@@ -49,7 +49,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     let bot_token = generated_test_secret("bot");
     let signing_secret = generated_test_secret("signing");
     let install = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "install".to_owned(),
@@ -61,15 +61,15 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
             bot_token,
             "--signing-secret".to_owned(),
             signing_secret,
-            "--hivemind-url".to_owned(),
+            "--loomtracer-url".to_owned(),
             "http://127.0.0.1:8787".to_owned(),
             "--reaction-emoji".to_owned(),
-            "hivemind".to_owned(),
+            "loomtracer".to_owned(),
         ],
     )?;
     assert_eq!(install["team_id"], "T123");
     assert_eq!(install["bot_token_stored"], true);
-    assert!(hivemind_dir
+    assert!(loomtracer_dir
         .join("slack-app")
         .join("installations.json")
         .exists());
@@ -77,12 +77,12 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     // A workspace's captures and answers live in its own tenant, named by its team id; a hand
     // install registers it with `tenant create`.
     run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec!["tenant".to_owned(), "create".to_owned(), "T123".to_owned()],
     )?;
 
     let capture_modal = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "command".to_owned(),
@@ -102,7 +102,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
 
     let permalink = "https://example.slack.com/archives/C456/p1715970800000100";
     let queued = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "enqueue-capture".to_owned(),
@@ -121,7 +121,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
             "--title".to_owned(),
             "Use local Slack app capture".to_owned(),
             "--rationale".to_owned(),
-            "The Slack app queues reviewed captures before writing HiveMind events".to_owned(),
+            "The Slack app queues reviewed captures before writing Loomtracer events".to_owned(),
             "--topic-keys".to_owned(),
             "slack,integrations".to_owned(),
             "--options".to_owned(),
@@ -136,7 +136,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     assert_eq!(queued["capture"]["surface"], "message_action");
 
     let drain = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec!["slack-app".to_owned(), "drain".to_owned()],
     )?;
     assert_eq!(drain["processed_count"], 1);
@@ -147,7 +147,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
         .to_owned();
 
     let query = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "command".to_owned(),
@@ -164,14 +164,14 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     assert!(query["text"]
         .as_str()
         .ok_or("query text")?
-        .contains("HiveMind found 1 decision"));
+        .contains("Loomtracer found 1 decision"));
     assert!(query["blocks"][0]["text"]["text"]
         .as_str()
         .ok_or("query block text")?
         .contains(permalink));
 
     let show = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "command".to_owned(),
@@ -190,7 +190,7 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     assert!(show_text.contains("evidence=evidence-"));
     assert!(show_text.contains(permalink));
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(&loomtracer_dir)?;
     let events = ledger.read_for_tenant(&TenantId::new("T123")?, 0, 100)?;
     let proposal = events
         .iter()
@@ -223,12 +223,12 @@ fn slack_app_installs_queues_captures_and_queries_with_citations() -> TestResult
     Ok(())
 }
 
-fn run_cli_json(hivemind_dir: &Path, args: Vec<String>) -> TestResult<Value> {
+fn run_cli_json(loomtracer_dir: &Path, args: Vec<String>) -> TestResult<Value> {
     let mut argv = vec![
-        "hivemind".to_owned(),
+        "loomtracer".to_owned(),
         "--json".to_owned(),
-        "--hivemind-dir".to_owned(),
-        hivemind_dir.display().to_string(),
+        "--loomtracer-dir".to_owned(),
+        loomtracer_dir.display().to_string(),
     ];
     argv.extend(args);
 
@@ -243,7 +243,7 @@ struct TempDir {
 
 impl TempDir {
     fn new(name: &str) -> TestResult<Self> {
-        let path = std::env::temp_dir().join(format!("hivemind-{name}-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("loomtracer-{name}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&path)?;
         Ok(Self { path })
     }

@@ -1,4 +1,4 @@
-//! CLI side of `hivemind ground` (hivemind-gwhr.4): give an existing decision what it rests on,
+//! CLI side of `loomtracer ground` (hivemind-gwhr.4): give an existing decision what it rests on,
 //! after the fact, attributed to whoever runs it.
 //!
 //! Every refusal — nothing named, an ambiguous or unmatched target or premise, a premise that
@@ -46,7 +46,7 @@ pub(super) fn run_ground(cli: &Cli, args: &GroundArgs) -> Result<String> {
     // The grounding flags are read before the target is resolved: resolving a description
     // rewrites the `#N` continuation file a premise may point at.
     let spec = grounding_spec_from_args(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         &args.grounding,
         &args.evidence_ids,
         &args.hypothesis_ids,
@@ -72,7 +72,7 @@ pub(super) fn run_ground(cli: &Cli, args: &GroundArgs) -> Result<String> {
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
     let target = resolve_fluent_target(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         !cli.json,
         &graph,
         args.decision_id.as_deref(),
@@ -95,7 +95,7 @@ pub(super) fn run_ground(cli: &Cli, args: &GroundArgs) -> Result<String> {
         }
     };
 
-    let resolved = resolve_declared_grounding(&cli.hivemind_dir, &ledger, &tenant_id, spec)?;
+    let resolved = resolve_declared_grounding(&cli.loomtracer_dir, &ledger, &tenant_id, spec)?;
     if let Some(refusal) = premise_cycle_refusal(&graph, &decision_id, &resolved.plan)? {
         return Err(CliError::InvalidInput(refusal).into());
     }

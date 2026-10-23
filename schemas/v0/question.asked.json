@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hivemind.local/schemas/v0/question.asked.json",
+  "$id": "https://loomtracer.local/schemas/v0/question.asked.json",
   "title": "question.asked event",
   "type": "object",
   "additionalProperties": false,

@@ -1,7 +1,7 @@
-//! Regression test for hivemind-rmdi1: with `HIVEMIND_API_URL` set, `hivemind query` must not
+//! Regression test for hivemind-rmdi1: with `LOOMTRACER_API_URL` set, `loomtracer query` must not
 //! answer silently from a local ledger it made up. Only `classify-queue` honours the variable;
-//! `query` reads the ledger under `--hivemind-dir`, so a person on a cell who ran the CLI from a
-//! fresh folder was told "0 decisions" by an empty `./hivemind/ledger.sqlite` the read created.
+//! `query` reads the ledger under `--loomtracer-dir`, so a person on a cell who ran the CLI from a
+//! fresh folder was told "0 decisions" by an empty `./loomtracer/ledger.sqlite` the read created.
 //! This spawns the real binary, as the person does.
 
 use std::path::{Path, PathBuf};
@@ -12,40 +12,40 @@ const CELL: &str = "http://127.0.0.1:9";
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
     dir.push(format!(
-        "hivemind-query-beside-cell-{label}-{}",
+        "loomtracer-query-beside-cell-{label}-{}",
         uuid::Uuid::new_v4()
     ));
     dir
 }
 
-/// `hivemind --hivemind-dir <dir> query recent_decisions ...`, with `HIVEMIND_API_URL` set to
+/// `loomtracer --loomtracer-dir <dir> query recent_decisions ...`, with `LOOMTRACER_API_URL` set to
 /// `api_url` or removed, and no shared database in the environment.
 fn recent_decisions(dir: &Path, api_url: Option<&str>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
-    command.env_remove("HIVEMIND_DATABASE_URL");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
+    command.env_remove("LOOMTRACER_DATABASE_URL");
     match api_url {
-        Some(url) => command.env("HIVEMIND_API_URL", url),
-        None => command.env_remove("HIVEMIND_API_URL"),
+        Some(url) => command.env("LOOMTRACER_API_URL", url),
+        None => command.env_remove("LOOMTRACER_API_URL"),
     };
     command
-        .arg("--hivemind-dir")
+        .arg("--loomtracer-dir")
         .arg(dir)
         .args(["query", "recent_decisions", "--since", "1h", "--limit", "5"])
         .output()
-        .expect("run hivemind") // ubs:ignore: test-only; panicking is correct in tests
+        .expect("run loomtracer") // ubs:ignore: test-only; panicking is correct in tests
 }
 
 /// A ledger under `dir`, made the way a person makes one: a local capture with no cell URL. A read
 /// no longer makes one (hivemind-i6ply, tests/reads_without_a_ledger.rs).
 fn make_local_ledger(dir: &Path) {
-    let made = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .arg("--hivemind-dir")
+    let made = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .arg("--loomtracer-dir")
         .arg(dir)
         .args(["emit", "evidence.recorded", "--content", "seed"])
         .output()
-        .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("run loomtracer"); // ubs:ignore: test-only; panicking is correct in tests
     assert!(
         made.status.success(),
         "{}",

@@ -1,8 +1,8 @@
 # Slack App
 
-HiveMind includes a Slack app surface for human decision capture and
+Loomtracer includes a Slack app surface for human decision capture and
 read-only decision queries. The app keeps Slack as an integration layer: Slack
-requests are queued, drained into the normal HiveMind command layer, and query
+requests are queued, drained into the normal Loomtracer command layer, and query
 responses are rendered from deterministic read APIs.
 
 Everything below the "HTTP Front Door" section describes the CLI-driven,
@@ -12,14 +12,14 @@ surface reachable from a real Slack workspace over the network.
 
 ## HTTP Front Door
 
-`hivemind serve` exposes four endpoints under `/v1/slack/*` so a real Slack
-workspace can reach a running HiveMind server directly — no manual CLI step
+`loomtracer serve` exposes four endpoints under `/v1/slack/*` so a real Slack
+workspace can reach a running Loomtracer server directly — no manual CLI step
 per event.
 
 | Route | Purpose |
 |---|---|
 | `POST /v1/slack/events` | Events API: `url_verification` handshake, `app_mention` / `message.channels` / `reaction_added` |
-| `POST /v1/slack/commands` | Slash commands (`/hivemind ...`), routed to the same `handle_slack_command` the CLI uses |
+| `POST /v1/slack/commands` | Slash commands (`/loomtracer ...`), routed to the same `handle_slack_command` the CLI uses |
 | `POST /v1/slack/interactivity` | The "Capture this thread as a decision" message shortcut and its capture modal |
 | `GET  /v1/slack/oauth/callback` | OAuth code exchange + workspace install, so a workspace installs without touching a terminal |
 
@@ -27,13 +27,13 @@ These routes authenticate every request via **Slack's own request
 signature** (`X-Slack-Signature` / `X-Slack-Request-Timestamp`), never the
 bearer-token / WorkOS-JWT path the rest of `/v1/*` uses. Configure:
 
-- `HIVEMIND_SLACK_SIGNING_SECRET` — the Slack app's signing secret (Slack's
+- `LOOMTRACER_SLACK_SIGNING_SECRET` — the Slack app's signing secret (Slack's
   "Basic Information" page). Verifies `url_verification` (which carries no
   `team_id` to look an install up by) and is copied into every workspace
   installed via OAuth.
-- `HIVEMIND_SLACK_CLIENT_ID` / `HIVEMIND_SLACK_CLIENT_SECRET` — required only
+- `LOOMTRACER_SLACK_CLIENT_ID` / `LOOMTRACER_SLACK_CLIENT_SECRET` — required only
   for the OAuth callback's code exchange.
-- `HIVEMIND_SLACK_API_BASE_URL` — optional; the root of the Slack Web API the
+- `LOOMTRACER_SLACK_API_BASE_URL` — optional; the root of the Slack Web API the
   server calls back into (`https://slack.com/api` when unset). Only needed to
   point those outbound calls somewhere else, such as a stand-in in tests.
 
@@ -57,19 +57,19 @@ what the local-first flow below wants: one tunnel URL for everything.
 
 ### Multi-tenant
 
-Each Slack workspace (`team_id`) maps 1:1 onto its own HiveMind tenant
+Each Slack workspace (`team_id`) maps 1:1 onto its own Loomtracer tenant
 (`TenantId::new(team_id)`). The OAuth callback provisions this tenant
 automatically (SQLite: `tenants` row; Postgres: `hm_tenants` row + an unused
-initial token) on install, so no separate `hivemind tenant create` step is
+initial token) on install, so no separate `loomtracer tenant create` step is
 needed for OAuth-installed workspaces. A `slack-app install` done by hand
 (the local-first flow above) still needs a matching
-`hivemind tenant create <team_id>` first. Without it every surface that would
+`loomtracer tenant create <team_id>` first. Without it every surface that would
 capture refuses with `404`, through the same `ensure_known_tenant` gate the
 bearer-token API path uses for an unregistered tenant, and the server log
-carries a `WARN` naming the workspace and the `hivemind tenant create` that
+carries a `WARN` naming the workspace and the `loomtracer tenant create` that
 fixes it:
 
-- the `/hivemind` slash command;
+- the `/loomtracer` slash command;
 - the message shortcut and the modal's submission (nothing is opened, nothing is
   queued, so Slack tells the person it failed);
 - an `app_mention` or `message.channels` event carrying the
@@ -94,17 +94,17 @@ signing secret, and every ledger operation after that is pinned to
 Neither `POST /v1/slack/events` nor `POST /v1/slack/interactivity` writes to
 the ledger inline — they enqueue onto the same `SlackAppStore` capture queue
 the CLI's `slack-app enqueue-capture` uses, and answer within Slack's
-3-second ack window. A background task (started once, from `hivemind serve`)
+3-second ack window. A background task (started once, from `loomtracer serve`)
 polls the queue and drains it into each capture's own tenant ledger every 15
 seconds. A capture that cannot be written (its tenant was removed, the ledger
 refused it) stays queued with its attempt count and last error in
 `slack-app/queue.jsonl`, and every drain pass that still fails it logs a `WARN`
-(target `hivemind::api::slack`) with the workspace, the queue item and the
+(target `loomtracer::api::slack`) with the workspace, the queue item and the
 reason, so it shows at the default log level.
 
 `app_mention` and `message.channels` events are auto-captured only when the
 message text carries the same `Decision:`/`Rationale:`/`Options:` markers
-`hivemind ingest slack-thread` already parses (see "Capture Queue" below) —
+`loomtracer ingest slack-thread` already parses (see "Capture Queue" below) —
 no LLM inference happens on the ingest path, per AGENTS.md's three-layer
 separation. A message without those markers is acknowledged and ignored.
 
@@ -147,7 +147,7 @@ acknowledged and ignored — the capture modal has no interactive components.
 
 ### Capturing with a reaction
 
-Adding the install's `reaction_emoji` (default `:hivemind:`) to a message
+Adding the install's `reaction_emoji` (default `:loomtracer:`) to a message
 captures it, when the message carries the `Decision:`/`Rationale:`/`Options:`
 markers. The Events API payload for a reaction has no message text, so the
 server fetches the message with `conversations.history` and the install's bot
@@ -160,7 +160,7 @@ know:
   capture into the ledger but is never recorded as having accepted words they
   did not write. A message with no `Chosen:` marker stays `proposed` under the
   reactor. The author and timestamp are also kept in the decision's evidence.
-  A `@hivemind` mention or a plain channel message with the markers has one
+  A `@loomtracer` mention or a plain channel message with the markers has one
   person acting as both.
 - **One decision per thread.** Every Slack surface (mention, reaction,
   shortcut) shares the idempotency key `slack://<team>/<channel>/<thread_ts>`.
@@ -168,7 +168,7 @@ know:
   the later capture drains as `already_imported`.
 
 Every way a reaction can end without a capture is acknowledged to Slack and
-logged by the server (target `hivemind::api::slack`): a message with no
+logged by the server (target `loomtracer::api::slack`): a message with no
 markers, a message posted by an app, a Slack error (`not_in_channel`,
 `missing_scope`, a rate limit — the call is never retried), or a Slack timeout.
 A `5xx` is deliberately not returned for these, because Slack retries failed
@@ -177,8 +177,8 @@ deliveries and disables subscriptions that keep failing.
 ### Backend support
 
 The Slack app's install/queue storage (`SlackAppStore`) is local-disk JSON
-under `--hivemind-dir`. These routes are therefore only wired up when
-`hivemind serve` is running the SQLite backend; on the Postgres
+under `--loomtracer-dir`. These routes are therefore only wired up when
+`loomtracer serve` is running the SQLite backend; on the Postgres
 (`shared-backend-postgres`) backend they respond `500` naming the gap. A
 Postgres-backed install/queue store is a tracked follow-up, not implemented
 here.
@@ -192,9 +192,9 @@ here.
 - **A reaction failing is visible only in the server log**, not to the person
   who reacted. There is no reply telling them a message lacked markers or that
   Slack refused the fetch.
-- **`/hivemind capture` opens no modal.** A slash command names no message to
+- **`/loomtracer capture` opens no modal.** A slash command names no message to
   attach a capture to, so it replies with text pointing at the message
-  shortcut, the reaction, and `hivemind emit decision.capture`.
+  shortcut, the reaction, and `loomtracer emit decision.capture`.
 - **The shortcut captures the selected message**, not the whole thread: the
   evidence is that one message (author, timestamp, text), keyed to the
   thread it sits in.
@@ -218,26 +218,26 @@ cargo run -- --json slack-app manifest \
 
 The manifest declares:
 
-- `/hivemind` for `capture`, `query <topic>`, and `show <decision-id>`.
+- `/loomtracer` for `capture`, `query <topic>`, and `show <decision-id>`.
 - A message shortcut named `Capture this thread as a decision`.
 - A `reaction_added` subscription for the workspace's configured capture emoji.
 - Bot scopes for commands, replies, reactions, links, and channel history.
 
 ### Workspace Install
 
-Store a workspace installation in the local HiveMind directory:
+Store a workspace installation in the local Loomtracer directory:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind --json slack-app install \
+cargo run -- --loomtracer-dir ./loomtracer --json slack-app install \
   --team-id T123 \
   --team-name "Example Workspace" \
   --bot-token "$SLACK_BOT_TOKEN" \
   --signing-secret "$SLACK_SIGNING_SECRET" \
-  --hivemind-url http://127.0.0.1:8787 \
-  --reaction-emoji hivemind
+  --loomtracer-url http://127.0.0.1:8787 \
+  --reaction-emoji loomtracer
 ```
 
-Installation state is written under `./hivemind/slack-app/`. The token file is
+Installation state is written under `./loomtracer/slack-app/`. The token file is
 created with owner-only permissions on Unix. Slack users default to actor ids of
 the form `slack:<workspace>:<user_id>`. Add `--actor-map U123=actor:alice` to
 override a Slack user mapping.
@@ -247,7 +247,7 @@ id, exactly as on the server. Register it once before `drain` or `command`, and
 before pointing a server at the install:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind tenant create T123
+cargo run -- --loomtracer-dir ./loomtracer tenant create T123
 ```
 
 The CLI's global `--tenant` does not choose where a team's captures go or whose
@@ -259,7 +259,7 @@ tenant named by each capture's or command's `--team-id`.
 Slack handlers should acknowledge quickly, then enqueue capture work:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind --json slack-app enqueue-capture \
+cargo run -- --loomtracer-dir ./loomtracer --json slack-app enqueue-capture \
   --team-id T123 \
   --user-id U111 \
   --channel-id C456 \
@@ -275,19 +275,19 @@ cargo run -- --hivemind-dir ./hivemind --json slack-app enqueue-capture \
 ```
 
 For reaction-triggered capture, set `--surface reaction --reaction-emoji
-hivemind`. The queue drain rejects reaction events whose emoji does not match
+loomtracer`. The queue drain rejects reaction events whose emoji does not match
 the workspace install's configured trigger.
 
 `--message-ts` is Slack's own record of when this happened, not enqueue or
 drain time. It is the capture message itself (the modal submission, the
-`@hivemind` mention, or the reaction) and is recorded as the `ts` on every
+`@loomtracer` mention, or the reaction) and is recorded as the `ts` on every
 event the capture writes (the proposal, its evidence, its options), in place of
 drain time. The same holds for a
-batch-imported thread fixture (`hivemind ingest slack-thread`): the message
+batch-imported thread fixture (`loomtracer ingest slack-thread`): the message
 carrying the `Chosen:`/`Chose:` marker (or, absent one, the `Decision:`
 marker) supplies the event `ts`.
 
-An ask is recorded only when the thread shows one. `hivemind ingest
+An ask is recorded only when the thread shows one. `loomtracer ingest
 slack-thread` writes a `question.asked` event, at the root message's own time
 and attributed to the root's author, when both hold:
 
@@ -305,45 +305,45 @@ live capture surfaces above (`slack-app enqueue-capture`, the Events API front
 door) carry only the captured message's own text, never the thread root's, so
 they cannot show an ask and write none.
 
-Drain the queue after HiveMind is available:
+Drain the queue after Loomtracer is available:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind --json slack-app drain
+cargo run -- --loomtracer-dir ./loomtracer --json slack-app drain
 ```
 
 Successful drains remove queue items. Failed items remain in the queue with an
 attempt count and last error so they can be retried; a workspace whose tenant was
-never registered fails with the `hivemind tenant create <team_id>` that fixes it.
+never registered fails with the `loomtracer tenant create <team_id>` that fixes it.
 Every capture is written into its own workspace's tenant, the same one the
 server's background drain uses. Captures are idempotent by Slack permalink: a
 retry that already wrote the decision returns the existing decision id.
 
 ### Slack Commands
 
-`/hivemind capture` returns a modal descriptor. The hosting shim opens that modal
+`/loomtracer capture` returns a modal descriptor. The hosting shim opens that modal
 with Slack's `views.open` API.
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind --json slack-app command \
+cargo run -- --loomtracer-dir ./loomtracer --json slack-app command \
   --team-id T123 --user-id U111 --text capture
 ```
 
-`/hivemind query <topic>` searches decisions and returns Slack block JSON with
+`/loomtracer query <topic>` searches decisions and returns Slack block JSON with
 event citations and Slack permalinks when available:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind --json slack-app command \
+cargo run -- --loomtracer-dir ./loomtracer --json slack-app command \
   --team-id T123 --user-id U111 --text "query integrations" --limit 5
 ```
 
-`/hivemind show <id>` returns the full decision, related option/evidence ids,
+`/loomtracer show <id>` returns the full decision, related option/evidence ids,
 and the source citation:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind --json slack-app command \
+cargo run -- --loomtracer-dir ./loomtracer --json slack-app command \
   --team-id T123 --user-id U111 --text "show decision-..."
 ```
 
 The Slack app code does not summarize threads or infer decisions. Humans review
-the modal fields; HiveMind records the resulting decision and preserves the
+the modal fields; Loomtracer records the resulting decision and preserves the
 Slack permalink as evidence.

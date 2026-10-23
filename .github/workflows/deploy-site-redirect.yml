@@ -1,7 +1,7 @@
 name: Deploy Site Redirect to GitHub Pages
 
-# The site and docs moved to alexknips/hivemind-site. This repo's Pages URL
-# (alexknips.github.io/hivemind/) stays up only as a redirect to it, so old
+# The site and docs moved to alexknips/loomtracer-site. This repo's Pages URL
+# (alexknips.github.io/loomtracer/) stays up only as a redirect to it, so old
 # links keep working. The page itself is site-redirect/index.html.
 
 on:

@@ -20,7 +20,7 @@ use crate::Result;
 
 use super::PostgresEventLedger;
 
-const TEST_DATABASE_URL_ENV: &str = "HIVEMIND_TEST_POSTGRES_URL";
+const TEST_DATABASE_URL_ENV: &str = "LOOMTRACER_TEST_POSTGRES_URL";
 
 #[test]
 fn append_assigns_monotonic_ids() -> Result<()> {
@@ -115,7 +115,7 @@ fn same_event_uuid_is_idempotent_only_inside_tenant() -> Result<()> {
 #[test]
 fn replay_matches_sqlite_event_stream() -> Result<()> {
     with_postgres_ledger("sqlite-parity", |postgres| {
-        let sqlite_dir = temp_hivemind_dir("sqlite-parity");
+        let sqlite_dir = temp_loomtracer_dir("sqlite-parity");
         let sqlite = SqliteEventLedger::open(&sqlite_dir)?;
         // Use the same tenant for SQLite so the read-back tenant_id field matches.
         let pg_tenant = TenantId::new(postgres.tenant_id())
@@ -162,7 +162,7 @@ fn concurrent_tenant_writes_are_isolated_streams() -> Result<()> {
             right
                 .join()
                 .map_err(|_| test_error("tenant-b thread panicked"))??;
-            Ok::<_, crate::HivemindError>(())
+            Ok::<_, crate::LoomtracerError>(())
         })?;
 
         assert_tenant_stream(&tenant_a, "tenant-a", 16)?;
@@ -284,14 +284,17 @@ fn unique_tenant(prefix: &str) -> String {
     format!("tenant:test:{prefix}:{nanos}:{}", std::process::id())
 }
 
-fn temp_hivemind_dir(prefix: &str) -> PathBuf {
+fn temp_loomtracer_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    std::env::temp_dir().join(format!("hivemind-{prefix}-{nanos}-{}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "loomtracer-{prefix}-{nanos}-{}",
+        std::process::id()
+    ))
 }
 
-fn test_error(message: impl Into<String>) -> crate::HivemindError {
+fn test_error(message: impl Into<String>) -> crate::LoomtracerError {
     LedgerError::Storage(message.into()).into()
 }
 
@@ -315,7 +318,7 @@ mod tenant_store_tests {
             if provisioned.tenant_id != tid {
                 return Err(test_error("tenant_id mismatch after provision"));
             }
-            if !provisioned.token_secret.starts_with("hm_tk_") {
+            if !provisioned.token_secret.starts_with("lt_tk_") {
                 return Err(test_error("token_secret missing prefix"));
             }
 
@@ -335,7 +338,7 @@ mod tenant_store_tests {
         with_tenant_store(|store| {
             let resolved = store
                 .resolve_token(
-                    "hm_tk_000000000000000000000000000000000000000000000000000000000000abcd",
+                    "lt_tk_000000000000000000000000000000000000000000000000000000000000abcd",
                 )
                 .map_err(|e| test_error(e.to_string()))?;
             if resolved.is_some() {
@@ -466,7 +469,7 @@ mod tenant_store_tests {
             append_handle
                 .join()
                 .map_err(|_| test_error("append thread panicked"))??;
-            Ok::<_, crate::HivemindError>(())
+            Ok::<_, crate::LoomtracerError>(())
         })?;
 
         let events = ledger.read(0, RACE_APPENDS + 2)?;
@@ -523,12 +526,12 @@ mod tenant_store_tests {
 mod async_safety_tests {
     use crate::ledger::TenantStore;
 
-    const PG_URL_ENV: &str = "HIVEMIND_TEST_POSTGRES_URL";
+    const PG_URL_ENV: &str = "LOOMTRACER_TEST_POSTGRES_URL";
 
     fn require_pg_url() -> String {
         std::env::var(PG_URL_ENV).unwrap_or_else(|_| {
             panic!(
-                "HIVEMIND_TEST_POSTGRES_URL must be set to run async-safety tests \
+                "LOOMTRACER_TEST_POSTGRES_URL must be set to run async-safety tests \
                  (e.g. postgresql://user:pw@localhost/db?sslmode=disable). \
                  A test that skips when Postgres is absent is not acceptable proof."
             )

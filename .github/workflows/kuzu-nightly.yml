@@ -49,10 +49,10 @@ jobs:
 
       # The binary is what `cargo install --features graph-kuzu` ships
       # (README), so a compile or link failure there is a Kuzu failure. Only
-      # `--bin hivemind`: libkuzu links whole-archive into every binary, and
+      # `--bin loomtracer`: libkuzu links whole-archive into every binary, and
       # the other bins add no Kuzu coverage.
-      - name: Build hivemind with graph-kuzu
-        run: cargo build --locked --features graph-kuzu --bin hivemind
+      - name: Build loomtracer with graph-kuzu
+        run: cargo build --locked --features graph-kuzu --bin loomtracer
 
       # --lib is the whole Kuzu test surface: every test gated on the feature
       # lives in the library crate (`projector::kuzu::tests`, the adapter plus

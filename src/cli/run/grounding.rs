@@ -48,10 +48,10 @@ fn trimmed_flag_value<'a>(flag: &'static str, value: &'a str) -> Result<&'a str>
 }
 
 /// One `--rests-on-decision` value: a `#N` handle, a literal decision id, or a description.
-fn premise_spec(hivemind_dir: &Path, raw: &str) -> Result<PremiseSpec> {
+fn premise_spec(loomtracer_dir: &Path, raw: &str) -> Result<PremiseSpec> {
     let text = trimmed_flag_value("--rests-on-decision", raw)?;
     let target = if let Some(index) = candidate_handle_index(text) {
-        PremiseTarget::Id(read_continuation_candidate(hivemind_dir, index)?.decision_id)
+        PremiseTarget::Id(read_continuation_candidate(loomtracer_dir, index)?.decision_id)
     } else if is_decision_id(text) {
         PremiseTarget::Id(text.to_owned())
     } else {
@@ -79,7 +79,7 @@ fn new_evidence(content: &str, source: Option<&String>) -> Result<NewEvidence> {
 ///
 /// `evidence_ids` / `hypothesis_ids` are the pre-existing `--evidence` / `--hypotheses` ids.
 pub(super) fn grounding_spec_from_args(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     args: &GroundingArgs,
     evidence_ids: &[String],
     hypothesis_ids: &[String],
@@ -122,7 +122,7 @@ pub(super) fn grounding_spec_from_args(
         decisions: args
             .rests_on_decisions
             .iter()
-            .map(|raw| premise_spec(hivemind_dir, raw))
+            .map(|raw| premise_spec(loomtracer_dir, raw))
             .collect::<Result<_>>()?,
         evidence: args
             .rests_on_evidence
@@ -145,7 +145,7 @@ pub(super) fn grounding_spec_from_args(
 
 /// Refuse a premise that is ambiguous or matches nothing. An ambiguous description leaves its
 /// numbered candidates in the continuation file so the re-run can say `'#N'`.
-fn refuse_unresolved(hivemind_dir: &Path, unresolved: &UnresolvedPremise) -> CliError {
+fn refuse_unresolved(loomtracer_dir: &Path, unresolved: &UnresolvedPremise) -> CliError {
     let text = &unresolved.text;
     let candidates = unresolved.candidates();
     if candidates.is_empty() {
@@ -154,7 +154,7 @@ fn refuse_unresolved(hivemind_dir: &Path, unresolved: &UnresolvedPremise) -> Cli
         ));
     }
 
-    write_continuation_candidates(hivemind_dir, candidates);
+    write_continuation_candidates(loomtracer_dir, candidates);
     // No decision containing every word means every candidate is a close one: it lacks some, or
     // it is the opposite of what a negated premise asked for.
     let close = candidates.iter().all(ResolvedCandidate::is_close);
@@ -205,7 +205,7 @@ pub(super) fn require_grounding(spec: GroundingSpec) -> Result<GroundingSpec> {
 /// Resolve the spec's premise decisions. The refusal for an ambiguous or unmatched premise is
 /// returned as the error; nothing has been written by then.
 pub(super) fn resolve_declared_grounding<L: EventLedger>(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     ledger: &L,
     tenant_id: &TenantId,
     spec: GroundingSpec,
@@ -213,7 +213,7 @@ pub(super) fn resolve_declared_grounding<L: EventLedger>(
     match resolve_grounding(ledger, tenant_id, spec)? {
         GroundingResolution::Ready(resolved) => Ok(resolved),
         GroundingResolution::Unresolved(unresolved) => {
-            Err(refuse_unresolved(hivemind_dir, &unresolved).into())
+            Err(refuse_unresolved(loomtracer_dir, &unresolved).into())
         }
     }
 }

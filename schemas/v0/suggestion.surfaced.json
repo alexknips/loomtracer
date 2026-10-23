@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hivemind.local/schemas/v0/suggestion.surfaced.json",
+  "$id": "https://loomtracer.local/schemas/v0/suggestion.surfaced.json",
   "title": "suggestion.surfaced event",
   "description": "A finding was shown to a recipient. The event's own uuid is the notification id a later notification.acknowledged names. Added in hivemind-m306.4.2.",
   "type": "object",
@@ -33,7 +33,7 @@
         "channel": {
           "type": "string",
           "minLength": 1,
-          "description": "A label the consumer chose for where the finding was shown. HiveMind attaches no meaning to it."
+          "description": "A label the consumer chose for where the finding was shown. Loomtracer attaches no meaning to it."
         },
         "sent_at": { "type": "string", "format": "date-time" }
       }

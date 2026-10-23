@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use hivemind::events::{
+use loomtracer::events::{
     self, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem, DecisionAcceptedPayload,
     DecisionAssessedPayload, DecisionBlockerPriority, DecisionMetadataDerivedPayload,
     DecisionMovedPayload, DecisionProposedPayload, DecisionReaffirmedPayload,
@@ -17,9 +17,11 @@ use hivemind::events::{
     QuestionRecordedPayload, RelationAddedPayload, RelationKind as EventRelationKind,
     RelationRemovedPayload, SuggestionSurfacedPayload, DECISION_ASSESSED_SCHEMA_VERSION,
 };
-use hivemind::projector::{NodeKind, RelationKind as ProjectorRelationKind};
-use hivemind::queries::{DecisionStatus, HypothesisStatus, QueryResponse};
-use hivemind::{CliError, CommandError, HivemindError, LedgerError, ProjectorError, QueryError};
+use loomtracer::projector::{NodeKind, RelationKind as ProjectorRelationKind};
+use loomtracer::queries::{DecisionStatus, HypothesisStatus, QueryResponse};
+use loomtracer::{
+    CliError, CommandError, LedgerError, LoomtracerError, ProjectorError, QueryError,
+};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -231,7 +233,7 @@ fn decision_scored_keeps_one_event_type_across_its_two_payload_versions() {
     assert_eq!(envelope.event_type(), EventType::DecisionScored);
     let event = EventBuilder::new(
         Uuid::parse_str("018f5d8a-03fb-7df0-8e36-64d7410cfe11").unwrap(),
-        "agent:hivemind:scorer",
+        "agent:loomtracer:scorer",
         envelope,
     )
     .build()
@@ -416,7 +418,7 @@ fn query_dto_contracts_serialize_stable_fields() {
 
 #[test]
 fn domain_error_conversions_preserve_error_category() {
-    let cases: [(HivemindError, &str); 5] = [
+    let cases: [(LoomtracerError, &str); 5] = [
         (
             LedgerError::Storage("disk full".to_owned()).into(),
             "ledger",
@@ -932,7 +934,7 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             EventPayload::ProjectAnchored(ProjectAnchorPayload {
                 handle: "contract-test".to_owned(),
                 anchor_kind: ProjectAnchorKind::Rig,
-                value: "hivemind".to_owned(),
+                value: "loomtracer".to_owned(),
             }),
         ),
         (
@@ -940,7 +942,7 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             EventPayload::ProjectUnanchored(ProjectAnchorPayload {
                 handle: "contract-test".to_owned(),
                 anchor_kind: ProjectAnchorKind::Rig,
-                value: "hivemind".to_owned(),
+                value: "loomtracer".to_owned(),
             }),
         ),
         (
@@ -1196,12 +1198,12 @@ fn hypothesis_status_contract(status: HypothesisStatus) -> &'static str {
     }
 }
 
-fn error_category(error: &HivemindError) -> &'static str {
+fn error_category(error: &LoomtracerError) -> &'static str {
     match error {
-        HivemindError::Ledger(_) => "ledger",
-        HivemindError::Projector(_) => "projector",
-        HivemindError::Command(_) => "command",
-        HivemindError::Query(_) => "query",
-        HivemindError::Cli(_) => "cli",
+        LoomtracerError::Ledger(_) => "ledger",
+        LoomtracerError::Projector(_) => "projector",
+        LoomtracerError::Command(_) => "command",
+        LoomtracerError::Query(_) => "query",
+        LoomtracerError::Cli(_) => "cli",
     }
 }

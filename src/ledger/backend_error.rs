@@ -6,7 +6,7 @@ pub(super) fn storage_error(error: impl std::fmt::Display) -> LedgerError {
 
 /// A tenant referenced at ledger-open time has no registry row on this
 /// backend. `create_hint` names the backend-specific way to create one
-/// (SQLite: `hivemind tenant create`; Postgres: the server's provisioning
+/// (SQLite: `loomtracer tenant create`; Postgres: the server's provisioning
 /// route) so the error is actionable without a lookup.
 pub(super) fn unknown_tenant_error(
     tenant_id: &str,

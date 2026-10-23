@@ -1,7 +1,7 @@
 # Local Capture Demo
 
 This demo proves the local prototype can capture Slack-style human decisions
-and direct agent decisions into one HiveMind ledger, then query them through
+and direct agent decisions into one Loomtracer ledger, then query them through
 the same read path.
 
 Run it with:
@@ -10,7 +10,7 @@ Run it with:
 cargo test --test local_capture_demo -- --nocapture
 ```
 
-The test creates a temporary local HiveMind directory, ingests
+The test creates a temporary local Loomtracer directory, ingests
 `tests/fixtures/slack/thread_with_mention.json`, records one Codex decision and
 one Claude decision through `emit decision.capture`, and queries
 `topic=integrations`, `status=proposed`, `source=slack,agent`.

@@ -6,9 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -23,7 +23,7 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
         let path =
-            std::env::temp_dir().join(format!("hivemind-question-{label}-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("loomtracer-question-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -39,10 +39,10 @@ impl Drop for Scratch {
     }
 }
 
-fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> hivemind::Result<String> {
+fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),

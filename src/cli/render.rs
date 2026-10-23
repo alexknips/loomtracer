@@ -39,7 +39,7 @@ use crate::queries::{
     UpstreamPremise, WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
-use crate::{HivemindError, Result};
+use crate::{LoomtracerError, Result};
 
 use super::args::CliExit;
 
@@ -884,7 +884,7 @@ pub(crate) fn render_misfiled_scan_summary(candidates: &[MisfiledDecisionCandida
         if let Some(destination) = &candidate.proposed_move_to {
             let _ = write!(
                 output,
-                "\tmove=hivemind move --decision {} --to {destination}",
+                "\tmove=loomtracer move --decision {} --to {destination}",
                 candidate.decision_id
             );
         }
@@ -1499,7 +1499,7 @@ fn write_rests_on(output: &mut String, brief: &DecisionBrief) {
     if brief.rests_on.is_empty() {
         let _ = writeln!(
             output,
-            "  rests on: nothing declared (never asked; add with hivemind ground \"{}\" --rests-on-decision \"...\")",
+            "  rests on: nothing declared (never asked; add with loomtracer ground \"{}\" --rests-on-decision \"...\")",
             summary_cell(&brief.title)
         );
         return;
@@ -1577,7 +1577,7 @@ fn grounding_line(item: &GroundingItem) -> String {
 fn compact_rests_on(view: &CompactView) -> String {
     if view.grounding_state == GroundingState::NothingDeclared {
         format!(
-            "rests on: nothing declared (never asked; add with hivemind ground \"{}\" --rests-on-decision \"...\")",
+            "rests on: nothing declared (never asked; add with loomtracer ground \"{}\" --rests-on-decision \"...\")",
             summary_cell(&view.decision.title)
         )
     } else {
@@ -2195,7 +2195,7 @@ pub(crate) fn format_output(as_json: bool, envelope: &OutputEnvelope) -> Result<
             CliError::InvalidInput(format!("json serialization failed: {error}")).into()
         })
     } else {
-        // Text stays the bare value: scripts take `$(hivemind emit ...)` as the id. A capture's
+        // Text stays the bare value: scripts take `$(loomtracer emit ...)` as the id. A capture's
         // project is announced on stderr instead (`render_placement_line`).
         Ok(envelope.value.clone())
     }
@@ -2552,17 +2552,17 @@ pub(crate) fn format_export_output(as_json: bool, report: &ExportReport) -> Resu
     })
 }
 
-pub fn exit_code_for_error(error: &HivemindError) -> CliExit {
+pub fn exit_code_for_error(error: &LoomtracerError) -> CliExit {
     match error {
-        HivemindError::Cli(_) => CliExit::Validation,
-        HivemindError::Command(CommandError::Validation(_)) => CliExit::Validation,
-        HivemindError::Command(CommandError::Invariant(_)) => CliExit::Invariant,
-        HivemindError::Ledger(_) | HivemindError::Projector(_) => CliExit::Storage,
-        HivemindError::Query(_) => CliExit::Generic,
+        LoomtracerError::Cli(_) => CliExit::Validation,
+        LoomtracerError::Command(CommandError::Validation(_)) => CliExit::Validation,
+        LoomtracerError::Command(CommandError::Invariant(_)) => CliExit::Invariant,
+        LoomtracerError::Ledger(_) | LoomtracerError::Projector(_) => CliExit::Storage,
+        LoomtracerError::Query(_) => CliExit::Generic,
     }
 }
 
-pub fn format_error(as_json: bool, error: &HivemindError) -> String {
+pub fn format_error(as_json: bool, error: &LoomtracerError) -> String {
     if as_json {
         serde_json::json!({
             "error": {
@@ -2581,7 +2581,7 @@ pub fn render_decision_dot(graph: &impl GraphView) -> Result<String> {
 }
 
 pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
-    let mut dot = String::from("digraph hivemind {\n  rankdir=LR;\n");
+    let mut dot = String::from("digraph loomtracer {\n  rankdir=LR;\n");
     let nodes = graph_nodes(graph)?;
     let edges = graph_edges(graph)?;
 
@@ -3233,7 +3233,7 @@ pub(crate) fn render_project_decisions_summary(outcome: &ProjectDecisionsOutcome
     let page = match outcome {
         ProjectDecisionsOutcome::NotFound { handle } => {
             return format!(
-                "no project called '{handle}': run `hivemind project register {handle}` to register it"
+                "no project called '{handle}': run `loomtracer project register {handle}` to register it"
             );
         }
         ProjectDecisionsOutcome::Found(page) => page,
@@ -3369,7 +3369,7 @@ pub(crate) struct ReviewActionOutput {
     pub(crate) new_decision_status: Option<DecisionStatus>,
 }
 
-/// What `hivemind migrate` did, or with `--dry-run` would do.
+/// What `loomtracer migrate` did, or with `--dry-run` would do.
 #[derive(Debug, Serialize)]
 pub(crate) struct MigrateReport {
     pub(crate) dry_run: bool,

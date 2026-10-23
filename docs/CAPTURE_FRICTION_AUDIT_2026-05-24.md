@@ -2,7 +2,7 @@
 
 ## Summary
 
-Sampled ten substantive Codex sessions in the HiveMind repo after the
+Sampled ten substantive Codex sessions in the Loomtracer repo after the
 `hivemind-dogfood-shared-ledger-via-mcp-8kj4` work was claimed on
 2026-05-24. The shared-ledger bead was still open at audit time, so this is a
 live post-claim window rather than a completed post-landing window.
@@ -26,8 +26,8 @@ Excluded from the count:
 - ordinary test selection unless it committed to a new validation strategy;
 - generated seed/demo ledger events not created by the audited agent session.
 
-A captured decision is a matching HiveMind ledger `decision.proposed` event in
-the repo or worktree `hivemind/ledger.sqlite` with a title/source that maps to
+A captured decision is a matching Loomtracer ledger `decision.proposed` event in
+the repo or worktree `loomtracer/ledger.sqlite` with a title/source that maps to
 the session decision. Transcript mentions alone did not count as captured.
 
 ## Sample Window
@@ -35,14 +35,14 @@ the session decision. Transcript mentions alone did not count as captured.
 The exact "after dogfood shared ledger lands" window was not available because
 `hivemind-dogfood-shared-ledger-via-mcp-8kj4` was still `OPEN` in BR. To avoid
 waiting on future work, this audit sampled the first ten non-current,
-substantive Codex HiveMind sessions started after the dogfood work was claimed
+substantive Codex Loomtracer sessions started after the dogfood work was claimed
 on 2026-05-24.
 
 Evidence used:
 
 - Local Codex session transcripts from the audit window.
-- Per-worktree HiveMind ledgers across the agent's working trees.
-- Current bead state in the HiveMind repo.
+- Per-worktree Loomtracer ledgers across the agent's working trees.
+- Current bead state in the Loomtracer repo.
 
 ## Results
 
@@ -61,7 +61,7 @@ Evidence used:
 
 Ledger proof for the single captured decision:
 
-- Stored in the agent's per-worktree HiveMind ledger.
+- Stored in the agent's per-worktree Loomtracer ledger.
 - Event: `decision.proposed` event 1
 - Timestamp: `2026-05-24T06:18:57.110789146+00:00`
 - Actor: `agent:codex:019e5899-41e8-7e11-aa39-636512f31857`
@@ -75,7 +75,7 @@ Ledger proof for the single captured decision:
    ledger event.
 2. **Decision-boundary ambiguity**: 5 missed decisions. Investigation and
    recovery sessions made durable design or process choices, but they looked
-   like ordinary plan narration rather than capture-worthy HiveMind decisions.
+   like ordinary plan narration rather than capture-worthy Loomtracer decisions.
 3. **Capture path is operationally expensive**: 1 direct capture attempt showed
    high latency. The only successful capture invoked `cargo run --quiet` and
    then waited on compilation for minutes before editing. Several neighboring
@@ -91,7 +91,7 @@ ledger write.
 
 The shared-ledger dogfood surface was not yet complete during this window. The
 captured event landed in a worktree-local ledger, not an audited shared
-`/data/projects/hivemind/hivemind/ledger.sqlite`. That means even the successful
+`/data/projects/hivemind/loomtracer/ledger.sqlite`. That means even the successful
 capture is hard to discover globally unless the audit scans worktrees.
 
 The current biggest opportunity is not schema expressiveness. It is getting a
@@ -103,7 +103,7 @@ edit immediately reinforces that a decision was made.
 
 - Finish `hivemind-dogfood-shared-ledger-via-mcp-8kj4` and rerun the same audit
   on the first ten completed sessions after it closes.
-- Add a cheap installed `hivemind` binary or MCP capture path to avoid
+- Add a cheap installed `loomtracer` binary or MCP capture path to avoid
   per-capture cargo compilation.
 - Add explicit capture-boundary language to the agent instructions for
   investigation/design beads, not only code changes.

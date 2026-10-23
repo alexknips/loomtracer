@@ -205,7 +205,7 @@ fn an_unregistered_project_is_refused_with_the_register_hint_never_scoped_to_not
         "{message}"
     );
     assert!(
-        message.contains("`hivemind project register billng`"),
+        message.contains("`loomtracer project register billng`"),
         "{message}"
     );
     assert!(refusal(&f.ledger, "  ").contains("project must not be empty"));

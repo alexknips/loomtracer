@@ -1,4 +1,4 @@
-//! `hivemind serve` must not be an open server by default (hivemind-4dur).
+//! `loomtracer serve` must not be an open server by default (hivemind-4dur).
 //!
 //! Process-level tests drive the real binary, so they cover the clap
 //! defaults, the env-var handling and the startup refusal together. The
@@ -12,14 +12,14 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use clap::Parser as _;
-use hivemind::api::ApiConfig;
+use loomtracer::api::ApiConfig;
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const LISTENING_MARKER: &str = "HTTP API listening";
 
 fn unique_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "hivemind-serve-bind-{label}-{}",
+        "loomtracer-serve-bind-{label}-{}",
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&dir).expect("create test ledger dir"); // ubs:ignore: test-only; panicking is correct in tests
@@ -46,7 +46,7 @@ fn strip_ansi(line: &str) -> String {
     out
 }
 
-/// A `hivemind -v serve --port 0 ...` process with the auth/bind env of the
+/// A `loomtracer -v serve --port 0 ...` process with the auth/bind env of the
 /// developer's shell scrubbed, so each test states exactly what it sets.
 struct Serve {
     child: Child,
@@ -61,20 +61,20 @@ impl Serve {
     /// [`Serve::spawn`] on a ledger directory the caller already holds, so a test can serve a
     /// ledger it filled first.
     fn spawn_in(dir: PathBuf, args: &[&str], envs: &[(&str, &str)]) -> Self {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_hivemind"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
         for var in [
             "ANTHROPIC_API_KEY",
-            "HIVEMIND_API_KEY",
-            "HIVEMIND_ADMIN_KEY",
-            "HIVEMIND_DATABASE_URL",
-            "HIVEMIND_BIND",
-            "HIVEMIND_PORT",
+            "LOOMTRACER_API_KEY",
+            "LOOMTRACER_ADMIN_KEY",
+            "LOOMTRACER_DATABASE_URL",
+            "LOOMTRACER_BIND",
+            "LOOMTRACER_PORT",
             "WORKOS_DOMAIN",
         ] {
             cmd.env_remove(var);
         }
         let mut child = cmd
-            .args(["-v", "--hivemind-dir"])
+            .args(["-v", "--loomtracer-dir"])
             .arg(dir)
             .args(["serve", "--port", "0"])
             .args(args)
@@ -82,7 +82,7 @@ impl Serve {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("spawn hivemind serve"); // ubs:ignore: test-only; panicking is correct in tests
+            .expect("spawn loomtracer serve"); // ubs:ignore: test-only; panicking is correct in tests
 
         let stderr = child.stderr.take().expect("piped stderr"); // ubs:ignore: test-only; panicking is correct in tests
         let (tx, lines) = mpsc::channel();
@@ -248,9 +248,10 @@ fn dev_mode_refuses_non_loopback_bind_without_opt_in() {
 }
 
 #[test]
-fn hivemind_bind_env_is_honored_and_refused_the_same_way() {
-    let (ok, stderr) = Serve::spawn("refuse-env", &[], &[("HIVEMIND_BIND", "0.0.0.0")]).wait_exit();
-    assert!(!ok, "HIVEMIND_BIND=0.0.0.0 without auth must be refused"); // ubs:ignore: test-only
+fn loomtracer_bind_env_is_honored_and_refused_the_same_way() {
+    let (ok, stderr) =
+        Serve::spawn("refuse-env", &[], &[("LOOMTRACER_BIND", "0.0.0.0")]).wait_exit();
+    assert!(!ok, "LOOMTRACER_BIND=0.0.0.0 without auth must be refused"); // ubs:ignore: test-only
     assert!(
         stderr.contains("refusing to serve without authentication"),
         "{stderr}"
@@ -259,15 +260,15 @@ fn hivemind_bind_env_is_honored_and_refused_the_same_way() {
 
 #[test]
 fn empty_api_key_is_unset_not_an_empty_token() {
-    // `HIVEMIND_API_KEY=` (compose passes empty values through) must not count
+    // `LOOMTRACER_API_KEY=` (compose passes empty values through) must not count
     // as "authenticated": an empty key accepts any request that sends no token.
     let (ok, stderr) = Serve::spawn(
         "refuse-empty-key",
         &["--bind", "0.0.0.0"],
-        &[("HIVEMIND_API_KEY", "")],
+        &[("LOOMTRACER_API_KEY", "")],
     )
     .wait_exit();
-    assert!(!ok, "empty HIVEMIND_API_KEY must not lift the refusal"); // ubs:ignore: test-only
+    assert!(!ok, "empty LOOMTRACER_API_KEY must not lift the refusal"); // ubs:ignore: test-only
     assert!(
         stderr.contains("refusing to serve without authentication"),
         "{stderr}"
@@ -308,7 +309,7 @@ fn api_key_allows_non_loopback_bind_and_is_enforced() {
     let serve = Serve::spawn(
         "api-key",
         &["--bind", "0.0.0.0"],
-        &[("HIVEMIND_API_KEY", "s3cret-key")],
+        &[("LOOMTRACER_API_KEY", "s3cret-key")],
     );
     let (lines, addr) = serve.wait_listening();
     assert!(addr.starts_with("0.0.0.0:"), "{addr}"); // ubs:ignore: test-only
@@ -337,9 +338,9 @@ fn api_key_allows_non_loopback_bind_and_is_enforced() {
 
 #[test]
 fn empty_admin_key_does_not_unlock_admin_routes() {
-    // Compose sets HIVEMIND_ADMIN_KEY="" when the operator did not set it. An
+    // Compose sets LOOMTRACER_ADMIN_KEY="" when the operator did not set it. An
     // empty admin key must mean "not configured", never "the empty token".
-    let serve = Serve::spawn("empty-admin", &[], &[("HIVEMIND_ADMIN_KEY", "")]);
+    let serve = Serve::spawn("empty-admin", &[], &[("LOOMTRACER_ADMIN_KEY", "")]);
     let (_, addr) = serve.wait_listening();
     let status = http_status(
         &addr,
@@ -364,9 +365,9 @@ fn serve_builds_the_graph_before_it_listens() {
     // inside a caller's request. The server builds the graph first, so nothing answers
     // `/v1/health` (the cell's readiness check) until reads are warm.
     let dir = unique_dir("warm-start");
-    hivemind::cli::run(&hivemind::cli::Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+    loomtracer::cli::run(&loomtracer::cli::Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
         &dir.display().to_string(),
         "--actor",
         "agent:claude:warm-start",
@@ -432,18 +433,18 @@ fn sqlite_server_with_an_anthropic_key_starts_the_classifier_and_the_scorer() {
 }
 
 /// A Postgres server holds every capture in the database. The workers read a SQLite file under
-/// `HIVEMIND_DIR`, so a key must not start them: they would create an empty `ledger.sqlite`
+/// `LOOMTRACER_DIR`, so a key must not start them: they would create an empty `ledger.sqlite`
 /// there and classify and score nothing. Needs `--features shared-backend-postgres` and
-/// `HIVEMIND_TEST_POSTGRES_URL`; without the URL the test says so and passes.
+/// `LOOMTRACER_TEST_POSTGRES_URL`; without the URL the test says so and passes.
 #[cfg(feature = "shared-backend-postgres")]
 mod postgres {
     use super::*;
 
     fn test_database_url() -> Option<String> {
-        match std::env::var("HIVEMIND_TEST_POSTGRES_URL") {
+        match std::env::var("LOOMTRACER_TEST_POSTGRES_URL") {
             Ok(url) if !url.is_empty() => Some(url),
             _ => {
-                eprintln!("skipping Postgres serve test: HIVEMIND_TEST_POSTGRES_URL is not set");
+                eprintln!("skipping Postgres serve test: LOOMTRACER_TEST_POSTGRES_URL is not set");
                 None
             }
         }
@@ -459,7 +460,7 @@ mod postgres {
             dir.clone(),
             &[],
             &[
-                ("HIVEMIND_DATABASE_URL", url.as_str()),
+                ("LOOMTRACER_DATABASE_URL", url.as_str()),
                 ("ANTHROPIC_API_KEY", "sk-ant-test-key"),
             ],
         );
@@ -478,7 +479,7 @@ mod postgres {
         std::thread::sleep(Duration::from_millis(500));
         assert!(
             !dir.join("ledger.sqlite").exists(),
-            "a Postgres server must not leave a SQLite ledger under its HIVEMIND_DIR"
+            "a Postgres server must not leave a SQLite ledger under its LOOMTRACER_DIR"
         ); // ubs:ignore: test-only
     }
 
@@ -490,7 +491,7 @@ mod postgres {
         let serve = Serve::spawn(
             "layer3-postgres-keyless",
             &[],
-            &[("HIVEMIND_DATABASE_URL", url.as_str())],
+            &[("LOOMTRACER_DATABASE_URL", url.as_str())],
         );
         let (lines, _addr) = serve.wait_listening();
         assert!(

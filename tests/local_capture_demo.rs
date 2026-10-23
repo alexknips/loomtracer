@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::EventType;
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::EventType;
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -15,12 +15,12 @@ type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[test]
 fn local_slack_and_agent_capture_share_one_query_path() -> TestResult<()> {
     let scratch = TempDir::new("local-capture-demo")?;
-    let hivemind_dir = scratch.path().join("hivemind");
+    let loomtracer_dir = scratch.path().join("loomtracer");
     let slack_fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/slack/thread_with_mention.json");
 
     let slack_decision_id = output_value(run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "ingest".to_owned(),
             "slack-thread".to_owned(),
@@ -30,14 +30,14 @@ fn local_slack_and_agent_capture_share_one_query_path() -> TestResult<()> {
     )?)?;
 
     let codex_decision_id = capture_agent_decision(
-        &hivemind_dir,
+        &loomtracer_dir,
         "codex",
         "demo-codex",
         "Use local capture smoke tests",
         "The local CLI verifies agent capture without hosted services",
     )?;
     let claude_decision_id = capture_agent_decision(
-        &hivemind_dir,
+        &loomtracer_dir,
         "claude",
         "demo-claude",
         "Keep the prototype local before Slack hosting",
@@ -47,7 +47,7 @@ fn local_slack_and_agent_capture_share_one_query_path() -> TestResult<()> {
     // hivemind-zdsh.8: each capture below sets a chosen option, so all three
     // self-accept immediately instead of staying `proposed` — status is `accepted`.
     let search = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "query".to_owned(),
             "search_decisions".to_owned(),
@@ -85,7 +85,7 @@ fn local_slack_and_agent_capture_share_one_query_path() -> TestResult<()> {
     );
 
     let history = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "query".to_owned(),
             "get_decisions_changed_since".to_owned(),
@@ -152,25 +152,25 @@ fn local_slack_and_agent_capture_share_one_query_path() -> TestResult<()> {
 }
 
 /// hivemind-s15q.15: the capture plugin works the project out from where the agent is
-/// working. A checked-in `.hivemind-project` file attaches its folder (and everything beneath
+/// working. A checked-in `.loomtracer-project` file attaches its folder (and everything beneath
 /// it) to a project; the capture lands there, records how that was determined, and says so.
 #[test]
 fn plugin_capture_files_a_decision_under_the_project_its_folder_names() -> TestResult<()> {
     let scratch = TempDir::new("local-capture-project-marker")?;
-    let hivemind_dir = scratch.path().join("hivemind");
-    register_project(&hivemind_dir, "billing")?;
-    register_project(&hivemind_dir, "payments")?;
+    let loomtracer_dir = scratch.path().join("loomtracer");
+    register_project(&loomtracer_dir, "billing")?;
+    register_project(&loomtracer_dir, "payments")?;
 
     let repo = scratch.path().join("repo");
     let nested = repo.join("src").join("invoices");
     fs::create_dir_all(&nested)?;
-    fs::write(repo.join(".hivemind-project"), "billing\n")?;
+    fs::write(repo.join(".loomtracer-project"), "billing\n")?;
 
     // Captured from a subfolder: the walk goes up to the marker.
-    let marked = run_capture_script(&hivemind_dir, &nested, "Bill from the marker folder", &[])?;
+    let marked = run_capture_script(&loomtracer_dir, &nested, "Bill from the marker folder", &[])?;
     let stdout = String::from_utf8_lossy(&marked.stdout);
     assert!(
-        stdout.contains("Captured HiveMind decision decision-"),
+        stdout.contains("Captured Loomtracer decision decision-"),
         "{stdout}"
     );
     assert!(
@@ -181,20 +181,20 @@ fn plugin_capture_files_a_decision_under_the_project_its_folder_names() -> TestR
         !stdout.contains("not attached"),
         "an attached folder gets no reminder: {stdout}"
     );
-    let proposal = decision_proposed_payload(&hivemind_dir, "Bill from the marker folder")?;
+    let proposal = decision_proposed_payload(&loomtracer_dir, "Bill from the marker folder")?;
     assert_eq!(proposal["project"], "billing");
     assert_eq!(proposal["project_source"], "folder_marker");
 
     // A project the caller states outright still wins over the folder's marker.
     let stated = run_capture_script(
-        &hivemind_dir,
+        &loomtracer_dir,
         &nested,
         "Bill from a stated project",
         &["--project", "payments"],
     )?;
     let stdout = String::from_utf8_lossy(&stated.stdout);
     assert!(stdout.contains("project: payments (stated)"), "{stdout}");
-    let proposal = decision_proposed_payload(&hivemind_dir, "Bill from a stated project")?;
+    let proposal = decision_proposed_payload(&loomtracer_dir, "Bill from a stated project")?;
     assert_eq!(proposal["project"], "payments");
     assert_eq!(proposal["project_source"], "stated");
     Ok(())
@@ -205,14 +205,19 @@ fn plugin_capture_files_a_decision_under_the_project_its_folder_names() -> TestR
 #[test]
 fn plugin_capture_outside_any_project_says_it_landed_in_the_personal_project() -> TestResult<()> {
     let scratch = TempDir::new("local-capture-project-fallback")?;
-    let hivemind_dir = scratch.path().join("hivemind");
+    let loomtracer_dir = scratch.path().join("loomtracer");
     let bare = scratch.path().join("bare");
     fs::create_dir_all(&bare)?;
 
-    let output = run_capture_script(&hivemind_dir, &bare, "Save from an unattached folder", &[])?;
+    let output = run_capture_script(
+        &loomtracer_dir,
+        &bare,
+        "Save from an unattached folder",
+        &[],
+    )?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Captured HiveMind decision decision-"),
+        stdout.contains("Captured Loomtracer decision decision-"),
         "{stdout}"
     );
     assert!(
@@ -225,12 +230,12 @@ fn plugin_capture_outside_any_project_says_it_landed_in_the_personal_project() -
     );
     assert!(
         stdout.contains(
-            "this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file"
+            "this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file"
         ),
         "the reminder says how to attach the folder: {stdout}"
     );
 
-    let proposal = decision_proposed_payload(&hivemind_dir, "Save from an unattached folder")?;
+    let proposal = decision_proposed_payload(&loomtracer_dir, "Save from an unattached folder")?;
     assert_eq!(proposal["project_source"], "personal_fallback");
     assert!(
         proposal.get("project").is_none(),
@@ -239,9 +244,9 @@ fn plugin_capture_outside_any_project_says_it_landed_in_the_personal_project() -
     Ok(())
 }
 
-fn register_project(hivemind_dir: &Path, handle: &str) -> TestResult<()> {
+fn register_project(loomtracer_dir: &Path, handle: &str) -> TestResult<()> {
     run_cli_json(
-        hivemind_dir,
+        loomtracer_dir,
         vec![
             "--actor".to_owned(),
             "human:test-registrar".to_owned(),
@@ -253,7 +258,7 @@ fn register_project(hivemind_dir: &Path, handle: &str) -> TestResult<()> {
     // A registered project's topic keys are declared (hivemind-zywz): declare the ones the
     // capture script below files under.
     run_cli_json(
-        hivemind_dir,
+        loomtracer_dir,
         vec![
             "--actor".to_owned(),
             "human:test-registrar".to_owned(),
@@ -270,17 +275,17 @@ fn register_project(hivemind_dir: &Path, handle: &str) -> TestResult<()> {
 /// Runs the plugin's own `capture.sh` for one bet-grounded decision from `cwd`, with the
 /// ambient city identity and rig removed so only the folder decides the project.
 fn run_capture_script(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     cwd: &Path,
     title: &str,
     extra: &[&str],
 ) -> TestResult<Output> {
     let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins/hivemind-capture/scripts/capture.sh");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins/loomtracer-capture/scripts/capture.sh");
     let output = Command::new(script)
         .current_dir(cwd)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", loomtracer_dir)
         .env("CLAUDE_SESSION_ID", "project-demo-session")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -317,8 +322,8 @@ fn run_capture_script(
 }
 
 /// The `decision.proposed` payload for the decision with this title, as the ledger holds it.
-fn decision_proposed_payload(hivemind_dir: &Path, title: &str) -> TestResult<Value> {
-    SqliteEventLedger::open(hivemind_dir)?
+fn decision_proposed_payload(loomtracer_dir: &Path, title: &str) -> TestResult<Value> {
+    SqliteEventLedger::open(loomtracer_dir)?
         .read(0, 1000)?
         .into_iter()
         .find(|event| {
@@ -330,14 +335,14 @@ fn decision_proposed_payload(hivemind_dir: &Path, title: &str) -> TestResult<Val
 }
 
 fn capture_agent_decision(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     tool: &str,
     session: &str,
     title: &str,
     rationale: &str,
 ) -> TestResult<String> {
     output_value(run_cli_json(
-        hivemind_dir,
+        loomtracer_dir,
         vec![
             "emit".to_owned(),
             "decision.capture".to_owned(),
@@ -362,12 +367,12 @@ fn capture_agent_decision(
     )?)
 }
 
-fn run_cli_json(hivemind_dir: &Path, args: Vec<String>) -> TestResult<Value> {
+fn run_cli_json(loomtracer_dir: &Path, args: Vec<String>) -> TestResult<Value> {
     let mut argv = vec![
-        "hivemind".to_owned(),
+        "loomtracer".to_owned(),
         "--json".to_owned(),
-        "--hivemind-dir".to_owned(),
-        hivemind_dir.display().to_string(),
+        "--loomtracer-dir".to_owned(),
+        loomtracer_dir.display().to_string(),
     ];
     argv.extend(args);
 
@@ -453,7 +458,7 @@ struct TempDir {
 
 impl TempDir {
     fn new(label: &str) -> TestResult<Self> {
-        let path = std::env::temp_dir().join(format!("hivemind-{label}-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("loomtracer-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self { path })
     }

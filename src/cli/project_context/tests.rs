@@ -10,8 +10,10 @@ struct TempTree {
 
 impl TempTree {
     fn new() -> Self {
-        let root =
-            std::env::temp_dir().join(format!("hivemind-project-context-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "loomtracer-project-context-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&root).expect("create temp tree root");
         Self { root }
     }
@@ -23,7 +25,7 @@ impl TempTree {
         path
     }
 
-    /// Writes a `.hivemind-project` marker holding `contents` into `relative`.
+    /// Writes a `.loomtracer-project` marker holding `contents` into `relative`.
     fn marker(&self, relative: &str, contents: &str) {
         let dir = self.dir(relative);
         std::fs::write(dir.join(PROJECT_MARKER_FILE_NAME), contents).expect("write marker");
@@ -268,7 +270,7 @@ fn a_directory_that_happens_to_be_named_like_the_marker_is_not_a_marker() {
 #[test]
 fn the_rig_names_the_project_anchored_to_it() {
     let tree = TempTree::new();
-    let sources = FakeSources::at(tree.dir("no-marker")).with_rig("hivemind-ui", Some("ui"));
+    let sources = FakeSources::at(tree.dir("no-marker")).with_rig("loomtracer-ui", Some("ui"));
 
     assert_eq!(resolve(&sources), determined("ui", ProjectSource::Rig));
     assert_eq!(sources.registry_reads.get(), 1, "one registry read");
@@ -323,7 +325,7 @@ fn a_rig_no_project_is_anchored_to_is_a_session_in_the_wrong_ledger_not_an_unatt
     for way_out in [
         "--tenant",
         "--database-url",
-        "hivemind project anchor --handle <project> --kind rig --value beadline",
+        "loomtracer project anchor --handle <project> --kind rig --value beadline",
         "--project <handle>",
     ] {
         assert!(refusal.contains(way_out), "missing {way_out}: {refusal}");
@@ -402,7 +404,7 @@ fn with_nothing_to_go_on_the_personal_fallback_carries_the_reminder() {
     assert_eq!(
         resolved.reminder(true).as_deref(),
         Some(
-            "this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder"
+            "this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder"
         )
     );
     assert_eq!(
@@ -538,10 +540,10 @@ fn the_ladder_steps_down_one_rung_at_a_time() {
 /// marker reaches:
 ///
 /// ```text
-/// repo/.hivemind-project                   platform
-/// repo/services/billing/.hivemind-project  billing
-/// repo/services/auth/.hivemind-project     auth
-/// repo/services/ledger/.hivemind-project   ledger
+/// repo/.loomtracer-project                   platform
+/// repo/services/billing/.loomtracer-project  billing
+/// repo/services/auth/.loomtracer-project     auth
+/// repo/services/ledger/.loomtracer-project   ledger
 /// unattached/
 /// ```
 fn spanning_tree() -> TempTree {
@@ -701,7 +703,7 @@ fn two_projects_with_no_common_parent_land_in_the_personal_project_and_the_remin
     let reminder = resolved.reminder(true).expect("the fallback is announced");
     assert_eq!(
         reminder,
-        "this change spans auth and billing, which share no parent. Move it with hivemind move ..., or register a parent."
+        "this change spans auth and billing, which share no parent. Move it with loomtracer move ..., or register a parent."
     );
     assert_eq!(
         resolved.reminder(false),
@@ -982,8 +984,8 @@ fn git_touched_paths_are_empty_outside_a_repository_and_for_a_clean_tree() {
 
 #[test]
 fn the_env_trims_the_rig_and_the_person_and_drops_an_empty_rig() {
-    let env = ProjectContextEnv::new(None, Some("  hivemind  "), " human:alice ");
-    assert_eq!(env.rig.as_deref(), Some("hivemind"));
+    let env = ProjectContextEnv::new(None, Some("  loomtracer  "), " human:alice ");
+    assert_eq!(env.rig.as_deref(), Some("loomtracer"));
     assert_eq!(env.person, "human:alice");
 
     assert_eq!(

@@ -1,6 +1,6 @@
 # Decision log
 
-Generated from HiveMind ledger offset 75 (last event 2026-01-02T00:50:16+00:00). Do not edit; regenerate with `hivemind export`.
+Generated from Loomtracer ledger offset 75 (last event 2026-01-02T00:50:16+00:00). Do not edit; regenerate with `loomtracer export`.
 
 Filters: project=any  topic=any  status=any  since=none
 

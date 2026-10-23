@@ -19,14 +19,14 @@
 //! `url_verification` carries no `team_id` (Slack sends it once, when the
 //! Request URL is first configured, before any workspace has necessarily
 //! installed the app) — it is verified against the app-level
-//! `HIVEMIND_SLACK_SIGNING_SECRET`, the same secret used to populate new
+//! `LOOMTRACER_SLACK_SIGNING_SECRET`, the same secret used to populate new
 //! installs created via the OAuth callback below.
 //!
 //! ## Multi-tenant
 //!
-//! Each Slack workspace (`team_id`) maps 1:1 onto its own HiveMind tenant
+//! Each Slack workspace (`team_id`) maps 1:1 onto its own Loomtracer tenant
 //! (`TenantId::new(team_id)`), which must already be registered
-//! (`hivemind tenant create <team_id>` on SQLite, or provisioned
+//! (`loomtracer tenant create <team_id>` on SQLite, or provisioned
 //! automatically by the OAuth callback below). This is the seam that keeps
 //! a request signed by workspace A from ever writing into workspace B's
 //! ledger: `team_id` comes only from the verified body, and every ledger
@@ -39,7 +39,7 @@
 //! ## Backend support
 //!
 //! [`SlackAppStore`]'s installs/queue storage is local-disk JSON, scoped to
-//! `ApiConfig::hivemind_dir` — it has no Postgres-backed storage yet. These
+//! `ApiConfig::loomtracer_dir` — it has no Postgres-backed storage yet. These
 //! routes are therefore only wired up when the server is running the
 //! SQLite backend (`AppState::slack_store` is `None` on Postgres); see
 //! docs/SLACK_APP.md for the tracked follow-up.
@@ -91,7 +91,7 @@ const SLACK_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
 const SLACK_BACKEND_UNSUPPORTED: &str =
     "Slack app front door is only available on the SQLite backend (installations/queue storage is local-disk); see docs/SLACK_APP.md";
 const DEFAULT_COMMAND_RESULT_LIMIT: usize = 5;
-const DEFAULT_INSTALL_REACTION_EMOJI: &str = "hivemind";
+const DEFAULT_INSTALL_REACTION_EMOJI: &str = "loomtracer";
 const SLACK_DRAIN_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const SLACK_OAUTH_ACCESS_URL: &str = "https://slack.com/api/oauth.v2.access";
 
@@ -217,7 +217,7 @@ fn authenticate_install(
 
 /// A workspace's captures are written into the tenant named by its `team_id`,
 /// and only the OAuth callback registers that tenant; a hand `slack-app
-/// install` needs `hivemind tenant create <team_id>` first. Checked once a
+/// install` needs `loomtracer tenant create <team_id>` first. Checked once a
 /// request is authenticated and before it does any Slack-side work or queues
 /// anything, so a workspace without its tenant is refused (404, the answer the
 /// commands route already gives) and logged with the fix, instead of
@@ -230,7 +230,7 @@ fn require_workspace_tenant(backend: &ApiBackend, team_id: &str) -> ApiResult<()
         .map(|_| ())
         .map_err(|error| {
             warn!(
-                target: "hivemind::api::slack",
+                target: "loomtracer::api::slack",
                 team_id = %team_id,
                 error = %error,
                 "refusing a Slack request: the workspace's tenant cannot be opened"
@@ -322,7 +322,7 @@ pub(super) async fn events_handler(
         SlackEventEnvelope::UrlVerification { challenge } => {
             let Some(secret) = state.slack_app_signing_secret.clone() else {
                 return ApiError::unauthorized(
-                    "HIVEMIND_SLACK_SIGNING_SECRET not configured; cannot verify url_verification",
+                    "LOOMTRACER_SLACK_SIGNING_SECRET not configured; cannot verify url_verification",
                 )
                 .into_response();
             };
@@ -448,7 +448,7 @@ async fn complete_reaction_capture(
         Ok(Some(message)) => message,
         Ok(None) => {
             info!(
-                target: "hivemind::api::slack",
+                target: "loomtracer::api::slack",
                 team_id = %team_id,
                 channel = %reaction.channel,
                 ts = %reaction.ts,
@@ -459,7 +459,7 @@ async fn complete_reaction_capture(
         }
         Err(error) => {
             warn!(
-                target: "hivemind::api::slack",
+                target: "loomtracer::api::slack",
                 team_id = %team_id,
                 error = %error,
                 "could not fetch the reacted-to message; nothing captured"
@@ -474,13 +474,13 @@ async fn complete_reaction_capture(
     match queued {
         Ok(Ok(())) => {}
         Ok(Err(error)) => warn!(
-            target: "hivemind::api::slack",
+            target: "loomtracer::api::slack",
             team_id = %team_id,
             error = %error,
             "reaction capture could not be queued"
         ),
         Err(error) => warn!(
-            target: "hivemind::api::slack",
+            target: "loomtracer::api::slack",
             team_id = %team_id,
             error = %error,
             "reaction capture task panicked"
@@ -501,7 +501,7 @@ fn enqueue_reaction_capture(
     let install = &reaction.install;
     let Some(author) = message.user.as_deref() else {
         info!(
-            target: "hivemind::api::slack",
+            target: "loomtracer::api::slack",
             team_id = %install.team_id,
             "reacted-to message has no user author (posted by an app?); nothing captured"
         );
@@ -525,7 +525,7 @@ fn enqueue_reaction_capture(
         Ok(markers) => markers,
         Err(error) => {
             info!(
-                target: "hivemind::api::slack",
+                target: "loomtracer::api::slack",
                 team_id = %install.team_id,
                 reason = %error,
                 "reacted-to message is not a decision capture; nothing captured"
@@ -558,7 +558,7 @@ fn enqueue_reaction_capture(
 
 /// Builds a single-message [`SlackThreadFixture`] from a live event and
 /// reuses [`parse_decision_markers`] — the same deterministic, LLM-free
-/// Decision:/Rationale:/Options: grammar `hivemind ingest slack-thread`
+/// Decision:/Rationale:/Options: grammar `loomtracer ingest slack-thread`
 /// already uses — to decide whether the message is a capture. No markers,
 /// no mention (when required), or missing fields: ack and do nothing.
 fn enqueue_marker_capture(
@@ -696,8 +696,8 @@ pub(super) async fn commands_handler(
                 "To capture a decision from Slack, use the *Capture this thread as a decision* \
                  message shortcut on the message (its ⋯ menu), or react to a message with \
                  :{}: when it carries `Decision:`, `Rationale:` and `Options:` lines. From a \
-                 terminal, use `hivemind emit decision.capture`. Browse decisions with \
-                 `/hivemind query <topic>` or `/hivemind show <id>`.",
+                 terminal, use `loomtracer emit decision.capture`. Browse decisions with \
+                 `/loomtracer query <topic>` or `/loomtracer show <id>`.",
                 install.reaction_emoji
             );
             response.action = None;
@@ -768,8 +768,8 @@ pub(super) async fn oauth_callback_handler(
         state.slack_app_signing_secret.clone(),
     ) else {
         return ApiError::internal(
-            "HIVEMIND_SLACK_CLIENT_ID / HIVEMIND_SLACK_CLIENT_SECRET / \
-             HIVEMIND_SLACK_SIGNING_SECRET must be configured for OAuth install",
+            "LOOMTRACER_SLACK_CLIENT_ID / LOOMTRACER_SLACK_CLIENT_SECRET / \
+             LOOMTRACER_SLACK_SIGNING_SECRET must be configured for OAuth install",
         )
         .into_response();
     };
@@ -833,7 +833,7 @@ pub(super) async fn oauth_callback_handler(
                 team_name,
                 bot_token,
                 signing_secret,
-                hivemind_url: base_url,
+                loomtracer_url: base_url,
                 reaction_emoji: DEFAULT_INSTALL_REACTION_EMOJI.to_owned(),
                 actor_mappings: Default::default(),
             })
@@ -898,7 +898,7 @@ pub(super) fn try_spawn_drain_loop(state: &AppState) {
     };
     let backend = Arc::clone(&state.backend);
     tokio::spawn(async move {
-        info!(target: "hivemind::api::slack", "slack capture queue drain worker started");
+        info!(target: "loomtracer::api::slack", "slack capture queue drain worker started");
         loop {
             let store = store.clone();
             let backend = Arc::clone(&backend);
@@ -913,10 +913,10 @@ pub(super) fn try_spawn_drain_loop(state: &AppState) {
                 }
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    warn!(target: "hivemind::api::slack", error = %e, "slack queue drain failed")
+                    warn!(target: "loomtracer::api::slack", error = %e, "slack queue drain failed")
                 }
                 Err(e) => warn!(
-                    target: "hivemind::api::slack",
+                    target: "loomtracer::api::slack",
                     error = %e,
                     "slack queue drain task panicked"
                 ),
@@ -934,7 +934,7 @@ pub(super) fn try_spawn_drain_loop(state: &AppState) {
 /// truth: it is still stuck.
 fn report_drain_pass(report: &SlackDrainReport) {
     info!(
-        target: "hivemind::api::slack",
+        target: "loomtracer::api::slack",
         processed = report.processed_count,
         failed = report.failed_count,
         remaining = report.queued_after,
@@ -942,7 +942,7 @@ fn report_drain_pass(report: &SlackDrainReport) {
     );
     for failed in &report.failed {
         warn!(
-            target: "hivemind::api::slack",
+            target: "loomtracer::api::slack",
             team_id = %failed.team_id,
             queue_id = %failed.queue_id,
             attempts = failed.attempts,

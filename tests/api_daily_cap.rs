@@ -1,6 +1,6 @@
 //! The daily classification cap over HTTP (hivemind-zdsh.18).
 //!
-//! This is its own test binary because `HIVEMIND_CLASSIFY_DAILY_CAP` is process-global: the test
+//! This is its own test binary because `LOOMTRACER_CLASSIFY_DAILY_CAP` is process-global: the test
 //! lowers it to 1, and in `tests/api.rs` that raced every test recording more than one
 //! classification into a ledger (hivemind-9512). A separate binary is a separate process, so no
 //! other test can meet the lowered cap.
@@ -14,12 +14,12 @@ use serde_json::Value;
 use tower::ServiceExt as _;
 
 fn test_ledger_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-api-cap-test-{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!("loomtracer-api-cap-test-{}", uuid::Uuid::new_v4()))
 }
 
-fn app(hivemind_dir: PathBuf) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+fn app(loomtracer_dir: PathBuf) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -37,7 +37,7 @@ fn app(hivemind_dir: PathBuf) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 async fn call(app: axum::Router, req: Request<Body>) -> (StatusCode, Value) {
@@ -58,7 +58,7 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -67,7 +67,7 @@ fn get_req(uri: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
         .uri(uri)
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::empty())
         .unwrap()
 }
@@ -97,8 +97,8 @@ async fn classify_queue_submit_enforces_daily_cap() {
     }
 
     // The only test in this binary, so nothing else reads the variable while it is lowered.
-    let saved = std::env::var("HIVEMIND_CLASSIFY_DAILY_CAP").ok();
-    unsafe { std::env::set_var("HIVEMIND_CLASSIFY_DAILY_CAP", "1") };
+    let saved = std::env::var("LOOMTRACER_CLASSIFY_DAILY_CAP").ok();
+    unsafe { std::env::set_var("LOOMTRACER_CLASSIFY_DAILY_CAP", "1") };
 
     let submit_one = |batch_id: &'static str| {
         post_json(
@@ -117,8 +117,8 @@ async fn classify_queue_submit_enforces_daily_cap() {
     let (status, body) = call(app(dir.clone()), submit_one("cap-sess:1-2")).await;
 
     match saved {
-        Some(v) => unsafe { std::env::set_var("HIVEMIND_CLASSIFY_DAILY_CAP", v) },
-        None => unsafe { std::env::remove_var("HIVEMIND_CLASSIFY_DAILY_CAP") },
+        Some(v) => unsafe { std::env::set_var("LOOMTRACER_CLASSIFY_DAILY_CAP", v) },
+        None => unsafe { std::env::remove_var("LOOMTRACER_CLASSIFY_DAILY_CAP") },
     }
 
     assert_eq!(

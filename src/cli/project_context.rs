@@ -1,21 +1,21 @@
 //! "Where am I" becomes a project: the client-side half of working out which project a
 //! capture belongs to (product spec section 4; epic hivemind-s15q child D1).
 //!
-//! HiveMind validates the address a capture carries and never infers it (three-layer
+//! Loomtracer validates the address a capture carries and never infers it (three-layer
 //! rule), so the inference lives here, in the client, next to the other places the CLI
 //! turns its own surroundings into a question (`cwd` and `diff` become situational paths).
 //! Neither the write layer nor the query layer sees this module. It runs only when the
 //! caller opts in -- `--project-from-context` on the capture verbs and on the stdio
-//! `hivemind mcp` server -- so a bare `hivemind emit` stays deterministic.
+//! `loomtracer mcp` server -- so a bare `loomtracer emit` stays deterministic.
 //!
 //! The order, first match wins, each rung naming how it was determined:
 //!
 //! 1. the project the caller stated (`--project`)                     -> as stated
-//! 2. the `.hivemind-project` markers of the folders the change
+//! 2. the `.loomtracer-project` markers of the folders the change
 //!    touches (see below), else the nearest one walking up from the
 //!    cwd                                                             -> `folder_marker`
 //! 3. the registered project anchored to the rig in `GC_RIG`          -> `rig`
-//! 4. the actor's current project (`hivemind project use`)            -> `current_project`
+//! 4. the actor's current project (`loomtracer project use`)            -> `current_project`
 //! 5. none of the above: the personal project, with a reminder that
 //!    the folder is not attached                                      -> `personal_fallback`
 //!    ...unless the session is in a rig that no project in this ledger is anchored
@@ -57,12 +57,12 @@ use super::current_project::CurrentProjectStore;
 
 /// The one-line, checked-in file that attaches a folder (and everything beneath it, until a
 /// nearer one) to a project: its whole content is the project handle.
-pub(crate) const PROJECT_MARKER_FILE_NAME: &str = ".hivemind-project";
+pub(crate) const PROJECT_MARKER_FILE_NAME: &str = ".loomtracer-project";
 
 /// Shown next to a capture that found no project to attach to, so the personal fallback is
 /// never silent and the way out is in the same message.
 pub(crate) const UNATTACHED_FOLDER_REMINDER: &str =
-    "this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder";
+    "this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder";
 
 /// The environment variable every Gas City session carries its rig in.
 const RIG_ENV_VAR: &str = "GC_RIG";
@@ -72,7 +72,7 @@ const RIG_ENV_VAR: &str = "GC_RIG";
 /// "saved to your personal project".
 fn spans_unrelated_reminder(spanned: &[String]) -> String {
     format!(
-        "this change spans {}, which share no parent. Move it with hivemind move ..., or register a parent.",
+        "this change spans {}, which share no parent. Move it with loomtracer move ..., or register a parent.",
         join_handles(spanned)
     )
 }
@@ -163,8 +163,8 @@ impl ResolvedProject {
         Some(format!(
             "this session runs in rig `{rig}` (GC_RIG), but no project in {ledger} is anchored to that rig, \
              so this capture would be filed under your personal project in what looks like the wrong ledger. \
-             Write to the ledger that holds the rig's project (--tenant or HIVEMIND_TENANT, --hivemind-dir, \
-             or --database-url), anchor the rig here with `hivemind project anchor --handle <project> --kind rig --value {rig}`, \
+             Write to the ledger that holds the rig's project (--tenant or LOOMTRACER_TENANT, --loomtracer-dir, \
+             or --database-url), anchor the rig here with `loomtracer project anchor --handle <project> --kind rig --value {rig}`, \
              or name the project yourself with --project <handle>."
         ))
     }
@@ -331,7 +331,7 @@ fn touched_marker_handles(touched: &[PathBuf]) -> Result<BTreeSet<String>> {
     Ok(handles)
 }
 
-/// The handle in the nearest `.hivemind-project` at or above `start`. A marker nested inside
+/// The handle in the nearest `.loomtracer-project` at or above `start`. A marker nested inside
 /// an attached folder is a sub-project and, being nearer, wins over the outer one.
 ///
 /// A marker that cannot be read, or does not hold exactly one handle on one line, is refused
@@ -372,7 +372,7 @@ pub(crate) struct ProjectContextEnv {
     start_dir: Option<PathBuf>,
     rig: Option<String>,
     /// Whose current-project setting the ladder consults: the person at the terminal, the
-    /// same key `hivemind project use` writes under.
+    /// same key `loomtracer project use` writes under.
     person: String,
 }
 
@@ -400,7 +400,7 @@ struct LedgerProjectSources<'a, L: EventLedger> {
     /// Already scoped to `tenant`.
     ledger: &'a L,
     tenant: &'a TenantId,
-    hivemind_dir: &'a Path,
+    loomtracer_dir: &'a Path,
     /// See [`ProjectContextSources::ledger_address`].
     ledger_address: String,
 }
@@ -435,7 +435,7 @@ impl<L: EventLedger> ProjectContextSources for LedgerProjectSources<'_, L> {
     }
 
     fn current_project(&self) -> Result<Option<String>> {
-        CurrentProjectStore::new(self.hivemind_dir).get(self.tenant.as_str(), &self.env.person)
+        CurrentProjectStore::new(self.loomtracer_dir).get(self.tenant.as_str(), &self.env.person)
     }
 
     fn touched_paths(&self, dir: &Path) -> Vec<PathBuf> {
@@ -491,7 +491,7 @@ fn git_stdout(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
 }
 
 /// [`resolve_project_from_context`] against a tenant's ledger and the local config
-/// directory (`--hivemind-dir`, where the current-project setting lives).
+/// directory (`--loomtracer-dir`, where the current-project setting lives).
 pub(crate) fn resolve_project_in_ledger<L: EventLedger + ?Sized>(
     stated: Option<DeterminedProject<'_>>,
     env: &ProjectContextEnv,
@@ -506,7 +506,7 @@ pub(crate) fn resolve_project_in_ledger<L: EventLedger + ?Sized>(
             env,
             ledger: &scoped,
             tenant,
-            hivemind_dir: &ledger_config.hivemind_dir,
+            loomtracer_dir: &ledger_config.loomtracer_dir,
             ledger_address: ledger_config.address(tenant),
         },
     )

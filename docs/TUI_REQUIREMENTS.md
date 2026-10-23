@@ -1,11 +1,11 @@
 # Decision Search And Graph TUI Requirements
 
 This document captures stable product requirements for searching and inspecting
-HiveMind decisions in a terminal UI.
+Loomtracer decisions in a terminal UI.
 
 ## Context
 
-HiveMind needs a small terminal UI for finding decisions and inspecting why
+Loomtracer needs a small terminal UI for finding decisions and inspecting why
 they exist. The current CLI exposes three deterministic read operations:
 `get_decision`, `get_relevant_decisions(topic, status?)`, and
 `get_supersession_chain`, plus a DOT dump of the projected graph. The seed data
@@ -15,7 +15,7 @@ hypothesis affecting dependent decisions.
 `beads_viewer` is useful as an interaction reference for keyboard-first list
 browsing, split list/detail layouts, fuzzy search, help overlays, graph export,
 and focused graph neighborhoods. Its board view is not a good primary model for
-HiveMind because decisions do not flow through work columns. HiveMind's primary
+Loomtracer because decisions do not flow through work columns. Loomtracer's primary
 shape is a provenance graph: decisions, actors, options, evidence, hypotheses,
 and supersession edges.
 

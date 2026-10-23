@@ -23,7 +23,7 @@ use crate::option_filler;
 use crate::util::require_non_empty;
 use crate::Result;
 
-pub const DEFAULT_SLACK_MENTION: &str = "@hivemind";
+pub const DEFAULT_SLACK_MENTION: &str = "@loomtracer";
 /// The topic a Slack capture gets when its author names none.
 pub(crate) const DEFAULT_SLACK_TOPIC: &str = "slack";
 
@@ -140,7 +140,7 @@ fn slack_thread_ask(
 /// builds a [`SlackDecisionDraft`] from a queued capture's own `message_ts` rather than a
 /// thread fixture.
 pub(crate) fn parse_slack_ts(ts: &str) -> Result<DateTime<Utc>> {
-    let invalid = || -> crate::error::HivemindError {
+    let invalid = || -> crate::error::LoomtracerError {
         CommandError::Validation(format!("invalid slack timestamp: '{ts}'")).into()
     };
     let (secs_part, frac_part) = ts.split_once('.').unwrap_or((ts, ""));
@@ -1484,15 +1484,15 @@ fn render_prepared_document_text(
     pages: &[DocumentPreparedPageReport],
 ) -> Result<String> {
     let mut output = String::new();
-    output.push_str("# hivemind-prepared-document: v1\n");
+    output.push_str("# loomtracer-prepared-document: v1\n");
     output.push_str(&format!("# preparation_run_id: {preparation_run_id}\n"));
-    output.push_str("# reviewer_note: Review this extracted text before importing with `hivemind import documents`.\n\n");
+    output.push_str("# reviewer_note: Review this extracted text before importing with `loomtracer import documents`.\n\n");
 
     for page in pages {
         let source_ref = serde_json::to_string(&page.source_ref).map_err(|error| {
             CommandError::Validation(format!("prepared source_ref serialization failed: {error}"))
         })?;
-        output.push_str(&format!("# hivemind-source-ref: {source_ref}\n"));
+        output.push_str(&format!("# loomtracer-source-ref: {source_ref}\n"));
         output.push_str(&format!("# source_page: {}\n", page.page_number));
         if page.review_required {
             output.push_str("# ocr_review_required: true\n");
@@ -3131,7 +3131,7 @@ fn prepared_source_ref_before(
         .filter_map(|line| {
             line.text
                 .trim()
-                .strip_prefix("# hivemind-source-ref:")
+                .strip_prefix("# loomtracer-source-ref:")
                 .map(str::trim)
         })
         .find_map(|value| serde_json::from_str::<DocumentPreparedSourceRef>(value).ok())
@@ -3171,7 +3171,7 @@ fn scan_decision_block_markers(raw: &RawDocumentDecisionBlock) -> Result<ParsedD
     let mut rationale_key_indent: Option<usize> = None;
     // Lines indented under the `Decision:` marker are the block's fields. The block runs on to
     // the next marker, so text at or left of the marker's indent is the document going on — the
-    // `# hivemind-source-ref:` line of the next prepared page, a heading, prose — and is ignored
+    // `# loomtracer-source-ref:` line of the next prepared page, a heading, prose — and is ignored
     // rather than refused.
     let marker_indent = raw.lines.first().map_or(0, |line| indent_width(&line.text));
 

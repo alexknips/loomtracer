@@ -5,7 +5,7 @@
 //! nodes+edges, diffs against the hand-authored gold, and prints per-kind
 //! P/R/F1 + a macro-F1 headline.
 //!
-//! Two LLM backends, selected by `HIVEMIND_EVAL_BACKEND`:
+//! Two LLM backends, selected by `LOOMTRACER_EVAL_BACKEND`:
 //!   - `anthropic-api` (default when ANTHROPIC_API_KEY is set): metered
 //!     Anthropic API, same path as the production classifier.
 //!   - `claude-cli` (default when no key is set and `claude` is on PATH):
@@ -14,7 +14,7 @@
 //!     human developer running an eval from their own agent session.
 //!
 //! Both share the exact classifier prompt, schema, and CaptureItem parsing
-//! (`hivemind::classifier::{build_prompt, capture_schema, parse_capture_response}`)
+//! (`loomtracer::classifier::{build_prompt, capture_schema, parse_capture_response}`)
 //! so scores are comparable across backends.
 //!
 //! Exits 0 even when scores are low (run as a scorecard tool, not a
@@ -23,8 +23,8 @@
 //! Usage:
 //!   cargo run --bin fidelity-eval [-- --corpus path/to/corpus.yaml]
 //!   cargo run --bin fidelity-eval -- --ceiling   # schema-ceiling (no LLM)
-//!   HIVEMIND_EVAL_BACKEND=claude-cli cargo run --bin fidelity-eval
-//!   HIVEMIND_EVAL_BACKEND=anthropic-api cargo run --bin fidelity-eval
+//!   LOOMTRACER_EVAL_BACKEND=claude-cli cargo run --bin fidelity-eval
+//!   LOOMTRACER_EVAL_BACKEND=anthropic-api cargo run --bin fidelity-eval
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -225,9 +225,9 @@ fn gold_graph(expected: &Expected) -> (Vec<ScoredNode>, Vec<ScoredEdge>) {
 // --------------------------------------------------------------------------
 
 fn produced_graph(
-    id_captures: &[(&str, &hivemind::events::CaptureItem)],
+    id_captures: &[(&str, &loomtracer::events::CaptureItem)],
 ) -> (Vec<ScoredNode>, Vec<ScoredEdge>) {
-    match hivemind::projector::project_captures_in_memory(id_captures) {
+    match loomtracer::projector::project_captures_in_memory(id_captures) {
         Ok((nodes, edges)) => convert_to_scored(nodes, edges),
         Err(e) => {
             eprintln!("  projector error: {e}");
@@ -237,8 +237,8 @@ fn produced_graph(
 }
 
 fn convert_to_scored(
-    nodes: Vec<(hivemind::projector::NodeKind, String, String)>,
-    edges: Vec<(hivemind::projector::RelationKind, String, String)>,
+    nodes: Vec<(loomtracer::projector::NodeKind, String, String)>,
+    edges: Vec<(loomtracer::projector::RelationKind, String, String)>,
 ) -> (Vec<ScoredNode>, Vec<ScoredEdge>) {
     // Build id → (kind_str, normalized_text) map for edge endpoint resolution.
     let mut id_map: HashMap<String, (String, String)> = HashMap::new();
@@ -282,7 +282,7 @@ fn convert_to_scored(
 
 const CLAUDE_CLI_MODEL: &str = "claude-haiku-4-5-20251001";
 const CLAUDE_CLI_TIMEOUT: Duration = Duration::from_secs(90);
-const EVAL_BACKEND_ENV: &str = "HIVEMIND_EVAL_BACKEND";
+const EVAL_BACKEND_ENV: &str = "LOOMTRACER_EVAL_BACKEND";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Backend {
@@ -311,7 +311,7 @@ fn claude_cli_on_path() -> bool {
         .unwrap_or(false)
 }
 
-/// Resolve the backend from `HIVEMIND_EVAL_BACKEND`, or auto-detect: prefer
+/// Resolve the backend from `LOOMTRACER_EVAL_BACKEND`, or auto-detect: prefer
 /// `claude-cli` when no ANTHROPIC_API_KEY is set and `claude` is on PATH,
 /// otherwise `anthropic-api` (the pre-existing default).
 fn resolve_backend() -> Backend {
@@ -401,9 +401,9 @@ struct ClaudeCliEnvelope {
 /// production classifier so scores are comparable across backends.
 fn classify_text_cli(
     input: &str,
-) -> Result<Vec<hivemind::events::CaptureItem>, Box<dyn std::error::Error + Send + Sync>> {
-    let prompt = hivemind::classifier::build_prompt(input);
-    let schema = serde_json::to_string(&hivemind::classifier::capture_schema())?;
+) -> Result<Vec<loomtracer::events::CaptureItem>, Box<dyn std::error::Error + Send + Sync>> {
+    let prompt = loomtracer::classifier::build_prompt(input);
+    let schema = serde_json::to_string(&loomtracer::classifier::capture_schema())?;
 
     let output = run_claude_cli(
         &[
@@ -448,7 +448,7 @@ fn classify_text_cli(
     let result_text = envelope
         .result
         .ok_or("claude CLI response missing `result` field")?;
-    let captures = hivemind::classifier::parse_capture_response(&result_text).map_err(|e| {
+    let captures = loomtracer::classifier::parse_capture_response(&result_text).map_err(|e| {
         format!(
             "failed to parse CaptureItem schema from claude CLI result: {e}\nresult: {result_text}"
         )
@@ -912,8 +912,8 @@ fn aggregate_scorecard(results: &[CaseResult]) {
 // REAL production projector. Actor and Option nodes have no standalone
 // CaptureItem kind; Actor edges are wired via actor_id/accepted_by/rejected_by
 // fields; Option nodes are emitted by project_capture from capture.options.
-fn gold_as_captures(expected: &Expected) -> Vec<(String, hivemind::events::CaptureItem)> {
-    use hivemind::events::CaptureItem;
+fn gold_as_captures(expected: &Expected) -> Vec<(String, loomtracer::events::CaptureItem)> {
+    use loomtracer::events::CaptureItem;
     use std::collections::HashMap;
 
     // key → text for edge resolution
@@ -1141,7 +1141,7 @@ async fn main() {
             std::process::exit(1);
         })
     });
-    let loaded_captures: Option<HashMap<String, Vec<(String, hivemind::events::CaptureItem)>>> =
+    let loaded_captures: Option<HashMap<String, Vec<(String, loomtracer::events::CaptureItem)>>> =
         loaded_run.as_ref().map(|run| {
             run.cases
                 .iter()
@@ -1162,7 +1162,7 @@ async fn main() {
         match backend {
             Backend::AnthropicApi => match std::env::var("ANTHROPIC_API_KEY") {
                 Ok(k) if !k.trim().is_empty() => {
-                    (Some(backend), hivemind::classifier::resolved_model(), k)
+                    (Some(backend), loomtracer::classifier::resolved_model(), k)
                 }
                 _ => {
                     eprintln!(
@@ -1221,13 +1221,13 @@ async fn main() {
     });
 
     if ceiling_mode {
-        println!("HiveMind capture-fidelity evaluator — CEILING MODE");
+        println!("Loomtracer capture-fidelity evaluator — CEILING MODE");
         println!("(Gold nodes → CaptureItems via real projector; no LLM calls.)");
     } else if let Some(p) = &load_captures_path {
-        println!("HiveMind capture-fidelity evaluator — REPLAY MODE");
+        println!("Loomtracer capture-fidelity evaluator — REPLAY MODE");
         println!("(Captures loaded from {p}; no LLM calls.)");
     } else {
-        println!("HiveMind capture-fidelity evaluator");
+        println!("Loomtracer capture-fidelity evaluator");
         println!(
             "Backend: {} (model: {model})",
             backend
@@ -1257,7 +1257,7 @@ async fn main() {
         println!("Running case {} ...", case.id);
 
         // id_captures: (stable_node_id, CaptureItem) pairs for the projector.
-        let id_captures: Vec<(String, hivemind::events::CaptureItem)> = if ceiling_mode {
+        let id_captures: Vec<(String, loomtracer::events::CaptureItem)> = if ceiling_mode {
             gold_as_captures(&case.expected)
         } else if let Some(loaded) = &loaded_captures {
             loaded.get(&case.id).cloned().unwrap_or_else(|| {
@@ -1271,7 +1271,7 @@ async fn main() {
             let classified = match backend.expect("resolved above when not in ceiling/replay mode")
             {
                 Backend::AnthropicApi => {
-                    hivemind::classifier::classify_text(&client, &api_key, &case.input).await
+                    loomtracer::classifier::classify_text(&client, &api_key, &case.input).await
                 }
                 Backend::ClaudeCli => classify_text_cli(&case.input),
             };
@@ -1296,7 +1296,7 @@ async fn main() {
             });
         }
 
-        let id_capture_refs: Vec<(&str, &hivemind::events::CaptureItem)> = id_captures
+        let id_capture_refs: Vec<(&str, &loomtracer::events::CaptureItem)> = id_captures
             .iter()
             .map(|(id, cap)| (id.as_str(), cap))
             .collect();
@@ -1355,7 +1355,7 @@ struct CaptureRun {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CaseCaptures {
     case_id: String,
-    captures: Vec<(String, hivemind::events::CaptureItem)>,
+    captures: Vec<(String, loomtracer::events::CaptureItem)>,
 }
 
 /// Returns the value following `flag` (e.g. `--rubric similarity` ->
@@ -1500,7 +1500,7 @@ mod tests {
 
     #[test]
     fn produced_graph_simple_decision_with_options() {
-        let cap = hivemind::events::CaptureItem {
+        let cap = loomtracer::events::CaptureItem {
             kind: "decision".into(),
             title: "Use Postgres".into(),
             rationale: "concurrent writes".into(),

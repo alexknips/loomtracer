@@ -10,27 +10,27 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
     dir.push(format!(
-        "hivemind-import-extractor-flags-{label}-{}",
+        "loomtracer-import-extractor-flags-{label}-{}",
         uuid::Uuid::new_v4()
     ));
     dir
 }
 
-/// `hivemind --hivemind-dir <dir> <args>` with no cell URL, no shared database and no
-/// `HIVEMIND_DIR` in the environment.
-fn hivemind(dir: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
-    Ok(Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_DIR")
-        .arg("--hivemind-dir")
+/// `loomtracer --loomtracer-dir <dir> <args>` with no cell URL, no shared database and no
+/// `LOOMTRACER_DIR` in the environment.
+fn loomtracer(dir: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
+    Ok(Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_DIR")
+        .arg("--loomtracer-dir")
         .arg(dir)
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -57,7 +57,7 @@ fn notes_dir(root: &Path) -> Result<PathBuf, Box<dyn Error>> {
 
 /// A ledger that already holds one event, made the way a person starts one.
 fn ledger_with_one_event(dir: &Path) -> TestResult {
-    let made = hivemind(dir, &["emit", "evidence.recorded", "--content", "seed"])?;
+    let made = loomtracer(dir, &["emit", "evidence.recorded", "--content", "seed"])?;
     if !made.status.success() {
         return Err(format!("could not start a ledger: {}", stderr(&made)).into());
     }
@@ -73,7 +73,7 @@ fn the_note_imports_when_the_flags_are_valid() -> TestResult {
     ledger_with_one_event(&dir)?;
     let before = event_count(&dir)?;
 
-    let imported = hivemind(
+    let imported = loomtracer(
         &dir,
         &["import", "documents", notes.to_str().ok_or("utf-8 path")?],
     )?;
@@ -98,7 +98,7 @@ fn conflicting_or_stray_extractor_flags_exit_2_and_record_nothing() -> TestResul
             "command-and-response",
             &[
                 "--extractor-command",
-                "hivemind-document-extractor",
+                "loomtracer-document-extractor",
                 "--llm-response",
                 "response.json",
             ],
@@ -129,7 +129,7 @@ fn conflicting_or_stray_extractor_flags_exit_2_and_record_nothing() -> TestResul
 
         let mut args = vec!["import", "documents", notes.to_str().ok_or("utf-8 path")?];
         args.extend_from_slice(flags);
-        let refused = hivemind(&dir, &args)?;
+        let refused = loomtracer(&dir, &args)?;
 
         if refused.status.code() != Some(2) {
             return Err(format!(

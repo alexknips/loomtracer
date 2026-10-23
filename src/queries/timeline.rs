@@ -57,7 +57,7 @@ use super::QueryResponse;
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TimelineFact {
-    /// The question the decision answers was explicitly asked (`hivemind ask`, `request_decision`).
+    /// The question the decision answers was explicitly asked (`loomtracer ask`, `request_decision`).
     Asked {
         request_id: String,
         question_id: String,

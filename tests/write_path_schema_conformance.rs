@@ -23,17 +23,17 @@
 use std::fs;
 use std::path::PathBuf;
 
-use hivemind::commands::{
+use loomtracer::commands::{
     CommandContext, Commands, DecisionProposalInput, DeterminedProject, FloorInput, GroundInput,
     Grounding, GroundingPlan, NewBet, NewEvidence, ReaffirmInput, SupersedeInput,
 };
-use hivemind::connector;
-use hivemind::events::{
+use loomtracer::connector;
+use loomtracer::events::{
     AckAction, CaptureItem, EventProvenance, EventType, IngestTurn, ProjectAnchorKind,
     ProjectLinkKind, TenantId,
 };
-use hivemind::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
-use hivemind::ledger::{EventLedger, InMemoryEventLedger};
+use loomtracer::floor::{BindsAnswer, FloorAnswers, UndoCostAnswer};
+use loomtracer::ledger::{EventLedger, InMemoryEventLedger};
 use serde_json::Value;
 
 #[test]

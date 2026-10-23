@@ -13,7 +13,7 @@
 //! (`acknowledge_suggestion` semantics: channel `linear`, action `acted`), so the next run is
 //! not shown it. A finding whose basis changes has a new `finding_id` and is filed again. This
 //! is the pattern for any sink: "where" suggestions go is the consumer's own configuration, and
-//! HiveMind records only that a finding was surfaced and what was done about it.
+//! Loomtracer records only that a finding was surfaced and what was done about it.
 //!
 //! # Layer discipline
 //! This is an **output connector** used exclusively by the `quality-scan` CLI
@@ -218,14 +218,17 @@ pub fn format_issue_title(scanned: &ScanFinding) -> String {
     } else {
         title.clone()
     };
-    format!("[HiveMind] {kind}: {truncated}")
+    format!("[Loomtracer] {kind}: {truncated}")
 }
 
 /// Format an attention finding as a Linear issue description (Markdown): the decision and the
 /// finding with its id, why it needs a look, the nodes it rests on, and the dimensions of the
 /// decision it bears on, each with its level, reasons and ids (or why it was not assessed).
 /// Nothing in it grades the decision.
-pub fn format_issue_description(scanned: &ScanFinding, hivemind_base_url: Option<&str>) -> String {
+pub fn format_issue_description(
+    scanned: &ScanFinding,
+    loomtracer_base_url: Option<&str>,
+) -> String {
     let finding = &scanned.finding;
     let mut out = String::new();
 
@@ -238,7 +241,7 @@ pub fn format_issue_description(scanned: &ScanFinding, hivemind_base_url: Option
         finding.finding_id,
     );
 
-    if let Some(base) = hivemind_base_url {
+    if let Some(base) = loomtracer_base_url {
         let base = base.trim_end_matches('/');
         let _ = writeln!(out, "**Link:** {base}/decisions/{}\n", finding.decision_id);
     }
@@ -262,7 +265,7 @@ pub fn format_issue_description(scanned: &ScanFinding, hivemind_base_url: Option
         out.push('\n');
     }
 
-    out.push_str("---\n*Filed by HiveMind quality-scan. Human review required — HiveMind never auto-acts on decisions.*\n");
+    out.push_str("---\n*Filed by Loomtracer quality-scan. Human review required — Loomtracer never auto-acts on decisions.*\n");
 
     out
 }
@@ -311,7 +314,7 @@ pub fn file_findings<L: EventLedger>(
     findings: Vec<ScanFinding>,
     commands: &Commands<'_, L>,
     actor_id: &str,
-    hivemind_base_url: Option<&str>,
+    loomtracer_base_url: Option<&str>,
     mut create_issue: impl FnMut(&str, &str) -> Result<CreatedIssue>,
 ) -> Result<Vec<FiledFinding>> {
     let mut filed: Vec<FiledFinding> = Vec::with_capacity(findings.len());
@@ -319,7 +322,7 @@ pub fn file_findings<L: EventLedger>(
         let finding = &scanned.finding;
         let issue = create_issue(
             &format_issue_title(&scanned),
-            &format_issue_description(&scanned, hivemind_base_url),
+            &format_issue_description(&scanned, loomtracer_base_url),
         )
         .map_err(|error| CliError::InvalidInput(format!("{error}{}", filed_so_far(&filed))))?;
 

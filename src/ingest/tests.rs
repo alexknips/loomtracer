@@ -80,7 +80,7 @@ fn a_question_root_answered_later_writes_an_ask_at_the_roots_time() {
         draft.ask,
         Some(SlackAsk {
             actor_id: "slack:T123:U111".to_owned(),
-            text: "@hivemind can we settle on a caching approach for the API?".to_owned(),
+            text: "@loomtracer can we settle on a caching approach for the API?".to_owned(),
             ts: asked_ts,
         })
     );
@@ -95,7 +95,7 @@ fn a_question_root_answered_later_writes_an_ask_at_the_roots_time() {
     assert_eq!(asks[0].actor_id, "slack:T123:U111");
     assert_eq!(
         asks[0].payload.get("text").and_then(|text| text.as_str()),
-        Some("@hivemind can we settle on a caching approach for the API?")
+        Some("@loomtracer can we settle on a caching approach for the API?")
     );
 
     let proposed = events_of(&ledger, EventType::DecisionProposed);
@@ -125,7 +125,7 @@ fn a_question_root_answered_later_writes_an_ask_at_the_roots_time() {
     }
 }
 
-/// An ask has one home: an imported ask reads back where a `hivemind ask` does, so `why` shows
+/// An ask has one home: an imported ask reads back where a `loomtracer ask` does, so `why` shows
 /// the root's own time as the decision's `asked_at` and the decision's own time as when it
 /// happened.
 #[test]
@@ -150,7 +150,7 @@ fn an_imported_ask_reads_back_as_the_decisions_asked_at() {
     );
     assert_eq!(
         brief.question.as_deref(),
-        Some("@hivemind can we settle on a caching approach for the API?")
+        Some("@loomtracer can we settle on a caching approach for the API?")
     );
 }
 
@@ -217,7 +217,7 @@ fn the_root_is_recognised_as_a_question_only_by_a_question_mark_or_an_ask_marker
     );
     // No classifier guess: a statement, a topic mention and a bare "?" are none of them asks.
     assert_eq!(root_question_text("We should pick a cache TTL."), None);
-    assert_eq!(root_question_text("@hivemind cache TTL thread"), None);
+    assert_eq!(root_question_text("@loomtracer cache TTL thread"), None);
     assert_eq!(root_question_text("?"), None);
     // A question mark mid-message, or a marker with no value, is not enough.
     assert_eq!(root_question_text("Why? Because we said so."), None);
@@ -231,7 +231,7 @@ fn a_marker_root_writes_an_ask_with_the_words_after_the_marker() {
           "team_id": "T123", "channel_id": "C456", "thread_ts": "1700300000.000000",
           "messages": [
             {"user_id": "U111", "ts": "1700300000.000000",
-             "text": "@hivemind\nDecision needed: which cache TTL do we use"},
+             "text": "@loomtracer\nDecision needed: which cache TTL do we use"},
             {"user_id": "U222", "ts": "1700300600.000000",
              "text": "Decision: Use a five minute cache TTL\nRationale: Balances freshness against load\nOptions: 5m, 1h\nChosen: 5m"}
           ]
@@ -252,7 +252,7 @@ fn a_root_that_neither_asks_nor_decides_writes_no_ask() {
           "team_id": "T123", "channel_id": "C456", "thread_ts": "1700400000.000000",
           "messages": [
             {"user_id": "U111", "ts": "1700400000.000000",
-             "text": "@hivemind let us settle the cache TTL today"},
+             "text": "@loomtracer let us settle the cache TTL today"},
             {"user_id": "U222", "ts": "1700400600.000000",
              "text": "Decision: Use a five minute cache TTL\nRationale: Balances freshness against load\nOptions: 5m, 1h\nChosen: 5m"}
           ]
@@ -269,7 +269,7 @@ fn a_thread_whose_root_is_not_among_its_messages_writes_no_ask() {
           "team_id": "T123", "channel_id": "C456", "thread_ts": "1700500000.000000",
           "messages": [
             {"user_id": "U222", "ts": "1700500600.000000",
-             "text": "@hivemind\nDecision: Use a five minute cache TTL\nRationale: Balances freshness against load\nOptions: 5m, 1h\nChosen: 5m"}
+             "text": "@loomtracer\nDecision: Use a five minute cache TTL\nRationale: Balances freshness against load\nOptions: 5m, 1h\nChosen: 5m"}
           ]
         }"#,
     );
@@ -722,12 +722,12 @@ fn an_import_with_an_unknown_key_writes_nothing_and_names_the_key() {
 }
 
 /// A block runs on to the next marker, so a prepared document's next page — its
-/// `# hivemind-source-ref:` line and the page text — lands inside the block before it. Text that
+/// `# loomtracer-source-ref:` line and the page text — lands inside the block before it. Text that
 /// is not indented under the marker is the document going on, not a field to refuse.
 #[test]
 fn text_after_a_block_that_is_not_indented_under_the_marker_is_ignored() {
     let draft = parse_only_block(&format!(
-        "{}\n# hivemind-source-ref: {{\"path\":\"report.pdf\",\"page\":2}}\n# source_page: 2\n\
+        "{}\n# loomtracer-source-ref: {{\"path\":\"report.pdf\",\"page\":2}}\n# source_page: 2\n\
          ## Caching\nOwner: someone, in the prose after the block\nand a line without a colon\n",
         block_with_rationale("  rationale: One host is enough for the pilot.\n")
     ))
@@ -748,7 +748,7 @@ fn document_import_reads_both_blocks_around_a_page_break_and_a_heading() {
         &path,
         "Decision:\n  id: keep-ledger-local\n  title: Keep the ledger local\n  \
          status: accepted\n  rationale: One host is enough for the pilot.\n  options: local, \
-         hosted\n  chose: local\n\n# hivemind-source-ref: {\"path\":\"report.pdf\",\"page\":2}\n\
+         hosted\n  chose: local\n\n# loomtracer-source-ref: {\"path\":\"report.pdf\",\"page\":2}\n\
          # source_page: 2\n## Caching\nOwner: someone, in the prose between the blocks\n\n\
          Decision:\n  id: evict-nightly\n  title: Evict cached projections nightly\n  \
          status: proposed\n  rationale: Eviction on every import masked duplicate imports.\n  \

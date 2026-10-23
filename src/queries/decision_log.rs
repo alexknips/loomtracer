@@ -274,7 +274,7 @@ struct DecisionEntry {
     /// The human whose delegated scope an agent's self-acceptance fell within
     /// (hivemind-zdsh.6), read the way `DecisionContext` reads it. `None` for a human's
     /// decision and for an agent that decided alone; the log states it only when present,
-    /// the same way `hivemind digest` does.
+    /// the same way `loomtracer digest` does.
     delegated_by: Option<String>,
     source: String,
     source_ref: Option<String>,
@@ -1269,7 +1269,7 @@ fn render_generated_line(
         .unwrap_or_else(|| "none".to_owned());
     let _ = writeln!(
         out,
-        "Generated from HiveMind ledger offset {ledger_offset} (last event {last_event_text}). Do not edit; regenerate with `hivemind export`.\n"
+        "Generated from Loomtracer ledger offset {ledger_offset} (last event {last_event_text}). Do not edit; regenerate with `loomtracer export`.\n"
     );
 }
 
@@ -1412,7 +1412,7 @@ fn render_index_table(
             write_joined(out, entry.accepted_by.iter(), ", ");
         }
         // An agent deciding within a human's delegation must not read like one deciding alone
-        // (hivemind-zdsh.6, case 2): the wording is the one `hivemind digest` prints.
+        // (hivemind-zdsh.6, case 2): the wording is the one `loomtracer digest` prints.
         if let Some(delegated_by) = &entry.delegated_by {
             let _ = write!(out, " (Delegated by: {delegated_by})");
         }

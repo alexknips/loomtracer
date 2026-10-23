@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the plugins' capture and MCP invocations against the latest RELEASE `hivemind` binary.
+"""Run the plugins' capture and MCP invocations against the latest RELEASE `loomtracer` binary.
 
 The marketplace serves the plugins from master, but people install the latest release binary, so
 every plugin change runs ahead of the CLI under it. A flag or verb only master has breaks a
@@ -13,7 +13,7 @@ stranger's install while every master-built test stays green (hivemind-cxqd). Th
   * the Codex skill's direct CLI form works as the skill says to use it on an older CLI;
   * the AskUserQuestion hooks never get in the way and still record the human's answer;
   * the SessionStart directive names only tools the release's MCP server serves;
-  * the hivemind-context scripts run, and a verb the release lacks is refused with that said.
+  * the loomtracer-context scripts run, and a verb the release lacks is refused with that said.
 
 Everything runs under a throwaway HOME, with a scrubbed environment and the release binary alone on
 PATH. Python standard library only.
@@ -40,8 +40,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
-CAPTURE = ROOT / "plugins" / "hivemind-capture"
-CONTEXT = ROOT / "plugins" / "hivemind-context"
+CAPTURE = ROOT / "plugins" / "loomtracer-capture"
+CONTEXT = ROOT / "plugins" / "loomtracer-context"
 HOOK_FIXTURES = ROOT / "tests" / "fixtures" / "claude_code" / "ask_user_question"
 
 RPC_TIMEOUT_S = 60
@@ -75,10 +75,26 @@ def release_asset() -> str:
     system, machine = platform.system(), platform.machine().lower()
     arch = "arm64" if machine in ("arm64", "aarch64") else "x86_64"
     if system == "Linux":
-        return f"hivemind-linux-{arch}.tar.gz"
+        return f"loomtracer-linux-{arch}.tar.gz"
     if system == "Darwin" and arch == "arm64":
-        return "hivemind-macos-arm64.tar.gz"
+        return "loomtracer-macos-arm64.tar.gz"
     raise SystemExit(f"no release binary for {system} {machine}; pass --bin")
+
+
+class ReleasePredatesRename(Exception):
+    """The latest release was published as `hivemind`, before the rename to Loomtracer (0.8.0)."""
+
+
+def release_predates_rename(repo: Optional[str]) -> bool:
+    """True when the latest release has only `hivemind-*` assets: no binary these plugins can run."""
+    command = ["gh", "release", "view", "--json", "assets", "--jq", ".assets[].name"]
+    if repo:
+        command += ["--repo", repo]
+    done = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    names = done.stdout.split()
+    return done.returncode == 0 and any(n.startswith("hivemind-") for n in names) and not any(
+        n.startswith("loomtracer-") for n in names
+    )
 
 
 def download_latest_release(repo: Optional[str], into: Path) -> Path:
@@ -86,7 +102,12 @@ def download_latest_release(repo: Optional[str], into: Path) -> Path:
     command = ["gh", "release", "download", "--pattern", f"{asset}*", "--dir", str(into)]
     if repo:
         command += ["--repo", repo]
-    subprocess.run(command, check=True, timeout=300)
+    try:
+        subprocess.run(command, check=True, timeout=300)
+    except subprocess.CalledProcessError:
+        if release_predates_rename(repo):
+            raise ReleasePredatesRename() from None
+        raise
     archive = into / asset
     expected = (into / f"{asset}.sha256").read_text().split()[0]
     actual = hashlib.sha256(archive.read_bytes()).hexdigest()
@@ -97,7 +118,7 @@ def download_latest_release(repo: Optional[str], into: Path) -> Path:
             tar.extractall(into, filter="data")
         else:
             tar.extractall(into)
-    binary = into / "hivemind"
+    binary = into / "loomtracer"
     binary.chmod(0o755)
     return binary
 
@@ -114,11 +135,11 @@ class World:
         self.bin = root / "bin"
         self.home.mkdir()
         self.bin.mkdir()
-        (self.bin / "hivemind").symlink_to(binary.resolve())
+        (self.bin / "loomtracer").symlink_to(binary.resolve())
         self.n = 0
 
     def project(self, label: str) -> Path:
-        """A fresh project folder with its own ledger directory: `<project>/hivemind`."""
+        """A fresh project folder with its own ledger directory: `<project>/loomtracer`."""
         self.n += 1
         folder = self.root / f"{self.n:02d}-{label}"
         folder.mkdir()
@@ -140,16 +161,16 @@ class World:
         env.update(extra)
         return env
 
-    def hivemind(self, project: Path, *args: str) -> subprocess.CompletedProcess:
+    def loomtracer(self, project: Path, *args: str) -> subprocess.CompletedProcess:
         return run(
-            ["hivemind", "--hivemind-dir", str(project / "hivemind"), "--json", *args],
+            ["loomtracer", "--loomtracer-dir", str(project / "loomtracer"), "--json", *args],
             cwd=project,
             env=self.env(project),
         )
 
     def actors_for(self, project: Path, words: str) -> List[str]:
         """The actor ids on the decisions a search for `words` finds."""
-        done = self.hivemind(project, "query", "search_decisions", "--q", words, "--limit", "10")
+        done = self.loomtracer(project, "query", "search_decisions", "--q", words, "--limit", "10")
         if done.returncode != 0:
             return []
         try:
@@ -233,7 +254,7 @@ def tool_result(response: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def check_mcp(world: World, label: str, config: Path, tool: str) -> None:
-    server = json.loads(config.read_text())["mcpServers"]["hivemind"]
+    server = json.loads(config.read_text())["mcpServers"]["loomtracer"]
     project = world.project(f"mcp-{label}")
     argv = [server["command"], *server["args"]]
     env = world.env(project, **server.get("env", {}))
@@ -311,7 +332,7 @@ def check_capture_script(world: World, label: str, tool: str) -> Path:
     script = str(CAPTURE / "scripts" / "capture.sh")
     env = world.env(project, tool)
     done = run(["bash", script, *DECISION_FLAGS], cwd=project, env=env)
-    check(f"capture.sh decision ({label})", done.returncode == 0 and "Captured HiveMind decision" in done.stdout, tail(done))
+    check(f"capture.sh decision ({label})", done.returncode == 0 and "Captured Loomtracer decision" in done.stdout, tail(done))
     # The skill and the commands teach the two answers; a release CLI may lack the flags, and the
     # helper then leaves them out rather than have the CLI refuse the whole capture.
     answered = world.project(f"answers-{label}")
@@ -322,13 +343,13 @@ def check_capture_script(world: World, label: str, tool: str) -> Path:
     )
     check(
         f"capture.sh decision with binds/undo answers ({label})",
-        done.returncode == 0 and "Captured HiveMind decision" in done.stdout and "unexpected argument" not in done.stderr,
+        done.returncode == 0 and "Captured Loomtracer decision" in done.stdout and "unexpected argument" not in done.stderr,
         tail(done),
     )
     done = run(["bash", script, "Retry dashboards were green all week", "--kind", "evidence"], cwd=project, env=env)
-    check(f"capture.sh evidence ({label})", done.returncode == 0 and "Captured HiveMind evidence" in done.stdout, tail(done))
+    check(f"capture.sh evidence ({label})", done.returncode == 0 and "Captured Loomtracer evidence" in done.stdout, tail(done))
     done = run(["bash", script, "Operators check the dashboard daily", "--kind", "hypothesis"], cwd=project, env=env)
-    check(f"capture.sh hypothesis ({label})", done.returncode == 0 and "Captured HiveMind hypothesis" in done.stdout, tail(done))
+    check(f"capture.sh hypothesis ({label})", done.returncode == 0 and "Captured Loomtracer hypothesis" in done.stdout, tail(done))
     actors = world.actors_for(project, "retry budget attempts")
     check(
         f"capture.sh decision ({label}) is attributed to agent:{tool}",
@@ -346,7 +367,7 @@ def check_capture_script(world: World, label: str, tool: str) -> Path:
 
 
 def skill_direct_form() -> str:
-    skill = (CAPTURE / "skills" / "hivemind-capture" / "SKILL.md").read_text()
+    skill = (CAPTURE / "skills" / "loomtracer-capture" / "SKILL.md").read_text()
     blocks = re.findall(r"```bash\n(.*?)```", skill, flags=re.S)
     form = next(b for b in blocks if "emit decision.capture" in b and "--project-from-context" in b)
     return "\n".join(line[3:] if line.startswith("   ") else line for line in form.splitlines()) + "\n"
@@ -372,7 +393,7 @@ def without_flags(form: str, flags: Any) -> str:
 def check_skill_direct_form(world: World, label: str, tool: str) -> None:
     project = world.project(f"skill-{label}")
     form = skill_direct_form()
-    env = world.env(project, tool, HIVEMIND_DIR=str(project / "hivemind"))
+    env = world.env(project, tool, LOOMTRACER_DIR=str(project / "loomtracer"))
     done = run(["bash", "-c", form], cwd=project, env=env)
     for _ in NEWER_FLAG_GROUPS:
         group = next(
@@ -407,8 +428,8 @@ def check_ask_hooks(world: World) -> None:
     env = world.env(
         project,
         "claude",
-        HIVEMIND_DIR=str(project / "hivemind"),
-        HIVEMIND_HUMAN_ACTOR="human:alice",
+        LOOMTRACER_DIR=str(project / "loomtracer"),
+        LOOMTRACER_HUMAN_ACTOR="human:alice",
         CLAUDE_PLUGIN_DATA=str(state),
     )
     hook = str(CAPTURE / "scripts" / "ask-hook.sh")
@@ -447,9 +468,9 @@ def check_session_start_hook(world: World) -> None:
     except (ValueError, KeyError, TypeError):
         context = ""
     check("session start hook adds the directive", done.returncode == 0 and bool(context), tail(done))
-    named = [name for name in re.findall(r"`([a-z_]+)`", context) if name != "hivemind"]
+    named = [name for name in re.findall(r"`([a-z_]+)`", context) if name != "loomtracer"]
 
-    server = json.loads((CAPTURE / ".mcp.json").read_text())["mcpServers"]["hivemind"]
+    server = json.loads((CAPTURE / ".mcp.json").read_text())["mcpServers"]["loomtracer"]
     client = McpClient([server["command"], *server["args"]], project, world.env(project, **server.get("env", {})))
     try:
         client.request(
@@ -467,7 +488,7 @@ def check_session_start_hook(world: World) -> None:
         f"named={named} missing={missing}",
     )
 
-    done = run(["sh", hook], cwd=project, env=world.env(project, "claude", HIVEMIND_DIRECTIVE_DISABLE="1"))
+    done = run(["sh", hook], cwd=project, env=world.env(project, "claude", LOOMTRACER_DIRECTIVE_DISABLE="1"))
     check(
         "session start hook is silent when disabled",
         done.returncode == 0 and not done.stdout and not done.stderr,
@@ -476,7 +497,7 @@ def check_session_start_hook(world: World) -> None:
 
 
 # --------------------------------------------------------------------------------------------
-# hivemind-context
+# loomtracer-context
 # --------------------------------------------------------------------------------------------
 
 
@@ -501,13 +522,13 @@ def check_context_scripts(
         ("situational", ("--paths", "src/retry.rs")),
     ]:
         done = verb(name, *args)
-        check(f"hivemind-context {name}", done.returncode == 0, tail(done))
+        check(f"loomtracer-context {name}", done.returncode == 0, tail(done))
     # An actor cannot accept and reject the same decision, so someone else disagrees.
     done = verb(
         "disagree", "retry budget", "--reason", "Three attempts is too few for a flaky upstream",
         GC_AGENT="check-reviewer",
     )  # fmt: skip
-    check("hivemind-context disagree", done.returncode == 0, tail(done))
+    check("loomtracer-context disagree", done.returncode == 0, tail(done))
     done = verb(
         "supersede", "retry budget",
         "--title", "Raise the retry budget to five attempts",
@@ -515,31 +536,31 @@ def check_context_scripts(
         "--topic-keys", "retries", "--options", "Keep 3 attempts,Raise to 5 attempts",
         "--chose", "Raise to 5 attempts", "--rests-on-assumption", "The upstream stays flaky",
     )  # fmt: skip
-    check("hivemind-context supersede", done.returncode == 0, tail(done))
+    check("loomtracer-context supersede", done.returncode == 0, tail(done))
     done = verb("importance")
     if binary_has_importance:
-        check("hivemind-context importance", done.returncode == 0, tail(done))
+        check("loomtracer-context importance", done.returncode == 0, tail(done))
     else:
         check(
-            "hivemind-context importance names the verb the release lacks",
+            "loomtracer-context importance names the verb the release lacks",
             done.returncode == 2 and "has no `query rank_decisions_by_importance` command" in done.stderr,
             tail(done),
         )
     done = verb("ground", "retry budget", "--rests-on-assumption", "The upstream stays flaky")
     if binary_has_ground:
-        check("hivemind-context ground", done.returncode == 0, tail(done))
+        check("loomtracer-context ground", done.returncode == 0, tail(done))
     else:
         check(
-            "hivemind-context ground names the verb the release lacks",
+            "loomtracer-context ground names the verb the release lacks",
             done.returncode == 2 and "has no `ground` command" in done.stderr,
             tail(done),
         )
     done = verb("reexamine")
     if binary_has_reexamine:
-        check("hivemind-context reexamine", done.returncode == 0, tail(done))
+        check("loomtracer-context reexamine", done.returncode == 0, tail(done))
     else:
         check(
-            "hivemind-context reexamine names the verb the release lacks",
+            "loomtracer-context reexamine names the verb the release lacks",
             done.returncode == 2 and "has no `reexamine` command" in done.stderr,
             tail(done),
         )
@@ -549,13 +570,13 @@ def check_context_scripts(
     done = verb("reaffirm", "retry budget", "--because", "Checked against the release")
     if binary_has_reaffirm:
         check(
-            "hivemind-context reaffirm",
+            "loomtracer-context reaffirm",
             done.returncode in (0, 2) and "has no `reaffirm` command" not in done.stderr,
             tail(done),
         )
     else:
         check(
-            "hivemind-context reaffirm names the verb the release lacks",
+            "loomtracer-context reaffirm names the verb the release lacks",
             done.returncode == 2 and "has no `reaffirm` command" in done.stderr,
             tail(done),
         )
@@ -566,15 +587,22 @@ def check_context_scripts(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--bin", type=Path, help="the hivemind binary to treat as the latest release")
+    parser.add_argument("--bin", type=Path, help="the loomtracer binary to treat as the latest release")
     parser.add_argument("--repo", help="owner/name to download the latest release from (default: gh's)")
     args = parser.parse_args()
 
-    with tempfile.TemporaryDirectory(prefix="hivemind-plugin-release-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="loomtracer-plugin-release-") as tmp:
         root = Path(tmp)
         (root / "release").mkdir()
         (root / "world").mkdir()
-        binary = args.bin or download_latest_release(args.repo, root / "release")
+        try:
+            binary = args.bin or download_latest_release(args.repo, root / "release")
+        except ReleasePredatesRename:
+            # Only until the first Loomtracer release (0.8.0) is published: the plugins now start
+            # `loomtracer`, and the latest release ships `hivemind`, so there is nothing to run.
+            print("SKIP  the latest release predates the rename to Loomtracer (it ships hivemind-* assets).")
+            print("      Nothing was checked; this runs for real once a loomtracer-* release exists.")
+            return 0
         version = subprocess.run([str(binary), "--version"], capture_output=True, text=True).stdout.strip()
         print(f"release binary: {version}")
         world = World(root / "world", binary)

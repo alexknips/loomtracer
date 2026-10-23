@@ -1,6 +1,6 @@
-# HiveMind Self-Hosting Guide
+# Loomtracer Self-Hosting Guide
 
-This guide covers deploying a self-hosted HiveMind cell — the server binary
+This guide covers deploying a self-hosted Loomtracer cell — the server binary
 plus its Postgres backend — on infrastructure you control. One
 `docker compose up` command brings up the full stack.
 
@@ -9,7 +9,7 @@ plus its Postgres backend — on infrastructure you control. One
 ## Prerequisites
 
 - Docker 24+ and Docker Compose v2 (`docker compose version`)
-- Port 8080 available on the host (or set `HIVEMIND_PORT`). It is published
+- Port 8080 available on the host (or set `LOOMTRACER_PORT`). It is published
   on `127.0.0.1` only — see [Exposing the cell deliberately](#exposing-the-cell-deliberately)
   to let other machines reach it
 
@@ -20,8 +20,8 @@ No other dependencies: Postgres runs as a companion container.
 ## Quick start
 
 ```bash
-git clone https://github.com/alexknips/hivemind
-cd hivemind
+git clone https://github.com/alexknips/loomtracer
+cd loomtracer
 
 # 1. Create your environment file
 cp .env.example .env
@@ -37,11 +37,11 @@ docker compose up --build -d
 docker compose ps
 ```
 
-The server is ready when `hivemind` shows `healthy`:
+The server is ready when `loomtracer` shows `healthy`:
 
 ```
 NAME        STATUS                   PORTS
-hivemind    Up (healthy)             127.0.0.1:8080->8080/tcp
+loomtracer    Up (healthy)             127.0.0.1:8080->8080/tcp
 postgres    Up (healthy)
 ```
 
@@ -55,7 +55,7 @@ curl http://localhost:8080/v1/version
 ```
 
 `/v1/health` and `/v1/version` are both unauthenticated liveness/build probes.
-Like `hivemind --version` locally, `/v1/version`'s `sha` is what the running
+Like `loomtracer --version` locally, `/v1/version`'s `sha` is what the running
 container was actually built from, not what a tag or `:latest` claims.
 
 > **Search note:** `GET /v1/decisions/search` and `GET /v1/decisions/recall` work on both
@@ -73,17 +73,17 @@ each user gets their own bearer token, and every captured decision is attributed
 to that user's identity. The admin provisions users via the API; users connect
 their agents with their personal token.
 
-The server supports two auth modes depending on whether `HIVEMIND_DATABASE_URL`
+The server supports two auth modes depending on whether `LOOMTRACER_DATABASE_URL`
 is set:
 
 ### Postgres mode (default in this compose) — multi-user quickstart
 
-When `HIVEMIND_DATABASE_URL` is set, the server uses per-user bearer tokens.
+When `LOOMTRACER_DATABASE_URL` is set, the server uses per-user bearer tokens.
 
 **Step 1 — provision your first tenant (one-time):**
 
 ```bash
-# Replace <ADMIN_KEY> with the value of HIVEMIND_ADMIN_KEY in your .env
+# Replace <ADMIN_KEY> with the value of LOOMTRACER_ADMIN_KEY in your .env
 curl -s -X POST http://localhost:8080/v1/tenants \
   -H "Authorization: Bearer <ADMIN_KEY>" \
   -H "Content-Type: application/json" \
@@ -121,7 +121,7 @@ Response for each user:
   "display_name": "Alice",
   "role":         "admin",
   "token_id":     "8d3f...",
-  "token_secret": "hm_tk_<64-hex>"
+  "token_secret": "lt_tk_<64-hex>"
 }
 ```
 
@@ -133,10 +133,10 @@ only its hash.
 ```json
 {
   "mcpServers": {
-    "hivemind": {
+    "loomtracer": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer hm_tk_<Alice's token>"
+        "Authorization": "Bearer lt_tk_<Alice's token>"
       }
     }
   }
@@ -145,7 +145,7 @@ only its hash.
 
 Decisions captured by Alice are attributed to `human:alice@example.com`; Bob's
 to `human:bob@example.com`. Actor identity is locked to the token — the server
-ignores any `X-HiveMind-Actor` header.
+ignores any `X-Loomtracer-Actor` header.
 
 **Managing tokens:** the routes that take a `tenant_id` (`POST /v1/users`,
 `POST /v1/agent-tokens`, `GET /v1/users`, `POST /v1/users/<USER_ID>/tokens`) answer
@@ -171,39 +171,39 @@ it to show "Signed in as …". It opens no ledger and writes no event.
 
 ```bash
 curl -s http://localhost:8080/v1/whoami \
-  -H "Authorization: Bearer hm_tk_<Alice's token>"
+  -H "Authorization: Bearer lt_tk_<Alice's token>"
 # → {"actor_id":"human:alice@example.com","tenant_id":"myorg"}
 ```
 
 A missing, unknown or revoked token gets `401` with the usual error body. An agent
-token answers `agent:<tool>:<name>`. The SQLite-mode shared `HIVEMIND_API_KEY` and a
+token answers `agent:<tool>:<name>`. The SQLite-mode shared `LOOMTRACER_API_KEY` and a
 tenant's provisioning token from `POST /v1/tenants` are not people, so they answer
 `service:api`: writes made with them carry no person's name. (The shared key takes the
-actor from an `X-HiveMind-Actor` header when the caller sends one.)
+actor from an `X-Loomtracer-Actor` header when the caller sends one.)
 
 ### SQLite mode (no Postgres)
 
-If you remove the `HIVEMIND_DATABASE_URL` line from `docker-compose.yml` the
+If you remove the `LOOMTRACER_DATABASE_URL` line from `docker-compose.yml` the
 server falls back to SQLite stored in the `hivemind-data` volume. With
-`HIVEMIND_ADMIN_KEY` set, the same `POST /v1/users` endpoint works for
+`LOOMTRACER_ADMIN_KEY` set, the same `POST /v1/users` endpoint works for
 per-user SQLite tokens (default tenant `local`; omit `tenant_id` in body).
 
 For a single static key instead:
 
 ```bash
 # In .env:
-HIVEMIND_API_KEY=your-secret-key
+LOOMTRACER_API_KEY=your-secret-key
 ```
 
-When both `HIVEMIND_API_KEY` and `HIVEMIND_DATABASE_URL` are unset the server
+When both `LOOMTRACER_API_KEY` and `LOOMTRACER_DATABASE_URL` are unset the server
 starts in **development mode** — all requests are accepted without a token.
-That is only acceptable on loopback, so `hivemind serve` refuses to start in
+That is only acceptable on loopback, so `loomtracer serve` refuses to start in
 development mode on a non-loopback bind unless you pass
 `--allow-unauthenticated-remote` (see
 [Exposing the cell deliberately](#exposing-the-cell-deliberately)). In
-SQLite mode set `HIVEMIND_API_KEY` as well: per-user tokens alone do not close
-the server to requests that send no token. An empty `HIVEMIND_API_KEY` or
-`HIVEMIND_ADMIN_KEY` counts as unset.
+SQLite mode set `LOOMTRACER_API_KEY` as well: per-user tokens alone do not close
+the server to requests that send no token. An empty `LOOMTRACER_API_KEY` or
+`LOOMTRACER_ADMIN_KEY` counts as unset.
 
 ---
 
@@ -214,33 +214,33 @@ project root, or from the shell environment.
 
 | Variable | Default | Description |
 |---|---|---|
-| `HIVEMIND_DATABASE_URL` | *(unset)* | Postgres connection string. When set enables the multi-tenant Postgres backend. Also accepted as `--database-url` on the CLI and `hivemind mcp` (flag beats the env var), not only by `serve` — see below. Unset = SQLite at `HIVEMIND_DIR`. |
-| `HIVEMIND_DIR` | `/data` | Directory for the SQLite ledger (SQLite mode only). Mount a volume here. |
-| `HIVEMIND_PORT` | `8080` | Port the HTTP API listens on inside the container. |
-| `HIVEMIND_BIND` | `127.0.0.1` (`0.0.0.0` in the Docker image) | Address `hivemind serve` binds (`--bind`). The image sets `0.0.0.0` so the published port can reach the server inside the container; exposure to the network is decided by `HIVEMIND_PUBLISH_ADDR`, not by this. Not set in `.env` for compose — it is baked into the image. |
-| `HIVEMIND_PUBLISH_ADDR` | `127.0.0.1` | Host address compose publishes `HIVEMIND_PORT` on (compose only). See [Exposing the cell deliberately](#exposing-the-cell-deliberately). |
-| `HIVEMIND_ADMIN_KEY` | *(unset)* | Bearer token for `POST /v1/tenants`, `POST /v1/users`, `GET /v1/users`, and token revocation. Required before provisioning tenants or users. |
-| `HIVEMIND_API_KEY` | *(unset)* | Static bearer token (SQLite mode only; forwarded by `docker-compose.yml`). With neither this nor `HIVEMIND_DATABASE_URL` set the server runs in development mode (no auth), which refuses a non-loopback bind. |
-| `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `HIVEMIND_DATABASE_URL` is set, which is the compose default: the server logs one warning at start and classifies nothing. Optional; see [Keyless capture](#keyless-capture--no-anthropic_api_key-required). |
-| `HIVEMIND_CORS_ORIGINS` | *(unset)* | Comma-separated origins allowed for browser cross-origin requests. |
+| `LOOMTRACER_DATABASE_URL` | *(unset)* | Postgres connection string. When set enables the multi-tenant Postgres backend. Also accepted as `--database-url` on the CLI and `loomtracer mcp` (flag beats the env var), not only by `serve` — see below. Unset = SQLite at `LOOMTRACER_DIR`. |
+| `LOOMTRACER_DIR` | `/data` | Directory for the SQLite ledger (SQLite mode only). Mount a volume here. |
+| `LOOMTRACER_PORT` | `8080` | Port the HTTP API listens on inside the container. |
+| `LOOMTRACER_BIND` | `127.0.0.1` (`0.0.0.0` in the Docker image) | Address `loomtracer serve` binds (`--bind`). The image sets `0.0.0.0` so the published port can reach the server inside the container; exposure to the network is decided by `LOOMTRACER_PUBLISH_ADDR`, not by this. Not set in `.env` for compose — it is baked into the image. |
+| `LOOMTRACER_PUBLISH_ADDR` | `127.0.0.1` | Host address compose publishes `LOOMTRACER_PORT` on (compose only). See [Exposing the cell deliberately](#exposing-the-cell-deliberately). |
+| `LOOMTRACER_ADMIN_KEY` | *(unset)* | Bearer token for `POST /v1/tenants`, `POST /v1/users`, `GET /v1/users`, and token revocation. Required before provisioning tenants or users. |
+| `LOOMTRACER_API_KEY` | *(unset)* | Static bearer token (SQLite mode only; forwarded by `docker-compose.yml`). With neither this nor `LOOMTRACER_DATABASE_URL` set the server runs in development mode (no auth), which refuses a non-loopback bind. |
+| `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `LOOMTRACER_DATABASE_URL` is set, which is the compose default: the server logs one warning at start and classifies nothing. Optional; see [Keyless capture](#keyless-capture--no-anthropic_api_key-required). |
+| `LOOMTRACER_CORS_ORIGINS` | *(unset)* | Comma-separated origins allowed for browser cross-origin requests. |
 | `POSTGRES_PASSWORD` | `hivemind` | Password for the bundled Postgres service. Change before production. |
-| `HIVEMIND_TENANT` | `local` | Default tenant. For the CLI and `hivemind mcp` this selects the Postgres tenant scope when `HIVEMIND_DATABASE_URL`/`--database-url` is also set. Not used by `serve`, which resolves the tenant per request from the caller's auth token instead. |
+| `LOOMTRACER_TENANT` | `local` | Default tenant. For the CLI and `loomtracer mcp` this selects the Postgres tenant scope when `LOOMTRACER_DATABASE_URL`/`--database-url` is also set. Not used by `serve`, which resolves the tenant per request from the caller's auth token instead. |
 
 ### CLI and MCP direct-Postgres mode
 
-`HIVEMIND_DATABASE_URL`/`--database-url` and `HIVEMIND_TENANT`/`--tenant` are
-read by every `hivemind` subcommand, not only `serve` — including
-`hivemind mcp`, so a stdio MCP server can talk to this cell's Postgres
+`LOOMTRACER_DATABASE_URL`/`--database-url` and `LOOMTRACER_TENANT`/`--tenant` are
+read by every `loomtracer` subcommand, not only `serve` — including
+`loomtracer mcp`, so a stdio MCP server can talk to this cell's Postgres
 directly instead of a local SQLite file. Two facts worth knowing before
 using this:
 
-- The CLI and `hivemind mcp` never provision tenants in the `hm_tenants`
+- The CLI and `loomtracer mcp` never provision tenants in the `hm_tenants`
   table that `POST /v1/tenants` manages (see above) — you must provision a
   tenant through the API first, then point `--tenant` at it.
 - A binary built without the `shared-backend-postgres` Cargo feature fails
   with an explicit error if a database URL is configured — it never falls
   back to SQLite silently. The Docker image is built with this feature;
-  `cargo install` / `make install` is not, so a locally installed `hivemind`
+  `cargo install` / `make install` is not, so a locally installed `loomtracer`
   needs `--features shared-backend-postgres` to open a Postgres ledger.
 
 See the "Using the CLI / MCP from local agents" section below for how to
@@ -259,13 +259,13 @@ config (`CONNECTOR_*`) as a placeholder — that surface is not yet finalised
 `ANTHROPIC_API_KEY` in the table above is **optional**. Without it the server
 starts and operates correctly — the only thing that doesn't run is the
 server-side background classifier (Worker B). Worker B runs only on the SQLite
-backend: with `HIVEMIND_DATABASE_URL` set, as in the default compose stack, it
+backend: with `LOOMTRACER_DATABASE_URL` set, as in the default compose stack, it
 never starts, a key included, and the server logs one warning saying the key is
 ignored. On that stack classification is always Worker A.
 
 **If you omit `ANTHROPIC_API_KEY`**, classification still happens via
-**Worker A**: the `hivemind-capture` plugin ships a
-`/hivemind-capture:classify-queue` command that drains the same pending queue
+**Worker A**: the `loomtracer-capture` plugin ships a
+`/loomtracer-capture:classify-queue` command that drains the same pending queue
 using your agent's subscription seat. No key, no extra configuration.
 
 ### Keyless walkthrough
@@ -275,15 +275,15 @@ using your agent's subscription seat. No key, no extra configuration.
 2. **Install the capture plugin** from Claude Code:
 
    ```text
-   /plugin marketplace add alexknips/hivemind
-   /plugin install hivemind-capture@hivemind
+   /plugin marketplace add alexknips/loomtracer
+   /plugin install loomtracer-capture@loomtracer
    /reload-plugins
    ```
 
 3. **Capture a decision** in-session:
 
    ```text
-   /hivemind-capture:capture "Use Postgres for the shared backend" \
+   /loomtracer-capture:capture "Use Postgres for the shared backend" \
      --kind decision \
      --title "Use Postgres for the shared backend" \
      --rationale "SQLite WAL mode does not scale across concurrent writers" \
@@ -295,25 +295,25 @@ using your agent's subscription seat. No key, no extra configuration.
      --undo-cost "Moving back means exporting the ledger out of Postgres and replaying it"
    ```
 
-   This writes a **local ledger** (the `hivemind/` folder of the project Claude Code runs in)
-   and does not contact the cell, with `HIVEMIND_API_URL` set or not. To record the decision in the
+   This writes a **local ledger** (the `loomtracer/` folder of the project Claude Code runs in)
+   and does not contact the cell, with `LOOMTRACER_API_URL` set or not. To record the decision in the
    cell, post it to `POST /v1/decisions` with your token: see
    [`KEYLESS_CAPTURE.md` Step 3](KEYLESS_CAPTURE.md#step-3--capture-a-decision-in-session).
 
 4. **Drain the classification queue** after your session:
 
    ```text
-   /hivemind-capture:classify-queue
+   /loomtracer-capture:classify-queue
    ```
 
    The command classifies pending batches using your subscription model and
    writes `IngestBatchClassified` events. Pass `--limit N` to cap the run.
 
-5. **Query back**. `hivemind query` reads a local ledger, so from the project folder step 3
+5. **Query back**. `loomtracer query` reads a local ledger, so from the project folder step 3
    wrote to it lists that capture:
 
    ```bash
-   hivemind query recent_decisions --since 1h --limit 5
+   loomtracer query recent_decisions --since 1h --limit 5
    ```
 
    A decision posted to the cell is read from the cell's HTTP API instead
@@ -330,7 +330,7 @@ Run these checks after provisioning your first tenant to confirm all layers work
 
 ```bash
 export HM_URL=http://localhost:8080
-export HM_TOKEN="hm_tk_..."   # a user token from POST /v1/users
+export HM_TOKEN="lt_tk_..."   # a user token from POST /v1/users
 
 # 1. Health
 curl -s $HM_URL/v1/health
@@ -393,10 +393,10 @@ Point your Claude Code (or any MCP-compatible agent) at the `/mcp` endpoint:
 ```json
 {
   "mcpServers": {
-    "hivemind": {
+    "loomtracer": {
       "url": "http://localhost:8080/mcp",
       "headers": {
-        "Authorization": "Bearer hm_tk_<your-token-secret>"
+        "Authorization": "Bearer lt_tk_<your-token-secret>"
       }
     }
   }
@@ -404,7 +404,7 @@ Point your Claude Code (or any MCP-compatible agent) at the `/mcp` endpoint:
 ```
 
 Use the `token_secret` value returned by `POST /v1/users` as the bearer token.
-The token format is `hm_tk_<64-hex>` (shown once at creation time).
+The token format is `lt_tk_<64-hex>` (shown once at creation time).
 
 **Actor identity differs from the REST endpoints above.** `POST /v1/decisions`
 and friends always attribute writes to the bearer token's own bound identity
@@ -443,8 +443,8 @@ personal per-user token (Step 2 above) whenever that trust does not hold.
 
 The compose stack above publishes only port 8080, on `127.0.0.1`
 (`docker-compose.yml`); Postgres is reachable only on the compose network. An agent that wants to
-run the `hivemind` CLI or `hivemind mcp` with `--database-url` /
-`HIVEMIND_DATABASE_URL` against the cell's own Postgres — instead of going
+run the `loomtracer` CLI or `loomtracer mcp` with `--database-url` /
+`LOOMTRACER_DATABASE_URL` against the cell's own Postgres — instead of going
 through the HTTP API — needs one of the following.
 
 ### Option A — publish Postgres on loopback
@@ -457,12 +457,12 @@ loopback-only port mapping for the `postgres` service
 docker compose -f docker-compose.yml -f docker-compose.local-agents.yml up -d
 ```
 
-Then point the CLI or `hivemind mcp` at it directly:
+Then point the CLI or `loomtracer mcp` at it directly:
 
 ```bash
-HIVEMIND_DATABASE_URL=postgres://hivemind:<POSTGRES_PASSWORD>@127.0.0.1:5432/hivemind \
-HIVEMIND_TENANT=<tenant> \
-hivemind query situational --diff
+LOOMTRACER_DATABASE_URL=postgres://hivemind:<POSTGRES_PASSWORD>@127.0.0.1:5432/hivemind \
+LOOMTRACER_TENANT=<tenant> \
+loomtracer query situational --diff
 ```
 
 Set `POSTGRES_PORT` in `.env` if `5432` collides with a Postgres instance
@@ -478,11 +478,11 @@ work for your setup.
 
 ### Option B — run the CLI inside the container
 
-No port publishing needed. Exec into the running `hivemind` container, which
-already has `HIVEMIND_DATABASE_URL` pointed at the compose network address:
+No port publishing needed. Exec into the running `hivemind` service container, which
+already has `LOOMTRACER_DATABASE_URL` pointed at the compose network address:
 
 ```bash
-docker compose exec hivemind hivemind --tenant <tenant> query situational --diff
+docker compose exec hivemind loomtracer --tenant <tenant> query situational --diff
 ```
 
 This is the safer default — no database credential ever leaves the
@@ -492,24 +492,24 @@ container.
 
 ## Moving an existing ledger into the cell
 
-`hivemind migrate` copies a local SQLite ledger into a cell event for event. Over
+`loomtracer migrate` copies a local SQLite ledger into a cell event for event. Over
 HTTP it needs only the cell's admin key, not its database password:
 
 ```bash
-# The cell's HIVEMIND_ADMIN_KEY, in a file only you can read (never on the command line).
-install -m 600 /dev/null ~/.config/hivemind/admin-key
-printf '%s' "$HIVEMIND_ADMIN_KEY" > ~/.config/hivemind/admin-key
+# The cell's LOOMTRACER_ADMIN_KEY, in a file only you can read (never on the command line).
+install -m 600 /dev/null ~/.config/loomtracer/admin-key
+printf '%s' "$LOOMTRACER_ADMIN_KEY" > ~/.config/loomtracer/admin-key
 
 # 1. Dry run: writes nothing, prints how many events would move and how many are already there.
-hivemind migrate --from ./hivemind --to-url https://cell.example.com \
-  --admin-key-file ~/.config/hivemind/admin-key --to-tenant <tenant> --dry-run
+loomtracer migrate --from ./loomtracer --to-url https://cell.example.com \
+  --admin-key-file ~/.config/loomtracer/admin-key --to-tenant <tenant> --dry-run
 
 # 2. The move. Drop --dry-run; everything else stays the same.
-hivemind migrate --from ./hivemind --to-url https://cell.example.com \
-  --admin-key-file ~/.config/hivemind/admin-key --to-tenant <tenant>
+loomtracer migrate --from ./loomtracer --to-url https://cell.example.com \
+  --admin-key-file ~/.config/loomtracer/admin-key --to-tenant <tenant>
 ```
 
-`--from` defaults to `--hivemind-dir`, `--tenant` names the source tenant (default `local`),
+`--from` defaults to `--loomtracer-dir`, `--tenant` names the source tenant (default `local`),
 and `--to-tenant` is always required: a move into the wrong tenant cannot be undone, because
 the cell is append-only.
 
@@ -548,20 +548,20 @@ What a move guarantees:
 Rehearse against a scratch server first, with the same source, and compare the counts:
 
 ```bash
-HIVEMIND_ADMIN_KEY=scratch-key hivemind serve --hivemind-dir /tmp/scratch-cell --port 18732 &
+LOOMTRACER_ADMIN_KEY=scratch-key loomtracer serve --loomtracer-dir /tmp/scratch-cell --port 18732 &
 printf 'scratch-key' > /tmp/scratch-admin-key
-hivemind migrate --from ./hivemind --to-url http://127.0.0.1:18732 \
+loomtracer migrate --from ./loomtracer --to-url http://127.0.0.1:18732 \
   --admin-key-file /tmp/scratch-admin-key --to-tenant local
 ```
 
-The client calls `POST /v1/ledger/replay`: `Authorization: Bearer <HIVEMIND_ADMIN_KEY>`, body
+The client calls `POST /v1/ledger/replay`: `Authorization: Bearer <LOOMTRACER_ADMIN_KEY>`, body
 `{"tenant_id": "...", "dry_run": false, "events": [...]}` with at most 1000 events, each
 `{event_uuid, type, actor_id, source, source_ref, correlation_id, causation_event_uuid,
 payload, ts}` (`ts` is required). The answer is `{received, new_events, already_present}`. A
 batch whose causation link names an event that is neither in the tenant nor earlier in the
 batch is refused whole.
 
-`hivemind migrate --to <postgres-url>` writes straight to the database with the same rules,
+`loomtracer migrate --to <postgres-url>` writes straight to the database with the same rules,
 but it needs the database credential and a binary built with the `shared-backend-postgres`
 feature; prefer `--to-url`.
 
@@ -574,11 +574,11 @@ groups its decisions by project inside one tenant (see
 [MULTI_TENANCY.md](MULTI_TENANCY.md#projects-inside-a-tenant)). The registry
 lives in that tenant's ledger, so register it against the cell's ledger — with
 `--database-url`/`--tenant` (Option A) or from inside the container (Option B):
-one project per rig (`hivemind project register <rig>`), a `city` project every
-rig is `part_of` (`hivemind project link --from <rig> --to city --kind
+one project per rig (`loomtracer project register <rig>`), a `city` project every
+rig is `part_of` (`loomtracer project link --from <rig> --to city --kind
 part_of`), `depends_on` links for the real dependencies between rigs, and a rig
-anchor so a session's `GC_RIG` names its project (`hivemind project anchor
---handle <rig> --kind rig --value <rig>`). Commit a one-line `.hivemind-project`
+anchor so a session's `GC_RIG` names its project (`loomtracer project anchor
+--handle <rig> --kind rig --value <rig>`). Commit a one-line `.loomtracer-project`
 file naming the handle at a repo's root (or in a subfolder for a sub-project) to
 attach the folder as well; the CLI does not write it. Agents whose CLI or stdio
 MCP server runs with `--project-from-context` (the capture plugin does) then file
@@ -587,7 +587,7 @@ names or finds no project falls into the actor's personal project with a notice.
 A session in a rig that no project in the ledger is anchored to is refused
 instead: it is pointed at the wrong ledger, and the refusal names the rig and the
 ledger it would have written to. Each project's topic keys are declared too
-(`hivemind project declare-topic <rig> --in-use` adopts what a rig's existing
+(`loomtracer project declare-topic <rig> --in-use` adopts what a rig's existing
 decisions use); a capture under a registered project may only use declared keys
 and says so with `--declare-topic` when it adds one.
 Those agents read the registry, their working directory, `GC_RIG`, and their git
@@ -606,8 +606,8 @@ project.
 Out of the box the cell is reachable only from the machine it runs on:
 
 - `docker-compose.yml` publishes `127.0.0.1:8080`, not every interface.
-- `hivemind serve` binds `127.0.0.1` unless told otherwise (`--bind` /
-  `HIVEMIND_BIND`). The Docker image sets `HIVEMIND_BIND=0.0.0.0` *inside* the
+- `loomtracer serve` binds `127.0.0.1` unless told otherwise (`--bind` /
+  `LOOMTRACER_BIND`). The Docker image sets `LOOMTRACER_BIND=0.0.0.0` *inside* the
   container so the published port can reach it; what the network can see is
   decided by the `ports:` mapping.
 - On the Postgres backend, reads and writes of the ledger need a bearer token
@@ -619,17 +619,17 @@ To let other machines in, choose one:
 - **Reverse proxy on the same host (recommended).** Keep the loopback publish
   and point Caddy, nginx or Traefik at `127.0.0.1:8080`; terminate TLS there.
 - **A private-network address, such as a tailnet IP.** Set
-  `HIVEMIND_PUBLISH_ADDR=<that interface's address>` in `.env` and run
+  `LOOMTRACER_PUBLISH_ADDR=<that interface's address>` in `.env` and run
   `docker compose up -d`.
-- **Every interface.** `HIVEMIND_PUBLISH_ADDR=0.0.0.0`. Docker inserts its own
+- **Every interface.** `LOOMTRACER_PUBLISH_ADDR=0.0.0.0`. Docker inserts its own
   firewall rules for published ports, which bypass host firewalls such as
   `ufw` — only do this behind a network-level firewall or security group.
 
 Agents on other machines then use that address in place of
 `http://localhost:8080` (for example in the `/mcp` config below).
 
-**Unauthenticated servers.** `hivemind serve` without `HIVEMIND_API_KEY` and
-without `HIVEMIND_DATABASE_URL` runs in development mode and accepts every
+**Unauthenticated servers.** `loomtracer serve` without `LOOMTRACER_API_KEY` and
+without `LOOMTRACER_DATABASE_URL` runs in development mode and accepts every
 request without a token. It refuses to start that way on a non-loopback
 `--bind`. `--allow-unauthenticated-remote` overrides the refusal for the rare
 case where the network itself is the boundary; the server then logs a warning
@@ -640,11 +640,11 @@ and the address it bound.
 
 ## Production checklist
 
-- [ ] Set `HIVEMIND_ADMIN_KEY` to a strong random value (`openssl rand -hex 32`)
+- [ ] Set `LOOMTRACER_ADMIN_KEY` to a strong random value (`openssl rand -hex 32`)
 - [ ] Set `POSTGRES_PASSWORD` to a strong random value
 - [ ] Place a TLS-terminating reverse proxy (Caddy, nginx, Traefik) in front
       of the cell, proxying to `127.0.0.1:8080` — the server speaks plain HTTP
-- [ ] Keep `HIVEMIND_PUBLISH_ADDR` at its `127.0.0.1` default unless you have
+- [ ] Keep `LOOMTRACER_PUBLISH_ADDR` at its `127.0.0.1` default unless you have
       deliberately chosen another address
 - [ ] Back up the `postgres-data` Docker volume regularly
 - [ ] Monitor `GET /v1/health` with an external uptime checker
@@ -666,7 +666,7 @@ master for weeks — restarts the `hivemind` service with it, and waits for
 `curl http://localhost:8080/v1/version`.
 
 **The update stays.** Before the restart, the script writes the tag it built
-as `HIVEMIND_IMAGE=hivemind:<sha>` in the compose project's `.env`.
+as `LOOMTRACER_IMAGE=loomtracer:<sha>` in the compose project's `.env`.
 Anything that later runs `docker compose up -d` there — a systemd timer or
 cron job that keeps the cell up, or you — recreates the container on the
 image you deployed, not back on `:latest`. An existing `.env` keeps its mode
@@ -682,19 +682,19 @@ A cell kept in its own directory, with override files, tells the script
 which files it is reconciled with:
 
 ```bash
-HIVEMIND_COMPOSE_FILE=/srv/cell/docker-compose.yml:/srv/cell/docker-compose.local-agents.yml \
+LOOMTRACER_COMPOSE_FILE=/srv/cell/docker-compose.yml:/srv/cell/docker-compose.local-agents.yml \
   ./scripts/cell-update.sh
 ```
 
-`HIVEMIND_COMPOSE_FILE` lists every compose file, colon-separated as
+`LOOMTRACER_COMPOSE_FILE` lists every compose file, colon-separated as
 `COMPOSE_FILE` is (default `docker-compose.yml`); the restart uses all of
 them, and `.env` is the one next to the first, where `docker compose` looks
-for it. Set `HIVEMIND_ENV_FILE` to pin in a different file; the script hands
+for it. Set `LOOMTRACER_ENV_FILE` to pin in a different file; the script hands
 that file to `docker compose --env-file` as well.
 
 To roll back, run the script for the earlier ref (`./scripts/cell-update.sh
 <previous sha>`): it rebuilds that image and pins it the same way. To go back
-to the release images, delete the `HIVEMIND_IMAGE` line from `.env`, then
+to the release images, delete the `LOOMTRACER_IMAGE` line from `.env`, then
 `docker compose pull && docker compose up -d`.
 
 Equivalent by hand, without the health check or sha tagging:
@@ -709,7 +709,7 @@ Note: with `image:` and `build:` both set in `docker-compose.yml`, a bare
 `docker compose up -d` reuses whatever image already carries that tag
 locally rather than pulling — so `docker compose build` must run first, or
 this silently keeps serving the old container. If `.env` pins
-`HIVEMIND_IMAGE` (the script does), that tag is the pinned one, and
+`LOOMTRACER_IMAGE` (the script does), that tag is the pinned one, and
 `docker compose build` would overwrite it with the fresh build; delete the
 pin before updating by hand.
 
@@ -724,9 +724,9 @@ Postgres schema migrations run automatically at startup.
 the server starts (the `depends_on: condition: service_healthy` guard handles
 this; if it races, restart with `docker compose restart hivemind`).
 
-**`POST /v1/tenants` returns 500 "HIVEMIND_ADMIN_KEY not configured"**: set
-`HIVEMIND_ADMIN_KEY` in your `.env` and restart the stack.
+**`POST /v1/tenants` returns 500 "LOOMTRACER_ADMIN_KEY not configured"**: set
+`LOOMTRACER_ADMIN_KEY` in your `.env` and restart the stack.
 
 **Auth errors on every request in Postgres mode**: you must provision a tenant
-first and use its `token_secret` as the bearer. The static `HIVEMIND_API_KEY`
+first and use its `token_secret` as the bearer. The static `LOOMTRACER_API_KEY`
 variable is ignored in Postgres mode.

@@ -1,11 +1,11 @@
 [package]
-name = "hivemind"
-version = "0.7.0"
+name = "loomtracer"
+version = "0.8.0"
 edition = "2021"
 description = "Organizational decision-memory ledger and query CLI"
-repository = "https://github.com/alexknips/hivemind"
-homepage = "https://github.com/alexknips/hivemind"
-documentation = "https://github.com/alexknips/hivemind#readme"
+repository = "https://github.com/alexknips/loomtracer"
+homepage = "https://github.com/alexknips/loomtracer"
+documentation = "https://github.com/alexknips/loomtracer#readme"
 readme = "README.md"
 license = "AGPL-3.0-only"
 keywords = ["decision", "ledger", "cli", "agents", "provenance"]
@@ -13,11 +13,11 @@ categories = ["command-line-utilities"]
 publish = false
 
 [lib]
-name = "hivemind"
+name = "loomtracer"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hivemind"
+name = "loomtracer"
 path = "src/main.rs"
 
 [[bin]]

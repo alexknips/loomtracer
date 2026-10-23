@@ -2,7 +2,7 @@
 //! (hivemind-2mgj).
 //!
 //! A self-hosted cell is often reconciled by `docker compose up -d` — a systemd
-//! timer, a cron job — which reads `HIVEMIND_IMAGE` from the compose project's
+//! timer, a cron job — which reads `LOOMTRACER_IMAGE` from the compose project's
 //! env file. An update script that set it only for its own restart was undone
 //! by the next reconciliation, which recreated the container on `:latest`. The
 //! script therefore pins the sha-tagged image it built in that env file, and
@@ -26,7 +26,7 @@ type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const FAKE_DOCKER: &str = r#"#!/bin/sh
 echo "$*" >> "$SHIM_LOG"
 if [ "$1" = compose ]; then
-  echo "HIVEMIND_IMAGE=${HIVEMIND_IMAGE-unset}" >> "$SHIM_LOG"
+  echo "LOOMTRACER_IMAGE=${LOOMTRACER_IMAGE-unset}" >> "$SHIM_LOG"
 fi
 "#;
 
@@ -49,9 +49,9 @@ struct Run {
     unhealthy: bool,
     /// What `/v1/version` reports instead of the sha just built.
     version_sha: Option<String>,
-    /// `HIVEMIND_COMPOSE_FILE`; unset runs the script's default.
+    /// `LOOMTRACER_COMPOSE_FILE`; unset runs the script's default.
     compose_file: Option<String>,
-    /// `HIVEMIND_ENV_FILE`.
+    /// `LOOMTRACER_ENV_FILE`.
     env_file: Option<PathBuf>,
 }
 
@@ -125,10 +125,10 @@ impl Cell {
     }
 
     fn image(&self) -> String {
-        format!("hivemind:{}", self.short_sha)
+        format!("loomtracer:{}", self.short_sha)
     }
 
-    /// Both compose files, as `HIVEMIND_COMPOSE_FILE` takes them.
+    /// Both compose files, as `LOOMTRACER_COMPOSE_FILE` takes them.
     fn compose_files(&self) -> String {
         format!(
             "{}:{}",
@@ -157,18 +157,18 @@ impl Cell {
                 "SHIM_VERSION_SHA",
                 run.version_sha.as_deref().unwrap_or(&self.short_sha),
             )
-            .env("HIVEMIND_HEALTH_RETRIES", "1")
-            .env_remove("HIVEMIND_IMAGE")
-            .env_remove("HIVEMIND_PORT")
-            .env_remove("HIVEMIND_HEALTH_URL")
-            .env_remove("HIVEMIND_VERSION_URL")
-            .env_remove("HIVEMIND_COMPOSE_FILE")
-            .env_remove("HIVEMIND_ENV_FILE");
+            .env("LOOMTRACER_HEALTH_RETRIES", "1")
+            .env_remove("LOOMTRACER_IMAGE")
+            .env_remove("LOOMTRACER_PORT")
+            .env_remove("LOOMTRACER_HEALTH_URL")
+            .env_remove("LOOMTRACER_VERSION_URL")
+            .env_remove("LOOMTRACER_COMPOSE_FILE")
+            .env_remove("LOOMTRACER_ENV_FILE");
         if let Some(compose_file) = &run.compose_file {
-            command.env("HIVEMIND_COMPOSE_FILE", compose_file);
+            command.env("LOOMTRACER_COMPOSE_FILE", compose_file);
         }
         if let Some(env_file) = &run.env_file {
-            command.env("HIVEMIND_ENV_FILE", env_file);
+            command.env("LOOMTRACER_ENV_FILE", env_file);
         }
         Ok(command.output()?)
     }
@@ -219,7 +219,7 @@ fn update_pins_the_built_image_where_the_reconciler_reads_it() -> TestResult<()>
     // No trailing newline, an old pin, and a mode looser than 0600: the pin
     // replaces the old line in place and nothing else about the file changes.
     cell.write_env(
-        "POSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE=hivemind:000000000000\nHIVEMIND_PORT=8080",
+        "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE=loomtracer:000000000000\nLOOMTRACER_PORT=8080",
         0o640,
     )?;
 
@@ -229,7 +229,7 @@ fn update_pins_the_built_image_where_the_reconciler_reads_it() -> TestResult<()>
     assert_eq!(
         fs::read_to_string(cell.env_file())?,
         format!(
-            "POSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE={}\nHIVEMIND_PORT=8080\n",
+            "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE={}\nLOOMTRACER_PORT=8080\n",
             cell.image()
         )
     );
@@ -253,7 +253,7 @@ fn update_pins_the_built_image_where_the_reconciler_reads_it() -> TestResult<()>
         "{calls:?}"
     );
     assert!(
-        calls.contains(&format!("HIVEMIND_IMAGE={}", cell.image())),
+        calls.contains(&format!("LOOMTRACER_IMAGE={}", cell.image())),
         "{calls:?}"
     );
     Ok(())
@@ -263,8 +263,8 @@ fn update_pins_the_built_image_where_the_reconciler_reads_it() -> TestResult<()>
 fn update_collapses_stale_pins_and_leaves_comments_alone() -> TestResult<()> {
     let cell = Cell::new()?;
     cell.write_env(
-        "export HIVEMIND_IMAGE=a\nPOSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE = b\n\
-         # HIVEMIND_IMAGE=commented\n",
+        "export LOOMTRACER_IMAGE=a\nPOSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE = b\n\
+         # LOOMTRACER_IMAGE=commented\n",
         0o600,
     )?;
 
@@ -274,7 +274,7 @@ fn update_collapses_stale_pins_and_leaves_comments_alone() -> TestResult<()> {
     assert_eq!(
         fs::read_to_string(cell.env_file())?,
         format!(
-            "HIVEMIND_IMAGE={}\nPOSTGRES_PASSWORD=s3cret\n# HIVEMIND_IMAGE=commented\n",
+            "LOOMTRACER_IMAGE={}\nPOSTGRES_PASSWORD=s3cret\n# LOOMTRACER_IMAGE=commented\n",
             cell.image()
         )
     );
@@ -292,7 +292,7 @@ fn update_appends_the_pin_when_the_env_file_has_none() -> TestResult<()> {
     assert_eq!(
         fs::read_to_string(cell.env_file())?,
         format!(
-            "# the cell\nPOSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE={}\n",
+            "# the cell\nPOSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE={}\n",
             cell.image()
         )
     );
@@ -309,7 +309,7 @@ fn update_creates_the_env_file_owner_only_when_there_is_none() -> TestResult<()>
 
     assert_eq!(
         fs::read_to_string(cell.env_file())?,
-        format!("HIVEMIND_IMAGE={}\n", cell.image())
+        format!("LOOMTRACER_IMAGE={}\n", cell.image())
     );
     assert_eq!(mode_of(&cell.env_file())?, 0o600);
     Ok(())
@@ -325,7 +325,7 @@ fn updating_twice_to_the_same_ref_leaves_the_env_file_unchanged() -> TestResult<
     assert!(cell.update()?.status.success());
 
     assert_eq!(fs::read_to_string(cell.env_file())?, first);
-    assert_eq!(first.matches("HIVEMIND_IMAGE=").count(), 1);
+    assert_eq!(first.matches("LOOMTRACER_IMAGE=").count(), 1);
     Ok(())
 }
 
@@ -338,7 +338,7 @@ fn default_run_pins_next_to_the_default_compose_file() -> TestResult<()> {
 
     assert_eq!(
         fs::read_to_string(cell.repo().join(".env"))?,
-        format!("HIVEMIND_IMAGE={}\n", cell.image())
+        format!("LOOMTRACER_IMAGE={}\n", cell.image())
     );
     assert!(
         cell.docker_calls()?.contains(
@@ -366,7 +366,7 @@ fn env_file_override_is_pinned_and_handed_to_compose() -> TestResult<()> {
     assert_eq!(
         fs::read_to_string(&elsewhere)?,
         format!(
-            "POSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE={}\n",
+            "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE={}\n",
             cell.image()
         )
     );
@@ -385,7 +385,7 @@ fn env_file_override_is_pinned_and_handed_to_compose() -> TestResult<()> {
 fn unhealthy_update_puts_the_env_file_back_as_it_was() -> TestResult<()> {
     let cell = Cell::new()?;
     let before =
-        "POSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE=hivemind:000000000000\nHIVEMIND_PORT=8080";
+        "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE=loomtracer:000000000000\nLOOMTRACER_PORT=8080";
     cell.write_env(before, 0o640)?;
 
     let output = cell.run(Run {
@@ -421,7 +421,7 @@ fn unhealthy_update_removes_an_env_file_it_created() -> TestResult<()> {
 #[test]
 fn update_whose_version_does_not_match_puts_the_env_file_back() -> TestResult<()> {
     let cell = Cell::new()?;
-    let before = "POSTGRES_PASSWORD=s3cret\nHIVEMIND_IMAGE=hivemind:000000000000\n";
+    let before = "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE=loomtracer:000000000000\n";
     cell.write_env(before, 0o600)?;
 
     let output = cell.run(Run {

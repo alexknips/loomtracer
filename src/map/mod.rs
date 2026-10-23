@@ -71,12 +71,12 @@ struct DecisionRecord {
 
 /// Compute the spectral decision map.
 ///
-/// `hivemind_dir` is the on-disk directory used by the SQLite backend to store the embedding
+/// `loomtracer_dir` is the on-disk directory used by the SQLite backend to store the embedding
 /// cache. Pass `Some(dir)` when the SQLite backend is active. Pass `None` for the Postgres
 /// backend: the computation proceeds without persistent embeddings (structural-only layout).
 pub fn compute_map(
     graph: &impl GraphView,
-    hivemind_dir: Option<&Path>,
+    loomtracer_dir: Option<&Path>,
     alpha: f64,
 ) -> Result<MapResult> {
     let alpha = alpha.clamp(0.0, 1.0);
@@ -96,16 +96,16 @@ pub fn compute_map(
     }
 
     // Build embeddings: read from store first, only embed new decisions with the ONNX model.
-    // When hivemind_dir is None (Postgres backend), skip the embedding store and fall back to
+    // When loomtracer_dir is None (Postgres backend), skip the embedding store and fall back to
     // zero-vectors so the spectral layout is driven purely by structural edges.
     #[cfg(feature = "semantic")]
-    let store = hivemind_dir.map(EmbeddingStore::open).transpose()?;
+    let store = loomtracer_dir.map(EmbeddingStore::open).transpose()?;
     #[cfg(feature = "semantic")]
     let embeddings = if let Some(ref s) = store {
         build_embeddings(
             &decisions,
             s,
-            hivemind_dir.unwrap_or(std::path::Path::new(".")),
+            loomtracer_dir.unwrap_or(std::path::Path::new(".")),
         )?
     } else {
         vec![vec![0.0f32; crate::embedding::SEMANTIC_DIMS]; n]
@@ -113,7 +113,7 @@ pub fn compute_map(
     #[cfg(not(feature = "semantic"))]
     let embeddings: Vec<Vec<f32>> = vec![vec![]; n];
     #[cfg(not(feature = "semantic"))]
-    let _ = hivemind_dir;
+    let _ = loomtracer_dir;
 
     // Build blended adjacency matrix
     let structural = build_structural_edges(graph, &decisions)?;
@@ -196,7 +196,7 @@ pub fn compute_map(
             let status = derive_decision_status(graph, &d.id)
                 .map(|s| format!("{s:?}").to_ascii_lowercase()) // ubs:ignore: format! for status serialization
                 .unwrap_or_else(|e| {
-                    warn!(target: "hivemind::map", "derive_decision_status failed for {}: {e}; defaulting to unknown", d.id);
+                    warn!(target: "loomtracer::map", "derive_decision_status failed for {}: {e}; defaulting to unknown", d.id);
                     "unknown".to_owned() // ubs:ignore: safe default for missing status
                 });
             MapPoint {
@@ -273,7 +273,7 @@ fn load_decisions(graph: &impl GraphView) -> Result<Vec<DecisionRecord>> {
 fn build_embeddings(
     decisions: &[DecisionRecord],
     store: &EmbeddingStore,
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
 ) -> Result<Vec<Vec<f32>>> {
     let mut embeddings: Vec<Option<Vec<f32>>> = vec![None; decisions.len()];
     let mut new_indices: Vec<usize> = Vec::new();
@@ -290,7 +290,7 @@ fn build_embeddings(
             .iter()
             .map(|&i| format!("{} {}", decisions[i].title, decisions[i].rationale)) // ubs:ignore: format! outside inner loop — one allocation per new decision
             .collect();
-        let mut embedder = SemanticEmbedder::try_new(Some(hivemind_dir))?;
+        let mut embedder = SemanticEmbedder::try_new(Some(loomtracer_dir))?;
         let slices: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let new_embs = embedder.embed_batch(&slices);
         for (&idx, emb) in new_indices.iter().zip(&new_embs) {

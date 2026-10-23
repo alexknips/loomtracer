@@ -1,4 +1,4 @@
-//! End-to-end MCP stdio test: spawns the real `hivemind mcp` binary, talks to
+//! End-to-end MCP stdio test: spawns the real `loomtracer mcp` binary, talks to
 //! it over its stdin/stdout pipes the same way an MCP client would, and
 //! confirms a captured decision lands in the ledger and is retrievable on a
 //! follow-up call.
@@ -14,33 +14,36 @@ use serde_json::{json, Value};
 
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
-    dir.push(format!("hivemind-mcp-e2e-{label}-{}", uuid::Uuid::new_v4()));
+    dir.push(format!(
+        "loomtracer-mcp-e2e-{label}-{}",
+        uuid::Uuid::new_v4()
+    ));
     dir
 }
 
 /// Since hivemind-rkbf.1, an unregistered tenant hard-errors at ledger-open
 /// time instead of silently opening a fresh scope — register a non-default
 /// tenant via the real CLI before a test spawns an MCP server under it.
-fn create_tenant(hivemind_dir: &std::path::Path, tenant_id: &str) {
-    let status = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(hivemind_dir)
+fn create_tenant(loomtracer_dir: &std::path::Path, tenant_id: &str) {
+    let status = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(loomtracer_dir)
         .arg("tenant")
         .arg("create")
         .arg(tenant_id)
         .status()
-        .expect("spawn hivemind tenant create"); // ubs:ignore: test-only; panicking is correct in tests
-    assert!(status.success(), "hivemind tenant create {tenant_id}"); // ubs:ignore: test-only assertion
+        .expect("spawn loomtracer tenant create"); // ubs:ignore: test-only; panicking is correct in tests
+    assert!(status.success(), "loomtracer tenant create {tenant_id}"); // ubs:ignore: test-only assertion
 }
 
 #[test]
 fn mcp_stdio_server_handles_initialize_list_and_capture() {
-    let hivemind_dir = unique_dir("roundtrip");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
+    let loomtracer_dir = unique_dir("roundtrip");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .arg("mcp")
         .arg("--session-id")
         .arg("e2e-session")
@@ -48,7 +51,7 @@ fn mcp_stdio_server_handles_initialize_list_and_capture() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("spawn loomtracer mcp"); // ubs:ignore: test-only; panicking is correct in tests
 
     let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
@@ -143,23 +146,23 @@ fn mcp_stdio_server_handles_initialize_list_and_capture() {
     let status = child.wait().expect("wait child"); // ubs:ignore: test-only; panicking is correct in tests
     assert!(status.success(), "server exited non-zero: {status:?}"); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn mcp_capture_evidence_persists_across_invocations() {
-    let hivemind_dir = unique_dir("evidence");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
+    let loomtracer_dir = unique_dir("evidence");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("spawn loomtracer mcp"); // ubs:ignore: test-only; panicking is correct in tests
 
     let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
@@ -196,32 +199,33 @@ fn mcp_capture_evidence_persists_across_invocations() {
     let _ = child.wait();
 
     // Re-open the ledger directly and confirm one EvidenceRecorded event landed.
-    let ledger = hivemind::ledger::SqliteEventLedger::open(&hivemind_dir).expect("ledger reopens"); // ubs:ignore: test-only; panicking is correct in tests
-    let events = hivemind::ledger::EventLedger::read(&ledger, 0, 16).expect("read events"); // ubs:ignore: test-only; panicking is correct in tests
+    let ledger =
+        loomtracer::ledger::SqliteEventLedger::open(&loomtracer_dir).expect("ledger reopens"); // ubs:ignore: test-only; panicking is correct in tests
+    let events = loomtracer::ledger::EventLedger::read(&ledger, 0, 16).expect("read events"); // ubs:ignore: test-only; panicking is correct in tests
     assert_eq!(events.len(), 1, "exactly one event expected: {events:?}"); // ubs:ignore: test-only assertion
     assert_eq!(
         // ubs:ignore: test-only assertion
         events[0].event_type,
-        hivemind::events::EventType::EvidenceRecorded
+        loomtracer::events::EventType::EvidenceRecorded
     );
-    assert_eq!(events[0].source, hivemind::events::EventSource::Agent); // ubs:ignore: test-only assertion
+    assert_eq!(events[0].source, loomtracer::events::EventSource::Agent); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn mcp_stdio_servers_share_sqlite_wal_ledger_under_concurrent_writes(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let hivemind_dir = unique_dir("concurrent");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
+    let loomtracer_dir = unique_dir("concurrent");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
 
     let barrier = Arc::new(Barrier::new(2));
     let mut handles = Vec::new();
     for server_index in 0..2 {
-        let hivemind_dir = hivemind_dir.clone();
+        let loomtracer_dir = loomtracer_dir.clone();
         let barrier = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
-            capture_decision_through_mcp_server(server_index, hivemind_dir, barrier)
+            capture_decision_through_mcp_server(server_index, loomtracer_dir, barrier)
         }));
     }
 
@@ -238,17 +242,18 @@ fn mcp_stdio_servers_share_sqlite_wal_ledger_under_concurrent_writes(
         );
     }
 
-    let ledger = hivemind::ledger::SqliteEventLedger::open(&hivemind_dir).expect("ledger reopens"); // ubs:ignore: test-only; panicking is correct in tests
-                                                                                                    // Per capture: the bet grounding's hypothesis.recorded, decision.proposed, HAS_OPTION and
-                                                                                                    // ASSUMES (hivemind-gwhr.2: every capture names what it rests on).
+    let ledger =
+        loomtracer::ledger::SqliteEventLedger::open(&loomtracer_dir).expect("ledger reopens"); // ubs:ignore: test-only; panicking is correct in tests
+                                                                                               // Per capture: the bet grounding's hypothesis.recorded, decision.proposed, HAS_OPTION and
+                                                                                               // ASSUMES (hivemind-gwhr.2: every capture names what it rests on).
     let expected_events = 8;
     assert_eq!(
         // ubs:ignore: test-only assertion
-        hivemind::ledger::EventLedger::latest_offset(&ledger).expect("latest offset"), // ubs:ignore: test-only; panicking is correct in tests
+        loomtracer::ledger::EventLedger::latest_offset(&ledger).expect("latest offset"), // ubs:ignore: test-only; panicking is correct in tests
         expected_events
     );
 
-    let events = hivemind::ledger::EventLedger::read(&ledger, 0, expected_events as usize + 1)
+    let events = loomtracer::ledger::EventLedger::read(&ledger, 0, expected_events as usize + 1)
         .expect("read all events"); // ubs:ignore: test-only; panicking is correct in tests
     assert_eq!(events.len(), expected_events as usize); // ubs:ignore: test-only assertion
 
@@ -268,14 +273,14 @@ fn mcp_stdio_servers_share_sqlite_wal_ledger_under_concurrent_writes(
         assert_eq!(event_id, (index + 1) as u64); // ubs:ignore: test-only assertion
 
         match event.event_type {
-            hivemind::events::EventType::DecisionProposed => {
+            loomtracer::events::EventType::DecisionProposed => {
                 decision_count += 1;
                 decision_event_ids.insert(event_id);
             }
-            hivemind::events::EventType::HypothesisRecorded => {
+            loomtracer::events::EventType::HypothesisRecorded => {
                 hypothesis_count += 1;
             }
-            hivemind::events::EventType::RelationAdded => {
+            loomtracer::events::EventType::RelationAdded => {
                 relation_count += 1;
             }
             other => {
@@ -294,7 +299,7 @@ fn mcp_stdio_servers_share_sqlite_wal_ledger_under_concurrent_writes(
 
     for event in events
         .iter()
-        .filter(|event| event.event_type == hivemind::events::EventType::RelationAdded)
+        .filter(|event| event.event_type == loomtracer::events::EventType::RelationAdded)
     {
         let relation_event_id = event.event_id.expect("stored event has event_id"); // ubs:ignore: test-only; panicking is correct in tests
         let root_event_id = event
@@ -313,25 +318,25 @@ fn mcp_stdio_servers_share_sqlite_wal_ledger_under_concurrent_writes(
     }
 
     let mut replayed_event_ids = Vec::new();
-    hivemind::ledger::EventLedger::replay_from(&ledger, 0, &mut |event| {
+    loomtracer::ledger::EventLedger::replay_from(&ledger, 0, &mut |event| {
         replayed_event_ids.push(event.event_id.expect("replayed event has event_id")); // ubs:ignore: test-only; panicking is correct in tests
         Ok(())
     })
     .expect("replay succeeds"); // ubs:ignore: test-only; panicking is correct in tests
     assert_eq!(replayed_event_ids, vec![1, 2, 3, 4, 5, 6, 7, 8]); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 fn capture_decision_through_mcp_server(
     server_index: usize,
-    hivemind_dir: PathBuf,
+    loomtracer_dir: PathBuf,
     barrier: Arc<Barrier>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .arg("mcp")
         .arg("--session-id")
         .arg(format!("concurrent-{server_index}"))
@@ -410,12 +415,12 @@ fn read_mcp_response(
 
 #[test]
 fn mcp_search_decisions_e2e() {
-    let hivemind_dir = unique_dir("search");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
+    let loomtracer_dir = unique_dir("search");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .arg("mcp")
         .arg("--session-id")
         .arg("search-e2e")
@@ -423,7 +428,7 @@ fn mcp_search_decisions_e2e() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("spawn loomtracer mcp"); // ubs:ignore: test-only; panicking is correct in tests
 
     let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
@@ -498,17 +503,17 @@ fn mcp_search_decisions_e2e() {
     drop(stdin);
     let status = child.wait().expect("wait child"); // ubs:ignore: test-only; panicking is correct in tests
     assert!(status.success(), "server exited non-zero: {status:?}"); // ubs:ignore: test-only assertion
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn mcp_summarize_decisions_e2e() {
-    let hivemind_dir = unique_dir("summarize");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
+    let loomtracer_dir = unique_dir("summarize");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .arg("mcp")
         .arg("--session-id")
         .arg("summarize-e2e")
@@ -516,7 +521,7 @@ fn mcp_summarize_decisions_e2e() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("spawn loomtracer mcp"); // ubs:ignore: test-only; panicking is correct in tests
 
     let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
@@ -644,17 +649,17 @@ fn mcp_summarize_decisions_e2e() {
     drop(stdin);
     let status = child.wait().expect("wait child"); // ubs:ignore: test-only; panicking is correct in tests
     assert!(status.success(), "server exited non-zero: {status:?}"); // ubs:ignore: test-only assertion
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn mcp_compact_view_e2e() {
-    let hivemind_dir = unique_dir("compact");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
+    let loomtracer_dir = unique_dir("compact");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .arg("mcp")
         .arg("--session-id")
         .arg("compact-e2e")
@@ -662,7 +667,7 @@ fn mcp_compact_view_e2e() {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("spawn loomtracer mcp"); // ubs:ignore: test-only; panicking is correct in tests
 
     let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
@@ -740,7 +745,7 @@ fn mcp_compact_view_e2e() {
         json!({
             "jsonrpc": "2.0", "id": 4, "method": "tools/call",
             "params": {
-                "name": "hivemind_compact_view",
+                "name": "loomtracer_compact_view",
                 "arguments": { "decision_id": original_id }
             }
         }),
@@ -777,21 +782,21 @@ fn mcp_compact_view_e2e() {
     drop(stdin);
     let status = child.wait().expect("wait child"); // ubs:ignore: test-only; panicking is correct in tests
     assert!(status.success(), "server exited non-zero: {status:?}"); // ubs:ignore: test-only assertion
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn mcp_m3_tools_are_tenant_isolated() {
-    let hivemind_dir = unique_dir("tenant-iso");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
-    create_tenant(&hivemind_dir, "tenant-a");
-    create_tenant(&hivemind_dir, "tenant-b");
+    let loomtracer_dir = unique_dir("tenant-iso");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
+    create_tenant(&loomtracer_dir, "tenant-a");
+    create_tenant(&loomtracer_dir, "tenant-b");
 
     // Spawn tenant-a process, capture a decision with a unique keyword.
     let decision_id_a = {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
-            .arg(&hivemind_dir)
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
+            .arg(&loomtracer_dir)
             .arg("--tenant")
             .arg("tenant-a")
             .arg("mcp")
@@ -846,9 +851,9 @@ fn mcp_m3_tools_are_tenant_isolated() {
 
     // Spawn tenant-b process, capture a different decision.
     let decision_id_b = {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
-            .arg(&hivemind_dir)
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
+            .arg(&loomtracer_dir)
             .arg("--tenant")
             .arg("tenant-b")
             .arg("mcp")
@@ -911,9 +916,9 @@ fn mcp_m3_tools_are_tenant_isolated() {
 
     // Query tenant-a: search for tenant-a's keyword — must NOT see tenant-b's data.
     {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
-            .arg(&hivemind_dir)
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
+            .arg(&loomtracer_dir)
             .arg("--tenant")
             .arg("tenant-a")
             .arg("mcp")
@@ -1007,19 +1012,19 @@ fn mcp_m3_tools_are_tenant_isolated() {
         child.wait().expect("wait tenant-a query"); // ubs:ignore: test-only; panicking is correct in tests
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
-/// Runs one `hivemind mcp` process under `tenant` (the default tenant when `None`), sends each
+/// Runs one `loomtracer mcp` process under `tenant` (the default tenant when `None`), sends each
 /// `(tool, arguments)` call in order and returns every call's `structuredContent`. A call that
 /// answers `isError` fails the test.
 fn mcp_tool_session(
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     tenant: Option<&str>,
     calls: &[(&str, Value)],
 ) -> Vec<Value> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
-    command.arg("--hivemind-dir").arg(hivemind_dir);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
+    command.arg("--loomtracer-dir").arg(loomtracer_dir);
     if let Some(tenant) = tenant {
         command.arg("--tenant").arg(tenant);
     }
@@ -1031,7 +1036,7 @@ fn mcp_tool_session(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("spawn hivemind mcp"); // ubs:ignore: test-only; panicking is correct in tests
+        .expect("spawn loomtracer mcp"); // ubs:ignore: test-only; panicking is correct in tests
 
     let mut stdin = child.stdin.take().expect("stdin"); // ubs:ignore: test-only; panicking is correct in tests
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout")); // ubs:ignore: test-only; panicking is correct in tests
@@ -1084,12 +1089,12 @@ fn tenant_capture_arguments(actor: &str, title: &str, topic: &str) -> Value {
 /// just captured and its change, and none of the default tenant's.
 #[test]
 fn mcp_recent_changed_and_why_timeline_read_the_callers_tenant() {
-    let hivemind_dir = unique_dir("tenant-reads");
-    let _ = std::fs::create_dir_all(&hivemind_dir);
-    create_tenant(&hivemind_dir, "tenant-b");
+    let loomtracer_dir = unique_dir("tenant-reads");
+    let _ = std::fs::create_dir_all(&loomtracer_dir);
+    create_tenant(&loomtracer_dir, "tenant-b");
 
     let local = mcp_tool_session(
-        &hivemind_dir,
+        &loomtracer_dir,
         None,
         &[(
             "capture_decision",
@@ -1102,7 +1107,7 @@ fn mcp_recent_changed_and_why_timeline_read_the_callers_tenant() {
         .to_owned();
 
     let captured = mcp_tool_session(
-        &hivemind_dir,
+        &loomtracer_dir,
         Some("tenant-b"),
         &[(
             "capture_decision",
@@ -1115,7 +1120,7 @@ fn mcp_recent_changed_and_why_timeline_read_the_callers_tenant() {
         .to_owned();
 
     let reads = mcp_tool_session(
-        &hivemind_dir,
+        &loomtracer_dir,
         Some("tenant-b"),
         &[
             (
@@ -1189,5 +1194,5 @@ fn mcp_recent_changed_and_why_timeline_read_the_callers_tenant() {
         "nothing tenant-b read names the default tenant's decision {local_id}"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }

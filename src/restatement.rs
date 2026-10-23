@@ -78,7 +78,7 @@ pub fn nearby_decisions(
 /// The question put to the judge model for one capture and the decisions near it.
 pub fn restatement_prompt(capture: &CaptureItem, nearby: &[NearbyDecision]) -> String {
     let mut prompt = String::from(
-        "You are the HiveMind restatement checker.\n\n\
+        "You are the Loomtracer restatement checker.\n\n\
 A new decision was extracted from a conversation. Some decisions already recorded look close to \
 it. Say which recorded decision, if any, the new decision RESTATES: the same choice (the same \
 question, answered the same way) made again or relayed once more.\n\n\
@@ -153,7 +153,7 @@ pub async fn mark_restatements(
             Ok(nearby) if !nearby.is_empty() => nearby,
             Ok(_) => continue,
             Err(error) => {
-                tracing::warn!(target: "hivemind::classifier", "restatement lookup failed: {error}");
+                tracing::warn!(target: "loomtracer::classifier", "restatement lookup failed: {error}");
                 continue;
             }
         };
@@ -169,7 +169,7 @@ pub async fn mark_restatements(
         match answer {
             Ok(answer) => capture.restates_id = answer.named_among(&nearby),
             Err(error) => {
-                tracing::warn!(target: "hivemind::classifier", "restatement judge failed: {error}");
+                tracing::warn!(target: "loomtracer::classifier", "restatement judge failed: {error}");
             }
         }
     }

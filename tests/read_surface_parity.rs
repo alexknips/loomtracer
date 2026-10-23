@@ -22,7 +22,7 @@ use http_body_util::BodyExt as _;
 use serde_json::{json, Value};
 use tower::ServiceExt as _;
 
-use hivemind::cli::{run, Cli};
+use loomtracer::cli::{run, Cli};
 
 #[allow(dead_code)]
 #[path = "support/seed_data.rs"]
@@ -85,7 +85,7 @@ const DECISIONS: &[(&str, &str, &str, &str)] = &[
         "demo-copy",
         "Public demo data: commit a byte-exact copy of the generator export, checked by recorded SHA-256",
         "ui,public-demo,example-data",
-        "The demo build must work without a hivemind checkout (CI, the site rebuild), so the generator's graph and briefs files are committed rather than read from hivemind at build time. A sync script copies them byte for byte and records the source commit and each file's hash; a test fails if a copy no longer matches.",
+        "The demo build must work without a loomtracer checkout (CI, the site rebuild), so the generator's graph and briefs files are committed rather than read from loomtracer at build time. A sync script copies them byte for byte and records the source commit and each file's hash; a test fails if a copy no longer matches.",
     ),
     (
         "demo-runtime",
@@ -215,7 +215,7 @@ const CASES: &[(&str, &str, Expect)] = &[
     ),
     (
         "why",
-        "why is the demo's data checked into the UI repo instead of read from hivemind when it builds?",
+        "why is the demo's data checked into the UI repo instead of read from loomtracer when it builds?",
         Expect::Answers("demo-copy"),
     ),
     // hivemind-3lko: what recall names, why and verify name.
@@ -295,10 +295,10 @@ fn seed(dir: &Path) -> TestResult<Labels> {
     let mut labels = HashMap::new();
     for (label, title, topics, rationale) in DECISIONS {
         let id = run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "agent:test:parity",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             path,
             "emit",
             "decision.proposed",
@@ -329,8 +329,8 @@ fn without_latency(mut envelope: Value) -> Value {
 fn via_cli(dir: &Path, verb: &str, question: &str) -> TestResult<Value> {
     let path = dir.to_str().ok_or("the ledger path is utf-8")?;
     let output = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         path,
         "query",
         verb,
@@ -342,11 +342,11 @@ fn via_cli(dir: &Path, verb: &str, question: &str) -> TestResult<Value> {
 /// The plugin's script, which finds the binary and the ledger the way a user's session does.
 fn via_plugin(dir: &Path, verb: &str, question: &str) -> TestResult<Value> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = Command::new(root.join(format!("plugins/hivemind-context/scripts/{verb}.sh")))
+    let output = Command::new(root.join(format!("plugins/loomtracer-context/scripts/{verb}.sh")))
         .arg(question)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .output()?;
     if !output.status.success() {
@@ -359,9 +359,9 @@ fn via_plugin(dir: &Path, verb: &str, question: &str) -> TestResult<Value> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
-fn app(hivemind_dir: &Path) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir: hivemind_dir.to_path_buf(),
+fn app(loomtracer_dir: &Path) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir: loomtracer_dir.to_path_buf(),
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -379,7 +379,7 @@ fn app(hivemind_dir: &Path) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 /// `text` as a query-string value.
@@ -401,7 +401,7 @@ async fn via_http(dir: &Path, verb: &str, question: &str) -> TestResult<(StatusC
             "/v1/decisions/{verb}?description={}",
             percent_encoded(question)
         ))
-        .header("x-hivemind-actor", "agent:test:parity")
+        .header("x-loomtracer-actor", "agent:test:parity")
         .body(Body::empty())?;
     let response = app(dir).oneshot(request).await?;
     let status = response.status();
@@ -419,8 +419,8 @@ struct McpServer {
 
 impl McpServer {
     fn start(dir: &Path) -> TestResult<Self> {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
             .arg(dir)
             .arg("mcp")
             .arg("--session-id")
@@ -641,10 +641,10 @@ async fn a_decision_with_no_choice_lists_its_options_as_open_through_every_surfa
         ),
     ] {
         let mut args = vec![
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             path,
             "emit",
             "decision.proposed",

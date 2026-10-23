@@ -3,7 +3,7 @@
 //! Layer 3, beside [`crate::quality_profile`] and never part of it: importance is a separate
 //! axis, so nothing here touches the seven quality dimensions and nothing returns a composite
 //! number. The read is `rank_decisions_by_importance`, on the stdio MCP server, the HTTP MCP
-//! endpoint, `GET /v1/decisions/importance` and `hivemind query rank_decisions_by_importance`.
+//! endpoint, `GET /v1/decisions/importance` and `loomtracer query rank_decisions_by_importance`.
 //! It reads what the ledger states, with no model and no network, and writes nothing.
 //!
 //! # What a decision's importance is read from

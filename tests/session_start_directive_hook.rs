@@ -1,6 +1,6 @@
 //! The capture plugin's SessionStart hook (hivemind-wdwg): at the start of a session it hands the
-//! agent a short directive as additional context, to check the HiveMind ledger before it acts and
-//! to record what is worth keeping. Installed but untold, agents used HiveMind 0 times in 31
+//! agent a short directive as additional context, to check the Loomtracer ledger before it acts and
+//! to record what is worth keeping. Installed but untold, agents used Loomtracer 0 times in 31
 //! benchmark sessions; the plugin's other hooks fire on AskUserQuestion, which an autonomous agent
 //! never calls. Told only to record "decisions", agents saved a summary of each session and missed
 //! the rules that cost them something (hivemind-dd95), so the text says what to save and what not.
@@ -22,11 +22,11 @@ use tempfile::TempDir;
 
 type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-const HOOK: &str = "plugins/hivemind-capture/scripts/session-start-hook.sh";
-const HOOKS_JSON: &str = "plugins/hivemind-capture/hooks/hooks.json";
+const HOOK: &str = "plugins/loomtracer-capture/scripts/session-start-hook.sh";
+const HOOKS_JSON: &str = "plugins/loomtracer-capture/hooks/hooks.json";
 /// Every file that quotes the directive, which a test holds equal to the hook's text.
 const DIRECTIVE_QUOTED_IN: [&str; 3] = [
-    "plugins/hivemind-capture/README.md",
+    "plugins/loomtracer-capture/README.md",
     "docs/AGENT_DECISION_CAPTURE.md",
     "CHANGELOG.md",
 ];
@@ -40,13 +40,13 @@ fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Run the hook the way Claude Code does: a `hivemind` binary reachable through
-/// `HIVEMIND_CAPTURE_BIN`, the opt-out variable removed, `envs` applied last.
+/// Run the hook the way Claude Code does: a `loomtracer` binary reachable through
+/// `LOOMTRACER_CAPTURE_BIN`, the opt-out variable removed, `envs` applied last.
 fn run_hook(envs: &[(&str, &str)]) -> TestResult<Output> {
     let mut command = Command::new(root().join(HOOK));
     command
-        .env_remove("HIVEMIND_DIRECTIVE_DISABLE")
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
+        .env_remove("LOOMTRACER_DIRECTIVE_DISABLE")
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -67,12 +67,12 @@ fn directive(output: &Output) -> TestResult<String> {
         .to_string())
 }
 
-/// The tools `hivemind mcp` serves, with each one's input properties, over its stdio transport.
+/// The tools `loomtracer mcp` serves, with each one's input properties, over its stdio transport.
 fn served_tools() -> TestResult<Vec<(String, BTreeSet<String>)>> {
     let dir = TempDir::new()?;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(dir.path().join("hivemind"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(dir.path().join("loomtracer"))
         .args(["mcp", "--agent-tool", "claude"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -210,9 +210,9 @@ fn the_directive_names_tools_the_mcp_server_serves_and_the_arguments_it_tells_yo
     let recall = properties_of("recall_decisions").ok_or("the server serves recall_decisions")?;
     let capture = properties_of("capture_decision").ok_or("the server serves capture_decision")?;
     assert!(text.contains("`recall_decisions`") && text.contains("`capture_decision`"));
-    // Every tool it names is served (`hivemind` is the MCP server, not a tool).
+    // Every tool it names is served (`loomtracer` is the MCP server, not a tool).
     for name in text.split('`').skip(1).step_by(2) {
-        if name != "hivemind" {
+        if name != "loomtracer" {
             assert!(
                 tools.iter().any(|(tool, _)| tool == name),
                 "the directive names {name}, which the server does not serve: {tools:?}"
@@ -274,28 +274,29 @@ fn a_ledger_that_does_not_exist_yet_still_gets_the_directive() -> TestResult<()>
     // the ledger on the first capture, so a missing directory is a new ledger, not a missing one.
     let dir = TempDir::new()?;
     let missing = dir.path().join("no-ledger-yet");
-    let output = run_hook(&[("HIVEMIND_DIR", missing.to_str().ok_or("path")?)])?;
+    let output = run_hook(&[("LOOMTRACER_DIR", missing.to_str().ok_or("path")?)])?;
     assert!(directive(&output)?.contains("recall_decisions"));
     assert!(!missing.exists(), "the hook reads and writes no ledger");
     Ok(())
 }
 
 #[test]
-fn with_the_opt_out_set_or_no_hivemind_binary_it_prints_nothing_and_exits_zero() -> TestResult<()> {
+fn with_the_opt_out_set_or_no_loomtracer_binary_it_prints_nothing_and_exits_zero() -> TestResult<()>
+{
     for envs in [
-        vec![("HIVEMIND_DIRECTIVE_DISABLE", "1")],
-        vec![("HIVEMIND_CAPTURE_BIN", "/nonexistent/hivemind")],
+        vec![("LOOMTRACER_DIRECTIVE_DISABLE", "1")],
+        vec![("LOOMTRACER_CAPTURE_BIN", "/nonexistent/loomtracer")],
     ] {
         let output = run_hook(&envs)?;
         assert!(output.status.success(), "{envs:?}: {output:?}");
         assert!(output.stdout.is_empty(), "{envs:?}: {output:?}");
         assert!(output.stderr.is_empty(), "{envs:?}: {output:?}");
     }
-    // No override and nothing named `hivemind` on PATH: the same silent no-op.
+    // No override and nothing named `loomtracer` on PATH: the same silent no-op.
     let empty = TempDir::new()?;
     let output = Command::new(root().join(HOOK))
-        .env_remove("HIVEMIND_CAPTURE_BIN")
-        .env_remove("HIVEMIND_DIRECTIVE_DISABLE")
+        .env_remove("LOOMTRACER_CAPTURE_BIN")
+        .env_remove("LOOMTRACER_DIRECTIVE_DISABLE")
         .env("PATH", empty.path())
         .stdin(Stdio::null())
         .output()?;

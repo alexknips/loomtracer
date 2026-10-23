@@ -37,7 +37,7 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(25);
 /// `DEFAULT_POOL_SIZE` eager connections easily exceeds Postgres's
 /// `max_connections`. When set, the pool also fills lazily (`min_idle = 0`)
 /// instead of opening every connection up front.
-const POOL_SIZE_ENV: &str = "HIVEMIND_POSTGRES_POOL_SIZE";
+const POOL_SIZE_ENV: &str = "LOOMTRACER_POSTGRES_POOL_SIZE";
 
 type PgManager = PostgresConnectionManager<MakeTlsConnector>;
 type PgPool = Pool<PgManager>;
@@ -469,7 +469,7 @@ impl PostgresEventLedger {
         let mut client = self.pool.get().map_err(storage_error)?;
         client
             .batch_execute(
-                "SELECT pg_advisory_xact_lock(hashtext('hivemind_schema_init'));
+                "SELECT pg_advisory_xact_lock(hashtext('loomtracer_schema_init'));
                 CREATE TABLE IF NOT EXISTS events (
                     tenant_id text NOT NULL,
                     event_id bigint NOT NULL,
@@ -752,7 +752,7 @@ fn set_tenant_local_pg(
     .map_err(PgOperationError::Postgres)
 }
 
-fn pg_op_to_result(error: PgOperationError) -> crate::HivemindError {
+fn pg_op_to_result(error: PgOperationError) -> crate::LoomtracerError {
     storage_error(format!("{error:?}")).into()
 }
 
@@ -760,7 +760,7 @@ fn pg_op_to_result(error: PgOperationError) -> crate::HivemindError {
 enum PgOperationError {
     Pool(r2d2::Error),
     Postgres(postgres::Error),
-    Storage(crate::HivemindError),
+    Storage(crate::LoomtracerError),
 }
 
 impl PgOperationError {
@@ -789,8 +789,8 @@ impl From<postgres::Error> for PgOperationError {
     }
 }
 
-impl From<crate::HivemindError> for PgOperationError {
-    fn from(error: crate::HivemindError) -> Self {
+impl From<crate::LoomtracerError> for PgOperationError {
+    fn from(error: crate::LoomtracerError) -> Self {
         Self::Storage(error)
     }
 }

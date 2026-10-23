@@ -1,4 +1,4 @@
-//! `hivemind migrate --to-url` against a live cell (hivemind-jawy): a SQLite ledger moves into a
+//! `loomtracer migrate --to-url` against a live cell (hivemind-jawy): a SQLite ledger moves into a
 //! cell over HTTP with the cell's admin key, no database password anywhere.
 //!
 //! The cell here is the real HTTP router served on a loopback port over a SQLite directory the
@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{TimeZone, Utc};
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventId, EventSource, EventType, TenantId};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventId, EventSource, EventType, TenantId};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -29,7 +29,10 @@ struct Cell {
 }
 
 fn scratch(prefix: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-migrate-http-{prefix}-{}", Uuid::new_v4()))
+    std::env::temp_dir().join(format!(
+        "loomtracer-migrate-http-{prefix}-{}",
+        Uuid::new_v4()
+    ))
 }
 
 /// Serves the real router over a fresh SQLite directory on a loopback port, with the admin key
@@ -37,8 +40,8 @@ fn scratch(prefix: &str) -> PathBuf {
 fn start_cell() -> Cell {
     let dir = scratch("cell");
     std::fs::create_dir_all(&dir).expect("cell dir");
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir: dir.clone(),
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir: dir.clone(),
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -56,7 +59,7 @@ fn start_cell() -> Cell {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    let router = hivemind::api::create_router(&config);
+    let router = loomtracer::api::create_router(&config);
 
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -177,9 +180,9 @@ fn migrate_into(
     extra: &[&str],
 ) -> Result<String, String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
-        "/nonexistent-hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
+        "/nonexistent-loomtracer-dir".to_owned(),
         "migrate".to_owned(),
         "--from".to_owned(),
         source_dir.display().to_string(),
@@ -371,7 +374,7 @@ fn a_source_folder_with_no_ledger_is_refused_and_not_made() {
 #[test]
 fn the_destination_is_named_once_and_the_cell_needs_its_key_file() {
     let parse = |args: &[&str]| {
-        let mut argv = vec!["hivemind", "migrate", "--to-tenant", "local"];
+        let mut argv = vec!["loomtracer", "migrate", "--to-tenant", "local"];
         argv.extend_from_slice(args);
         Cli::try_parse_from(argv).is_ok()
     };
@@ -403,7 +406,7 @@ fn the_destination_is_named_once_and_the_cell_needs_its_key_file() {
 #[test]
 fn an_admin_key_file_does_not_go_with_a_database_url() {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "migrate",
         "--to",
         "postgres://u@h/db",

@@ -12,7 +12,7 @@ Author: gastown.furiosa (polecat), 2026-07-11
 ## 0. Purpose and Scope
 
 This document designs the connector abstraction and version-walk import pipeline
-for HiveMind Ingestion v1. It was a **plan-first deliverable**: alex reviewed and
+for Loomtracer Ingestion v1. It was a **plan-first deliverable**: alex reviewed and
 approved the design before product code was written, and it stays as the record
 of what was designed and why. §5.2 says which parts shipped.
 
@@ -25,7 +25,7 @@ Scope (v1):
 - Same-as/dedup layer: cross-source, re-import-aware, reversible same-as links
   with human-review gate (builds on `reviewer_action` / `DocumentReviewerAction`
   semantics already in `src/ingest.rs`).
-- Invocation surface: the CLI (`hivemind import connector ...`). A hosted API
+- Invocation surface: the CLI (`loomtracer import connector ...`). A hosted API
   (server-side import for non-technical users pasting a link) is designed in
   §4.2 but deferred to v1.1.
 - Relationship to the two existing lanes (decision-block import vs
@@ -157,8 +157,8 @@ registers only the git-file and Google Docs connectors)
 
 | Connector | Credential | Where stored | Notes |
 |-----------|-----------|--------------|-------|
-| Google Docs | OAuth 2.0 access + refresh token, `drive.readonly` scope | CLI: `connector-tokens.json` under `--hivemind-dir`. Hosted API (v1.1): the auth sidecar, per-user grant | Initial consent via browser OAuth flow: `hivemind connector auth gdocs` opens the browser and needs `HIVEMIND_GOOGLE_CLIENT_ID` and `HIVEMIND_GOOGLE_CLIENT_SECRET`. |
-| Confluence (v1.1, not built) | Per-user API token (Atlassian) OR OAuth 2.0 (Confluence Cloud) | Auth sidecar, per-user grant | Atlassian Cloud supports OAuth 2.0 (3LO); Server/Data Center uses API tokens. Approved plan: a Confluence base URL + API token via env var (`HIVEMIND_CONFLUENCE_TOKEN`) for the CLI, OAuth for the SPA. `connector auth` accepts only `gdocs` today. |
+| Google Docs | OAuth 2.0 access + refresh token, `drive.readonly` scope | CLI: `connector-tokens.json` under `--loomtracer-dir`. Hosted API (v1.1): the auth sidecar, per-user grant | Initial consent via browser OAuth flow: `loomtracer connector auth gdocs` opens the browser and needs `LOOMTRACER_GOOGLE_CLIENT_ID` and `LOOMTRACER_GOOGLE_CLIENT_SECRET`. |
+| Confluence (v1.1, not built) | Per-user API token (Atlassian) OR OAuth 2.0 (Confluence Cloud) | Auth sidecar, per-user grant | Atlassian Cloud supports OAuth 2.0 (3LO); Server/Data Center uses API tokens. Approved plan: a Confluence base URL + API token via env var (`LOOMTRACER_CONFLUENCE_TOKEN`) for the CLI, OAuth for the SPA. `connector auth` accepts only `gdocs` today. |
 | Git-file | None — reads local filesystem and runs git | N/A | No credential needed; filesystem access is assumed. Remote URLs are out of scope for v1. |
 
 **Relationship to auth sidecar** (from `docs/design/auth-requirements.md`), for
@@ -374,15 +374,15 @@ Same-as candidates that exceed the threshold but require human confirmation
 
 ```bash
 # Inspect candidates
-hivemind import connector same-as-candidates --since-run <import_run_id> --json
+loomtracer import connector same-as-candidates --since-run <import_run_id> --json
 
 # Confirm one
-hivemind --actor human:alice import connector confirm-same-as \
+loomtracer --actor human:alice import connector confirm-same-as \
   --left <decision_id_a> \
   --right <decision_id_b>
 
 # Retract a previous same-as
-hivemind --actor human:alice import connector retract-same-as \
+loomtracer --actor human:alice import connector retract-same-as \
   --left <decision_id_a> \
   --right <decision_id_b>
 ```
@@ -407,24 +407,24 @@ edges are not re-proposed (retraction is durable).
 
 ```bash
 # Auth (one-time; Google Docs is the only connector that needs it)
-hivemind connector auth gdocs           # opens browser for Google OAuth
+loomtracer connector auth gdocs           # opens browser for Google OAuth
 
 # Import a document (walks all versions by default)
-hivemind --actor human:alice \
+loomtracer --actor human:alice \
   import connector run \
   --url "https://docs.google.com/document/d/<id>" \
   --max-versions 20 \
   --json
 
 # Import a git-tracked file
-hivemind --actor human:alice \
+loomtracer --actor human:alice \
   import connector run \
   --url "./docs/ADR-001.md" \
   --max-versions 50 \
   --json
 
 # Review same-as candidates after import
-hivemind import connector same-as-candidates \
+loomtracer import connector same-as-candidates \
   --since-run <import_run_id> \
   --json
 ```
@@ -436,7 +436,7 @@ Output (JSON, `--json`) is one report: `import_run_id`, `connector_kind`,
 
 ### 4.2 Hosted API (Server-Side Import) — v1.1, not built
 
-There is no `/v1/import/connector` route today; `hivemind import connector` is
+There is no `/v1/import/connector` route today; `loomtracer import connector` is
 the only surface. Approved design for v1.1: non-technical users paste a URL
 into the SPA. The SPA calls:
 
@@ -476,16 +476,16 @@ git_file, google_docs".
 
 ## 5. Relationship to Existing Lanes
 
-HiveMind currently has two ingestion lanes:
+Loomtracer currently has two ingestion lanes:
 
 | Lane | Entry point | What it creates |
 |------|-------------|-----------------|
-| **Decision-block import** | `hivemind import documents` (src/ingest.rs) | Explicit `Decision` blocks → canonical events; deterministic; no LLM |
-| **Prepare + Haiku classify** | `hivemind import prepare-documents` → `ingest` | PDF/OCR text → Haiku extractor → typed captures |
+| **Decision-block import** | `loomtracer import documents` (src/ingest.rs) | Explicit `Decision` blocks → canonical events; deterministic; no LLM |
+| **Prepare + Haiku classify** | `loomtracer import prepare-documents` → `ingest` | PDF/OCR text → Haiku extractor → typed captures |
 
 The connector pipeline is a **third lane**, not a replacement:
 
-| Connector pipeline | `hivemind import connector` (new) | Source version history → statement-level diff → `decision.proposed` + `decision.superseded` chains |
+| Connector pipeline | `loomtracer import connector` (new) | Source version history → statement-level diff → `decision.proposed` + `decision.superseded` chains |
 
 ### 5.1 Convergence or Separation?
 
@@ -512,7 +512,7 @@ Rationale:
 - Version-walk pipeline (list → fetch → segment → diff → emit chain).
 - Statement segmentation (deterministic, no LLM).
 - Same-as resolution pass (post-import, advisory, human-review gate).
-- CLI: `hivemind import connector` + `hivemind connector auth`.
+- CLI: `loomtracer import connector` + `loomtracer connector auth`.
 - Same-as review commands: `same-as-candidates`, `confirm-same-as`, `retract-same-as`.
 
 **Deferred (v1.1, not built):**

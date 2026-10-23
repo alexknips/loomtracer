@@ -3,12 +3,12 @@ use std::process::Command;
 const MANUAL_AGENT_SESSION: &str = "manual-session";
 
 pub fn default_actor() -> String {
-    env_value("HIVEMIND_ACTOR").unwrap_or_else(default_human_actor_id)
+    env_value("LOOMTRACER_ACTOR").unwrap_or_else(default_human_actor_id)
 }
 
 pub fn default_human_actor_id() -> String {
     if let Some(actor_id) =
-        env_value("HIVEMIND_ACTOR").filter(|value| value.trim().starts_with("human:"))
+        env_value("LOOMTRACER_ACTOR").filter(|value| value.trim().starts_with("human:"))
     {
         return actor_id;
     }
@@ -56,17 +56,17 @@ const MAX_CLIENT_TOOL_CHARS: usize = 64;
 /// The agent tool the environment names or implies, with no fallback: `None` means
 /// nothing in the environment says which agent (if any) is running this process.
 pub fn agent_tool_from_env() -> Option<String> {
-    env_value("HIVEMIND_AGENT_TOOL")
-        .or_else(|| env_value("HIVEMIND_TOOL"))
+    env_value("LOOMTRACER_AGENT_TOOL")
+        .or_else(|| env_value("LOOMTRACER_TOOL"))
         .or_else(|| {
             if any_env_present(&[
-                "HIVEMIND_CLAUDE_SESSION",
+                "LOOMTRACER_CLAUDE_SESSION",
                 "CLAUDE_SESSION_ID",
                 "CLAUDE_CODE_SESSION_ID",
             ]) {
                 Some("claude".to_owned())
             } else if any_env_present(&[
-                "HIVEMIND_CODEX_SESSION",
+                "LOOMTRACER_CODEX_SESSION",
                 "CODEX_SESSION_ID",
                 "CODEX_TASK_ID",
             ]) {
@@ -126,32 +126,32 @@ pub fn stable_agent_identity() -> Option<String> {
 }
 
 pub fn agent_session_from_env(tool: &str) -> Option<String> {
-    env_value("HIVEMIND_AGENT_SESSION")
+    env_value("LOOMTRACER_AGENT_SESSION")
         .or_else(stable_agent_identity)
         .or_else(|| raw_agent_session_from_env(tool))
 }
 
-/// The literal per-run session id, ignoring `HIVEMIND_AGENT_SESSION` and the stable
+/// The literal per-run session id, ignoring `LOOMTRACER_AGENT_SESSION` and the stable
 /// Gas City identity `agent_session_from_env` prefers. Unlike that stable name, this
 /// value is different on every run -- exactly the kind of ephemeral detail that
 /// belongs in provenance (`source_ref`), never in `actor_id` itself.
 pub fn raw_agent_session_from_env(tool: &str) -> Option<String> {
     let normalized_tool = tool.trim().to_ascii_lowercase();
     let tool_specific = match normalized_tool.as_str() {
-        "claude" => env_value("HIVEMIND_CLAUDE_SESSION")
+        "claude" => env_value("LOOMTRACER_CLAUDE_SESSION")
             .or_else(|| env_value("CLAUDE_SESSION_ID"))
             .or_else(|| env_value("CLAUDE_CODE_SESSION_ID")),
-        "codex" => env_value("HIVEMIND_CODEX_SESSION")
+        "codex" => env_value("LOOMTRACER_CODEX_SESSION")
             .or_else(|| env_value("CODEX_SESSION_ID"))
             .or_else(|| env_value("CODEX_TASK_ID")),
         _ => None,
     };
 
     tool_specific
-        .or_else(|| env_value("HIVEMIND_CLAUDE_SESSION"))
+        .or_else(|| env_value("LOOMTRACER_CLAUDE_SESSION"))
         .or_else(|| env_value("CLAUDE_SESSION_ID"))
         .or_else(|| env_value("CLAUDE_CODE_SESSION_ID"))
-        .or_else(|| env_value("HIVEMIND_CODEX_SESSION"))
+        .or_else(|| env_value("LOOMTRACER_CODEX_SESSION"))
         .or_else(|| env_value("CODEX_SESSION_ID"))
         .or_else(|| env_value("CODEX_TASK_ID"))
 }

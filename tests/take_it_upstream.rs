@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
         let path =
-            std::env::temp_dir().join(format!("hivemind-upstream-{label}-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("loomtracer-upstream-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -43,10 +43,10 @@ impl Drop for Scratch {
     }
 }
 
-fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> hivemind::Result<String> {
+fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),
@@ -396,10 +396,10 @@ fn the_disagree_and_supersede_scripts_pass_the_hint_through() -> TestResult<()> 
 
     let run_script = |script: &str, args: &[&str]| -> TestResult<std::process::Output> {
         Ok(
-            Command::new(root.join(format!("plugins/hivemind-context/scripts/{script}.sh")))
+            Command::new(root.join(format!("plugins/loomtracer-context/scripts/{script}.sh")))
                 .current_dir(root)
-                .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-                .env("HIVEMIND_DIR", dir)
+                .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+                .env("LOOMTRACER_DIR", dir)
                 .env("CLAUDE_PROJECT_DIR", root)
                 .env("CLAUDE_SESSION_ID", "plugin-upstream-session")
                 .env_remove("GC_AGENT")
@@ -449,7 +449,7 @@ fn every_place_that_teaches_disagree_and_supersede_asks_the_question_first() -> 
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let question_in_prose = [
         (
-            "plugins/hivemind-context/skills/hivemind-context/SKILL.md",
+            "plugins/loomtracer-context/skills/loomtracer-context/SKILL.md",
             vec![
                 "Take it upstream",
                 "verify",
@@ -459,7 +459,7 @@ fn every_place_that_teaches_disagree_and_supersede_asks_the_question_first() -> 
             ],
         ),
         (
-            "plugins/hivemind-context/commands/disagree.md",
+            "plugins/loomtracer-context/commands/disagree.md",
             vec![
                 "Take it upstream",
                 "scripts/verify.sh",
@@ -469,7 +469,7 @@ fn every_place_that_teaches_disagree_and_supersede_asks_the_question_first() -> 
             ],
         ),
         (
-            "plugins/hivemind-context/commands/supersede.md",
+            "plugins/loomtracer-context/commands/supersede.md",
             vec![
                 "Take it upstream",
                 "scripts/verify.sh",
@@ -479,7 +479,7 @@ fn every_place_that_teaches_disagree_and_supersede_asks_the_question_first() -> 
             ],
         ),
         (
-            "plugins/hivemind-context/skills/hivemind-context/agents/openai.yaml",
+            "plugins/loomtracer-context/skills/loomtracer-context/agents/openai.yaml",
             vec![
                 "run verify",
                 "whether the disagreement is with the decision or with a premise",
@@ -487,11 +487,11 @@ fn every_place_that_teaches_disagree_and_supersede_asks_the_question_first() -> 
             ],
         ),
         (
-            "plugins/hivemind-context/.codex-plugin/plugin.json",
+            "plugins/loomtracer-context/.codex-plugin/plugin.json",
             vec!["whether the disagreement is with the decision or with a premise"],
         ),
         (
-            "plugins/hivemind-capture/skills/hivemind-capture/SKILL.md",
+            "plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md",
             vec![
                 "`verify` on it first",
                 "with the decision or with the premise",
@@ -512,7 +512,7 @@ fn every_place_that_teaches_disagree_and_supersede_asks_the_question_first() -> 
     // The commands can run the check they now ask for.
     for command in ["disagree", "supersede"] {
         let text = fs::read_to_string(
-            root.join(format!("plugins/hivemind-context/commands/{command}.md")),
+            root.join(format!("plugins/loomtracer-context/commands/{command}.md")),
         )?;
         let allowed = text
             .lines()

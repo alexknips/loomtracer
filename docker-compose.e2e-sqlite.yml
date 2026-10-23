@@ -1,5 +1,5 @@
 # Compose override for E2E SQLite smoke tests.
-# Sets HIVEMIND_DATABASE_URL to empty string; the server treats an empty
+# Sets LOOMTRACER_DATABASE_URL to empty string; the server treats an empty
 # value as unset and falls back to its bundled SQLite backend.
 # The postgres service still starts from the base file unless you pass
 # --no-deps (which CI does so the health-wait is skipped entirely):
@@ -11,7 +11,7 @@
 # port on 127.0.0.1 only, and this stack exists solely for the CI smoke run.
 services:
   hivemind:
-    image: hivemind:e2e
+    image: loomtracer:e2e
     command: ["serve", "--allow-unauthenticated-remote"]
     environment:
-      HIVEMIND_DATABASE_URL: ""
+      LOOMTRACER_DATABASE_URL: ""

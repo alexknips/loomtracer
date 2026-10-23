@@ -1,7 +1,7 @@
 //! Curating a cell's restatements over HTTP with the caller's token (hivemind-h4kr), so nobody
 //! needs the database password to link a decision recorded twice.
 //!
-//! - `GET /v1/restatements/proposals` lists the links `hivemind restatements propose` lists
+//! - `GET /v1/restatements/proposals` lists the links `loomtracer restatements propose` lists
 //!   (the pair, the overlap, the shared title words), a page at a time. It writes nothing.
 //! - `POST /v1/decisions/{id}/restatements` records ONE `SAME_AS` link, `{id}` (recorded later)
 //!   to the body's `restates_id` (recorded earlier), as the bearer token's actor, with the rules

@@ -3,7 +3,7 @@
 use uuid::Uuid;
 
 use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding, ReaffirmInput};
-use crate::error::{CommandError, HivemindError};
+use crate::error::{CommandError, LoomtracerError};
 use crate::events::{Event, EventType};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 
@@ -142,7 +142,7 @@ fn a_blank_reason_is_refused_and_nothing_is_written() {
             ..input(&decision_id, &premise_id)
         });
         assert!(
-            matches!(&refused, Err(HivemindError::Command(CommandError::Validation(message))) if message.contains("reason")),
+            matches!(&refused, Err(LoomtracerError::Command(CommandError::Validation(message))) if message.contains("reason")),
             "a one-line reason is required, got {refused:?}"
         );
     }
@@ -159,12 +159,12 @@ fn an_unknown_dependent_or_premise_is_refused_and_nothing_is_written() {
 
     let no_dependent = commands.reaffirm_decision(input("decision:missing", &known));
     assert!(
-        matches!(&no_dependent, Err(HivemindError::Command(CommandError::Invariant(message))) if message.contains("decision does not exist: decision:missing")),
+        matches!(&no_dependent, Err(LoomtracerError::Command(CommandError::Invariant(message))) if message.contains("decision does not exist: decision:missing")),
         "{no_dependent:?}"
     );
     let no_premise = commands.reaffirm_decision(input(&known, "decision:missing"));
     assert!(
-        matches!(&no_premise, Err(HivemindError::Command(CommandError::Invariant(message))) if message.contains("premise does not exist: decision:missing")),
+        matches!(&no_premise, Err(LoomtracerError::Command(CommandError::Invariant(message))) if message.contains("premise does not exist: decision:missing")),
         "{no_premise:?}"
     );
 
@@ -181,7 +181,7 @@ fn a_decision_cannot_reaffirm_itself() {
     let refused = commands.reaffirm_decision(input(&decision_id, &decision_id));
 
     assert!(
-        matches!(&refused, Err(HivemindError::Command(CommandError::Validation(message))) if message.contains("its own premise")),
+        matches!(&refused, Err(LoomtracerError::Command(CommandError::Validation(message))) if message.contains("its own premise")),
         "{refused:?}"
     );
     assert_eq!(events(&ledger).len(), before);
@@ -204,7 +204,7 @@ fn an_anonymous_or_bare_uuid_actor_is_refused() {
         assert!(
             matches!(
                 &refused,
-                Err(HivemindError::Command(CommandError::Validation(_)))
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
             ),
             "actor {actor_id:?}: {refused:?}"
         );

@@ -6,15 +6,15 @@
 //!
 //! ## Auth
 //!
-//! **SQLite dev mode** (`HIVEMIND_DATABASE_URL` unset): bearer token compared
-//! in constant time against `HIVEMIND_API_KEY`. When `WORKOS_DOMAIN` is also
+//! **SQLite dev mode** (`LOOMTRACER_DATABASE_URL` unset): bearer token compared
+//! in constant time against `LOOMTRACER_API_KEY`. When `WORKOS_DOMAIN` is also
 //! set, WorkOS JWTs are additionally accepted — the JWT `org_id` claim (or
 //! `sub` if absent) is used as the tenant key.
 //!
-//! **Postgres multi-tenant mode** (`HIVEMIND_DATABASE_URL` set): bearer token
+//! **Postgres multi-tenant mode** (`LOOMTRACER_DATABASE_URL` set): bearer token
 //! is resolved to a `tenant_id` via `TenantStore::resolve_token`. The token
 //! encodes which tenant the client belongs to — clients send no tenant header.
-//! Admin operations (e.g. provisioning) are guarded by `HIVEMIND_ADMIN_KEY`.
+//! Admin operations (e.g. provisioning) are guarded by `LOOMTRACER_ADMIN_KEY`.
 //!
 //! ## Endpoints
 //!
@@ -84,7 +84,7 @@
 //! - `GET  /v1/attention/changed[?since=][?until=][?limit=][?cursor=]` — decisions revised or
 //!   superseded in a window (RFC3339; `since` defaults to seven days back), newest first
 //! - `GET  /v1/restatements/proposals[?project=][?limit=][?cursor=]` — the links
-//!   `hivemind restatements propose` lists: each pair of decisions that look like one decision
+//!   `loomtracer restatements propose` lists: each pair of decisions that look like one decision
 //!   recorded twice, with the title words they share and their overlap; `truncated` and
 //!   `data.next_cursor` page through them; writes nothing (hivemind-h4kr)
 //! - `GET  /v1/classify-queue[?session_id=][?limit=]` — the oldest pending ingest batches
@@ -107,12 +107,12 @@
 //!   after it has built every tenant's graph, so the first answer means reads are warm
 //! - `GET  /v1/version`                            — build version + commit sha
 //! - `GET  /v1/whoami`                             — the bearer credential's `actor_id` and
-//!   `tenant_id` (401 like every authenticated route); a shared `HIVEMIND_API_KEY` is
+//!   `tenant_id` (401 like every authenticated route); a shared `LOOMTRACER_API_KEY` is
 //!   `service:api`
 //!
 //! ## SPA serving
 //!
-//! When `HIVEMIND_SPA_DIR` is set, the server statically serves the built SPA
+//! When `LOOMTRACER_SPA_DIR` is set, the server statically serves the built SPA
 //! from that directory at `/`. API paths (`/v1/*`, `/mcp`, `/.well-known/*`,
 //! `/auth/*`) take priority. Unknown paths fall back to the SPA's `index.html`
 //! for client-side routing (same-origin, no CORS needed).
@@ -136,7 +136,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::warn;
 
-use crate::error::{CliError, CommandError, HivemindError, LedgerError};
+use crate::error::{CliError, CommandError, LedgerError, LoomtracerError};
 use crate::events::TenantId;
 use crate::ledger::{AnyLedger, SqliteEventLedger, SqliteUserStore};
 #[cfg(feature = "shared-backend-postgres")]
@@ -176,7 +176,7 @@ pub const MAX_CONCURRENT_REQUESTS: usize = 200;
 /// Configuration assembled at server startup.
 #[derive(Debug, Clone)]
 pub struct ApiConfig {
-    pub hivemind_dir: PathBuf,
+    pub loomtracer_dir: PathBuf,
     /// Address to bind. Defaults to loopback so a default install is not
     /// reachable from other hosts; see [`ApiConfig::check_bind_safety`].
     pub bind: IpAddr,
@@ -207,50 +207,50 @@ pub struct ApiConfig {
     /// for SPA client-side routing. API paths always take precedence.
     pub spa_dir: Option<PathBuf>,
     /// Exact origins allowed to make cross-origin requests (CORS). Empty = no
-    /// CORS headers (same-origin only). Populated from HIVEMIND_CORS_ORIGINS
+    /// CORS headers (same-origin only). Populated from LOOMTRACER_CORS_ORIGINS
     /// (comma-separated). Self-hosters are unaffected by default.
     pub cors_origins: Vec<String>,
-    /// Slack app OAuth client id (`HIVEMIND_SLACK_CLIENT_ID`). Required for
+    /// Slack app OAuth client id (`LOOMTRACER_SLACK_CLIENT_ID`). Required for
     /// `GET /v1/slack/oauth/callback`; the Slack front door's other routes
     /// (events, commands) don't need it — they authenticate via per-install
     /// signing secrets instead.
     pub slack_client_id: Option<String>,
-    /// Slack app OAuth client secret (`HIVEMIND_SLACK_CLIENT_SECRET`).
+    /// Slack app OAuth client secret (`LOOMTRACER_SLACK_CLIENT_SECRET`).
     pub slack_client_secret: Option<String>,
-    /// App-level Slack signing secret (`HIVEMIND_SLACK_SIGNING_SECRET`) —
+    /// App-level Slack signing secret (`LOOMTRACER_SLACK_SIGNING_SECRET`) —
     /// the one secret shown once on the Slack app's "Basic Information"
     /// page, shared by every workspace that installs this Slack app. Used
     /// to verify the signature-less-by-team `url_verification` handshake
     /// and to populate new installs created via OAuth.
     pub slack_signing_secret: Option<String>,
     /// Root of the Slack Web API the front door calls back into
-    /// (`HIVEMIND_SLACK_API_BASE_URL`); `None` = `https://slack.com/api`. The
+    /// (`LOOMTRACER_SLACK_API_BASE_URL`); `None` = `https://slack.com/api`. The
     /// front door's outbound calls (`views.open`, `conversations.history`) go
     /// here, so pointing it at a stand-in keeps them off the real Slack.
     pub slack_api_base_url: Option<String>,
 }
 
 impl ApiConfig {
-    pub fn new(hivemind_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(loomtracer_dir: impl Into<PathBuf>) -> Self {
         Self {
-            hivemind_dir: hivemind_dir.into(),
+            loomtracer_dir: loomtracer_dir.into(),
             bind: IpAddr::V4(Ipv4Addr::LOCALHOST),
             port: 8080,
             allow_unauthenticated_remote: false,
             // An empty key is unset, not "the empty token": compared in
             // constant time against the bearer, `Some("")` would accept every
             // request that sends no token while looking authenticated.
-            api_key: std::env::var("HIVEMIND_API_KEY")
+            api_key: std::env::var("LOOMTRACER_API_KEY")
                 .ok()
                 .filter(|key| !key.is_empty()),
-            // Not read here: the CLI resolves --database-url/HIVEMIND_DATABASE_URL via
+            // Not read here: the CLI resolves --database-url/LOOMTRACER_DATABASE_URL via
             // LedgerConfig::from_cli and passes it through with_database_url, so a flag
             // beats the env var the same way it does for every other command.
             database_url: None,
-            // Same rule as `api_key`: compose passes `HIVEMIND_ADMIN_KEY=""`
+            // Same rule as `api_key`: compose passes `LOOMTRACER_ADMIN_KEY=""`
             // when the variable is unset, which must not unlock the admin
             // routes for a token-less caller.
-            admin_key: std::env::var("HIVEMIND_ADMIN_KEY")
+            admin_key: std::env::var("LOOMTRACER_ADMIN_KEY")
                 .ok()
                 .filter(|key| !key.is_empty()),
             workos_domain: std::env::var("WORKOS_DOMAIN").ok(),
@@ -262,8 +262,8 @@ impl ApiConfig {
                     .filter(|v| !v.is_empty())
                     .collect()
             }),
-            spa_dir: std::env::var("HIVEMIND_SPA_DIR").ok().map(PathBuf::from),
-            cors_origins: std::env::var("HIVEMIND_CORS_ORIGINS")
+            spa_dir: std::env::var("LOOMTRACER_SPA_DIR").ok().map(PathBuf::from),
+            cors_origins: std::env::var("LOOMTRACER_CORS_ORIGINS")
                 .ok()
                 .map(|s| {
                     s.split(',')
@@ -272,10 +272,10 @@ impl ApiConfig {
                         .collect()
                 })
                 .unwrap_or_default(),
-            slack_client_id: std::env::var("HIVEMIND_SLACK_CLIENT_ID").ok(),
-            slack_client_secret: std::env::var("HIVEMIND_SLACK_CLIENT_SECRET").ok(),
-            slack_signing_secret: std::env::var("HIVEMIND_SLACK_SIGNING_SECRET").ok(),
-            slack_api_base_url: std::env::var("HIVEMIND_SLACK_API_BASE_URL")
+            slack_client_id: std::env::var("LOOMTRACER_SLACK_CLIENT_ID").ok(),
+            slack_client_secret: std::env::var("LOOMTRACER_SLACK_CLIENT_SECRET").ok(),
+            slack_signing_secret: std::env::var("LOOMTRACER_SLACK_SIGNING_SECRET").ok(),
+            slack_api_base_url: std::env::var("LOOMTRACER_SLACK_API_BASE_URL")
                 .ok()
                 .filter(|url| !url.is_empty()),
         }
@@ -323,8 +323,8 @@ impl ApiConfig {
         {
             return Err(CliError::InvalidInput(format!(
                 "refusing to serve without authentication on non-loopback address {bind}: \
-                 neither HIVEMIND_API_KEY nor HIVEMIND_DATABASE_URL is set, so every request \
-                 would be accepted without a token. Set HIVEMIND_API_KEY, use the Postgres \
+                 neither LOOMTRACER_API_KEY nor LOOMTRACER_DATABASE_URL is set, so every request \
+                 would be accepted without a token. Set LOOMTRACER_API_KEY, use the Postgres \
                  backend, bind a loopback address (--bind 127.0.0.1), or pass \
                  --allow-unauthenticated-remote to expose an unauthenticated server deliberately",
                 bind = self.bind
@@ -440,9 +440,9 @@ impl ApiBackend {
 /// 500. The message is the ledger's own detail (`unknown tenant '<id>': <hint>`), without the
 /// `ledger storage error:` prefix, so the CLI can put it back in that error and print what a
 /// local ledger prints.
-fn unknown_tenant_to_api_error(error: HivemindError) -> ApiError {
+fn unknown_tenant_to_api_error(error: LoomtracerError) -> ApiError {
     match error {
-        HivemindError::Ledger(LedgerError::Storage(detail))
+        LoomtracerError::Ledger(LedgerError::Storage(detail))
             if detail.starts_with("unknown tenant ") =>
         {
             ApiError::unknown_tenant(detail)
@@ -524,7 +524,7 @@ impl AppState {
                 spa_dir: config.spa_dir.clone(),
                 cors_origins: config.cors_origins.clone(),
                 map_cache: Arc::new(Mutex::new(HashMap::new())),
-                // Postgres backend: no local hivemind_dir for the Slack
+                // Postgres backend: no local loomtracer_dir for the Slack
                 // app's JSON install/queue store — see api::slack's docs.
                 slack_store: None,
                 slack_client_id: config.slack_client_id.clone(),
@@ -535,12 +535,12 @@ impl AppState {
             });
         }
 
-        let sqlite_user_store = SqliteUserStore::open(&config.hivemind_dir)
+        let sqlite_user_store = SqliteUserStore::open(&config.loomtracer_dir)
             .ok()
             .map(Arc::new);
 
         Ok(Self {
-            backend: Arc::new(ApiBackend::Sqlite(Arc::new(config.hivemind_dir.clone()))),
+            backend: Arc::new(ApiBackend::Sqlite(Arc::new(config.loomtracer_dir.clone()))),
             api_key: config.api_key.clone(),
             admin_key: config.admin_key.clone(),
             sqlite_user_store,
@@ -553,7 +553,7 @@ impl AppState {
             cors_origins: config.cors_origins.clone(),
             map_cache: Arc::new(Mutex::new(HashMap::new())),
             slack_store: Some(crate::slack_app::SlackAppStore::new(
-                config.hivemind_dir.clone(),
+                config.loomtracer_dir.clone(),
             )),
             slack_client_id: config.slack_client_id.clone(),
             slack_client_secret: config.slack_client_secret.clone(),
@@ -631,7 +631,7 @@ impl IntoResponse for ApiError {
                 (StatusCode::TOO_MANY_REQUESTS, "too_many_requests", msg)
             }
             ApiError::Internal(msg) => {
-                tracing::error!(target: "hivemind::api", error = %msg, "internal server error");
+                tracing::error!(target: "loomtracer::api", error = %msg, "internal server error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg)
             }
         };
@@ -643,13 +643,15 @@ impl IntoResponse for ApiError {
     }
 }
 
-fn to_api_error(error: HivemindError) -> ApiError {
+fn to_api_error(error: LoomtracerError) -> ApiError {
     match error {
-        HivemindError::Command(CommandError::Validation(msg)) => ApiError::Validation(msg),
-        HivemindError::Command(CommandError::Invariant(msg)) if msg.contains("does not exist") => {
+        LoomtracerError::Command(CommandError::Validation(msg)) => ApiError::Validation(msg),
+        LoomtracerError::Command(CommandError::Invariant(msg))
+            if msg.contains("does not exist") =>
+        {
             ApiError::not_found(msg)
         }
-        HivemindError::Cli(CliError::InvalidInput(msg)) => ApiError::Validation(msg),
+        LoomtracerError::Cli(CliError::InvalidInput(msg)) => ApiError::Validation(msg),
         other => ApiError::Internal(other.to_string()),
     }
 }
@@ -660,10 +662,10 @@ fn to_api_error(error: HivemindError) -> ApiError {
 
 const DEFAULT_ACTOR: &str = "service:api";
 /// The headers a caller names its tenant and actor in when the credential does not (the SQLite
-/// static key, or none). `classify-queue` over `HIVEMIND_API_URL` sends them from `--tenant` and
+/// static key, or none). `classify-queue` over `LOOMTRACER_API_URL` sends them from `--tenant` and
 /// `--actor`.
-pub(crate) const HEADER_TENANT: &str = "x-hivemind-tenant";
-pub(crate) const HEADER_ACTOR: &str = "x-hivemind-actor";
+pub(crate) const HEADER_TENANT: &str = "x-loomtracer-tenant";
+pub(crate) const HEADER_ACTOR: &str = "x-loomtracer-actor";
 const HEADER_AUTHORIZATION: &str = "authorization";
 const HEADER_FORWARDED_PROTO: &str = "x-forwarded-proto";
 
@@ -922,14 +924,14 @@ pub async fn serve_http(state: AppState, config: &ApiConfig) -> crate::Result<()
 
     if config.is_unauthenticated() {
         warn!(
-            target: "hivemind::api",
+            target: "loomtracer::api",
             bind = %config.bind,
             port = config.port,
-            "HIVEMIND_API_KEY and HIVEMIND_DATABASE_URL not set — running in development mode (no auth)"
+            "LOOMTRACER_API_KEY and LOOMTRACER_DATABASE_URL not set — running in development mode (no auth)"
         );
         if !config.bind.is_loopback() {
             warn!(
-                target: "hivemind::api",
+                target: "loomtracer::api",
                 bind = %config.bind,
                 "--allow-unauthenticated-remote: serving WITHOUT authentication on a non-loopback address; anyone who can reach it can read and write the ledger"
             );
@@ -945,7 +947,7 @@ pub async fn serve_http(state: AppState, config: &ApiConfig) -> crate::Result<()
     if let Err(e) =
         tokio::task::spawn_blocking(move || graph::warm_graph_cache(&backend, &cache)).await
     {
-        warn!(target: "hivemind::api", error = %e, "graph cache warm-up task failed; the first read of each tenant builds its graph");
+        warn!(target: "loomtracer::api", error = %e, "graph cache warm-up task failed; the first read of each tenant builds its graph");
     }
 
     spawn_layer3_workers(&state.backend);
@@ -958,7 +960,7 @@ pub async fn serve_http(state: AppState, config: &ApiConfig) -> crate::Result<()
         .map_err(|e| CliError::InvalidInput(format!("failed to bind {addr}: {e}")))?;
 
     tracing::info!(
-        target: "hivemind::api",
+        target: "loomtracer::api",
         addr = %listener.local_addr().unwrap(),
         auth = config.auth_mode(),
         "HTTP API listening"
@@ -986,7 +988,7 @@ fn spawn_layer3_workers(backend: &ApiBackend) {
         None => {
             if crate::classifier::anthropic_api_key().is_some() {
                 warn!(
-                    target: "hivemind::api",
+                    target: "loomtracer::api",
                     "ANTHROPIC_API_KEY is set but ignored: the server-side classifier and scorer read a SQLite ledger and this server's ledger is Postgres; classify keylessly with classify-queue"
                 );
             }

@@ -100,7 +100,7 @@ def parse_reply(which, result):
 def ask(which, text, model, cwd):
     env = dict(os.environ)
     env.pop("ANTHROPIC_API_KEY", None)  # subscription seat, never API billing
-    env["HIVEMIND_INGEST_DISABLE"] = "1"  # do not ingest the gate's own call
+    env["LOOMTRACER_INGEST_DISABLE"] = "1"  # do not ingest the gate's own call
     system = Q1_SYSTEM if which == "q1" else SPLIT_SYSTEM
     t0 = time.time()
     proc = subprocess.run(

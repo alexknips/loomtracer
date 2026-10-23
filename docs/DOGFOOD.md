@@ -1,6 +1,6 @@
 # Dogfood Operations
 
-This page is the operating contract for using HiveMind inside the HiveMind
+This page is the operating contract for using Loomtracer inside the Loomtracer
 repository itself. It is about the repo-local dogfood loop, not onboarding a new
 repository or running a multi-machine deployment.
 
@@ -13,10 +13,10 @@ used in under 10 minutes.
 The dogfood ledger lives at:
 
 ```text
-./hivemind/ledger.sqlite
+./loomtracer/ledger.sqlite
 ```
 
-The path is relative to the HiveMind checkout an agent was launched from. For
+The path is relative to the Loomtracer checkout an agent was launched from. For
 the shared dogfood loop, start agents from the canonical checkout:
 
 ```bash
@@ -24,7 +24,7 @@ cd /data/projects/hivemind
 ```
 
 The repo-level `.mcp.json`, Claude settings, and capture plugin defaults all pin
-`HIVEMIND_DIR` or `--hivemind-dir` to `./hivemind/`. The SQLite file is created
+`LOOMTRACER_DIR` or `--loomtracer-dir` to `./loomtracer/`. The SQLite file is created
 on first write. A read (`query`, `digest`, `dump` and the other read verbs) aimed
 at a folder with no ledger is refused, exit 2 and naming the folder, and creates
 nothing: check the path before reading it as "no decisions". So is a verb that
@@ -34,7 +34,7 @@ and the rest): check the path before looking for a decision that is missing.
 Use a temporary ledger for throwaway tests:
 
 ```bash
-HIVEMIND_DIR="$(mktemp -d)" hivemind emit decision.capture \
+LOOMTRACER_DIR="$(mktemp -d)" loomtracer emit decision.capture \
   --title "Smoke test isolated capture" \
   --rationale "Verify the local binary without touching the shared dogfood ledger" \
   --topic-keys dogfood,smoke \
@@ -50,7 +50,7 @@ SQLite's backup API when `sqlite3` is available:
 
 ```bash
 mkdir -p backups
-sqlite3 ./hivemind/ledger.sqlite ".backup 'backups/ledger-$(date -u +%Y%m%dT%H%M%SZ).sqlite'"
+sqlite3 ./loomtracer/ledger.sqlite ".backup 'backups/ledger-$(date -u +%Y%m%dT%H%M%SZ).sqlite'"
 ```
 
 For a simple filesystem backup, stop active writers first and copy the whole
@@ -58,7 +58,7 @@ directory so any WAL sidecar files stay with the database:
 
 ```bash
 mkdir -p backups
-cp -a ./hivemind "backups/hivemind-$(date -u +%Y%m%dT%H%M%SZ)"
+cp -a ./loomtracer "backups/loomtracer-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
 For a clean local test, prefer a temporary ledger. If you intentionally need to
@@ -67,8 +67,8 @@ out of the way rather than deleting it:
 
 ```bash
 mkdir -p backups
-mv ./hivemind "backups/hivemind-reset-$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir ./hivemind
+mv ./loomtracer "backups/loomtracer-reset-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir ./loomtracer
 ```
 
 ## Actor Convention
@@ -81,12 +81,12 @@ Every event has an actor. Dogfood captures use these actor id prefixes:
 
 `<name>` is stable only where something stable names it: a Gas City agent
 resolves it from `GC_AGENT`/`GC_ALIAS` (a fixed crew/polecat/refinery slot
-name that survives process restarts), and `HIVEMIND_AGENT_SESSION` or
+name that survives process restarts), and `LOOMTRACER_AGENT_SESSION` or
 `--session-id` pins any other name. Without one of those it falls back to the
 raw per-run session id, which makes the same physical agent appear as a
 different actor on every restart (hivemind-zdsh.9); the MCP server makes up
 `mcp-<uuid>` when the client passes no session id at all. Outside Gas City, set
-`HIVEMIND_AGENT_SESSION` to keep one actor.
+`LOOMTRACER_AGENT_SESSION` to keep one actor.
 
 The actor identifies who took the action. The event source identifies the
 capture surface:
@@ -104,23 +104,23 @@ helper, MCP server defaults, or `decision.capture` `--agent-tool` and
 
 ## Starting An Agent
 
-Install or build the CLI first. Agent capture helpers look for `hivemind` on
+Install or build the CLI first. Agent capture helpers look for `loomtracer` on
 `PATH`, then fall back to a local debug binary or `cargo run` from this checkout.
 
 **Install to PATH (recommended for Gas Town rigs):** run `make install` so
-the MCP config, capture scripts, and plugin all resolve `hivemind` without a
+the MCP config, capture scripts, and plugin all resolve `loomtracer` without a
 repo-relative path:
 
 ```bash
 make install
-hivemind --version  # <cargo semver>+<build sha>, e.g. hivemind 0.6.0+d2d203d1a2b3
+loomtracer --version  # <cargo semver>+<build sha>, e.g. loomtracer 0.6.0+d2d203d1a2b3
 ```
 
 This builds the CLI from the current checkout and installs it to
-`~/.local/bin/hivemind`. That is deliberate, not cargo's default install root
+`~/.local/bin/loomtracer`. That is deliberate, not cargo's default install root
 (`~/.cargo/bin`): on Gas Town rigs `~/.local/bin` comes first on `$PATH`, so
 installing to `~/.cargo/bin` instead gets silently shadowed by whatever is
-already sitting in `~/.local/bin` — `make install` "succeeds" but `hivemind`
+already sitting in `~/.local/bin` — `make install` "succeeds" but `loomtracer`
 on PATH keeps resolving a stale binary (this is exactly how the fleet ran a
 two-week-old build while master kept moving, hivemind-zdsh.7). Re-run `make
 install` after every rebase or pull, and confirm with `--version` — the sha
@@ -131,30 +131,30 @@ useful for a script or dog order that shouldn't disturb the caller's own
 checkout — use `scripts/install-local.sh [ref]` instead; it builds the ref
 in a disposable git worktree and installs to the same `~/.local/bin`.
 
-If `~/.local/bin` is not on your `$PATH`, add it. If `hivemind` is not
-installed on `PATH` at all, replace `hivemind` in the examples below with
-`./target/debug/hivemind` from the repository root.
+If `~/.local/bin` is not on your `$PATH`, add it. If `loomtracer` is not
+installed on `PATH` at all, replace `loomtracer` in the examples below with
+`./target/debug/loomtracer` from the repository root.
 
 ### Claude Code
 
-Start Claude Code from the HiveMind checkout:
+Start Claude Code from the Loomtracer checkout:
 
 ```bash
 cd /data/projects/hivemind
 claude
 ```
 
-This repo's `.claude/settings.json` advertises the HiveMind marketplace, enables
-`hivemind-capture@hivemind`, and sets:
+This repo's `.claude/settings.json` advertises the Loomtracer marketplace, enables
+`loomtracer-capture@loomtracer`, and sets:
 
 ```json
 {
   "env": {
-    "HIVEMIND_DIR": "./hivemind/",
-    "HIVEMIND_CAPTURE_SCRIPT": ".claude/scripts/capture-decision.sh"
+    "LOOMTRACER_DIR": "./loomtracer/",
+    "LOOMTRACER_CAPTURE_SCRIPT": ".claude/scripts/capture-decision.sh"
   },
   "enabledPlugins": {
-    "hivemind-capture@hivemind": true
+    "loomtracer-capture@loomtracer": true
   }
 }
 ```
@@ -162,26 +162,26 @@ This repo's `.claude/settings.json` advertises the HiveMind marketplace, enables
 If Claude Code prompts for the plugin, install it and reload plugins:
 
 ```text
-/plugin marketplace add alexknips/hivemind
-/plugin install hivemind-capture@hivemind
+/plugin marketplace add alexknips/loomtracer
+/plugin install loomtracer-capture@loomtracer
 /reload-plugins
 ```
 
 Capture a smoke decision:
 
 ```text
-/hivemind-capture:capture-decision --title "Verify Claude dogfood capture" --rationale "The repo plugin should write to ./hivemind/ with Claude actor provenance" --topic-keys dogfood,claude --options "Repo plugin,Manual CLI" --chose "Repo plugin" --bet --binds-nothing --cheap-to-undo
+/loomtracer-capture:capture-decision --title "Verify Claude dogfood capture" --rationale "The repo plugin should write to ./loomtracer/ with Claude actor provenance" --topic-keys dogfood,claude --options "Repo plugin,Manual CLI" --chose "Repo plugin" --bet --binds-nothing --cheap-to-undo
 ```
 
 Query it back:
 
 ```text
-/hivemind-capture:query-decisions --source agent --limit 10
+/loomtracer-capture:query-decisions --source agent --limit 10
 ```
 
 ### Codex
 
-Start Codex from the HiveMind checkout:
+Start Codex from the Loomtracer checkout:
 
 ```bash
 cd /data/projects/hivemind
@@ -189,22 +189,22 @@ codex
 ```
 
 Install the Codex plugin from the repo marketplace. From this checkout, open
-`/plugins`, choose `HiveMind Plugins`, and install `HiveMind Capture`. From
+`/plugins`, choose `Loomtracer Plugins`, and install `Loomtracer Capture`. From
 another checkout or machine, add the marketplace first:
 
 ```bash
-codex plugin marketplace add https://github.com/alexknips/hivemind.git
+codex plugin marketplace add https://github.com/alexknips/loomtracer.git
 ```
 
-The plugin manifest is `plugins/hivemind-capture/.codex-plugin/plugin.json`.
-It installs the `$hivemind-capture` skill and points Codex at the bundled MCP
+The plugin manifest is `plugins/loomtracer-capture/.codex-plugin/plugin.json`.
+It installs the `$loomtracer-capture` skill and points Codex at the bundled MCP
 descriptor. The recommended local write path is still the deterministic helper:
 
 ```bash
-plugins/hivemind-capture/scripts/capture-decision.sh \
+plugins/loomtracer-capture/scripts/capture-decision.sh \
   --agent-tool codex \
   --title "Verify Codex dogfood capture" \
-  --rationale "The Codex helper should write to ./hivemind/ with Codex actor provenance" \
+  --rationale "The Codex helper should write to ./loomtracer/ with Codex actor provenance" \
   --topic-keys dogfood,codex \
   --options "Plugin helper,Manual CLI" \
   --chose "Plugin helper" \
@@ -216,7 +216,7 @@ plugins/hivemind-capture/scripts/capture-decision.sh \
 Query it back:
 
 ```bash
-plugins/hivemind-capture/scripts/query-decisions.sh \
+plugins/loomtracer-capture/scripts/query-decisions.sh \
   --source agent \
   --limit 10
 ```
@@ -228,11 +228,11 @@ Use the repo-local MCP config shape when the client supports stdio MCP servers:
 ```json
 {
   "mcpServers": {
-    "hivemind": {
-      "command": "hivemind",
-      "args": ["--hivemind-dir", "./hivemind/", "mcp", "--agent-tool", "codex"],
+    "loomtracer": {
+      "command": "loomtracer",
+      "args": ["--loomtracer-dir", "./loomtracer/", "mcp", "--agent-tool", "codex"],
       "env": {
-        "HIVEMIND_DIR": "./hivemind/"
+        "LOOMTRACER_DIR": "./loomtracer/"
       }
     }
   }
@@ -240,14 +240,14 @@ Use the repo-local MCP config shape when the client supports stdio MCP servers:
 ```
 
 For clients launched outside `/data/projects/hivemind`, replace
-`./hivemind/` with an absolute path to the dogfood ledger directory. If the
+`./loomtracer/` with an absolute path to the dogfood ledger directory. If the
 client can pass a stable session id, add it after the `mcp` subcommand:
 
 ```json
-["--hivemind-dir", "/data/projects/hivemind/hivemind/", "mcp", "--agent-tool", "codex", "--session-id", "session-123"]
+["--loomtracer-dir", "/data/projects/hivemind/loomtracer/", "mcp", "--agent-tool", "codex", "--session-id", "session-123"]
 ```
 
-If no session id is supplied (flag, `HIVEMIND_AGENT_SESSION`, Gas City's
+If no session id is supplied (flag, `LOOMTRACER_AGENT_SESSION`, Gas City's
 `GC_AGENT`/`GC_ALIAS` or the client's own session variable), the MCP server
 generates one for that server process, so each process is its own actor. The MCP `capture_decision`, `capture_evidence`, and
 `capture_hypothesis` tools default `actor_id` to
@@ -256,7 +256,7 @@ generates one for that server process, so each process is its own actor. The MCP
 ## Concurrent-Use Contract
 
 Same-host concurrent writes are allowed when every writer uses the normal
-HiveMind CLI or MCP server. Those paths open the database through
+Loomtracer CLI or MCP server. Those paths open the database through
 `SqliteEventLedger::open`, which enables:
 
 - SQLite WAL mode.
@@ -265,7 +265,7 @@ HiveMind CLI or MCP server. Those paths open the database through
 - Single-row autocommit event inserts.
 - Local filesystem locking.
 
-Under those conditions, multiple local `hivemind mcp` or CLI subprocesses can
+Under those conditions, multiple local `loomtracer mcp` or CLI subprocesses can
 append to the same `ledger.sqlite`. SQLite serializes writers, the event id
 defines ledger order, and replay reads events back in that order.
 
@@ -275,7 +275,7 @@ Do not rely on any of the following:
 - External processes writing directly to the SQLite tables.
 - Related events being adjacent in the ledger.
 - A multi-event command being invisible until all of its events have appended.
-- Resetting or moving `./hivemind/` while agents are running.
+- Resetting or moving `./loomtracer/` while agents are running.
 
 See [SHARED_LEDGER_WAL.md](SHARED_LEDGER_WAL.md) for the reproduction test and
 the exact boundary.
@@ -285,7 +285,7 @@ the exact boundary.
 Show recent agent captures:
 
 ```bash
-hivemind --hivemind-dir ./hivemind/ query search_decisions \
+loomtracer --loomtracer-dir ./loomtracer/ query search_decisions \
   --source agent \
   --limit 20
 ```
@@ -293,7 +293,7 @@ hivemind --hivemind-dir ./hivemind/ query search_decisions \
 Show today's agent captures in UTC:
 
 ```bash
-hivemind --hivemind-dir ./hivemind/ query search_decisions \
+loomtracer --loomtracer-dir ./loomtracer/ query search_decisions \
   --source agent \
   --since "$(date -u +%Y-%m-%dT00:00:00Z)" \
   --limit 50
@@ -302,7 +302,7 @@ hivemind --hivemind-dir ./hivemind/ query search_decisions \
 Filter to one session:
 
 ```bash
-hivemind --hivemind-dir ./hivemind/ query search_decisions \
+loomtracer --loomtracer-dir ./loomtracer/ query search_decisions \
   --actor-id "agent:codex:<name>" \
   --source agent \
   --limit 10
@@ -311,7 +311,7 @@ hivemind --hivemind-dir ./hivemind/ query search_decisions \
 Filter by topic:
 
 ```bash
-hivemind --hivemind-dir ./hivemind/ query search_decisions \
+loomtracer --loomtracer-dir ./loomtracer/ query search_decisions \
   --topic dogfood \
   --limit 10
 ```
@@ -319,7 +319,7 @@ hivemind --hivemind-dir ./hivemind/ query search_decisions \
 Use the plugin helper from an agent session:
 
 ```bash
-plugins/hivemind-capture/scripts/query-decisions.sh --source agent --limit 10
+plugins/loomtracer-capture/scripts/query-decisions.sh --source agent --limit 10
 ```
 
 The query response is bounded. If `truncated` is true, pass `next_cursor` back
@@ -343,12 +343,12 @@ with `--cursor` rather than increasing the query until it dumps the whole graph.
 ### 2026-09-07T04:40:00Z — M1 regression restored (v0.5.0)
 
 - Actor: `agent:claude:d2202c06-eb41-41f3-931f-21aceac953d3`
-  (Gas Town polecat `hivemind/gastown.furiosa`, bead `hivemind-m306.5`)
-- Regression: `hivemind` binary missing from PATH; debug binary in repo was
+  (Gas Town polecat `loomtracer/gastown.furiosa`, bead `hivemind-m306.5`)
+- Regression: `loomtracer` binary missing from PATH; debug binary in repo was
   stale (v0.1.0 from 2026-06-22); ledger dormant since ~2026-08-06.
 - Restoration steps:
   1. Built debug binary from worktree at v0.5.0.
-  2. Installed to `~/.local/bin/hivemind` (now on `$PATH`).
+  2. Installed to `~/.local/bin/loomtracer` (now on `$PATH`).
   3. Confirmed shared ledger readable: 28 decisions already present.
   4. Captured dogfood restoration decision:
      `decision-593fbfe8-fc17-4577-a7b6-efe02e06b447`
@@ -366,24 +366,24 @@ Check the ledger directory first. Most misses are writes to one checkout and
 queries against another:
 
 ```bash
-ls -l ./hivemind/
-hivemind --hivemind-dir ./hivemind/ query search_decisions --limit 5
+ls -l ./loomtracer/
+loomtracer --loomtracer-dir ./loomtracer/ query search_decisions --limit 5
 ```
 
 If you launched the agent outside `/data/projects/hivemind`, use an absolute
-`HIVEMIND_DIR` or `--hivemind-dir` pointing at the dogfood ledger.
+`LOOMTRACER_DIR` or `--loomtracer-dir` pointing at the dogfood ledger.
 
 ### The actor is `human:*` instead of `agent:*`
 
 Bare terminal commands default to `human:<git config user.email>` and
 `source=human`. For agent decisions, use
-`plugins/hivemind-capture/scripts/capture-decision.sh`, the Claude plugin
+`plugins/loomtracer-capture/scripts/capture-decision.sh`, the Claude plugin
 slash command, or `emit decision.capture --agent-tool ... --agent-session ...`.
 
 ### `source=agent` is present, but the actor is unexpected
 
 The helper derives identity from the client environment, stable name first:
-`HIVEMIND_AGENT_SESSION` (a name you set to keep one actor), then
+`LOOMTRACER_AGENT_SESSION` (a name you set to keep one actor), then
 `GC_AGENT`/`GC_ALIAS` (a Gas City agent's fixed slot name), then a raw
 per-run session id -- Claude uses `CLAUDE_SESSION_ID` or
 `CLAUDE_CODE_SESSION_ID`; Codex uses `CODEX_THREAD_ID`, `CODEX_SESSION_ID`,
@@ -399,10 +399,10 @@ same ledger:
 
 ```bash
 cat .mcp.json
-cat plugins/hivemind-capture/.mcp.json
+cat plugins/loomtracer-capture/.mcp.json
 ```
 
-The server command should run `hivemind --hivemind-dir ./hivemind/ mcp` with
+The server command should run `loomtracer --loomtracer-dir ./loomtracer/ mcp` with
 `--agent-tool` only to override the name the client gives in its MCP handshake.
 
 ### The database is locked
@@ -410,7 +410,7 @@ The server command should run `hivemind --hivemind-dir ./hivemind/ mcp` with
 Normal writer contention should wait up to 30 seconds and then succeed. If it
 does not, check that the ledger is on a local filesystem, that no process is
 holding an external SQLite transaction open, and that no one is copying,
-resetting, or moving `./hivemind/` while agents are active.
+resetting, or moving `./loomtracer/` while agents are active.
 
 ### The query hid contested or stale decisions
 

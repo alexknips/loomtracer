@@ -6,22 +6,22 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use hivemind::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
-use hivemind::events::EventType;
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
+use loomtracer::events::EventType;
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
 const WORKER_COUNT: usize = 2;
 const DECISIONS_PER_WORKER: usize = 1_000;
 const EVENTS_PER_DECISION: usize = 2;
-const WORKER_ENV: &str = "HIVEMIND_SQLITE_WAL_WORKER";
-const LEDGER_DIR_ENV: &str = "HIVEMIND_SQLITE_WAL_DIR";
-const READY_DIR_ENV: &str = "HIVEMIND_SQLITE_WAL_READY_DIR";
-const START_FILE_ENV: &str = "HIVEMIND_SQLITE_WAL_START_FILE";
-const WORKER_INDEX_ENV: &str = "HIVEMIND_SQLITE_WAL_WORKER_INDEX";
+const WORKER_ENV: &str = "LOOMTRACER_SQLITE_WAL_WORKER";
+const LEDGER_DIR_ENV: &str = "LOOMTRACER_SQLITE_WAL_DIR";
+const READY_DIR_ENV: &str = "LOOMTRACER_SQLITE_WAL_READY_DIR";
+const START_FILE_ENV: &str = "LOOMTRACER_SQLITE_WAL_START_FILE";
+const WORKER_INDEX_ENV: &str = "LOOMTRACER_SQLITE_WAL_WORKER_INDEX";
 
 #[test]
 fn shared_sqlite_ledger_accepts_concurrent_process_writes() {
-    let temp_dir = temp_hivemind_dir("sqlite-wal-multiprocess");
+    let temp_dir = temp_loomtracer_dir("sqlite-wal-multiprocess");
     let result = run_shared_sqlite_ledger_test(&temp_dir);
     let _ = fs::remove_dir_all(&temp_dir);
     result.expect("shared SQLite WAL write test succeeds");
@@ -40,7 +40,7 @@ fn sqlite_wal_worker() {
 fn run_shared_sqlite_ledger_test(
     temp_dir: &Path,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ledger_dir = temp_dir.join("hivemind");
+    let ledger_dir = temp_dir.join("loomtracer");
     let ready_dir = temp_dir.join("ready");
     let start_file = temp_dir.join("start");
     fs::create_dir_all(&ready_dir)?;
@@ -191,7 +191,7 @@ fn run_worker() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             expressed_confidence: None,
             actor_id: &actor_id,
             title: &title,
-            rationale: "Exercise concurrent writes from independent HiveMind processes.",
+            rationale: "Exercise concurrent writes from independent Loomtracer processes.",
             topic_keys: &[topic_key],
             option_ids: &[option_id],
             option_labels: std::slice::from_ref(&option_label),
@@ -227,10 +227,13 @@ fn wait_for(
     Err(format!("timed out waiting for {description}").into())
 }
 
-fn temp_hivemind_dir(prefix: &str) -> PathBuf {
+fn temp_loomtracer_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before unix epoch")
         .as_nanos();
-    env::temp_dir().join(format!("hivemind-{prefix}-{nanos}-{}", std::process::id()))
+    env::temp_dir().join(format!(
+        "loomtracer-{prefix}-{nanos}-{}",
+        std::process::id()
+    ))
 }

@@ -89,7 +89,7 @@ fn a_top_level_verb_without_a_section_is_reported() {
     );
 
     // Mentioning the verb in prose is not documenting it.
-    let mentioned = format!("{without_reaffirm}\nRun `hivemind reaffirm <id>` to confirm.\n");
+    let mentioned = format!("{without_reaffirm}\nRun `loomtracer reaffirm <id>` to confirm.\n");
     assert_eq!(missing_cli_subcommands(&root, &mentioned), ["reaffirm"]);
 }
 

@@ -21,11 +21,11 @@ the list on the next call. Nothing is ranked, scored or inferred, and nothing is
 
 | List | CLI | MCP tool | HTTP |
 |---|---|---|---|
-| Waiting | `hivemind query get_waiting_requests` | `get_waiting_requests` | `GET /v1/attention/waiting` |
-| Contested | `hivemind query get_contested_decisions` | `get_contested_decisions` | `GET /v1/attention/contested` |
-| Open why | `hivemind query get_open_why_decisions` | `get_open_why_decisions` | `GET /v1/attention/open-why` |
-| Changed | `hivemind query get_changed_decisions` | `get_changed_decisions` | `GET /v1/attention/changed` |
-| Timeline of one decision | `hivemind query why` (JSON `data.timeline`, text `timeline:` block) | `get_decision_neighborhood` (`data.timeline`) | `GET /v1/decisions/{id}/timeline`, and `GET /v1/decisions/why` (`data.timeline`) |
+| Waiting | `loomtracer query get_waiting_requests` | `get_waiting_requests` | `GET /v1/attention/waiting` |
+| Contested | `loomtracer query get_contested_decisions` | `get_contested_decisions` | `GET /v1/attention/contested` |
+| Open why | `loomtracer query get_open_why_decisions` | `get_open_why_decisions` | `GET /v1/attention/open-why` |
+| Changed | `loomtracer query get_changed_decisions` | `get_changed_decisions` | `GET /v1/attention/changed` |
+| Timeline of one decision | `loomtracer query why` (JSON `data.timeline`, text `timeline:` block) | `get_decision_neighborhood` (`data.timeline`) | `GET /v1/decisions/{id}/timeline`, and `GET /v1/decisions/why` (`data.timeline`) |
 | Status events of one decision | not yet | not yet | `GET /v1/decisions/{id}/status-events` |
 
 The CLI prints JSON; add `--summary` for text. The stdio server, the HTTP endpoint and the CLI
@@ -35,7 +35,7 @@ and answers in the usual envelope (`result_count`, `truncated`, `latency_ms`, `d
 
 ## Waiting
 
-Open requests: an explicit ask (`hivemind ask`, MCP `request_decision`) whose question no
+Open requests: an explicit ask (`loomtracer ask`, MCP `request_decision`) whose question no
 decision answers yet. Oldest first. Each item has the `request_id` a later capture links to
 (`capture --answers`), the question text, `asked_at` (the ask's own time) and `requested_by` (who
 asked). A request leaves the list when a decision answers its question.
@@ -91,7 +91,7 @@ nobody has accepted it), `recorded_by`, the two floor answers (`binds`, `undo_co
 `floor: cleared`) and `rests_on`: the observations, assumptions and bets it rests on, each with
 its `kind`, `id`, `label` and, for an observation, its `source`.
 
-A decision leaves the list the moment it follows from another decision (`hivemind ground`), a
+A decision leaves the list the moment it follows from another decision (`loomtracer ground`), a
 person decides it, a second decision shares its evidence, someone attributes more grounding to it,
 or it is superseded. `next_cursor` is a position in the order (the ledger offset and id of the last
 item shown), so a decision recorded or answered between two pages never makes the next page skip or

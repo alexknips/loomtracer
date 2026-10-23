@@ -37,9 +37,9 @@ pub struct SqliteEventLedger {
 }
 
 impl SqliteEventLedger {
-    pub fn open(hivemind_dir: impl AsRef<Path>) -> Result<Self> {
-        fs::create_dir_all(hivemind_dir.as_ref()).map_err(storage_error)?;
-        let path = hivemind_dir.as_ref().join(LEDGER_DB_NAME);
+    pub fn open(loomtracer_dir: impl AsRef<Path>) -> Result<Self> {
+        fs::create_dir_all(loomtracer_dir.as_ref()).map_err(storage_error)?;
+        let path = loomtracer_dir.as_ref().join(LEDGER_DB_NAME);
         let connection = Connection::open(&path).map_err(storage_error)?;
         connection
             .busy_timeout(Duration::from_millis(SQLITE_BUSY_TIMEOUT_MS))
@@ -66,8 +66,8 @@ impl SqliteEventLedger {
     /// Opens the ledger bound to `tenant_id`, so its plain `append`, `read`, `replay_from`,
     /// `latest_offset` and `bound_tenant` address that tenant. Errors if the tenant is not
     /// registered (see [`SqliteEventLedger::ensure_known_tenant`]).
-    pub fn open_for_tenant(hivemind_dir: impl AsRef<Path>, tenant_id: &TenantId) -> Result<Self> {
-        let mut ledger = Self::open(hivemind_dir)?;
+    pub fn open_for_tenant(loomtracer_dir: impl AsRef<Path>, tenant_id: &TenantId) -> Result<Self> {
+        let mut ledger = Self::open(loomtracer_dir)?;
         ledger.ensure_known_tenant(tenant_id)?;
         ledger.tenant_id = tenant_id.clone();
         Ok(ledger)
@@ -77,16 +77,16 @@ impl SqliteEventLedger {
         &self.path
     }
 
-    /// Whether `hivemind_dir` already holds a ledger. `open` creates one when it does not;
+    /// Whether `loomtracer_dir` already holds a ledger. `open` creates one when it does not;
     /// a read that must not make a ledger up asks this first.
-    pub fn exists_in(hivemind_dir: impl AsRef<Path>) -> bool {
-        hivemind_dir.as_ref().join(LEDGER_DB_NAME).is_file() // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
+    pub fn exists_in(loomtracer_dir: impl AsRef<Path>) -> bool {
+        loomtracer_dir.as_ref().join(LEDGER_DB_NAME).is_file() // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
     }
 
     /// Errors unless `tenant_id` has a row in the local `tenants` registry.
     /// Called once at ledger-open time (the CLI/stdio-MCP seam in
     /// [`crate::ledger::AnyLedger::open`] and the HTTP API's per-request
-    /// seam) so a typo'd `--tenant`/`X-HiveMind-Tenant` cannot silently open
+    /// seam) so a typo'd `--tenant`/`X-Loomtracer-Tenant` cannot silently open
     /// a fresh, empty tenant scope. `TenantId::LOCAL_VALUE` is seeded by
     /// schema init, so the local-default flow is always known.
     pub fn ensure_known_tenant(&self, tenant_id: &TenantId) -> Result<()> {
@@ -103,7 +103,7 @@ impl SqliteEventLedger {
             return Err(unknown_tenant_error(
                 tenant_id.as_str(),
                 format!(
-                    "run `hivemind tenant create {}` to register it",
+                    "run `loomtracer tenant create {}` to register it",
                     tenant_id.as_str()
                 ),
             )
@@ -704,7 +704,7 @@ mod tests;
 // SQLite user / token store
 // ---------------------------------------------------------------------------
 
-pub const SQLITE_TOKEN_PREFIX: &str = "hm_tk_";
+pub const SQLITE_TOKEN_PREFIX: &str = "lt_tk_";
 
 pub struct SqliteResolvedToken {
     /// `None` for an agent token minted with no associated `hm_users` row
@@ -744,9 +744,9 @@ pub struct SqliteUserStore {
 }
 
 impl SqliteUserStore {
-    pub fn open(hivemind_dir: &Path) -> crate::Result<Self> {
-        fs::create_dir_all(hivemind_dir).map_err(storage_error)?;
-        let path = hivemind_dir.join(LEDGER_DB_NAME); // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
+    pub fn open(loomtracer_dir: &Path) -> crate::Result<Self> {
+        fs::create_dir_all(loomtracer_dir).map_err(storage_error)?;
+        let path = loomtracer_dir.join(LEDGER_DB_NAME); // ubs:ignore: constant LEDGER_DB_NAME segment, not user input
         let conn = Connection::open(&path).map_err(storage_error)?;
         initialize_user_schema(&conn).map_err(storage_error)?;
         Ok(Self { path })

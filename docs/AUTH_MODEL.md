@@ -3,7 +3,7 @@
 Status: accepted recommendation for
 `hivemind-m2-shared-backend-lives-uuq9.5`.
 
-Question: how does a shared HiveMind service authenticate a caller and resolve
+Question: how does a shared Loomtracer service authenticate a caller and resolve
 that caller to a tenant and actor?
 
 ## Decision
@@ -35,11 +35,11 @@ free-form tenant id and expect the commands or query layer to trust it.
 
 | Credential | Use | Decision |
 | --- | --- | --- |
-| Opaque bearer token | Agents, services, remote CLI, MCP server processes. | Adopt as the default machine credential. Tokens are random secrets with display prefixes such as `hm_tk_...`, stored server-side only as hashes, and logged only by token id. |
-| OIDC login/session | Human web UI and future interactive product flows. | Adopt for humans. OIDC resolves a stable `principal_id`; HiveMind still maps that principal to tenant, actor, and capabilities before calling commands or queries. |
+| Opaque bearer token | Agents, services, remote CLI, MCP server processes. | Adopt as the default machine credential. Tokens are random secrets with display prefixes such as `lt_tk_...`, stored server-side only as hashes, and logged only by token id. |
+| OIDC login/session | Human web UI and future interactive product flows. | Adopt for humans. OIDC resolves a stable `principal_id`; Loomtracer still maps that principal to tenant, actor, and capabilities before calling commands or queries. |
 | Ed25519 signing key | Write integrity and audit hardening. | Require for remote writes in multi-organization deployments. Signing proves the accepted request or event envelope was bound to an authorized credential; it does not by itself choose tenant or capability. |
 | mTLS client identity | Deployment hardening between trusted services. | Allow as an infrastructure control, but do not make it the product auth model. It can resolve a `principal_id` in private deployments. |
-| Short-lived JWT | Cached session or edge token minted by the HiveMind service. | Allow as an internal optimization after OIDC or token validation. Do not use self-issued JWTs from clients as the canonical auth secret. |
+| Short-lived JWT | Cached session or edge token minted by the Loomtracer service. | Allow as an internal optimization after OIDC or token validation. Do not use self-issued JWTs from clients as the canonical auth secret. |
 
 This is deliberately a hybrid model because humans and agents have different
 credential ergonomics. The invariant is that every accepted request reaches the
@@ -80,7 +80,7 @@ run:
 3. Select a tenant from, in order:
    - a token default tenant;
    - an OIDC session active tenant;
-   - `HIVEMIND_TENANT`, `--tenant`, or `X-HiveMind-Tenant`, when the principal
+   - `LOOMTRACER_TENANT`, `--tenant`, or `X-Loomtracer-Tenant`, when the principal
      has more than one membership.
 4. Reject the request if the selected tenant is absent or not in the
    principal's membership set.
@@ -154,12 +154,12 @@ not the production target.
 What ships today. A caller reaches a cell over HTTP with a bearer token: the REST
 routes (`POST /v1/decisions` and its siblings) and `POST /mcp`, whose agent config is
 in [`SELF_HOSTING.md`](SELF_HOSTING.md). `classify-queue` and the Python capture
-clients read the cell from `HIVEMIND_API_URL` and `HIVEMIND_API_KEY` (see
-[`KEYLESS_CAPTURE.md`](KEYLESS_CAPTURE.md)). Every other CLI verb, and `hivemind mcp`,
-opens a ledger of its own: SQLite under `--hivemind-dir`, or the cell's Postgres through
+clients read the cell from `LOOMTRACER_API_URL` and `LOOMTRACER_API_KEY` (see
+[`KEYLESS_CAPTURE.md`](KEYLESS_CAPTURE.md)). Every other CLI verb, and `loomtracer mcp`,
+opens a ledger of its own: SQLite under `--loomtracer-dir`, or the cell's Postgres through
 `--database-url` and `--tenant`, which puts the database credential on the caller (see
 [`SELF_HOSTING.md`](SELF_HOSTING.md), "CLI and MCP direct-Postgres mode"). The CLI has no
-`--remote` or `--token-env` flag, and `hivemind mcp` has no `--remote`: remote MCP is
+`--remote` or `--token-env` flag, and `loomtracer mcp` has no `--remote`: remote MCP is
 `POST /mcp`.
 
 Planned, not built: a CLI that talks to the cell's HTTP API with a bearer token, so the
@@ -167,29 +167,29 @@ caller holds no database credential. This sketch shows its shape; `--remote` and
 `--token-env` do not exist.
 
 ```bash
-hivemind \
-  --remote https://hivemind.example.com \
-  --token-env HIVEMIND_TOKEN \
+loomtracer \
+  --remote https://loomtracer.example.com \
+  --token-env LOOMTRACER_TOKEN \
   --tenant tenant:acme \
   --actor agent:codex:gc-47745 \
   emit decision.capture ...
 ```
 
-HTTP write. The `Authorization` header ships. `X-HiveMind-Tenant` and `X-HiveMind-Actor`
+HTTP write. The `Authorization` header ships. `X-Loomtracer-Tenant` and `X-Loomtracer-Actor`
 are read only where the credential does not name them (a SQLite cell with a static key,
 or none); a server that knows the caller by token takes tenant and actor from the token
-and ignores both. The `X-HiveMind-Signature-*` headers are planned: Ed25519 signing is
+and ignores both. The `X-Loomtracer-Signature-*` headers are planned: Ed25519 signing is
 not built.
 
 ```http
 POST /v1/decisions HTTP/1.1
-Authorization: Bearer hm_tk_<secret>
-X-HiveMind-Tenant: tenant:acme
-X-HiveMind-Actor: agent:codex:gc-47745
-X-HiveMind-Signature-Key: key_2026_05_codex
-X-HiveMind-Signature-Timestamp: 2026-05-25T07:00:00Z
-X-HiveMind-Signature-Nonce: 7f4a0b2c
-X-HiveMind-Signature: ed25519=<base64-signature>
+Authorization: Bearer lt_tk_<secret>
+X-Loomtracer-Tenant: tenant:acme
+X-Loomtracer-Actor: agent:codex:gc-47745
+X-Loomtracer-Signature-Key: key_2026_05_codex
+X-Loomtracer-Signature-Timestamp: 2026-05-25T07:00:00Z
+X-Loomtracer-Signature-Nonce: 7f4a0b2c
+X-Loomtracer-Signature: ed25519=<base64-signature>
 Content-Type: application/json
 ```
 
@@ -229,7 +229,7 @@ actor identity from text, or consult layer-3 behavior. Query code receives a
 Local compatibility wrappers can keep the current API:
 
 ```rust
-hivemind --actor human:alice emit decision.proposed ...
+loomtracer --actor human:alice emit decision.proposed ...
 ```
 
 Those wrappers build `TenantId::local_default()` and local provenance, then

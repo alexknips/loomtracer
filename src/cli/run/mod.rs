@@ -75,7 +75,7 @@ use crate::suggest::{
 use crate::summarize::{
     recall_decisions, weekly_digest, DigestRequest, RecallRequest, RECALL_MAX_LIMIT,
 };
-use crate::{HivemindError, Result};
+use crate::{LoomtracerError, Result};
 
 use super::args::{
     ClassifyQueueArgs, ClassifyQueueCommand, ClassifyQueueListArgs, ClassifyQueueSubmitArgs, Cli,
@@ -135,7 +135,7 @@ pub fn run(cli: &Cli) -> Result<String> {
 /// The read verbs answer even when the ledger holds annotation rows nobody can parse (a
 /// malformed assessment): the projector and every history read skip them. What they do not do is
 /// skip them silently: the answer carries a one-line notice naming the rows. A verb run with
-/// `HIVEMIND_API_URL` set also says that it used the local ledger, not the server (see
+/// `LOOMTRACER_API_URL` set also says that it used the local ledger, not the server (see
 /// [`LocalLedgerBesideCell`]); where stdout is data, `emit`'s bare id and `dump`'s DOT, that
 /// notice goes to stderr instead.
 fn with_read_notices<W: IoWrite>(
@@ -188,8 +188,8 @@ fn notice_goes_to_stderr(verb: CellBesideVerb, output: &str) -> bool {
     }
 }
 
-/// The verbs that open the ledger under `--hivemind-dir`. All but `classify-queue` are not told
-/// about the server in `HIVEMIND_API_URL`; `classify-queue` honours it and opens no ledger while it
+/// The verbs that open the ledger under `--loomtracer-dir`. All but `classify-queue` are not told
+/// about the server in `LOOMTRACER_API_URL`; `classify-queue` honours it and opens no ledger while it
 /// is set (see [`CellBesideVerb::honours_api_url`]).
 #[derive(Debug, Clone, Copy)]
 enum CellBesideVerb {
@@ -251,7 +251,7 @@ impl LedgerUse {
 }
 
 impl CellBesideVerb {
-    /// The verb `command` is, when it opens the ledger under `--hivemind-dir`. Every verb and
+    /// The verb `command` is, when it opens the ledger under `--loomtracer-dir`. Every verb and
     /// subcommand is named, with no catch-all arm, so adding one fails to compile here until
     /// someone decides whether it needs the guard; a verb left out says why.
     fn of(command: &Command) -> Option<Self> {
@@ -279,7 +279,7 @@ impl CellBesideVerb {
             Command::Ingest(args) => match args.command {
                 IngestCommand::SlackThread(_) => Self::IngestSlackThread,
             },
-            // The Slack app's pieces over a local dir: ignoring HIVEMIND_API_URL is the standing
+            // The Slack app's pieces over a local dir: ignoring LOOMTRACER_API_URL is the standing
             // rmdi1 ruling, as for `mcp`.
             Command::SlackApp(args) => match args.command {
                 SlackAppCommand::Manifest(_)
@@ -296,8 +296,8 @@ impl CellBesideVerb {
             Command::Migrate(_) => return None,
             Command::Map(_) => Self::Map,
             Command::Digest(_) => Self::Digest,
-            // Honours HIVEMIND_API_URL: with it set, it talks to the server instead of opening a
-            // ledger. With it unset, it opens the one under `--hivemind-dir`.
+            // Honours LOOMTRACER_API_URL: with it set, it talks to the server instead of opening a
+            // ledger. With it unset, it opens the one under `--loomtracer-dir`.
             Command::ClassifyQueue(args) => match args.command {
                 ClassifyQueueCommand::List(_) => Self::ClassifyQueueList,
                 ClassifyQueueCommand::Submit(_) => Self::ClassifyQueueSubmit,
@@ -306,7 +306,7 @@ impl CellBesideVerb {
                 RestatementsCommand::Propose(_) => Self::RestatementsPropose,
                 RestatementsCommand::Apply(_) => Self::RestatementsApply,
             },
-            // Keeps only an OAuth token file under the hivemind dir; no ledger.
+            // Keeps only an OAuth token file under the loomtracer dir; no ledger.
             Command::Connector(args) => match args.command {
                 ConnectorCommand::Auth(_) => return None,
             },
@@ -372,7 +372,7 @@ impl CellBesideVerb {
         }
     }
 
-    /// The verb talks to the server in `HIVEMIND_API_URL` when that is set, and opens a local
+    /// The verb talks to the server in `LOOMTRACER_API_URL` when that is set, and opens a local
     /// ledger only when it is not. The guard for a verb that ignores the variable (see
     /// [`LocalLedgerBesideCell`]) therefore does not apply to it, and its refusal for a folder
     /// with no ledger applies only while the variable is unset.
@@ -425,7 +425,7 @@ impl CellBesideVerb {
         }
     }
 
-    /// What the verb does to the local ledger, for "`hivemind X` ___ a local ledger".
+    /// What the verb does to the local ledger, for "`loomtracer X` ___ a local ledger".
     fn uses(self) -> &'static str {
         self.ledger_use().phrase()
     }
@@ -457,7 +457,7 @@ impl CellBesideVerb {
     }
 }
 
-/// A verb run with `HIVEMIND_API_URL` set, which it never contacts. A person who follows the
+/// A verb run with `LOOMTRACER_API_URL` set, which it never contacts. A person who follows the
 /// cell's docs (`docs/KEYLESS_CAPTURE.md`) has that variable set, and without this their `query`
 /// answered "0 decisions" from an empty ledger the command made up in the current folder (or from
 /// whatever ledger the folder held), and `emit` recorded the decision there and exited 0, with
@@ -467,7 +467,7 @@ impl CellBesideVerb {
 struct LocalLedgerBesideCell {
     verb: CellBesideVerb,
     api_url: String,
-    hivemind_dir: PathBuf,
+    loomtracer_dir: PathBuf,
 }
 
 impl LocalLedgerBesideCell {
@@ -484,16 +484,16 @@ impl LocalLedgerBesideCell {
         }
         Some(Self {
             verb,
-            api_url: hivemind_api_url_from_env()?,
-            hivemind_dir: config.hivemind_dir,
+            api_url: loomtracer_api_url_from_env()?,
+            loomtracer_dir: config.loomtracer_dir,
         })
     }
 
     fn refuse_without_local_ledger(&self) -> Result<()> {
-        if SqliteEventLedger::exists_in(&self.hivemind_dir) {
+        if SqliteEventLedger::exists_in(&self.loomtracer_dir) {
             return Ok(());
         }
-        let dir = self.hivemind_dir.display();
+        let dir = self.loomtracer_dir.display();
         let nothing_recorded = if self.verb.records() {
             ", and nothing was recorded"
         } else {
@@ -506,12 +506,14 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::ProjectRegister
             | CellBesideVerb::IngestSlackThread
             | CellBesideVerb::TenantCreate => format!(
-                "To record to a local ledger instead, unset HIVEMIND_API_URL (the ledger is then \
-                 created under {dir}) or point --hivemind-dir at an existing one"
+                "To record to a local ledger instead, unset LOOMTRACER_API_URL (the ledger is then \
+                 created under {dir}) or point --loomtracer-dir at an existing one"
             ),
-            CellBesideVerb::Review => "To review a local ledger, unset HIVEMIND_API_URL and point \
-                 --hivemind-dir at it"
-                .to_owned(),
+            CellBesideVerb::Review => {
+                "To review a local ledger, unset LOOMTRACER_API_URL and point \
+                 --loomtracer-dir at it"
+                    .to_owned()
+            }
             // These act on decisions a ledger already holds, so a ledger made empty would not help.
             CellBesideVerb::Disagree
             | CellBesideVerb::Supersede
@@ -527,7 +529,7 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::ProjectDeclareTopic
             | CellBesideVerb::ClassifyQueueSubmit
             | CellBesideVerb::ProjectUse => {
-                "To use a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
+                "To use a local ledger, unset LOOMTRACER_API_URL and point --loomtracer-dir at it"
                     .to_owned()
             }
             CellBesideVerb::Query
@@ -542,12 +544,12 @@ impl LocalLedgerBesideCell {
             | CellBesideVerb::Reexamine
             | CellBesideVerb::ClassifyQueueList
             | CellBesideVerb::Tui => {
-                "To read a local ledger, unset HIVEMIND_API_URL and point --hivemind-dir at it"
+                "To read a local ledger, unset LOOMTRACER_API_URL and point --loomtracer-dir at it"
                     .to_owned()
             }
         };
         Err(CliError::InvalidInput(format!(
-            "HIVEMIND_API_URL is set ({url}), but `hivemind {verb}` {uses} a local ledger and \
+            "LOOMTRACER_API_URL is set ({url}), but `loomtracer {verb}` {uses} a local ledger and \
              never contacts that server, and there is no local ledger under {dir}; none was \
              created{nothing_recorded}. {hint}. {local_instead}",
             url = self.api_url,
@@ -559,26 +561,26 @@ impl LocalLedgerBesideCell {
     }
 
     fn used_locally_notice(&self) -> String {
-        let dir = self.hivemind_dir.display();
+        let dir = self.loomtracer_dir.display();
         let verb = self.verb.name();
         let what = match self.verb {
             CellBesideVerb::Emit => format!(
-                "this was recorded in the local ledger under {dir}: `hivemind emit` does not \
+                "this was recorded in the local ledger under {dir}: `loomtracer emit` does not \
                  write to that server, so the cell does not have it"
             ),
             // A verb that can find nothing to act on, or ends in a dry run or a list of
             // candidates, writes nothing: say where a write would have gone, not that one did.
             _ if self.verb.records() => format!(
                 "this used the local ledger under {dir}, and anything it recorded went there: \
-                 `hivemind {verb}` does not use that server, so the cell does not have it"
+                 `loomtracer {verb}` does not use that server, so the cell does not have it"
             ),
             _ => format!(
-                "this answer is from the local ledger under {dir}: `hivemind {verb}` does not \
+                "this answer is from the local ledger under {dir}: `loomtracer {verb}` does not \
                  read that server"
             ),
         };
         format!(
-            "HIVEMIND_API_URL is set ({url}), but {what}. {hint}",
+            "LOOMTRACER_API_URL is set ({url}), but {what}. {hint}",
             url = self.api_url,
             hint = self.cell_route_hint(),
         )
@@ -685,7 +687,7 @@ impl LocalLedgerBesideCell {
             ),
             // Not reached beside a cell: these ask the server themselves (`honours_api_url`).
             CellBesideVerb::ClassifyQueueList | CellBesideVerb::ClassifyQueueSubmit => format!(
-                "`hivemind classify-queue` asks the cell itself while HIVEMIND_API_URL is set \
+                "`loomtracer classify-queue` asks the cell itself while LOOMTRACER_API_URL is set \
                  (GET {url}/v1/classify-queue, POST {url}/v1/classify-queue/submit)"
             ),
         }
@@ -693,14 +695,14 @@ impl LocalLedgerBesideCell {
 }
 
 /// A verb that reads or acts on a ledger, aimed at a folder that holds none. Opening the ledger
-/// makes one, so a read under a mistyped `--hivemind-dir` (or a folder nothing was recorded in yet)
+/// makes one, so a read under a mistyped `--loomtracer-dir` (or a folder nothing was recorded in yet)
 /// created an empty ledger on the spot and answered "No decision found", exit 0: indistinguishable
 /// from a real ledger that has no match. A verb that acts on a decision or project (`disagree`,
 /// `supersede`, `project link` and the rest) did the same and answered not_found, which sent the
 /// user looking for a missing decision instead of a wrong folder. Neither can succeed on a ledger
 /// that does not exist, so each refuses, names the folder and creates nothing. Writes keep making
 /// the ledger on their first run; a configured `--database-url` names no folder; with
-/// `HIVEMIND_API_URL` set the same refusal is [`LocalLedgerBesideCell`]'s, which also names the
+/// `LOOMTRACER_API_URL` set the same refusal is [`LocalLedgerBesideCell`]'s, which also names the
 /// cell. An existing ledger that holds nothing still answers (an acting verb says not_found).
 /// `classify-queue` is the one verb that asks that server instead: with the variable set it opens
 /// no ledger and is not refused, and with it unset it is refused like the rest, so the capture
@@ -709,7 +711,7 @@ fn refuse_verb_without_ledger(cli: &Cli) -> Result<()> {
     let Some(verb) = CellBesideVerb::of(&cli.command) else {
         return Ok(());
     };
-    if verb.honours_api_url() && hivemind_api_url_from_env().is_some() {
+    if verb.honours_api_url() && loomtracer_api_url_from_env().is_some() {
         return Ok(());
     }
     let ledger_use = verb.ledger_use();
@@ -721,27 +723,27 @@ fn refuse_verb_without_ledger(cli: &Cli) -> Result<()> {
         .database_url
         .as_deref()
         .is_some_and(|url| !url.is_empty())
-        || SqliteEventLedger::exists_in(&config.hivemind_dir)
+        || SqliteEventLedger::exists_in(&config.loomtracer_dir)
     {
         return Ok(());
     }
-    let dir = config.hivemind_dir.display();
+    let dir = config.loomtracer_dir.display();
     let verb = verb.name();
     let what_happened = match ledger_use {
         LedgerUse::Reads => format!(
-            "`hivemind {verb}` reads a local ledger, and there is none under {dir}: nothing was \
+            "`loomtracer {verb}` reads a local ledger, and there is none under {dir}: nothing was \
              read and none was created, so this is not an answer of \"no decisions\"."
         ),
         LedgerUse::ReadsAndWrites => format!(
-            "`hivemind {verb}` acts on what a local ledger already holds, and there is none under \
+            "`loomtracer {verb}` acts on what a local ledger already holds, and there is none under \
              {dir}: nothing was recorded and none was created, so there was nothing to act on and \
              this is not a \"not found\" for what you named."
         ),
         LedgerUse::WritesTo => return Ok(()),
     };
     Err(CliError::InvalidInput(format!(
-        "{what_happened} Check --hivemind-dir (or HIVEMIND_DIR) for a typo and point it at the \
-         folder that holds the ledger; a first `hivemind emit` there starts a new one"
+        "{what_happened} Check --loomtracer-dir (or LOOMTRACER_DIR) for a typo and point it at the \
+         folder that holds the ledger; a first `loomtracer emit` there starts a new one"
     ))
     .into())
 }
@@ -781,23 +783,23 @@ fn dispatch(cli: &Cli) -> Result<String> {
 }
 
 fn run_quickstart(cli: &Cli, _args: &QuickstartArgs) -> Result<String> {
-    // Isolated ledger directory (never the caller's --hivemind-dir) so quickstart
-    // never touches a real local ledger. When --database-url/HIVEMIND_DATABASE_URL
+    // Isolated ledger directory (never the caller's --loomtracer-dir) so quickstart
+    // never touches a real local ledger. When --database-url/LOOMTRACER_DATABASE_URL
     // is configured, backend selection still applies — quickstart then proves the
     // configured Postgres backend works end to end instead of silently writing a
     // throwaway local SQLite file that has nothing to do with it; the isolated
     // directory is simply unused on that path.
-    let ledger_dir = std::env::temp_dir().join(format!("hivemind-quickstart-{}", Uuid::new_v4()));
+    let ledger_dir = std::env::temp_dir().join(format!("loomtracer-quickstart-{}", Uuid::new_v4()));
     let tenant_id = cli_tenant(cli)?;
     let mut ledger_config = LedgerConfig::from_cli(cli);
-    ledger_config.hivemind_dir = ledger_dir.clone();
+    ledger_config.loomtracer_dir = ledger_dir.clone();
     let ledger = AnyLedger::open(&ledger_config, &tenant_id)?;
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(tenant_id.clone(), EventProvenance::cli()),
     );
     let decision_args = EmitDecisionProposedArgs {
-        title: "Try HiveMind quickstart".to_owned(),
+        title: "Try Loomtracer quickstart".to_owned(),
         rationale: "A first decision should be captured with actor provenance and queried back immediately.".to_owned(),
         topic_keys: vec!["quickstart".to_owned(), "onboarding".to_owned()],
         options: OptionLabelArgs {
@@ -874,13 +876,13 @@ fn run_quickstart(cli: &Cli, _args: &QuickstartArgs) -> Result<String> {
 
 fn format_quickstart_report(report: &QuickstartReport) -> String {
     format!(
-        "HiveMind quickstart complete.\n\
+        "Loomtracer quickstart complete.\n\
          Ledger: {ledger_dir}\n\
          Actor: {actor_id}\n\
          Captured: {decision_id}\n\
          Queried: found {first_result_id} ({result_count} result, truncated={truncated})\n\n\
          Try the query again:\n\
-           hivemind --hivemind-dir {ledger_dir} query search_decisions --topic quickstart --limit 5",
+           loomtracer --loomtracer-dir {ledger_dir} query search_decisions --topic quickstart --limit 5",
         ledger_dir = report.ledger_dir,
         actor_id = report.actor_id,
         decision_id = report.decision_id,
@@ -895,7 +897,7 @@ fn format_quickstart_report(report: &QuickstartReport) -> String {
 }
 
 fn run_mcp(cli: &Cli, args: &McpArgs) -> Result<String> {
-    let mut config = crate::mcp::McpConfig::new(cli.hivemind_dir.clone())
+    let mut config = crate::mcp::McpConfig::new(cli.loomtracer_dir.clone())
         .with_tenant(cli_tenant(cli)?)
         .with_database_url(cli.database_url.clone());
     if let Some(agent_tool) = args.agent_tool.as_deref().map(str::trim) {
@@ -917,7 +919,7 @@ fn run_mcp(cli: &Cli, args: &McpArgs) -> Result<String> {
 }
 
 fn run_serve(cli: &Cli, args: &ServeArgs) -> Result<String> {
-    let config = crate::api::ApiConfig::new(cli.hivemind_dir.clone())
+    let config = crate::api::ApiConfig::new(cli.loomtracer_dir.clone())
         .with_bind(args.bind)
         .with_port(args.port)
         .with_allow_unauthenticated_remote(args.allow_unauthenticated_remote)
@@ -951,7 +953,7 @@ fn run_map(cli: &Cli, args: &MapArgs) -> Result<String> {
     };
 
     if alphas.len() == 1 {
-        let result = crate::map::compute_map(&graph, Some(cli.hivemind_dir.as_path()), alphas[0]) // ubs:ignore: alphas[0] guarded by len()==1 check above
+        let result = crate::map::compute_map(&graph, Some(cli.loomtracer_dir.as_path()), alphas[0]) // ubs:ignore: alphas[0] guarded by len()==1 check above
             .map_err(|e| CliError::InvalidInput(e.to_string()))?; // ubs:ignore: error conversion at CLI boundary
         if args.summary {
             let mut out = format!(
@@ -979,7 +981,7 @@ fn run_map(cli: &Cli, args: &MapArgs) -> Result<String> {
     } else {
         let mut results = Vec::new();
         for &alpha in &alphas {
-            let r = crate::map::compute_map(&graph, Some(cli.hivemind_dir.as_path()), alpha)
+            let r = crate::map::compute_map(&graph, Some(cli.loomtracer_dir.as_path()), alpha)
                 .map_err(|e| CliError::InvalidInput(e.to_string()))?; // ubs:ignore: error conversion at CLI boundary
             results.push(r);
         }
@@ -1190,13 +1192,13 @@ fn run_classify_queue_submit(cli: &Cli, args: &ClassifyQueueSubmitArgs) -> Resul
 }
 
 /// `classify-queue list`/`submit` talk to a server-backed cell over HTTP
-/// instead of opening a local ledger when `HIVEMIND_API_URL` is set (Option
+/// instead of opening a local ledger when `LOOMTRACER_API_URL` is set (Option
 /// B, hivemind-zdsh.2: agents on a shared cell never hold a direct DB
-/// credential — see docs/AGENT_DECISION_CAPTURE.md's `HIVEMIND_API_URL`/
-/// `HIVEMIND_API_KEY` convention, shared with the Python capture clients).
-/// `HIVEMIND_API_URL` unset selects the local SQLite path, unchanged.
+/// credential — see docs/AGENT_DECISION_CAPTURE.md's `LOOMTRACER_API_URL`/
+/// `LOOMTRACER_API_KEY` convention, shared with the Python capture clients).
+/// `LOOMTRACER_API_URL` unset selects the local SQLite path, unchanged.
 ///
-/// Every request carries `--tenant` and `--actor` as `X-HiveMind-Tenant` and `X-HiveMind-Actor`,
+/// Every request carries `--tenant` and `--actor` as `X-Loomtracer-Tenant` and `X-Loomtracer-Actor`,
 /// so a server that takes both from the caller (SQLite, with a static key or none) reads and
 /// writes the tenant and actor the flags name, as a local ledger does. A server that knows the
 /// caller by token takes tenant and actor from the token and ignores the headers.
@@ -1207,10 +1209,10 @@ struct ClassifyQueueServer {
     actor: String,
 }
 
-/// The server a cell user pointed the CLI at: `HIVEMIND_API_URL`, trimmed, without a trailing
+/// The server a cell user pointed the CLI at: `LOOMTRACER_API_URL`, trimmed, without a trailing
 /// slash; `None` when it is unset or blank.
-fn hivemind_api_url_from_env() -> Option<String> {
-    let base_url = std::env::var("HIVEMIND_API_URL").ok()?;
+fn loomtracer_api_url_from_env() -> Option<String> {
+    let base_url = std::env::var("LOOMTRACER_API_URL").ok()?;
     let base_url = base_url.trim();
     if base_url.is_empty() {
         return None;
@@ -1220,10 +1222,10 @@ fn hivemind_api_url_from_env() -> Option<String> {
 
 impl ClassifyQueueServer {
     fn from_env(cli: &Cli) -> Result<Option<Self>> {
-        let Some(base_url) = hivemind_api_url_from_env() else {
+        let Some(base_url) = loomtracer_api_url_from_env() else {
             return Ok(None);
         };
-        let token = std::env::var("HIVEMIND_API_KEY")
+        let token = std::env::var("LOOMTRACER_API_KEY")
             .ok()
             .filter(|t| !t.trim().is_empty());
         Ok(Some(Self {
@@ -1354,14 +1356,14 @@ fn run_connector_auth(cli: &Cli, args: &ConnectorAuthArgs) -> Result<String> {
 }
 
 fn run_connector_auth_gdocs(cli: &Cli) -> Result<String> {
-    let client_id = std::env::var("HIVEMIND_GOOGLE_CLIENT_ID").map_err(|_| {
+    let client_id = std::env::var("LOOMTRACER_GOOGLE_CLIENT_ID").map_err(|_| {
         CliError::InvalidInput(
-            "HIVEMIND_GOOGLE_CLIENT_ID environment variable must be set".to_owned(),
+            "LOOMTRACER_GOOGLE_CLIENT_ID environment variable must be set".to_owned(),
         )
     })?;
-    let client_secret = std::env::var("HIVEMIND_GOOGLE_CLIENT_SECRET").map_err(|_| {
+    let client_secret = std::env::var("LOOMTRACER_GOOGLE_CLIENT_SECRET").map_err(|_| {
         CliError::InvalidInput(
-            "HIVEMIND_GOOGLE_CLIENT_SECRET environment variable must be set".to_owned(),
+            "LOOMTRACER_GOOGLE_CLIENT_SECRET environment variable must be set".to_owned(),
         )
     })?;
 
@@ -1371,7 +1373,7 @@ fn run_connector_auth_gdocs(cli: &Cli) -> Result<String> {
     let (auth_code, redirect_uri) =
         runtime.block_on(crate::connector::listen_for_google_oauth_code(&client_id))?;
 
-    let token_store = crate::connector::GoogleTokenStore::new(&cli.hivemind_dir);
+    let token_store = crate::connector::GoogleTokenStore::new(&cli.loomtracer_dir);
     crate::connector::exchange_google_oauth_code(
         &client_id,
         &client_secret,
@@ -1415,7 +1417,7 @@ fn run_ingest_slack_thread(cli: &Cli, args: &IngestSlackThreadArgs) -> Result<St
 }
 
 /// The tenant a Slack workspace maps onto: its team id, 1:1, as the server's Slack routes
-/// use it. It must already be registered (`hivemind tenant create <team_id>`).
+/// use it. It must already be registered (`loomtracer tenant create <team_id>`).
 fn slack_team_tenant(team_id: &str) -> Result<TenantId> {
     TenantId::new(team_id).map_err(|error| {
         CliError::InvalidInput(format!("Slack team id is invalid: {error}")).into()
@@ -1423,7 +1425,7 @@ fn slack_team_tenant(team_id: &str) -> Result<TenantId> {
 }
 
 fn run_slack_app(cli: &Cli, args: &SlackAppArgs) -> Result<String> {
-    let store = SlackAppStore::new(&cli.hivemind_dir);
+    let store = SlackAppStore::new(&cli.loomtracer_dir);
     match &args.command {
         SlackAppCommand::Manifest(args) => {
             let manifest = slack_app_manifest(
@@ -1443,7 +1445,7 @@ fn run_slack_app(cli: &Cli, args: &SlackAppArgs) -> Result<String> {
                 team_name: args.team_name.clone(),
                 bot_token: args.bot_token.clone(),
                 signing_secret: args.signing_secret.clone(),
-                hivemind_url: args.hivemind_url.clone(),
+                loomtracer_url: args.loomtracer_url.clone(),
                 reaction_emoji: args.reaction_emoji.clone(),
                 actor_mappings: parse_actor_mappings(&args.actor_mappings)?,
             })?;
@@ -1550,7 +1552,7 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                 Commands::new_with_context(&ledger, cli_command_context(cli, provenance)?)
                     .declaring_topics(&args.decision.declare_topics);
             let spec = grounding::require_grounding(grounding::grounding_spec_from_args(
-                &cli.hivemind_dir,
+                &cli.loomtracer_dir,
                 &args.grounding,
                 &args.decision.evidence_ids,
                 &args.decision.hypothesis_ids,
@@ -1558,7 +1560,7 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
             // Refused before anything resolves or is written, like the grounding above.
             let floor_answers = floor::floor_answers_from_args(&args.floor)?;
             let resolved = grounding::resolve_declared_grounding(
-                &cli.hivemind_dir,
+                &cli.loomtracer_dir,
                 &ledger,
                 &cli_tenant(cli)?,
                 spec,
@@ -1835,7 +1837,7 @@ fn announce_cited_not_linked<W: IoWrite>(
     for cited_id in cited_not_linked {
         let _ = writeln!(
             notices,
-            "cited_not_linked: {cited_id} (the rationale names it, but the decision does not rest on it; if it follows from it: hivemind ground --id {decision_id} --rests-on-decision {cited_id})"
+            "cited_not_linked: {cited_id} (the rationale names it, but the decision does not rest on it; if it follows from it: loomtracer ground --id {decision_id} --rests-on-decision {cited_id})"
         );
     }
 }
@@ -1868,7 +1870,7 @@ enum FluentResolution {
 }
 
 fn resolve_fluent_target(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     summary: bool,
     graph: &impl GraphView,
     id: Option<&str>,
@@ -1882,7 +1884,7 @@ fn resolve_fluent_target(
         pick,
         topic,
     };
-    let (resolution, _) = resolve_fluent(hivemind_dir, summary, graph, ask, FluentVerb::Writes)?;
+    let (resolution, _) = resolve_fluent(loomtracer_dir, summary, graph, ask, FluentVerb::Writes)?;
     Ok(resolution)
 }
 
@@ -1891,7 +1893,7 @@ fn resolve_fluent_target(
 /// the decision lacks and it was answered anyway: the caller labels its output with it
 /// (`format_close_matched_response`), so a partial match never reads as a full one.
 fn resolve_fluent_target_for_reading(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     summary: bool,
     graph: &impl GraphView,
     id: Option<&str>,
@@ -1905,7 +1907,7 @@ fn resolve_fluent_target_for_reading(
         pick,
         topic,
     };
-    resolve_fluent(hivemind_dir, summary, graph, ask, FluentVerb::Reads)
+    resolve_fluent(loomtracer_dir, summary, graph, ask, FluentVerb::Reads)
 }
 
 /// Whether a fluent verb changes the decision it resolves or only shows it. A read-only verb
@@ -1925,7 +1927,7 @@ struct FluentAsk<'a> {
 }
 
 fn resolve_fluent(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     summary: bool,
     graph: &impl GraphView,
     ask: FluentAsk<'_>,
@@ -1952,7 +1954,7 @@ fn resolve_fluent(
     };
 
     if let Some(index) = candidate_handle_index(description) {
-        let candidate = read_continuation_candidate(hivemind_dir, index)?;
+        let candidate = read_continuation_candidate(loomtracer_dir, index)?;
         return Ok((FluentResolution::Id(candidate.decision_id), None));
     }
 
@@ -1960,7 +1962,7 @@ fn resolve_fluent(
         FluentVerb::Reads => resolve_decision_for_reading(graph, description, topic)?,
         FluentVerb::Writes => resolve_decision_by_description(graph, description, topic)?,
     };
-    write_continuation_candidates(hivemind_dir, &candidates_of(&response.data));
+    write_continuation_candidates(loomtracer_dir, &candidates_of(&response.data));
 
     match &response.data {
         ResolveOutcome::Resolved { candidate } => {
@@ -2017,11 +2019,11 @@ fn candidate_handle_index(description: &str) -> Option<usize> {
 
 /// CLI-layer UX convenience, not decision memory (AGENTS.md §2): a session-scoped file holding
 /// the most recent resolver candidate set so a later `#N` invocation can address it without
-/// re-running resolution. Scoped by `$HIVEMIND_SESSION` when set (mayor decision, hivemind-tenv.1,
+/// re-running resolution. Scoped by `$LOOMTRACER_SESSION` when set (mayor decision, hivemind-tenv.1,
 /// 2026-09-07) so parallel agents sharing one ledger dir don't collide; falls back to a fixed
 /// name otherwise.
-fn continuation_file_path(hivemind_dir: &Path) -> PathBuf {
-    let scope = std::env::var("HIVEMIND_SESSION")
+fn continuation_file_path(loomtracer_dir: &Path) -> PathBuf {
+    let scope = std::env::var("LOOMTRACER_SESSION")
         .ok()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
@@ -2036,28 +2038,28 @@ fn continuation_file_path(hivemind_dir: &Path) -> PathBuf {
             }
         })
         .collect();
-    hivemind_dir.join(format!(".last-candidates-{safe_scope}.json"))
+    loomtracer_dir.join(format!(".last-candidates-{safe_scope}.json"))
 }
 
 /// Best-effort: a write failure here must never block the underlying query or write. This state
 /// is UI convenience, never authoritative — losing it just means a future `#N` fails cleanly.
-/// Creates `hivemind_dir` lazily: in Postgres mode there is no reason for it to
+/// Creates `loomtracer_dir` lazily: in Postgres mode there is no reason for it to
 /// pre-exist (the ledger itself lives in the configured database), but this
 /// resolver cache file is always local, so the directory must exist for the
 /// write to land.
-fn write_continuation_candidates(hivemind_dir: &Path, candidates: &[ResolvedCandidate]) {
-    let path = continuation_file_path(hivemind_dir);
-    let _ = std::fs::create_dir_all(hivemind_dir);
+fn write_continuation_candidates(loomtracer_dir: &Path, candidates: &[ResolvedCandidate]) {
+    let path = continuation_file_path(loomtracer_dir);
+    let _ = std::fs::create_dir_all(loomtracer_dir);
     if let Ok(json) = serde_json::to_vec(candidates) {
         let _ = std::fs::write(path, json);
     }
 }
 
-fn read_continuation_candidate(hivemind_dir: &Path, index: usize) -> Result<ResolvedCandidate> {
+fn read_continuation_candidate(loomtracer_dir: &Path, index: usize) -> Result<ResolvedCandidate> {
     let zero_based = index
         .checked_sub(1)
         .ok_or_else(|| CliError::InvalidInput("#N must be >= 1".to_owned()))?;
-    let path = continuation_file_path(hivemind_dir);
+    let path = continuation_file_path(loomtracer_dir);
     let bytes = std::fs::read(&path).map_err(|error| {
         CliError::InvalidInput(format!(
             "no prior resolver candidates at {}: {error}",
@@ -2083,7 +2085,7 @@ fn run_disagree(cli: &Cli, args: &DisagreeArgs) -> Result<String> {
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
     let target = resolve_fluent_target(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         !cli.json,
         &graph,
         args.decision_id.as_deref(),
@@ -2125,7 +2127,7 @@ fn run_move(cli: &Cli, args: &MoveArgs) -> Result<String> {
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
     let target = resolve_fluent_target(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         !cli.json,
         &graph,
         args.decision_id.as_deref(),
@@ -2159,7 +2161,7 @@ fn run_retitle(cli: &Cli, args: &RetitleArgs) -> Result<String> {
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
     let target = resolve_fluent_target(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         !cli.json,
         &graph,
         args.decision_id.as_deref(),
@@ -2220,7 +2222,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
     // resolved: resolving a description rewrites the `#N` continuation file a premise may point
     // at, and a supersede that names nothing it rests on should fail before doing any work.
     let grounding_spec = grounding::require_grounding(grounding::grounding_spec_from_args(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         &args.grounding,
         &args.evidence_ids,
         &args.hypothesis_ids,
@@ -2230,7 +2232,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
     let target = resolve_fluent_target(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         !cli.json,
         &graph,
         args.old_decision_id.as_deref(),
@@ -2244,7 +2246,7 @@ pub(crate) fn run_supersede_in_context<W: IoWrite>(
     };
 
     let resolved = grounding::resolve_declared_grounding(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         &ledger,
         &tenant_id,
         grounding_spec,
@@ -2729,7 +2731,7 @@ fn run_import(cli: &Cli, import: &ImportArgs) -> Result<String> {
                 ImportConnectorCommand::Run(run_args) => {
                     let mut connectors: Vec<Box<dyn crate::connector::Connector>> =
                         vec![Box::new(GitFileConnector)];
-                    if let Ok(Some(gdocs)) = GoogleDocsConnector::new(&cli.hivemind_dir) {
+                    if let Ok(Some(gdocs)) = GoogleDocsConnector::new(&cli.loomtracer_dir) {
                         connectors.push(Box::new(gdocs));
                     }
                     let report = import_via_connector(
@@ -3002,7 +3004,7 @@ fn trimmed_optional<'a>(field: &'static str, value: &'a Option<String>) -> Resul
 }
 
 /// `--project`/`--project-source` as the write layer's `DeterminedProject`. The handle is
-/// whatever the caller determined; HiveMind only validates it, never infers one.
+/// whatever the caller determined; Loomtracer only validates it, never infers one.
 fn cli_determined_project<'a>(
     project: &'a Option<String>,
     project_source: Option<ProjectSourceArg>,
@@ -3111,9 +3113,9 @@ fn run_query(cli: &Cli, query: &QueryArgs) -> Result<String> {
         GraphBackend::Memory => {
             let graph = MemoryGraph::default();
             rebuild_graph_for_tenant(&ledger, &context.tenant_id, &graph)?;
-            run_query_with_graph(&context, &ledger, &graph, &cli.hivemind_dir, query)
+            run_query_with_graph(&context, &ledger, &graph, &cli.loomtracer_dir, query)
         }
-        GraphBackend::Kuzu => run_query_with_kuzu(&context, &ledger, &cli.hivemind_dir, query),
+        GraphBackend::Kuzu => run_query_with_kuzu(&context, &ledger, &cli.loomtracer_dir, query),
     }
 }
 
@@ -3396,7 +3398,7 @@ fn validated_payload(event: &Event) -> Result<EventPayload> {
     })
 }
 
-fn cli_io_error(error: io::Error) -> HivemindError {
+fn cli_io_error(error: io::Error) -> LoomtracerError {
     CliError::InvalidInput(format!("interactive review I/O failed: {error}")).into()
 }
 
@@ -3716,7 +3718,7 @@ fn run_query_with_graph(
     context: &QueryContext,
     ledger: &AnyLedger,
     graph: &impl GraphView,
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     query: &QueryArgs,
 ) -> Result<String> {
     let output = match &query.command {
@@ -3739,7 +3741,7 @@ fn run_query_with_graph(
         }
         QueryCommand::GetSupersessionChain(args) => {
             let (target, close_match) = resolve_fluent_target_for_reading(
-                hivemind_dir,
+                loomtracer_dir,
                 query.summary,
                 graph,
                 args.decision_id.as_deref(),
@@ -3761,7 +3763,7 @@ fn run_query_with_graph(
         }
         QueryCommand::GetDecisionNeighborhood(args) => {
             let (target, close_match) = resolve_fluent_target_for_reading(
-                hivemind_dir,
+                loomtracer_dir,
                 query.summary,
                 graph,
                 args.decision_id.as_deref(),
@@ -3816,7 +3818,7 @@ fn run_query_with_graph(
         }
         QueryCommand::GetCompactView(args) => {
             let (target, close_match) = resolve_fluent_target_for_reading(
-                hivemind_dir,
+                loomtracer_dir,
                 query.summary,
                 graph,
                 args.decision_id.as_deref(),
@@ -3838,7 +3840,7 @@ fn run_query_with_graph(
         }
         QueryCommand::GetDecisionOutcome(args) => {
             let (target, close_match) = resolve_fluent_target_for_reading(
-                hivemind_dir,
+                loomtracer_dir,
                 query.summary,
                 graph,
                 args.decision_id.as_deref(),
@@ -4371,7 +4373,7 @@ fn run_dump(cli: &Cli, dump: &DumpArgs) -> Result<String> {
             rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
             run_dump_with_graph(&graph, dump)
         }
-        GraphBackend::Kuzu => run_dump_with_kuzu(&tenant_id, &ledger, &cli.hivemind_dir, dump),
+        GraphBackend::Kuzu => run_dump_with_kuzu(&tenant_id, &ledger, &cli.loomtracer_dir, dump),
     }
 }
 
@@ -4407,7 +4409,7 @@ fn run_tui(cli: &Cli, args: &TuiArgs) -> Result<String> {
             rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
             crate::tui::run(&graph, config)?;
         }
-        GraphBackend::Kuzu => run_tui_with_kuzu(&tenant_id, &ledger, &cli.hivemind_dir, config)?,
+        GraphBackend::Kuzu => run_tui_with_kuzu(&tenant_id, &ledger, &cli.loomtracer_dir, config)?,
     }
 
     Ok("tui exited".to_owned())
@@ -4425,10 +4427,10 @@ fn run_tui(_cli: &Cli, _args: &TuiArgs) -> Result<String> {
 fn run_tui_with_kuzu(
     tenant_id: &TenantId,
     ledger: &impl EventLedger,
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     config: crate::tui::TuiConfig,
 ) -> Result<()> {
-    let graph = crate::projector::kuzu::KuzuGraph::open(hivemind_dir)?;
+    let graph = crate::projector::kuzu::KuzuGraph::open(loomtracer_dir)?;
     rebuild_graph_for_tenant(ledger, tenant_id, &graph)?;
     crate::tui::run(&graph, config)
 }
@@ -4437,7 +4439,7 @@ fn run_tui_with_kuzu(
 fn run_tui_with_kuzu(
     _tenant_id: &TenantId,
     _ledger: &impl EventLedger,
-    _hivemind_dir: &std::path::Path,
+    _loomtracer_dir: &std::path::Path,
     _config: crate::tui::TuiConfig,
 ) -> Result<()> {
     Err(CliError::InvalidInput(
@@ -4456,19 +4458,19 @@ fn run_dump_with_graph(graph: &impl GraphView, dump: &DumpArgs) -> Result<String
 fn run_query_with_kuzu(
     context: &QueryContext,
     ledger: &AnyLedger,
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     query: &QueryArgs,
 ) -> Result<String> {
-    let graph = crate::projector::kuzu::KuzuGraph::open(hivemind_dir)?;
+    let graph = crate::projector::kuzu::KuzuGraph::open(loomtracer_dir)?;
     rebuild_graph_for_tenant(ledger, &context.tenant_id, &graph)?;
-    run_query_with_graph(context, ledger, &graph, hivemind_dir, query)
+    run_query_with_graph(context, ledger, &graph, loomtracer_dir, query)
 }
 
 #[cfg(not(feature = "graph-kuzu"))]
 fn run_query_with_kuzu(
     _context: &QueryContext,
     _ledger: &AnyLedger,
-    _hivemind_dir: &std::path::Path,
+    _loomtracer_dir: &std::path::Path,
     _query: &QueryArgs,
 ) -> Result<String> {
     Err(CliError::InvalidInput(
@@ -4481,10 +4483,10 @@ fn run_query_with_kuzu(
 fn run_dump_with_kuzu(
     tenant_id: &TenantId,
     ledger: &impl EventLedger,
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     dump: &DumpArgs,
 ) -> Result<String> {
-    let graph = crate::projector::kuzu::KuzuGraph::open(hivemind_dir)?;
+    let graph = crate::projector::kuzu::KuzuGraph::open(loomtracer_dir)?;
     rebuild_graph_for_tenant(ledger, tenant_id, &graph)?;
     run_dump_with_graph(&graph, dump)
 }
@@ -4493,7 +4495,7 @@ fn run_dump_with_kuzu(
 fn run_dump_with_kuzu(
     _tenant_id: &TenantId,
     _ledger: &impl EventLedger,
-    _hivemind_dir: &std::path::Path,
+    _loomtracer_dir: &std::path::Path,
     _dump: &DumpArgs,
 ) -> Result<String> {
     Err(CliError::InvalidInput(
@@ -4517,7 +4519,7 @@ fn parse_actor_mappings(values: &[String]) -> Result<BTreeMap<String, String>> {
     for value in values {
         let (slack_user, actor_id) = value.split_once('=').ok_or_else(|| {
             CliError::InvalidInput(
-                "--actor-map must use SlackUser=HiveMindActorId format".to_owned(),
+                "--actor-map must use SlackUser=LoomtracerActorId format".to_owned(),
             )
         })?;
         let slack_user = trimmed_required("--actor-map Slack user", slack_user)?;
@@ -4541,8 +4543,8 @@ pub(crate) fn cli_tenant(cli: &Cli) -> Result<TenantId> {
         .map_err(|error| CliError::InvalidInput(format!("--tenant is invalid: {error}")).into())
 }
 
-/// Opens the ledger for one CLI invocation: SQLite under `--hivemind-dir` (default)
-/// or Postgres when `--database-url`/`HIVEMIND_DATABASE_URL` is set. Every command
+/// Opens the ledger for one CLI invocation: SQLite under `--loomtracer-dir` (default)
+/// or Postgres when `--database-url`/`LOOMTRACER_DATABASE_URL` is set. Every command
 /// that reads or writes the ledger goes through this — a CLI that captures to
 /// SQLite but reads Postgres (or vice versa) is worse than either alone.
 fn open_ledger(cli: &Cli) -> Result<AnyLedger> {
@@ -4562,11 +4564,11 @@ fn selected_graph_backend(cli: &Cli) -> Result<GraphBackend> {
         return Ok(backend);
     }
 
-    match std::env::var("HIVEMIND_GRAPH_BACKEND") {
+    match std::env::var("LOOMTRACER_GRAPH_BACKEND") {
         Ok(value) => parse_graph_backend(&value),
         Err(std::env::VarError::NotPresent) => Ok(GraphBackend::Memory),
         Err(error) => Err(CliError::InvalidInput(format!(
-            "HIVEMIND_GRAPH_BACKEND is not valid unicode: {error}"
+            "LOOMTRACER_GRAPH_BACKEND is not valid unicode: {error}"
         ))
         .into()),
     }
@@ -4584,7 +4586,7 @@ pub(crate) fn parse_graph_backend(value: &str) -> Result<GraphBackend> {
 }
 
 /// Public DOT renderer for callers outside the CLI module (e.g. the MCP
-/// server). Delegates to the same internal implementation `hivemind dump`
+/// server). Delegates to the same internal implementation `loomtracer dump`
 /// uses so output stays identical across transports.
 
 #[derive(Debug, Serialize)]
@@ -4635,7 +4637,7 @@ fn run_quality_scan(cli: &Cli, args: &QualityScanArgs) -> Result<String> {
         return Ok("quality-scan: no unacknowledged finding — nothing to file".to_owned());
     }
 
-    let base_url = args.hivemind_base_url.as_deref();
+    let base_url = args.loomtracer_base_url.as_deref();
 
     let issues: Vec<serde_json::Value> = if nothing_pending {
         Vec::new()
@@ -4657,15 +4659,16 @@ fn run_quality_scan(cli: &Cli, args: &QualityScanArgs) -> Result<String> {
             .collect()
     } else {
         // Resolve Linear API key from env (not a CLI flag to avoid accidental exposure).
-        let api_key = std::env::var("HIVEMIND_LINEAR_API_KEY").map_err(|_| {
+        let api_key = std::env::var("LOOMTRACER_LINEAR_API_KEY").map_err(|_| {
             CliError::InvalidInput(
-                "HIVEMIND_LINEAR_API_KEY is not set; pass --dry-run to preview without filing"
+                "LOOMTRACER_LINEAR_API_KEY is not set; pass --dry-run to preview without filing"
                     .to_owned(),
             )
         })?;
         let team_id = args.linear_team_id.clone().ok_or_else(|| {
             CliError::InvalidInput(
-                "HIVEMIND_LINEAR_TEAM_ID is not set and --linear-team-id was not passed".to_owned(),
+                "LOOMTRACER_LINEAR_TEAM_ID is not set and --linear-team-id was not passed"
+                    .to_owned(),
             )
         })?;
         let client = LinearClient::new(api_key);
@@ -4786,12 +4789,12 @@ fn run_tenant_create(cli: &Cli, args: &TenantCreateArgs) -> Result<String> {
     }
 
     let tenant_id = TenantId::new(args.tenant_id.trim().to_owned()).map_err(|error| {
-        HivemindError::from(CliError::InvalidInput(format!(
+        LoomtracerError::from(CliError::InvalidInput(format!(
             "tenant id is invalid: {error}"
         )))
     })?;
 
-    let ledger = SqliteEventLedger::open(&cli.hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(&cli.loomtracer_dir)?;
     ledger.create_tenant(&tenant_id)?;
 
     if cli.json {
@@ -4799,14 +4802,14 @@ fn run_tenant_create(cli: &Cli, args: &TenantCreateArgs) -> Result<String> {
             true,
             &serde_json::json!({
                 "tenant_id": tenant_id.as_str(),
-                "hivemind_dir": cli.hivemind_dir.display().to_string(),
+                "loomtracer_dir": cli.loomtracer_dir.display().to_string(),
             }),
         )
     } else {
         Ok(format!(
             "Created tenant '{}' in {}",
             tenant_id.as_str(),
-            cli.hivemind_dir.display()
+            cli.loomtracer_dir.display()
         ))
     }
 }
@@ -4993,7 +4996,7 @@ fn run_project_decisions(cli: &Cli, args: &ProjectDecisionsArgs) -> Result<Strin
 
 fn run_project_show_current(cli: &Cli) -> Result<String> {
     let tenant_id = cli_tenant(cli)?;
-    let store = CurrentProjectStore::new(&cli.hivemind_dir);
+    let store = CurrentProjectStore::new(&cli.loomtracer_dir);
     let person = cli.person();
     let handle = store.get(tenant_id.as_str(), person.trim())?;
 
@@ -5007,7 +5010,7 @@ fn run_project_show_current(cli: &Cli) -> Result<String> {
     )
 }
 
-/// Set or clear the actor's current-project setting (`--hivemind-dir`, per
+/// Set or clear the actor's current-project setting (`--loomtracer-dir`, per
 /// tenant + actor). This is deliberately NOT a ledger write -- Alex, choice
 /// 5a: "local per machine, no fact in the record" -- so `--clear` never
 /// needs the ledger at all. Setting a handle validates it against the
@@ -5017,7 +5020,7 @@ fn run_project_use(cli: &Cli, args: &ProjectUseArgs) -> Result<String> {
     let tenant_id = cli_tenant(cli)?;
     let person = cli.person();
     let actor = person.trim();
-    let store = CurrentProjectStore::new(&cli.hivemind_dir);
+    let store = CurrentProjectStore::new(&cli.loomtracer_dir);
 
     match (args.handle.as_deref(), args.clear) {
         (Some(_), true) => Err(CliError::InvalidInput(
@@ -5053,7 +5056,7 @@ fn run_project_use(cli: &Cli, args: &ProjectUseArgs) -> Result<String> {
             let response = get_project(&scoped_ledger, handle)?;
             if matches!(response.data, ProjectOutcome::NotFound) {
                 return Err(CliError::InvalidInput(format!(
-                    "no project called '{handle}': run `hivemind project register {handle}` to register it"
+                    "no project called '{handle}': run `loomtracer project register {handle}` to register it"
                 ))
                 .into());
             }

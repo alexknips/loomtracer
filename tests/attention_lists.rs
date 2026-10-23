@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
+use loomtracer::cli::{run, Cli};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -23,7 +23,7 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
         let path =
-            std::env::temp_dir().join(format!("hivemind-attention-{label}-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("loomtracer-attention-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -39,10 +39,10 @@ impl Drop for Scratch {
     }
 }
 
-fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> hivemind::Result<String> {
+fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),
@@ -408,7 +408,7 @@ fn the_summaries_read_as_text() -> TestResult<()> {
 
     let empty = Scratch::new("summary-empty")?;
     // A ledger that holds nothing answers; a folder with no ledger is refused (hivemind-i6ply).
-    hivemind::ledger::SqliteEventLedger::open(empty.path())?;
+    loomtracer::ledger::SqliteEventLedger::open(empty.path())?;
     assert_eq!(
         run_cli(
             empty.path(),

@@ -11,7 +11,7 @@ type Project = { ref: string; name: string; decisions: number };
 /** How many of the project's decisions the bundle draws, of how many it holds. */
 type Shown = { shown: number; total: number; truncated: boolean };
 type Payload = { error?: string; projects?: Project[]; bundle?: ReasoningBundle; head?: string; decisions?: Shown };
-/** The most decisions HiveMind returns for one project in one read. */
+/** The most decisions Loomtracer returns for one project in one read. */
 const MOST_DECISIONS = 1000;
 
 async function request(url: string, signal: AbortSignal): Promise<Payload> {
@@ -28,7 +28,7 @@ export function HostedControls({ mode, initialProject, hosted, setHosted, onLoad
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [projectRef, setProjectRef] = useState(initialProject);
   const [reload, setReload] = useState(0);
-  // How many of the newest decisions to read; null is HiveMind's own page.
+  // How many of the newest decisions to read; null is Loomtracer's own page.
   const [limit, setLimit] = useState<number | null>(null);
   const [shown, setShown] = useState<Shown | null>(null);
   // Which read has finished (or failed): a read is under way while it is not the one asked for.
@@ -58,7 +58,7 @@ export function HostedControls({ mode, initialProject, hosted, setHosted, onLoad
     void request(`/api/reasoning?${new URLSearchParams({ project_ref: projectRef, ...(limit ? { limit: String(limit) } : {}) })}`, controller.signal).then(data => {
       if (controller.signal.aborted || !data.bundle) return;
       setShown(data.decisions ?? null);
-      if (callbacks.current.onLoad(data.bundle, `${data.bundle.title} read from the HiveMind ledger.`, false)) callbacks.current.setHosted({ projectRef, head: data.head ?? '' });
+      if (callbacks.current.onLoad(data.bundle, `${data.bundle.title} read from the Loomtracer ledger.`, false)) callbacks.current.setHosted({ projectRef, head: data.head ?? '' });
       window.history.replaceState(null, '', `/graph?${new URLSearchParams({ project: projectRef })}`);
     }).catch(error => { if (!controller.signal.aborted) callbacks.current.onError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setLoaded(readKey); });
@@ -66,7 +66,7 @@ export function HostedControls({ mode, initialProject, hosted, setHosted, onLoad
   }, [mode, ready, projectRef, reload, limit, readKey]);
 
   return <section className="hosted-controls" aria-label="Project history">
-    <div className="hosted-controls-top"><div><p className="eyebrow">{mode === 'local' ? 'Private inspection' : 'Your ledger'}</p><p className="muted">{mode === 'local' ? 'Opening a file does not upload it. Nothing here is sent to a server.' : 'A read-only view of the decisions HiveMind holds. Follow each one to what it weighed, what it rests on and who decided.'}</p></div><Link className="text-button" href={mode === 'local' ? '/graph' : '/inspect'}>{mode === 'local' ? 'Open your projects →' : 'Inspect a private file →'}</Link></div>
+    <div className="hosted-controls-top"><div><p className="eyebrow">{mode === 'local' ? 'Private inspection' : 'Your ledger'}</p><p className="muted">{mode === 'local' ? 'Opening a file does not upload it. Nothing here is sent to a server.' : 'A read-only view of the decisions Loomtracer holds. Follow each one to what it weighed, what it rests on and who decided.'}</p></div><Link className="text-button" href={mode === 'local' ? '/graph' : '/inspect'}>{mode === 'local' ? 'Open your projects →' : 'Inspect a private file →'}</Link></div>
     {mode === 'hosted' && projects && (projects.length ? <div className="project-controls">
       <label>Project<select aria-label="Reasoning project" value={projectRef} disabled={busy} onChange={event => { setHosted(null); setShown(null); setLimit(null); setProjectRef(event.target.value); }}>{projects.map(project => <option key={project.ref} value={project.ref}>{project.name} ({project.decisions})</option>)}</select></label>
       <button className="text-button" disabled={busy} onClick={() => { setHosted(null); setReload(count => count + 1); }}>Reload from the ledger</button>
@@ -74,6 +74,6 @@ export function HostedControls({ mode, initialProject, hosted, setHosted, onLoad
       {hosted && shown?.truncated && <span className="muted" data-testid="decisions-shown">The newest {shown.shown} of {shown.total} decisions are drawn.</span>}
       {hosted && shown?.truncated && shown.shown < MOST_DECISIONS && <button className="text-button" disabled={busy} data-testid="show-more-decisions" onClick={() => { setHosted(null); setLimit(MOST_DECISIONS); }}>Draw up to {MOST_DECISIONS}</button>}
       {busy && <span role="status">Reading the ledger…</span>}
-    </div> : <p className="muted" data-testid="no-projects">This ledger holds no decisions yet. Capture one with <code>hivemind emit decision.capture</code> and reload.</p>)}
+    </div> : <p className="muted" data-testid="no-projects">This ledger holds no decisions yet. Capture one with <code>loomtracer emit decision.capture</code> and reload.</p>)}
   </section>;
 }

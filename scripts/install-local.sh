@@ -3,10 +3,10 @@ set -eu
 
 # scripts/install-local.sh [ref]
 #
-# Builds the hivemind CLI from a given git ref and installs it to
-# ~/.local/bin (override with HIVEMIND_INSTALL_DIR) — the same location
+# Builds the loomtracer CLI from a given git ref and installs it to
+# ~/.local/bin (override with LOOMTRACER_INSTALL_DIR) — the same location
 # scripts/install.sh uses for published releases, and where Gas Town rigs
-# resolve `hivemind` on PATH ahead of ~/.cargo/bin.
+# resolve `loomtracer` on PATH ahead of ~/.cargo/bin.
 #
 # Unlike `make install` (which builds whatever is currently checked out),
 # this takes an explicit ref and builds it in a disposable git worktree, so
@@ -20,7 +20,7 @@ set -eu
 # actually contains is never silent (hivemind-zdsh.7).
 
 ref="${1:-origin/master}"
-install_dir="${HIVEMIND_INSTALL_DIR:-$HOME/.local/bin}"
+install_dir="${LOOMTRACER_INSTALL_DIR:-$HOME/.local/bin}"
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
@@ -48,14 +48,14 @@ echo "Building (this can take a few minutes on a cold cache)..."
 # reuse cached dependency builds instead of recompiling from scratch every
 # time. Cargo supports a target dir outside the source tree for exactly
 # this reason.
-build_target_dir="${HIVEMIND_BUILD_TARGET_DIR:-$repo_root/target}"
+build_target_dir="${LOOMTRACER_BUILD_TARGET_DIR:-$repo_root/target}"
 (cd "$worktree_dir" && \
   CARGO_TARGET_DIR="$build_target_dir" \
-  HIVEMIND_BUILD_SHA="$full_sha" \
-  cargo build --release --locked --bin hivemind)
+  LOOMTRACER_BUILD_SHA="$full_sha" \
+  cargo build --release --locked --bin loomtracer)
 
 mkdir -p "$install_dir"
-install -m 0755 "${build_target_dir}/release/hivemind" "${install_dir}/hivemind"
+install -m 0755 "${build_target_dir}/release/loomtracer" "${install_dir}/loomtracer"
 
-echo "installed $("${install_dir}/hivemind" --version)"
-echo "  -> ${install_dir}/hivemind"
+echo "installed $("${install_dir}/loomtracer" --version)"
+echo "  -> ${install_dir}/loomtracer"

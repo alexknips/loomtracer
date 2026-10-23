@@ -5,7 +5,7 @@ This walks through the end-to-end Milestone 2 flow on a single machine:
 1. Import an "older" decision-note document.
 2. Capture the latest ledger offset as the boundary.
 3. Import a "newer" decision-note document.
-4. Ask HiveMind which decisions were added to the graph after the boundary,
+4. Ask Loomtracer which decisions were added to the graph after the boundary,
    including `since last week` resolution via a frozen clock.
 
 The integration test `tests/local_import_weekly_diff_demo.rs` exercises the
@@ -17,22 +17,22 @@ same flow against deterministic fixtures
 Build the CLI once:
 
 ```bash
-cargo build --bin hivemind
+cargo build --bin loomtracer
 ```
 
-Use `target/debug/hivemind` for the rest of this walkthrough. Pick a fresh
+Use `target/debug/loomtracer` for the rest of this walkthrough. Pick a fresh
 working directory so the demo does not collide with an existing graph:
 
 ```bash
-HM_DIR=$(mktemp -d)/hivemind
+HM_DIR=$(mktemp -d)/loomtracer
 ```
 
 ## Step 1: Import the "older" document
 
 ```bash
-target/debug/hivemind \
+target/debug/loomtracer \
   --actor importer:last-week \
-  --hivemind-dir "$HM_DIR" \
+  --loomtracer-dir "$HM_DIR" \
   --json \
   import documents tests/fixtures/m2_weekly_diff_demo/last_week
 ```
@@ -41,8 +41,8 @@ Expect `summary.blocks_imported == 1`. Record the latest ledger offset, which
 will be the diff boundary:
 
 ```bash
-target/debug/hivemind \
-  --hivemind-dir "$HM_DIR" \
+target/debug/loomtracer \
+  --loomtracer-dir "$HM_DIR" \
   --json \
   query get_recent_activity --limit 1 \
   | jq -r '.data.items[0].event_origin'
@@ -53,9 +53,9 @@ Store that value in `BOUNDARY` for the rest of the demo.
 ## Step 2: Import the "newer" document
 
 ```bash
-target/debug/hivemind \
+target/debug/loomtracer \
   --actor importer:this-week \
-  --hivemind-dir "$HM_DIR" \
+  --loomtracer-dir "$HM_DIR" \
   --json \
   import documents tests/fixtures/m2_weekly_diff_demo/this_week
 ```
@@ -68,8 +68,8 @@ The reported `import_run_id` will appear in the query response below under
 Using the deterministic ledger boundary:
 
 ```bash
-target/debug/hivemind \
-  --hivemind-dir "$HM_DIR" \
+target/debug/loomtracer \
+  --loomtracer-dir "$HM_DIR" \
   --json \
   query get_decisions_added_since --since-offset "$BOUNDARY" --limit 50
 ```
@@ -94,8 +94,8 @@ The same query accepts relative phrases when the caller supplies a fixed
 wall-clock skew:
 
 ```bash
-target/debug/hivemind \
-  --hivemind-dir "$HM_DIR" \
+target/debug/loomtracer \
+  --loomtracer-dir "$HM_DIR" \
   --json \
   query get_decisions_added_since \
   --since "last week" \

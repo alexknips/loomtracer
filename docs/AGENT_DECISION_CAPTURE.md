@@ -6,14 +6,14 @@ server-side classifier. See the *HTTP API Capture* section below.
 
 This document covers the write path only. For consulting, verifying, and
 contesting decisions that already exist — including the CLI-only
-`hivemind-context` plugin, a second agent interaction model alongside MCP —
+`loomtracer-context` plugin, a second agent interaction model alongside MCP —
 see [`AGENT_DECISION_CONTEXT.md`](AGENT_DECISION_CONTEXT.md).
 
-HiveMind exposes a noninteractive CLI path for Claude, Codex, and similar coding
+Loomtracer exposes a noninteractive CLI path for Claude, Codex, and similar coding
 agents to record a decision directly into the local ledger:
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
+cargo run -- --loomtracer-dir ./loomtracer/ emit decision.capture \
   --title "Use direct CLI capture for agent decisions" \
   --rationale "The local command is deterministic and does not depend on hooks" \
   --topic-keys agents,capture \
@@ -83,8 +83,8 @@ not ask the question.
 
 ### How the capture plugins ask it
 
-The `hivemind-capture` skill, `/hivemind-capture:capture` and
-`/hivemind-capture:capture-decision`, the Claude `active-capture` skill, the
+The `loomtracer-capture` skill, `/loomtracer-capture:capture` and
+`/loomtracer-capture:capture-decision`, the Claude `active-capture` skill, the
 repo-local `/capture-decision`, and the Codex bundle all teach the same thing:
 answer "what does this rest on?" before writing, and pass the answer as a flag;
 then answer the second pair ([what it binds and what undoing it
@@ -98,7 +98,7 @@ costs](#what-the-decision-binds-and-what-undoing-it-costs)) the same way.
 | nothing yet: a declared bet, optionally what would change our mind and when to check | `--bet`, `--would-change-if`, `--check-by` (`bet`) |
 
 The primary loop is **consult, decide, capture**: ask what is already decided
-about the ground you are about to change (the `hivemind-context` plugin's
+about the ground you are about to change (the `loomtracer-context` plugin's
 `situational`, or `recall`), decide, then capture with the consulted decision as
 the premise. Consulting only finds what a decision rests on; it never decides
 whether to capture. The answer is one open question, and the four kinds are the
@@ -125,7 +125,7 @@ topic, bead id or similarity. When the rationale does name a decision by id (a f
 its first eight hex digits when exactly one decision starts with them) that the grounding
 does not list, the reply says so in `cited_not_linked` (text mode: a line on stderr). It is
 a hint only: the capture is recorded, nothing is linked for the caller, and
-`hivemind ground --id <decision id> --rests-on-decision <cited id>` adds the link.
+`loomtracer ground --id <decision id> --rests-on-decision <cited id>` adds the link.
 
 **A person's ruling is their decision, not the agent's evidence.** When what a decision
 rests on is a person's ruling and no decision records it yet, the ruling is captured first as
@@ -152,7 +152,7 @@ replaces.
 A title is one plain sentence a stranger understands; the rationale is
 readable without the tracker. A tracker or ticket id (a bead, Jira, or GitHub
 issue) goes in `--evidence-source` or as linked evidence — never in the
-title, and not as the rationale's subject. The `hivemind-capture` skill, the
+title, and not as the rationale's subject. The `loomtracer-capture` skill, the
 capture commands, the active-capture skill, and the Codex bundle all teach
 this the same way, and the classifier prompt (`src/classifier.rs`,
 [`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md)) carries the same rule for
@@ -161,7 +161,7 @@ extracted captures.
 ### Grounding a decision after the fact
 
 A decision captured without saying what it rests on reads `nothing declared`.
-`hivemind ground "<decision description>"` adds it later, with the same grounding
+`loomtracer ground "<decision description>"` adds it later, with the same grounding
 flags as capture (`--rests-on-decision`, `--rests-on-evidence` with
 `--evidence-source`, `--rests-on-assumption`, `--bet`; `--evidence` / `--hypotheses`
 for existing nodes). The decision is resolved with the same ambiguity gate as
@@ -179,22 +179,22 @@ fan-out relation events carry:
 
 - `source=agent`
 - `actor_id=agent:<tool>:<name>` unless `--actor-id` is provided. `<name>` is
-  stable only where something stable names it: `HIVEMIND_AGENT_SESSION`, then
+  stable only where something stable names it: `LOOMTRACER_AGENT_SESSION`, then
   Gas City's `GC_AGENT`/`GC_ALIAS`, are checked before Claude or Codex session
   variables (which are freshly generated on every run and would otherwise make
   the same physical agent look like a different actor after every restart,
   hivemind-zdsh.9). With none of them set, `<name>` is that per-run session id
   (with no session id either, the CLI uses `manual-session` and the MCP server
   makes up `mcp-<uuid>`), so each session is its own actor; set
-  `HIVEMIND_AGENT_SESSION` to keep one.
+  `LOOMTRACER_AGENT_SESSION` to keep one.
   `--agent-tool` and `--agent-session` are explicit overrides. `<tool>` is the
-  `--agent-tool` flag, else `HIVEMIND_AGENT_TOOL`/`HIVEMIND_TOOL` or the Claude
+  `--agent-tool` flag, else `LOOMTRACER_AGENT_TOOL`/`LOOMTRACER_TOOL` or the Claude
   or Codex session variables, else `unknown` -- never a guessed `codex`. The MCP
-  server (`hivemind mcp`) goes one step further when none of those names the
+  server (`loomtracer mcp`) goes one step further when none of those names the
   agent: it takes the tool from the client's own `initialize` handshake
   (`clientInfo.name`: Claude Code -> `claude`, Codex -> `codex`, Cursor ->
   `cursor`, any other client under its own name, folded to the actor-id
-  charset), so `claude mcp add hivemind -- hivemind mcp` files captures as
+  charset), so `claude mcp add loomtracer -- loomtracer mcp` files captures as
   `agent:claude:<name>` without the flag (hivemind-tiu9). Events already
   recorded are not renamed.
 - `source_ref` set to the raw per-run session id (provenance) when one is
@@ -207,10 +207,10 @@ not record them as one. With none of `--source`, `--actor-id`, `--agent-tool`,
 the actor, with `source=human` for a `human:<name>` id and `source=agent` for an
 `agent:<tool>:<name>` id, when either
 
-- `--actor` was typed on the command line (`hivemind --actor human:alice emit
+- `--actor` was typed on the command line (`loomtracer --actor human:alice emit
   decision.capture ...`), or
 - the environment shows no agent at all (no tool or session variable, no Gas
-  City identity), so the actor is the CLI's default: `HIVEMIND_ACTOR`, then
+  City identity), so the actor is the CLI's default: `LOOMTRACER_ACTOR`, then
   `human:<git config user.email>`.
 
 An agent stays an agent: with an agent in the environment and no `--actor`
@@ -221,8 +221,8 @@ The follow-up verbs (`ground`, `retitle`, `disagree`, `supersede`, `move`) follo
 same rule for who is recorded: with an agent in the environment
 and no `--actor` typed they record `agent:<tool>:<name>`, so the command a capture's
 `cited_not_linked` hint prints can be run as printed. A person at a plain terminal is
-still recorded as themselves (`HIVEMIND_ACTOR`, then `human:<git config user.email>`),
-and a typed `--actor` or a `HIVEMIND_ACTOR` that already names an agent is kept.
+still recorded as themselves (`LOOMTRACER_ACTOR`, then `human:<git config user.email>`),
+and a typed `--actor` or a `LOOMTRACER_ACTOR` that already names an agent is kept.
 
 Use `--evidence` and `--hypotheses` with existing evidence and hypothesis ids
 when the decision depends on already captured context.
@@ -256,10 +256,10 @@ projected as a `delegated_by` property on the Decision node. It is not a new
 node or edge kind, and it does not change the authorship or review shapes: an
 agent deciding under a delegation still derives `agent_only` +
 `self_accepted`, and `delegated_by` is the extra fact that separates it from an
-agent deciding alone. `hivemind digest` prints it as a `Delegated by:` line
+agent deciding alone. `loomtracer digest` prints it as a `Delegated by:` line
 under `By:`; `query verify` prints `delegated by:` and returns
 `decided_by.delegated_by`; `get_decision_context` returns `delegated_by`; the
-Markdown decision-log export (`hivemind export --format markdown`) appends
+Markdown decision-log export (`loomtracer export --format markdown`) appends
 `(Delegated by: human:<name>)` to the decider in the `Decided by` cell of each
 `INDEX.md` row and adds a `Delegated by:` line to the decision's Provenance
 section; and the failure-attribution report splits agent self-accepted
@@ -355,14 +355,14 @@ This is the same trust as declaring a bet: the write path reads the level the
 capturer declared and cannot judge the sentence, so an agent can answer
 `something` reflexively. The sentence makes that visible later; the floor stops
 honest triviality, not gaming. What keeps requests and trivia out of the ledger is
-the teaching: the capture plugins, the `hivemind-capture` skill, the Codex bundle
+the teaching: the capture plugins, the `loomtracer-capture` skill, the Codex bundle
 and the classifier prompt all carry the same test (below).
 
 ### How the capture plugins teach it
 
-The `hivemind-capture` skill, `/hivemind-capture:capture` and
-`/hivemind-capture:capture-decision`, the Claude `active-capture` skill, the
-repo-local `/capture-decision`, `hivemind-context`'s `supersede`, and the Codex
+The `loomtracer-capture` skill, `/loomtracer-capture:capture` and
+`/loomtracer-capture:capture-decision`, the Claude `active-capture` skill, the
+repo-local `/capture-decision`, `loomtracer-context`'s `supersede`, and the Codex
 bundle (its `openai.yaml` and manifest prompts) teach the two-legged test with the
 two examples above (Apple against apple, merge tonight) and say **a request goes to
 your tracker**. `capture.sh` and `supersede.sh` forward `--binds`, `--binds-nothing`,
@@ -392,8 +392,8 @@ and dropping trailing punctuation share one node. The match is exact and
 deterministic (no ranking, no model); a question worded differently is a
 different question. The reply's `question_id` names the node.
 
-A question someone asked with `hivemind ask` is a request that stays on the waiting list
-(`hivemind query get_waiting_requests`) until a decision answers it. Answer it with
+A question someone asked with `loomtracer ask` is a request that stays on the waiting list
+(`loomtracer query get_waiting_requests`) until a decision answers it. Answer it with
 `--answers <request id>` (MCP `answers`; `capture.sh` forwards it) in place of `--question`: the
 decision is linked to the request's question, the request leaves the list, and `why` shows
 `asked_at` beside `answered_at`.
@@ -411,7 +411,7 @@ What sharing buys, in every answer:
   matched.
 
 A decision captured without a question, or before question nodes existed, is
-linked afterwards with `hivemind ground "<decision>" --answers "<question>"`
+linked afterwards with `loomtracer ground "<decision>" --answers "<question>"`
 (MCP `ground_decision` with `answers`), attributed to whoever runs it. A
 decision answers one question: naming a different one than it already answers
 is refused, and nothing is written.
@@ -419,11 +419,11 @@ is refused, and nothing is written.
 ## The session directive
 
 An installed plugin does nothing for an agent that is never told to use it: with the
-`hivemind-capture` plugin and its MCP server connected, agents given no instruction
+`loomtracer-capture` plugin and its MCP server connected, agents given no instruction
 recalled and captured 0 times in 31 headless benchmark sessions (hivemind-wdwg). So the
 plugin's Claude Code `SessionStart` hook adds this to every session's context:
 
-> HiveMind ledger: before you act, call the `hivemind` MCP tool `recall_decisions` (q =
+> Loomtracer ledger: before you act, call the `loomtracer` MCP tool `recall_decisions` (q =
 > three or four key words about the task) and follow the earlier decisions that still
 > hold. Call `capture_decision` (title, rationale = the why, options, grounding, binds,
 > undo_cost) for: a rule learned from something that failed or cost you (save it the
@@ -435,26 +435,26 @@ plugin's Claude Code `SessionStart` hook adds this to every session's context:
 It says what is worth saving, not only to save: told to record "decisions", benchmark agents
 saved a summary of each session and missed the rule that cost them something (hivemind-dd95).
 It is a fixed text of about 595 characters (held under a 150-token budget by a test), it reads
-no ledger, and it fails open: no `hivemind` binary means it prints nothing and the session
-starts as usual. Turn it off with `HIVEMIND_DIRECTIVE_DISABLE=1` (in the environment, or under
+no ledger, and it fails open: no `loomtracer` binary means it prints nothing and the session
+starts as usual. Turn it off with `LOOMTRACER_DIRECTIVE_DISABLE=1` (in the environment, or under
 `env` in `.claude/settings.json`).
 The Codex package carries the same hook; Codex runs it only after you trust it. The text, the
 Codex trust step and the settings are in the
-[plugin README](../plugins/hivemind-capture/README.md#session-directive).
+[plugin README](../plugins/loomtracer-capture/README.md#session-directive).
 
 ## Questions asked with AskUserQuestion
 
 In Claude Code an agent puts a question to the person by calling the
-`AskUserQuestion` tool, an act with a time. The `hivemind-capture` plugin hooks it
+`AskUserQuestion` tool, an act with a time. The `loomtracer-capture` plugin hooks it
 (hivemind-bbnw.5), so the ledger records when the question was asked and when it
 was answered, with no model in the loop:
 
-- **`PreToolUse`** writes one ask per question (`hivemind ask`, MCP
+- **`PreToolUse`** writes one ask per question (`loomtracer ask`, MCP
   `request_decision`): the question, the asking agent, and the time of the tool
   call. The request is `waiting` until a decision answers its question.
 - **`PostToolUse`** writes one decision per answered question, recorded by the agent
   and **decided by the person** (`--decided-by human:<git email>`, or
-  `HIVEMIND_HUMAN_ACTOR`). Options are the ones offered, chosen is the one picked;
+  `LOOMTRACER_HUMAN_ACTOR`). Options are the ones offered, chosen is the one picked;
   several picks become one combined option (`Search + Export`) and words of their
   own go in `--quote`. Words (or, when nothing was picked, the note) choose an
   offered option when they lead with its name and name no other offered option;
@@ -468,7 +468,7 @@ was answered, with no model in the loop:
   too short to read on its own goes in `--quote` instead, and the rationale says a
   note is attached. Only with neither a note nor words of their own does it say no
   reasons were given. It rests on a bet with nothing declared, because nothing was
-  stated; `hivemind ground` adds what the answer rests on later.
+  stated; `loomtracer ground` adds what the answer rests on later.
 
 The decision's topic is the slug of the question's header. A registered project
 accepts only topic keys it declared (the vocabulary rule, under
@@ -483,7 +483,7 @@ person's answer is recorded in every checkout.
 
 The decision names the same question as the ask (`--question`, not `--answers`: a
 request id only resolves to its question's text, so the two hooks share no state),
-which is what makes `hivemind query why` show `asked_at` beside `answered_at` and takes
+which is what makes `loomtracer query why` show `asked_at` beside `answered_at` and takes
 the request off the waiting list.
 
 Only real asks are written. The tool call is the act and its time is the ask's
@@ -493,14 +493,14 @@ never answers has no answer step, so it stays `waiting`. Speed is that waiting
 list plus each decision's own two times; nothing averages them and nothing is
 figured per person. Agents therefore should not capture the same answer again with
 `capture.sh`: a second decision on the question reads as `also answered by`. Setup,
-settings (`HIVEMIND_API_URL` for a hosted server) and failure behaviour are in the
-[plugin README](../plugins/hivemind-capture/README.md#askuserquestion-hooks).
+settings (`LOOMTRACER_API_URL` for a hosted server) and failure behaviour are in the
+[plugin README](../plugins/loomtracer-capture/README.md#askuserquestion-hooks).
 
 ## Which project a capture lands in
 
 Every decision belongs to exactly one project inside its tenant (the model is in
 [`MULTI_TENANCY.md`](MULTI_TENANCY.md#projects-inside-a-tenant)). A capture
-says which project and how that was determined; HiveMind checks the handle and
+says which project and how that was determined; Loomtracer checks the handle and
 records both, and never works the project out itself. Evidence and hypothesis
 captures carry no project.
 
@@ -515,11 +515,11 @@ assumption named on the same call), and the refusal carries the command that fix
 it:
 
 ```text
-error: invariant violated: project not registered: nosuch -- register it first with `hivemind project register nosuch`
+error: invariant violated: project not registered: nosuch -- register it first with `loomtracer project register nosuch`
 ```
 
 A caller may not state a `personal:` address, nor claim `personal_fallback`,
-`moved` or `inherited` next to a handle: HiveMind records those three itself.
+`moved` or `inherited` next to a handle: Loomtracer records those three itself.
 
 **Not naming it.** With no project, a capture never fails. It is saved to the
 recorder's personal project (`personal:human:alex`, or `personal:agent:claude`
@@ -535,7 +535,7 @@ project silently, and the decision can be moved later (see below). REST replies
 do not carry it (see the HTTP paragraph).
 
 **Working it out from where the agent is.** `--project-from-context` on the same
-CLI verbs, and on the stdio server (`hivemind mcp --project-from-context`, which
+CLI verbs, and on the stdio server (`loomtracer mcp --project-from-context`, which
 the capture plugin's `.mcp.json` sets when the installed CLI lists the flag),
 makes the client work the project out from its surroundings when none was named.
 First match wins, and each rung records how:
@@ -543,9 +543,9 @@ First match wins, and each rung records how:
 | # | Source | `project_source` |
 |---|---|---|
 | 1 | `--project` (a named project always wins) | `stated` |
-| 2 | the `.hivemind-project` markers of the files the uncommitted change touches (working-tree diff plus the staged set); when none of them sits under a marker, the nearest marker walking up from the working directory | `folder_marker` |
-| 3 | the project anchored to the rig in `GC_RIG` (`hivemind project anchor --kind rig`) | `rig` |
-| 4 | the actor's current project (`hivemind project use <handle>`) | `current_project` |
+| 2 | the `.loomtracer-project` markers of the files the uncommitted change touches (working-tree diff plus the staged set); when none of them sits under a marker, the nearest marker walking up from the working directory | `folder_marker` |
+| 3 | the project anchored to the rig in `GC_RIG` (`loomtracer project anchor --kind rig`) | `rig` |
+| 4 | the actor's current project (`loomtracer project use <handle>`) | `current_project` |
 | 5 | none of these: the personal project, with a reminder (a session in a rig no project here is anchored to is refused instead; see below) | `personal_fallback` |
 
 A marker is a one-line file holding one handle. A nested marker names a
@@ -556,12 +556,12 @@ naming an unregistered handle is refused like any unregistered handle when it is
 the one project the capture resolves to; inside a change that spans several
 markers it shares a parent with nothing, so the decision lands in the personal
 project and the reply names it. The flag is opt-in
-and off by default, so a bare `hivemind emit` stays deterministic. It needs a
+and off by default, so a bare `loomtracer emit` stays deterministic. It needs a
 CLI that has it; an older one refuses the flag. The stdio server resolves from its
 own working directory, the folder it was started in: an agent's later `cd` in its
 shell does not change it.
 
-The current project is a per-machine setting kept in `--hivemind-dir`
+The current project is a per-machine setting kept in `--loomtracer-dir`
 (`current-project.json`), keyed by tenant and by the CLI's `--actor`; it is not a
 ledger fact.
 
@@ -581,7 +581,7 @@ it. It is never refused and never dropped, because losing a decision is worse
 than misfiling it and a move puts it right:
 
 ```text
-this change spans auth and billing, which share no parent. Move it with hivemind move ..., or register a parent.
+this change spans auth and billing, which share no parent. Move it with loomtracer move ..., or register a parent.
 ```
 
 **When no folder is attached.** With `--project-from-context` and nothing found,
@@ -589,12 +589,12 @@ the personal fallback comes with one more line, so the way out is next to the
 problem:
 
 ```text
-this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder
+this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder
 ```
 
 The line is the whole recipe. Attaching a folder is two steps: register the
-project (`hivemind project register billing`), then commit a `.hivemind-project`
-file containing `billing` at the folder root. `hivemind project anchor --kind
+project (`loomtracer project register billing`), then commit a `.loomtracer-project`
+file containing `billing` at the folder root. `loomtracer project anchor --kind
 folder` does not attach a folder: it only records a fact about the project,
 nothing reads a folder anchor back and no command writes the marker. `--kind
 rig` is the one anchor a capture does read, for a Gas City rig.
@@ -608,14 +608,14 @@ personal project, and nothing is written. The refusal names the rig and the ledg
 the three ways out:
 
 ```text
-error: invalid command line input: this session runs in rig `beadline` (GC_RIG), but no project in tenant `hivemind` in the local ledger under ./hivemind is anchored to that rig, so this capture would be filed under your personal project in what looks like the wrong ledger. Write to the ledger that holds the rig's project (--tenant or HIVEMIND_TENANT, --hivemind-dir, or --database-url), anchor the rig here with `hivemind project anchor --handle <project> --kind rig --value beadline`, or name the project yourself with --project <handle>.
+error: invalid command line input: this session runs in rig `beadline` (GC_RIG), but no project in tenant `loomtracer` in the local ledger under ./loomtracer is anchored to that rig, so this capture would be filed under your personal project in what looks like the wrong ledger. Write to the ledger that holds the rig's project (--tenant or LOOMTRACER_TENANT, --loomtracer-dir, or --database-url), anchor the rig here with `loomtracer project anchor --handle <project> --kind rig --value beadline`, or name the project yourself with --project <handle>.
 ```
 
 Only the personal fallback is refused: a folder marker, a rig anchor, or a current
 project still wins first (the current project is kept per tenant, so it matches
 this ledger). A session outside any rig is the ordinary unattached-folder case
 above. A supersede is never refused for this: its project is the replaced
-decision's, which is in this ledger by construction. HiveMind still never works
+decision's, which is in this ledger by construction. Loomtracer still never works
 the project out; the client does, and only asks the registry what is anchored.
 
 **Topic keys and the project's vocabulary.** A topic says what a decision is
@@ -639,7 +639,7 @@ for it. A capture filed under a registered project may use only those, so a new
 key has to be declared, and the capture says so:
 
 ```bash
-hivemind emit decision.capture --project billing \
+loomtracer emit decision.capture --project billing \
   --topic-keys pricing,seats --declare-topic seats ...
 ```
 
@@ -661,19 +661,19 @@ declare it is refused before anything is written, naming the keys, what the
 project has declared, and how to declare:
 
 ```text
-error: validation failed: topic `seats` is not declared for project billing (declared: pricing). To add it, say so in this capture (--declare-topic seats, or `declare_topics` over MCP) or declare it first with `hivemind project declare-topic billing seats`; otherwise use a declared topic.
+error: validation failed: topic `seats` is not declared for project billing (declared: pricing). To add it, say so in this capture (--declare-topic seats, or `declare_topics` over MCP) or declare it first with `loomtracer project declare-topic billing seats`; otherwise use a declared topic.
 ```
 
 A new project has an empty vocabulary, so its first capture declares every key it
 uses. To declare keys without a capture, or to see them:
 
 ```bash
-hivemind project declare-topic billing pricing seats
-hivemind project show billing          # topics=pricing,seats
+loomtracer project declare-topic billing pricing seats
+loomtracer project show billing          # topics=pricing,seats
 ```
 
 A project that already had decisions before it had a vocabulary adopts what they
-use in one step: `hivemind project declare-topic billing --in-use` declares every
+use in one step: `loomtracer project declare-topic billing --in-use` declares every
 topic key the decisions now in that project carry, each as its own recorded fact.
 Nothing removes a key. A personal project, and a capture that names no project,
 has no vocabulary: any key is accepted there, and asking to declare one is refused.
@@ -683,7 +683,7 @@ decision lives must not be refused for the keys it was captured with.
 **What the reply says.** Every capture reply names the project and how it was
 determined. In text mode stdout stays the decision id (followed, as before, by a
 `premise_stale:` line for each named premise that has since been superseded or
-rejected) and the announcement goes to stderr, so `id=$(hivemind emit ...)` is
+rejected) and the announcement goes to stderr, so `id=$(loomtracer emit ...)` is
 unchanged by projects:
 
 ```text
@@ -713,23 +713,23 @@ context. REST takes none: `POST /v1/decisions` records the decision in the
 actor's personal project, and its reply carries no `project` or fallback notice.
 REST supersede takes none either and inherits the project the replaced decision is
 filed in now, so under a registered project its topic keys must already be declared
-(REST takes no `declare_topics`; declare them with `hivemind project declare-topic`
+(REST takes no `declare_topics`; declare them with `loomtracer project declare-topic`
 first).
 Name the project over MCP instead. A decision recorded through REST can be moved
 afterwards. Decisions the classifier extracts from ingested transcripts are not
-`decision.proposed` events, so `hivemind move` cannot move them yet.
+`decision.proposed` events, so `loomtracer move` cannot move them yet.
 
-**Fixing a wrong project.** `hivemind move "<description>" --to <handle>`, or
+**Fixing a wrong project.** `loomtracer move "<description>" --to <handle>`, or
 MCP `move_decision`, moves a decision by describing it, with the same ambiguity
 gate as `supersede`. The move is recorded and reversible; see
 [`AGENT_FLUENT_QUERYING.md`](AGENT_FLUENT_QUERYING.md). The decisions that
 landed in a personal project and were never shared are listed by
-`hivemind project decisions personal:<actor>`.
+`loomtracer project decisions personal:<actor>`.
 
 ## Claude
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
+cargo run -- --loomtracer-dir ./loomtracer/ emit decision.capture \
   --title "Keep capture in the commands layer" \
   --rationale "The write path should validate and append events without query-time inference" \
   --topic-keys agents,capture \
@@ -757,53 +757,53 @@ The command calls `.claude/scripts/capture-decision.sh`. By default it records
 manual slash-command captures as `actor_id=human:<git-user>` with
 `source=human`. Pass `--source agent` when Claude Code is recording an
 autonomous agent decision; that uses `agent:claude:<name>` (stable under Gas City
-or `HIVEMIND_AGENT_SESSION`, otherwise the per-run session id) and `source=agent`.
+or `LOOMTRACER_AGENT_SESSION`, otherwise the per-run session id) and `source=agent`.
 
 ### Claude Code Distribution Bundle
 
 This repository also ships a Claude Code marketplace at
 `.claude-plugin/marketplace.json`. The marketplace exposes
-`plugins/hivemind-capture` as the `hivemind-capture@hivemind` plugin.
+`plugins/loomtracer-capture` as the `loomtracer-capture@loomtracer` plugin.
 
 Install from Claude Code:
 
 ```text
-/plugin marketplace add alexknips/hivemind
-/plugin install hivemind-capture@hivemind
+/plugin marketplace add alexknips/loomtracer
+/plugin install loomtracer-capture@loomtracer
 /reload-plugins
 ```
 
 The repository-level `.claude/settings.json` advertises that marketplace and
-enables `hivemind-capture@hivemind` so trusted checkouts prompt contributors to
+enables `loomtracer-capture@loomtracer` so trusted checkouts prompt contributors to
 install it. The plugin includes:
 
-- `/hivemind-capture:capture-decision`, which defaults to
+- `/loomtracer-capture:capture-decision`, which defaults to
   `actor_id=agent:claude:<name>` (stable under Gas City or
-  `HIVEMIND_AGENT_SESSION`, otherwise the per-run session id) and prints a
+  `LOOMTRACER_AGENT_SESSION`, otherwise the per-run session id) and prints a
   one-line confirmation plus a query suggestion.
-- `/hivemind-capture:query-decisions`, which answers "what did we decide
+- `/loomtracer-capture:query-decisions`, which answers "what did we decide
   about X?" via the fluent `query recall` verb — free text first, never a
   decision id. For single-decision follow-up (rationale, still-holds check,
-  contest, supersede) see the `hivemind-context` plugin above.
-- `.mcp.json`, which wires the `hivemind` MCP server to `hivemind mcp`.
+  contest, supersede) see the `loomtracer-context` plugin above.
+- `.mcp.json`, which wires the `loomtracer` MCP server to `loomtracer mcp`.
 - A `SessionStart` hook that tells every session to call `recall_decisions` before
   acting and `capture_decision` for a rule learned from a failure, a design choice later
   work must follow, or a reversal, never routine status (see
   [The session directive](#the-session-directive); off with
-  `HIVEMIND_DIRECTIVE_DISABLE=1`).
-- The `hivemind-capture` skill for durable decision boundaries, provenance
+  `LOOMTRACER_DIRECTIVE_DISABLE=1`).
+- The `loomtracer-capture` skill for durable decision boundaries, provenance
   rules, and the questions every decision capture answers: what does it rest on,
   what does it bind, and what would undoing it cost.
 
-The default backend is the project-local `./hivemind/` directory. The bundled
+The default backend is the project-local `./loomtracer/` directory. The bundled
 MCP descriptor pins that location for agents launched from this checkout. For
 slash-command captures that need another ledger, set the plugin option
-`hivemind_dir`, export `HIVEMIND_DIR`, or pass `--hivemind-dir` to the command.
+`loomtracer_dir`, export `LOOMTRACER_DIR`, or pass `--loomtracer-dir` to the command.
 
 ## Codex
 
 ```bash
-cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
+cargo run -- --loomtracer-dir ./loomtracer/ emit decision.capture \
   --title "Prefer direct CLI capture before MCP" \
   --rationale "Codex can invoke the same local command in any checkout" \
   --topic-keys agents,capture \
@@ -816,10 +816,10 @@ cargo run -- --hivemind-dir ./hivemind/ emit decision.capture \
 
 ### Codex Distribution Bundle
 
-Codex exposes several extension surfaces relevant to HiveMind capture:
+Codex exposes several extension surfaces relevant to Loomtracer capture:
 
 - `AGENTS.md` gives Codex repository and global instructions before work starts.
-  This is useful for pointing contributors at HiveMind capture guidance, but it
+  This is useful for pointing contributors at Loomtracer capture guidance, but it
   is not an installable transport. See
   <https://developers.openai.com/codex/guides/agents-md>.
 - Skills package reusable instructions, resources, and optional scripts. Codex
@@ -835,40 +835,40 @@ Codex exposes several extension surfaces relevant to HiveMind capture:
   and plugin hooks are off by default unless enabled. Hooks are therefore not
   the primary capture path. See <https://developers.openai.com/codex/hooks>.
 - MCP connects Codex to third-party tools and context in the CLI and IDE
-  extension. It is a good future interface for a shared HiveMind service, but
+  extension. It is a good future interface for a shared Loomtracer service, but
   local capture does not require MCP setup. See
   <https://developers.openai.com/codex/mcp>.
 
-This repository ships `plugins/hivemind-capture`, exposed through
+This repository ships `plugins/loomtracer-capture`, exposed through
 `.agents/plugins/marketplace.json`. The plugin bundles the
-`$hivemind-capture` skill, which keeps the direct CLI as the write path, asks the
+`$loomtracer-capture` skill, which keeps the direct CLI as the write path, asks the
 same "what does this rest on?" and "what does it bind, and what would undoing it
 cost?" questions as the Claude skill, and uses the same
 actor-id convention as Claude: `agent:codex:<name>` and `agent:claude:<name>`
-(`<name>` is stable under Gas City or `HIVEMIND_AGENT_SESSION`, otherwise the
+(`<name>` is stable under Gas City or `LOOMTRACER_AGENT_SESSION`, otherwise the
 per-run session id).
 
-Install from a HiveMind checkout by starting Codex in the repository, opening
-`/plugins`, choosing `HiveMind Plugins`, and installing `HiveMind Capture`.
+Install from a Loomtracer checkout by starting Codex in the repository, opening
+`/plugins`, choosing `Loomtracer Plugins`, and installing `Loomtracer Capture`.
 Install from another machine by adding the repository marketplace first:
 
 ```bash
-codex plugin marketplace add https://github.com/alexknips/hivemind.git
+codex plugin marketplace add https://github.com/alexknips/loomtracer.git
 ```
 
 For instruction-only use, copy
-`plugins/hivemind-capture/skills/hivemind-capture` to `$HOME/.agents/skills/`
-and invoke `$hivemind-capture`.
+`plugins/loomtracer-capture/skills/loomtracer-capture` to `$HOME/.agents/skills/`
+and invoke `$loomtracer-capture`.
 
-The skill is backend agnostic: it always execs the `hivemind` binary
+The skill is backend agnostic: it always execs the `loomtracer` binary
 directly, so it inherits whatever backend the calling environment selects.
-`HIVEMIND_DIR`/`--hivemind-dir` only ever names a SQLite ledger path (the
-default local `./hivemind`, or another directory on shared storage); it does
+`LOOMTRACER_DIR`/`--loomtracer-dir` only ever names a SQLite ledger path (the
+default local `./loomtracer`, or another directory on shared storage); it does
 not select Postgres. To connect the skill's capture and query commands to a
-shared Postgres backend instead, set `HIVEMIND_DATABASE_URL` (or
-`--database-url`) plus `HIVEMIND_TENANT` in the environment the skill runs
-in — every `hivemind` subcommand it shells out to honors those the same way
-`hivemind serve` does. The capture verb and query behavior stay the same
+shared Postgres backend instead, set `LOOMTRACER_DATABASE_URL` (or
+`--database-url`) plus `LOOMTRACER_TENANT` in the environment the skill runs
+in — every `loomtracer` subcommand it shells out to honors those the same way
+`loomtracer serve` does. The capture verb and query behavior stay the same
 either way.
 
 ## HTTP API Capture
@@ -876,7 +876,7 @@ either way.
 Status: shipped in M2 as a second, parallel capture path alongside the
 explicit CLI.
 
-The HiveMind HTTP API exposes `POST /v1/ingest` to accept batches of agent
+The Loomtracer HTTP API exposes `POST /v1/ingest` to accept batches of agent
 transcript turns. Two Python clients ship in `capture/`:
 
 **Hook shipper** (`capture/hook_ship.py`): invoked by Claude Code
@@ -906,9 +906,9 @@ python3 capture/sidecar.py &
 Both clients configure the server URL and auth token via environment:
 
 ```
-HIVEMIND_API_URL    Base URL of the HiveMind server (default: http://localhost:8080)
-HIVEMIND_API_KEY    Bearer token hm_tk_... (optional in dev mode)
-HIVEMIND_AGENT_TOOL Override agent_tool field (default: claude)
+LOOMTRACER_API_URL    Base URL of the Loomtracer server (default: http://localhost:8080)
+LOOMTRACER_API_KEY    Bearer token lt_tk_... (optional in dev mode)
+LOOMTRACER_AGENT_TOOL Override agent_tool field (default: claude)
 ```
 
 **Server-side classifier**: the server runs an optional background Layer-3
@@ -945,7 +945,7 @@ classified from turns with the very same newest source time (`ts`) is the same
 moment seen again, a re-ingested transcript, and is not recorded a second time;
 the reply's `restated` lists every such capture as `linked` or `deduplicated`.
 Turns without a source time never count as the same moment. For decisions
-recorded before this, `hivemind restatements propose` lists the links to
+recorded before this, `loomtracer restatements propose` lists the links to
 approve (a title-word overlap, with the shared words printed) and `restatements
 apply` records the ones you confirm; nothing is deleted or rewritten. On a cell, where the
 database password is not an agent's to hold, the same two steps run over HTTP with the caller's
@@ -980,17 +980,17 @@ admin mints a token bound directly to an agent identity instead, with
 `POST /v1/agent-tokens` (admin-gated, same as `/v1/users`):
 
 ```bash
-curl -s -X POST "$HIVEMIND_API_URL/v1/agent-tokens" \
-  -H "Authorization: Bearer $HIVEMIND_ADMIN_KEY" \
+curl -s -X POST "$LOOMTRACER_API_URL/v1/agent-tokens" \
+  -H "Authorization: Bearer $LOOMTRACER_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agent_tool": "claude", "agent_name": "crew-gastown", "label": "gastown crew pane"}'
 ```
 
-Returns `{"actor_id": "agent:claude:crew-gastown", "token_id": ..., "token_secret": "hm_tk_..."}`.
+Returns `{"actor_id": "agent:claude:crew-gastown", "token_id": ..., "token_secret": "lt_tk_..."}`.
 Every write authenticated with that token — including `/v1/ingest` — is
 recorded with `actor_id=agent:claude:crew-gastown`, never a `human:...`
 identity (hivemind-zdsh.19). `actor_id` always comes from the resolved
-token record, never the `X-HiveMind-Actor` header — a caller cannot spoof a
+token record, never the `X-Loomtracer-Actor` header — a caller cannot spoof a
 different actor by setting the header.
 
 This is distinct from crediting *who answered within a transcript*: the
@@ -1005,15 +1005,15 @@ session's own agent actor.
 classifier (Worker B) does not start — the ingest path, ledger, and all queries
 remain fully functional.
 
-The `hivemind-capture` plugin ships **Worker A**: a
-`/hivemind-capture:classify-queue` slash command that drains the same pending
+The `loomtracer-capture` plugin ships **Worker A**: a
+`/loomtracer-capture:classify-queue` slash command that drains the same pending
 classification queue using the agent's subscription seat. No API key is needed
 on the server.
 
 Install the plugin and run after a session:
 
 ```text
-/hivemind-capture:classify-queue
+/loomtracer-capture:classify-queue
 ```
 
 Pass `--limit N` to cap the number of batches per run (default 20), and
@@ -1033,31 +1033,31 @@ session's batches with `GET /v1/classify-queue?session_id=`. Both reads cost abo
 however much transcript the ledger holds: the turn text of a batch is read only for a batch
 the reply carries.
 
-`hivemind classify-queue list`/`submit` talk to a server over HTTP instead of
-opening the local SQLite ledger directly when `HIVEMIND_API_URL` is set (same
-`HIVEMIND_API_URL`/`HIVEMIND_API_KEY` variables as the Python capture clients
+`loomtracer classify-queue list`/`submit` talk to a server over HTTP instead of
+opening the local SQLite ledger directly when `LOOMTRACER_API_URL` is set (same
+`LOOMTRACER_API_URL`/`LOOMTRACER_API_KEY` variables as the Python capture clients
 above) — the agent never needs a direct database credential on a shared cell. With the variable
-unset they use the ledger under `--hivemind-dir` (or `--database-url`), and aimed at a folder that
+unset they use the ledger under `--loomtracer-dir` (or `--database-url`), and aimed at a folder that
 holds none they refuse (exit 2, naming the folder) and create nothing, `list` as a read and
 `submit` as a verb that acts on batches the ledger already holds, so a session hook that runs
 `classify-queue list` in every project leaves no ledger behind in the ones that never recorded
 anything. `submit` also refuses a batch id the ledger never received, naming it, with nothing
-recorded (exit 3, on a local ledger and through `HIVEMIND_API_URL` alike; the server itself
+recorded (exit 3, on a local ledger and through `LOOMTRACER_API_URL` alike; the server itself
 answers `404`, and MCP returns a tool error); a batch that is already classified is accepted
 again. A tenant the ledger or the cell holds no registry row for (`--tenant`, or the tenant the
-`HIVEMIND_API_KEY` token maps to) is refused by `list` and `submit` alike with exit 4 and
-`unknown tenant '<id>': ...`, on a local ledger and through `HIVEMIND_API_URL` alike (the server
+`LOOMTRACER_API_KEY` token maps to) is refused by `list` and `submit` alike with exit 4 and
+`unknown tenant '<id>': ...`, on a local ledger and through `LOOMTRACER_API_URL` alike (the server
 answers `404` with `error.code` `unknown_tenant`, not the `not_found` of a batch id): exit 3 is only
 ever a batch id, so an agent that skips a refused id must not skip this.
-Through `HIVEMIND_API_URL` the CLI sends `--tenant` (or `HIVEMIND_TENANT`) as `X-HiveMind-Tenant`
-and `--actor` as `X-HiveMind-Actor` on every call, so `list` shows, and `submit` records into, the
+Through `LOOMTRACER_API_URL` the CLI sends `--tenant` (or `LOOMTRACER_TENANT`) as `X-Loomtracer-Tenant`
+and `--actor` as `X-Loomtracer-Actor` on every call, so `list` shows, and `submit` records into, the
 tenant and under the actor the flags name, as a local ledger does. A server that knows the caller
 by token (every Postgres cell, and a SQLite server given a per-user or agent token) takes tenant
 and actor from the token and ignores both headers: the flags then change nothing, and `--help`
 says so.
-`hivemind query` does not: it reads a local ledger (or the database named by
-`--database-url`) and never contacts `HIVEMIND_API_URL`. It refuses (exit 2, naming the folder)
-when `--hivemind-dir` holds no ledger, and creates none, whether or not that variable is set: a
+`loomtracer query` does not: it reads a local ledger (or the database named by
+`--database-url`) and never contacts `LOOMTRACER_API_URL`. It refuses (exit 2, naming the folder)
+when `--loomtracer-dir` holds no ledger, and creates none, whether or not that variable is set: a
 folder mistyped or not yet recorded in is not an answer of "no decisions". With that variable set
 it otherwise answers from that ledger with a `notice` saying so. The other verbs that only read
 (`digest`, `dump`, `export`, `map`, `reexamine`, `tui`, `restatements propose`, `project list`,
@@ -1068,10 +1068,10 @@ decision or project the ledger already holds (`disagree`, `supersede`, `move`, `
 so a mistyped folder is not read as a decision that is missing. `emit`, `ask`, `import`,
 `project register`, `ingest slack-thread` and `tenant create` record a ledger's first event and
 keep creating it. Read a cell over its HTTP API
-(`GET /v1/decisions/search`, `/recall`, `/relevant`) or its MCP tools. `hivemind emit`, `digest`,
+(`GET /v1/decisions/search`, `/recall`, `/relevant`) or its MCP tools. `loomtracer emit`, `digest`,
 `review`, `export` and `dump` do the
 same: they use a local ledger, refuse (exit 2, nothing created, nothing recorded) when
-`--hivemind-dir` holds none and `HIVEMIND_API_URL` is set, and otherwise say which ledger they
+`--loomtracer-dir` holds none and `LOOMTRACER_API_URL` is set, and otherwise say which ledger they
 used. Record to a cell over `POST /v1/decisions` (and `/v1/evidence`, `/v1/hypotheses`) or its
 MCP tools. So do `disagree`, `supersede`, `move`, `retitle`, `ground`, `ask`, `import` (not
 `import prepare-documents`, which opens no ledger), `restatements`, `map` and `quality-scan`. The
@@ -1088,7 +1088,7 @@ a tenant at `POST /v1/tenants` with its admin key, and has no route for the proj
 submit a single classification covering several batches from the same session
 in one write, matching Worker A's cadence: classify each session once at
 session end, not per batch and not on an hourly sweep. A shared daily cap
-(`HIVEMIND_CLASSIFY_DAILY_CAP`, default 150) protects against runaway spend
+(`LOOMTRACER_CLASSIFY_DAILY_CAP`, default 150) protects against runaway spend
 across every session in a city; once hit, `submit` refuses with an error and
 the remaining batches stay pending for the next UTC day rather than being
 dropped. Worker B keeps to the same cap: it checks it before each call, counts the

@@ -1,4 +1,4 @@
-//! CLI side of `hivemind reaffirm` and `hivemind reexamine` (hivemind-ottw.4): say that a
+//! CLI side of `loomtracer reaffirm` and `loomtracer reexamine` (hivemind-ottw.4): say that a
 //! decision still holds after something it rests on changed, and list what is waiting for that.
 //!
 //! `reaffirm` writes one `decision.reaffirmed`, attributed to whoever runs it, and only against an
@@ -28,7 +28,7 @@ pub(super) fn run_reaffirm(cli: &Cli, args: &ReaffirmArgs) -> Result<String> {
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
     let target = resolve_fluent_target(
-        &cli.hivemind_dir,
+        &cli.loomtracer_dir,
         !cli.json,
         &graph,
         args.decision_id.as_deref(),
@@ -72,7 +72,7 @@ pub(super) fn run_reexamine(cli: &Cli, args: &ReexamineArgs) -> Result<String> {
     // question is the whole tenant (or the project).
     let dependent_id = if args.decision.is_some() || args.decision_id.is_some() {
         let target = resolve_fluent_target(
-            &cli.hivemind_dir,
+            &cli.loomtracer_dir,
             !cli.json,
             &graph,
             args.decision_id.as_deref(),

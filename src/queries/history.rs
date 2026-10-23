@@ -2834,7 +2834,7 @@ fn render_markdown_header(
     continuation_cursor: Option<&str>,
 ) -> String {
     format!(
-        "# HiveMind Read-Only Summary\n\nQuery: {query}\nGenerated: {}\nLedger range: >{} through {}\nResults: {result_count}\nTruncated: {}\nContinuation cursor: {}\n\n",
+        "# Loomtracer Read-Only Summary\n\nQuery: {query}\nGenerated: {}\nLedger range: >{} through {}\nResults: {result_count}\nTruncated: {}\nContinuation cursor: {}\n\n",
         generated_at.to_rfc3339(),
         ledger_range.from_offset_exclusive,
         ledger_range.to_offset_inclusive,

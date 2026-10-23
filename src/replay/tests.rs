@@ -17,14 +17,14 @@ use crate::ledger::contract_tests::make_event;
 use crate::ledger::{EventLedger, InMemoryEventLedger, SqliteEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::{get_decision_brief, DecisionBrief, DecisionStatus};
-use crate::{HivemindError, Result};
+use crate::{LoomtracerError, Result};
 
 use super::{
     replay_events, replay_source, ReplayCounts, ReplayEvent, MAX_REPLAY_BATCH, SOURCE_BATCH_EVENTS,
 };
 
 fn temp_dir(prefix: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("hivemind-replay-{prefix}-{}", Uuid::new_v4()))
+    std::env::temp_dir().join(format!("loomtracer-replay-{prefix}-{}", Uuid::new_v4()))
 }
 
 /// A source ledger whose event `n` (1-based) is caused by the event `cause_of(n)` returns.
@@ -62,9 +62,9 @@ fn replay_event(label: &str, cause: Option<Uuid>) -> ReplayEvent {
     }
 }
 
-fn validation_message(error: HivemindError) -> String {
+fn validation_message(error: LoomtracerError) -> String {
     match error {
-        HivemindError::Command(CommandError::Validation(message)) => message,
+        LoomtracerError::Command(CommandError::Validation(message)) => message,
         other => format!("not a validation error: {other}"),
     }
 }
@@ -371,7 +371,7 @@ fn event_fields_other_than_causation_are_not_touched_by_a_replay() -> Result<()>
 
 const PROPOSED_ONLY: &str = include_str!("../../tests/fixtures/transcripts/proposed_only.json");
 const ALEX: &str = "human:alex@example.com";
-const RECORDER: &str = "agent:hivemind:classifier";
+const RECORDER: &str = "agent:loomtracer:classifier";
 
 /// A received batch and the classifier's captures for it, as the transcript fixtures hold them.
 #[derive(Deserialize)]
@@ -380,7 +380,7 @@ struct Fixture {
     captures: Vec<CaptureItem>,
 }
 
-fn invariant(error: impl std::fmt::Display) -> HivemindError {
+fn invariant(error: impl std::fmt::Display) -> LoomtracerError {
     CommandError::Invariant(error.to_string()).into()
 }
 

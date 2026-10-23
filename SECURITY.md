@@ -16,11 +16,11 @@ released.
 ## What to include
 
 - What is affected: the command, MCP tool, REST route or plugin script, and
-  the version (`hivemind --version`) or commit.
+  the version (`loomtracer --version`) or commit.
 - What an attacker can do with it: read, change or lose ledger data, act as
   another actor, or reach another tenant's decisions.
 - Steps to reproduce, or a proof of concept small enough to run against a
-  scratch ledger (`hivemind quickstart` makes one).
+  scratch ledger (`loomtracer quickstart` makes one).
 - A fix or mitigation, if you have one.
 
 Leave real credentials, API keys and ledger contents that are not yours out

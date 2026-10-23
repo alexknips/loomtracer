@@ -15,7 +15,7 @@
 > own axis and no part of the profile. **Deferred, not built:** Composite, Confidence,
 > Reputation (see [Deferred](#deferred-not-built)).
 
-HiveMind records *what* was decided, by whom, with what options and evidence
+Loomtracer records *what* was decided, by whom, with what options and evidence
 ([`ARCHITECTURE.md`](ARCHITECTURE.md)). The quality profile adds a separate, derived
 view: *what the record supports* about how the decision was made, along seven
 dimensions, computed after the fact and never mixed into the decision record itself.
@@ -294,7 +294,7 @@ checked exactly as strictly as the server's own:
   decisions with no version-2 assessment yet: both classifier-extracted captures
   (`ingest.batch_classified`) and decisions captured directly (`decision.proposed`, which
   underlies `decision.capture` too). For each it sends the decision's own recorded text to
-  a model (`claude-haiku-4-5-20251001` by default, `HIVEMIND_SCORER_MODEL` to override)
+  a model (`claude-haiku-4-5-20251001` by default, `LOOMTRACER_SCORER_MODEL` to override)
   with a prompt that asks it to assess Framing and Values / Tradeoffs — the two dimensions
   with no floor beyond "a question was recorded" — and to enrich any of the other five only
   where it has real grounds, leaving the rest `not_assessed`. The lines it offers as
@@ -576,11 +576,11 @@ and `data`.
 
 | | MCP (stdio and HTTP) | CLI (JSON by default, `--summary` for text) |
 | --- | --- | --- |
-| Profile of one decision | `score_decision {decision_id}` | `hivemind query score_decision --id <id>` |
-| A page of findings | `scan_decision_quality {kinds?, evidence_window_days?, limit?, cursor?}` | `hivemind query scan_decision_quality [--kind a,b] [--evidence-window-days N] [--limit N] [--cursor C]` |
-| A page of findings not yet acknowledged | `get_suggestions {kinds?, evidence_window_days?, exclude_acknowledged?, limit?, cursor?}` | `hivemind query get_suggestions [--kind a,b] [--evidence-window-days N] [--exclude-acknowledged BOOL] [--limit N] [--cursor C]` |
+| Profile of one decision | `score_decision {decision_id}` | `loomtracer query score_decision --id <id>` |
+| A page of findings | `scan_decision_quality {kinds?, evidence_window_days?, limit?, cursor?}` | `loomtracer query scan_decision_quality [--kind a,b] [--evidence-window-days N] [--limit N] [--cursor C]` |
+| A page of findings not yet acknowledged | `get_suggestions {kinds?, evidence_window_days?, exclude_acknowledged?, limit?, cursor?}` | `loomtracer query get_suggestions [--kind a,b] [--evidence-window-days N] [--exclude-acknowledged BOOL] [--limit N] [--cursor C]` |
 | Acknowledge a finding | `acknowledge_suggestion {finding_id, decision_id, action?, channel?, actor_id?}` | |
-| One Linear ticket per finding not yet acknowledged | | `hivemind quality-scan [--kind a,b] [--limit N] [--dry-run]` |
+| One Linear ticket per finding not yet acknowledged | | `loomtracer quality-scan [--kind a,b] [--limit N] [--dry-run]` |
 
 ### `score_decision`
 
@@ -690,7 +690,7 @@ An acknowledgement is two recorded events, both attributed to an actor and never
 
 1. `suggestion.surfaced`: this `finding_id` (about `decision_id`) was shown to
    `recipient_actor_id` over `channel` at `sent_at`. `channel` is a label the consumer
-   chooses (`slack`, `linear`, `mcp`); HiveMind attaches no meaning to it. The projection
+   chooses (`slack`, `linear`, `mcp`); Loomtracer attaches no meaning to it. The projection
    is a `Notification` node keyed by the event's uuid, with the finding on it. It is not a
    notification about a blocker: it has no `blocker_id` and draws no
    `NOTIFICATION_FOR_BLOCKER` edge, and the blocker queries do not see it.
@@ -721,9 +721,9 @@ acknowledges nothing, and the decision id is recorded as given.
 
 #### Routing suggestions to wherever you work
 
-HiveMind sends nothing anywhere. Where a finding goes is the consumer's choice, so any agent,
+Loomtracer sends nothing anywhere. Where a finding goes is the consumer's choice, so any agent,
 script or cron can route suggestions the way `quality-scan` does, with no connector in
-HiveMind:
+Loomtracer:
 
 1. Call `get_suggestions` (it leaves out what has been acknowledged by default).
 2. Do with each finding what your setup does with it: open a beads issue or a ticket, add a
@@ -756,13 +756,13 @@ part in `findings` like any other. stdio MCP only.
 
 ### `quality-scan`
 
-`hivemind quality-scan` is the reference consumer of `get_suggestions` (see
+`loomtracer quality-scan` is the reference consumer of `get_suggestions` (see
 [Routing suggestions](#routing-suggestions-to-wherever-you-work)). It reads the first page of
 findings nobody has acknowledged (at most `--limit`, 1–50, default 10), files one Linear
 ticket for each, and acknowledges each finding as soon as its ticket exists:
 `acknowledge_suggestion` semantics, action `acted`, channel `linear`, recorded under `--actor`.
 `--dry-run` prints the same findings and files and acknowledges nothing. When a schedule runs
-it, run `hivemind --actor agent:<name> quality-scan`, so the ledger says an agent surfaced the
+it, run `loomtracer --actor agent:<name> quality-scan`, so the ledger says an agent surfaced the
 findings and not a person.
 
 Because every ticket it files is acknowledged, running it again over decisions that have not
@@ -773,7 +773,7 @@ than `--limit` is filed one page per run (`truncated: true` says more remain).
 
 A run with nothing to file is the normal case on a schedule. With `--json` it prints the same
 report as a run that files something, with `scanned: 0`, `filed: 0` and `issues: []`, so
-`hivemind --json --actor agent:<name> quality-scan | jq .filed` reads `0`. Without `--json` it
+`loomtracer --json --actor agent:<name> quality-scan | jq .filed` reads `0`. Without `--json` it
 says `quality-scan: no unacknowledged finding — nothing to file` in a sentence.
 
 A run stops at the first ticket Linear refuses: the findings it filed stay acknowledged and the
@@ -782,11 +782,11 @@ recorded, the error names the ticket and the finding, because the next run would
 finding again; acknowledge it with `acknowledge_suggestion` (channel `linear`, action `acted`)
 to prevent that.
 
-A ticket is titled `[HiveMind] <kind>: <decision title>` (the decision id when it has no
+A ticket is titled `[Loomtracer] <kind>: <decision title>` (the decision id when it has no
 title). Its body, in Markdown, has:
 
 - the decision's title and id, the kind of finding and the `finding_id`, and a link to the
-  decision when `--hivemind-base-url` is set;
+  decision when `--loomtracer-base-url` is set;
 - **Why it needs a look**: the finding's reason in words, naming every node it names by its
   own title, statement or content, not by a bare id;
 - **Node IDs**: every node the finding rests on;
@@ -799,7 +799,7 @@ There is no score and no tier in a ticket, and none in the dry-run JSON (`findin
 
 ### The decision-log export
 
-`hivemind export --format markdown` writes each decision's file with a **Quality profile**
+`loomtracer export --format markdown` writes each decision's file with a **Quality profile**
 section after Outcome and before Provenance: a line saying what the floors are (rules version
 `floor_version`, what the record states and not whether it is sound), then the seven
 dimensions in order, each as a bullet with its level and one nested bullet per reason with
@@ -850,7 +850,7 @@ out too.
 
 | | MCP (stdio and HTTP) | HTTP REST | CLI (JSON by default, `--summary` for text) | Plugin |
 | --- | --- | --- | --- | --- |
-| A page of the ranking | `rank_decisions_by_importance {include_not_in_force?, limit?, cursor?}` | `GET /v1/decisions/importance[?limit=][?cursor=][?include_not_in_force=]` | `hivemind query rank_decisions_by_importance [--limit N] [--cursor C] [--include-not-in-force]` | `/hivemind-context:importance` |
+| A page of the ranking | `rank_decisions_by_importance {include_not_in_force?, limit?, cursor?}` | `GET /v1/decisions/importance[?limit=][?cursor=][?include_not_in_force=]` | `loomtracer query rank_decisions_by_importance [--limit N] [--cursor C] [--include-not-in-force]` | `/loomtracer-context:importance` |
 
 All of them run one core, and `tests/importance_surface_parity.rs` puts the same ledger
 through every one and requires the same answer.

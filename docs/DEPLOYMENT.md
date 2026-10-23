@@ -1,6 +1,6 @@
-# HiveMind Deployment Guide
+# Loomtracer Deployment Guide
 
-This guide covers running HiveMind as a multi-tenant HTTP service using the
+This guide covers running Loomtracer as a multi-tenant HTTP service using the
 provided Docker image.
 
 ## Prerequisites
@@ -12,14 +12,14 @@ provided Docker image.
 
 ```bash
 # Clone the repository
-git clone https://github.com/alexknips/hivemind
-cd hivemind
+git clone https://github.com/alexknips/loomtracer
+cd loomtracer
 
 # (Optional) Static API key for the SQLite backend. The bundled compose file
 # uses Postgres, where tenant/user tokens are issued instead.
-export HIVEMIND_API_KEY=your-secret-key
+export LOOMTRACER_API_KEY=your-secret-key
 
-# Start HiveMind + Postgres
+# Start Loomtracer + Postgres
 docker compose up --build
 ```
 
@@ -35,7 +35,7 @@ curl http://localhost:8080/v1/health
 ```
 
 Data is persisted in a Docker named volume (`hivemind-data`). The Postgres
-service is included for the `shared-backend-postgres` feature; HiveMind
+service is included for the `shared-backend-postgres` feature; Loomtracer
 defaults to SQLite stored in the same volume.
 
 ## Configuration reference
@@ -45,25 +45,25 @@ reads these from the shell or from an `.env` file in the project root.
 
 | Variable | Default | Description |
 |---|---|---|
-| `HIVEMIND_DATABASE_URL` | *(unset)* | Postgres connection string. Also accepted as `--database-url` on the CLI and `hivemind mcp` (flag beats the env var), not only by `serve`. When set, the process connects directly to Postgres instead of the local SQLite ledger. |
-| `HIVEMIND_DIR` | `/data` | Directory where the SQLite ledger is stored. Mount a volume here for persistence. |
-| `HIVEMIND_BIND` | `127.0.0.1` (`0.0.0.0` in the Docker image) | Address the HTTP API binds. Also accepted as `--bind` on the CLI. Development mode (no `HIVEMIND_API_KEY`, no `HIVEMIND_DATABASE_URL`) refuses a non-loopback bind unless `--allow-unauthenticated-remote` is passed. |
-| `HIVEMIND_PORT` | `8080` | Port the HTTP API listens on. Also accepted as `--port` / `-p` on the CLI. |
-| `HIVEMIND_API_KEY` | *(unset)* | Static bearer token (SQLite mode only). Unset (or empty) with no `HIVEMIND_DATABASE_URL` means development mode: no auth, loopback bind only. |
-| `HIVEMIND_ADMIN_KEY` | *(unset)* | Bearer token for `POST /v1/tenants` (Postgres mode). Required before provisioning tenants. |
-| `HIVEMIND_TENANT` | `local` | Tenant to open. For the CLI and `hivemind mcp` this selects the Postgres tenant scope when `HIVEMIND_DATABASE_URL`/`--database-url` is also set (see below for what happens on an unrecognized value). Not used by `serve`, which resolves the tenant per request from the caller's auth instead. |
-| `HIVEMIND_CORS_ORIGINS` | *(unset)* | Comma-separated origins for browser cross-origin requests. |
-| `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `HIVEMIND_DATABASE_URL` is set: the server logs one warning at start and classifies nothing. Optional. |
+| `LOOMTRACER_DATABASE_URL` | *(unset)* | Postgres connection string. Also accepted as `--database-url` on the CLI and `loomtracer mcp` (flag beats the env var), not only by `serve`. When set, the process connects directly to Postgres instead of the local SQLite ledger. |
+| `LOOMTRACER_DIR` | `/data` | Directory where the SQLite ledger is stored. Mount a volume here for persistence. |
+| `LOOMTRACER_BIND` | `127.0.0.1` (`0.0.0.0` in the Docker image) | Address the HTTP API binds. Also accepted as `--bind` on the CLI. Development mode (no `LOOMTRACER_API_KEY`, no `LOOMTRACER_DATABASE_URL`) refuses a non-loopback bind unless `--allow-unauthenticated-remote` is passed. |
+| `LOOMTRACER_PORT` | `8080` | Port the HTTP API listens on. Also accepted as `--port` / `-p` on the CLI. |
+| `LOOMTRACER_API_KEY` | *(unset)* | Static bearer token (SQLite mode only). Unset (or empty) with no `LOOMTRACER_DATABASE_URL` means development mode: no auth, loopback bind only. |
+| `LOOMTRACER_ADMIN_KEY` | *(unset)* | Bearer token for `POST /v1/tenants` (Postgres mode). Required before provisioning tenants. |
+| `LOOMTRACER_TENANT` | `local` | Tenant to open. For the CLI and `loomtracer mcp` this selects the Postgres tenant scope when `LOOMTRACER_DATABASE_URL`/`--database-url` is also set (see below for what happens on an unrecognized value). Not used by `serve`, which resolves the tenant per request from the caller's auth instead. |
+| `LOOMTRACER_CORS_ORIGINS` | *(unset)* | Comma-separated origins for browser cross-origin requests. |
+| `ANTHROPIC_API_KEY` | *(unset)* | Enables the server-side Layer-3 classifier and scorer (Claude Haiku) on the SQLite backend only. Ignored when `LOOMTRACER_DATABASE_URL` is set: the server logs one warning at start and classifies nothing. Optional. |
 | `POSTGRES_PASSWORD` | `hivemind` | Password for the bundled Postgres service (compose only). |
 
 ### CLI and MCP direct-Postgres mode
 
-`HIVEMIND_DATABASE_URL` (or `--database-url`) and `HIVEMIND_TENANT` (or
-`--tenant`) are read by every `hivemind` subcommand, not only `serve` — this
-includes `hivemind mcp`, so a stdio MCP server can talk to the shared Postgres
+`LOOMTRACER_DATABASE_URL` (or `--database-url`) and `LOOMTRACER_TENANT` (or
+`--tenant`) are read by every `loomtracer` subcommand, not only `serve` — this
+includes `loomtracer mcp`, so a stdio MCP server can talk to the shared Postgres
 backend directly instead of the local SQLite file.
 
-- The CLI and `hivemind mcp` never provision tenants in the `hm_tenants`
+- The CLI and `loomtracer mcp` never provision tenants in the `hm_tenants`
   table that `POST /v1/tenants` manages (see
   [SELF_HOSTING.md](SELF_HOSTING.md)), but they do check against it: an
   unrecognized or typo'd `--tenant` on a Postgres-backed CLI/mcp invocation is
@@ -72,14 +72,14 @@ backend directly instead of the local SQLite file.
   request and answers an unregistered tenant with `404` and `error.code`
   `unknown_tenant` (message `unknown tenant '<id>': ...`), never the
   `not_found` of an id that does not exist; the CLI prints it as the local
-  ledger does (exit 4). (On SQLite the tenants come from `hivemind tenant create <id>`, and
+  ledger does (exit 4). (On SQLite the tenants come from `loomtracer tenant create <id>`, and
   `local` is always registered.) Create the tenant through the provisioning
   route first, then point `--tenant` at it.
 - A binary built without the `shared-backend-postgres` Cargo feature fails
   with an explicit error if a database URL is configured — it never falls
   back to SQLite silently. The Docker image is built with this feature;
   `cargo install` / `make install` (the path most local dev setups use) is
-  not, so a locally installed `hivemind` cannot open a Postgres ledger
+  not, so a locally installed `loomtracer` cannot open a Postgres ledger
   without rebuilding with `--features shared-backend-postgres`.
 
 For a self-hosted cell (server + Postgres, one command), see [SELF_HOSTING.md](SELF_HOSTING.md).
@@ -87,9 +87,9 @@ For a self-hosted cell (server + Postgres, one command), see [SELF_HOSTING.md](S
 ### Example `.env` file
 
 ```dotenv
-HIVEMIND_ADMIN_KEY=change-me-before-production
-HIVEMIND_PORT=8080
-HIVEMIND_TENANT=acme-corp
+LOOMTRACER_ADMIN_KEY=change-me-before-production
+LOOMTRACER_PORT=8080
+LOOMTRACER_TENANT=acme-corp
 POSTGRES_PASSWORD=s3cr3t
 ```
 
@@ -132,7 +132,7 @@ example:
 ```bash
 # Capture a decision
 curl -s -X POST http://localhost:8080/v1/decisions \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY" \
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Use Postgres for shared-backend storage",
@@ -152,10 +152,10 @@ curl -s -X POST http://localhost:8080/v1/decisions \
 
 # Query decisions
 curl -s "http://localhost:8080/v1/decisions/search?q=storage" \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY"
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY"
 ```
 
-When `HIVEMIND_API_KEY` is unset, omit the `Authorization` header entirely.
+When `LOOMTRACER_API_KEY` is unset, omit the `Authorization` header entirely.
 
 ### Fluent (no-id) read routes
 
@@ -165,14 +165,14 @@ CLI's `why`/`verify`/`recall`/`situational` verbs
 
 | Route | Query params | Equivalent |
 |---|---|---|
-| `GET /v1/decisions/situational` | `paths` (required, comma-separated), `since_offset`, `since_ts`, `limit`, `cursor` | `hivemind query situational` |
-| `GET /v1/decisions/recall` | `q`, `topic`, `status`, `actor_id`, `source`, `since`, `until`, `limit`, `cursor` | `hivemind query recall` |
-| `GET /v1/decisions/why` | `id` or `description` (+ optional `topic`) | `hivemind query why` |
-| `GET /v1/decisions/verify` | `id` or `description` (+ optional `topic`) | `hivemind query verify` |
+| `GET /v1/decisions/situational` | `paths` (required, comma-separated), `since_offset`, `since_ts`, `limit`, `cursor` | `loomtracer query situational` |
+| `GET /v1/decisions/recall` | `q`, `topic`, `status`, `actor_id`, `source`, `since`, `until`, `limit`, `cursor` | `loomtracer query recall` |
+| `GET /v1/decisions/why` | `id` or `description` (+ optional `topic`) | `loomtracer query why` |
+| `GET /v1/decisions/verify` | `id` or `description` (+ optional `topic`) | `loomtracer query verify` |
 
 ```bash
 curl -s "http://localhost:8080/v1/decisions/why?description=storage" \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY"
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY"
 ```
 
 `why`/`verify` resolve `description` the same deterministic way `search`
@@ -183,7 +183,7 @@ does (term match + topic + recency, no LLM — `docs/AGENT_FLUENT_QUERYING.md`
 HTTP 200 with `data.outcome` set to `"not_found"`, the same reply the CLI and MCP print. A 404
 (`error.code` `not_found`) is for what does not exist: an `id` that names no decision, or an
 unknown route. A 404 with `error.code` `unknown_tenant` is a different refusal: the token or
-`X-HiveMind-Tenant` names a tenant the server holds no registry row for, so every call fails the
+`X-Loomtracer-Tenant` names a tenant the server holds no registry row for, so every call fails the
 same way and none is "an id to skip". Every reply is the same envelope (with `close_match` beside `data` when the
 decision lacks some of the words asked) from the CLI, the plugin's `why.sh`/`verify.sh`, HTTP
 and MCP, and `tests/read_surface_parity.rs` asks the same questions through all four and
@@ -199,11 +199,11 @@ equivalents (`docs/AGENT_FLUENT_QUERYING.md` §3.4).
 
 | Route | Query params | Equivalent |
 |---|---|---|
-| `GET /v1/decisions/importance` | `limit` (1–50, default 10), `cursor`, `include_not_in_force` | `hivemind query rank_decisions_by_importance`, MCP `rank_decisions_by_importance` |
+| `GET /v1/decisions/importance` | `limit` (1–50, default 10), `cursor`, `include_not_in_force` | `loomtracer query rank_decisions_by_importance`, MCP `rank_decisions_by_importance` |
 
 ```bash
 curl -s "http://localhost:8080/v1/decisions/importance?limit=5" \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY"
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY"
 ```
 
 The decisions with others resting on them, most first, each with who decided it (a person,
@@ -217,7 +217,7 @@ compares them. `docs/DECISION_SCORING.md` says what a rank is read from.
 
 A decision the ledger holds twice (one per session that relayed it) is linked, not
 merged, and `recall` and `why` then show one decision naming the other record. The two
-routes carry `hivemind restatements propose|apply --link` over HTTP, so a cell is curated
+routes carry `loomtracer restatements propose|apply --link` over HTTP, so a cell is curated
 with a token and nobody needs the database password:
 
 | Route | Does |
@@ -227,10 +227,10 @@ with a token and nobody needs the database password:
 
 ```bash
 curl -s "http://localhost:8080/v1/restatements/proposals?limit=5" \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY"
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY"
 
 curl -s -X POST "http://localhost:8080/v1/decisions/capture:38419:0/restatements" \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY" -H "Content-Type: application/json" \
   -d '{"restates_id": "capture:37652:0"}'
 ```
 
@@ -250,7 +250,7 @@ caller. When the replacement is someone else's own answer, capture it first with
 
 ```bash
 curl -s -X POST "http://localhost:8080/v1/decisions/decision-b/supersession-links" \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY" -H "Content-Type: application/json" \
   -d '{"supersedes_id": "decision-a"}'
 ```
 
@@ -258,23 +258,23 @@ Here `{id}` is the newer decision; on `/supersessions` it is the old one.
 
 ## Multi-tenant usage
 
-Each request carries a tenant identifier via the `X-HiveMind-Tenant` header.
+Each request carries a tenant identifier via the `X-Loomtracer-Tenant` header.
 Tenant ledgers are isolated — decisions written for `tenant-a` are invisible
 to `tenant-b` queries.
 
 ```bash
 curl -s http://localhost:8080/v1/decisions/search \
-  -H "Authorization: Bearer $HIVEMIND_API_KEY" \
-  -H "X-HiveMind-Tenant: acme-corp" \
-  -H "X-HiveMind-Actor: alice@acme.com"
+  -H "Authorization: Bearer $LOOMTRACER_API_KEY" \
+  -H "X-Loomtracer-Tenant: acme-corp" \
+  -H "X-Loomtracer-Actor: alice@acme.com"
 ```
 
 See [MULTI_TENANCY.md](MULTI_TENANCY.md) for the full multi-tenant design.
 
 ## Production checklist
 
-- [ ] Set `HIVEMIND_API_KEY` to a strong random value
-- [ ] Mount a durable volume at `HIVEMIND_DIR` (or back up the named volume)
+- [ ] Set `LOOMTRACER_API_KEY` to a strong random value
+- [ ] Mount a durable volume at `LOOMTRACER_DIR` (or back up the named volume)
 - [ ] Place a TLS-terminating reverse proxy (nginx, Caddy, Traefik) in front
       of the container — the server speaks plain HTTP
 - [ ] Set `restart: always` in compose (or equivalent in your orchestrator)
@@ -300,30 +300,30 @@ fly auth login
 
 ```bash
 # 1. Create the Fly app (choose a name and the region nearest to you)
-fly launch --name hivemind-api --region sea --no-deploy
+fly launch --name loomtracer-api --region sea --no-deploy
 
 # 2. Provision the smallest Fly Postgres cluster (~$2/mo, stays running)
 fly postgres create \
-  --name hivemind-pg \
+  --name loomtracer-pg \
   --region sea \
   --vm-size shared-cpu-1x \
   --volume-size 1
 
-# Attach Postgres — injects HIVEMIND_DATABASE_URL as a Fly secret automatically
-fly postgres attach hivemind-pg --app hivemind-api
+# Attach Postgres — injects LOOMTRACER_DATABASE_URL as a Fly secret automatically
+fly postgres attach loomtracer-pg --app loomtracer-api
 
 # 3. Set the API key secret (all clients must send this as a Bearer token)
-fly secrets set HIVEMIND_API_KEY="$(openssl rand -hex 32)" --app hivemind-api
+fly secrets set LOOMTRACER_API_KEY="$(openssl rand -hex 32)" --app loomtracer-api
 
 # 4. Deploy
-fly deploy --app hivemind-api
+fly deploy --app loomtracer-api
 ```
 
 ### Verify
 
 ```bash
-fly status --app hivemind-api
-curl https://hivemind-api.fly.dev/v1/health
+fly status --app loomtracer-api
+curl https://loomtracer-api.fly.dev/v1/health
 # {"status":"ok"}
 ```
 
@@ -342,10 +342,10 @@ Set these via `fly secrets set --app <your-app-name>`. Never commit them.
 
 | Secret | Required | Description |
 |---|---|---|
-| `HIVEMIND_DATABASE_URL` | Yes (Postgres mode) | Set automatically by `fly postgres attach`. Enables multi-tenant Postgres backend. |
-| `HIVEMIND_API_KEY` | Yes (production) | Bearer token all clients must send. Omit only in dev mode. |
-| `HIVEMIND_ADMIN_KEY` | Recommended | Bearer token for the `POST /v1/tenants` provisioning endpoint. |
-| `ANTHROPIC_API_KEY` | Not used | Ignored on Postgres: the server-side Layer-3 classifier and scorer start only on the SQLite backend. Classify keylessly with `/hivemind-capture:classify-queue`. |
+| `LOOMTRACER_DATABASE_URL` | Yes (Postgres mode) | Set automatically by `fly postgres attach`. Enables multi-tenant Postgres backend. |
+| `LOOMTRACER_API_KEY` | Yes (production) | Bearer token all clients must send. Omit only in dev mode. |
+| `LOOMTRACER_ADMIN_KEY` | Recommended | Bearer token for the `POST /v1/tenants` provisioning endpoint. |
+| `ANTHROPIC_API_KEY` | Not used | Ignored on Postgres: the server-side Layer-3 classifier and scorer start only on the SQLite backend. Classify keylessly with `/loomtracer-capture:classify-queue`. |
 
 ### Continuous deployment
 

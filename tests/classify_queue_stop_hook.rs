@@ -1,9 +1,9 @@
 //! The capture plugin's `Stop` hook (`scripts/check-classify-queue.sh`) tells the person, at the
 //! end of a session, that unclassified batches are waiting. It runs in every project the plugin is
 //! installed in, so in a project nothing was recorded in it must do nothing: print nothing, exit
-//! 0 and leave no `./hivemind/` behind (hivemind-odmnc). `classify-queue list` used to make an
+//! 0 and leave no `./loomtracer/` behind (hivemind-odmnc). `classify-queue list` used to make an
 //! empty ledger in such a folder; the hook now looks for a ledger first, so it stays quiet
-//! whichever hivemind is installed, and the build under test refuses the folder too.
+//! whichever loomtracer is installed, and the build under test refuses the folder too.
 //! This runs the real script against the real binary, as Claude Code does.
 
 #![cfg(unix)]
@@ -13,37 +13,40 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use hivemind::commands::{CommandContext, Commands};
-use hivemind::events::{EventProvenance, TenantId};
-use hivemind::ledger::SqliteEventLedger;
+use loomtracer::commands::{CommandContext, Commands};
+use loomtracer::events::{EventProvenance, TenantId};
+use loomtracer::ledger::SqliteEventLedger;
 use tempfile::TempDir;
 
 type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-const HOOK: &str = "plugins/hivemind-capture/scripts/check-classify-queue.sh";
+const HOOK: &str = "plugins/loomtracer-capture/scripts/check-classify-queue.sh";
 
 fn root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// A directory holding only a `hivemind` that is the binary under test, to put on `PATH`.
-fn bin_dir_with_hivemind() -> TestResult<TempDir> {
+/// A directory holding only a `loomtracer` that is the binary under test, to put on `PATH`.
+fn bin_dir_with_loomtracer() -> TestResult<TempDir> {
     let bin = TempDir::new()?;
-    symlink(env!("CARGO_BIN_EXE_hivemind"), bin.path().join("hivemind"))?;
+    symlink(
+        env!("CARGO_BIN_EXE_loomtracer"),
+        bin.path().join("loomtracer"),
+    )?;
     Ok(bin)
 }
 
 /// Runs the hook from `project` with the binary under test first on `PATH`, no cell, no shared
-/// database and no `HIVEMIND_DIR`, then `envs`.
+/// database and no `LOOMTRACER_DIR`, then `envs`.
 fn run_hook(project: &Path, bin: &Path, envs: &[(&str, &Path)]) -> TestResult<Output> {
     let path = format!("{}:{}", bin.display(), std::env::var("PATH")?);
     let mut command = Command::new(root().join(HOOK));
     command
         .current_dir(project)
         .env("PATH", path)
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_DIR")
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_DIR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -83,7 +86,7 @@ fn jq_is_installed() -> bool {
 
 #[test]
 fn in_a_project_with_no_ledger_the_hook_prints_nothing_and_creates_nothing() -> TestResult<()> {
-    let bin = bin_dir_with_hivemind()?;
+    let bin = bin_dir_with_loomtracer()?;
     let project = TempDir::new()?;
 
     let output = run_hook(project.path(), bin.path(), &[])?;
@@ -97,15 +100,15 @@ fn in_a_project_with_no_ledger_the_hook_prints_nothing_and_creates_nothing() -> 
 }
 
 #[test]
-fn aimed_at_a_missing_folder_by_hivemind_dir_the_hook_makes_no_folder() -> TestResult<()> {
-    let bin = bin_dir_with_hivemind()?;
+fn aimed_at_a_missing_folder_by_loomtracer_dir_the_hook_makes_no_folder() -> TestResult<()> {
+    let bin = bin_dir_with_loomtracer()?;
     let project = TempDir::new()?;
-    let typo = project.path().join("hivemind-tpyo");
+    let typo = project.path().join("loomtracer-tpyo");
 
     let output = run_hook(
         project.path(),
         bin.path(),
-        &[("HIVEMIND_DIR", typo.as_path())],
+        &[("LOOMTRACER_DIR", typo.as_path())],
     )?;
 
     assert_silent_success(&output);
@@ -118,13 +121,13 @@ fn the_build_under_test_refuses_the_folder_whatever_the_hook_does() -> TestResul
     // The hook's own look-before-asking is for older builds; this one refuses a folder with no
     // ledger itself, so the listing the hook runs leaves nothing behind either.
     let project = TempDir::new()?;
-    let folder = project.path().join("hivemind");
+    let folder = project.path().join("loomtracer");
 
-    let listed = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_DIR")
-        .arg("--hivemind-dir")
+    let listed = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_DIR")
+        .arg("--loomtracer-dir")
         .arg(&folder)
         .args(["classify-queue", "list", "--json", "--limit", "1"])
         .stdin(Stdio::null())
@@ -138,9 +141,9 @@ fn the_build_under_test_refuses_the_folder_whatever_the_hook_does() -> TestResul
 
 #[test]
 fn with_a_ledger_and_nothing_queued_the_hook_is_silent() -> TestResult<()> {
-    let bin = bin_dir_with_hivemind()?;
+    let bin = bin_dir_with_loomtracer()?;
     let project = TempDir::new()?;
-    ledger_with_batches(&project.path().join("hivemind"), &[])?;
+    ledger_with_batches(&project.path().join("loomtracer"), &[])?;
 
     let output = run_hook(project.path(), bin.path(), &[])?;
 
@@ -154,10 +157,10 @@ fn with_batches_waiting_the_hook_still_says_so() -> TestResult<()> {
         eprintln!("skipping: the hook needs jq in /usr/bin or /bin");
         return Ok(());
     }
-    let bin = bin_dir_with_hivemind()?;
+    let bin = bin_dir_with_loomtracer()?;
     let project = TempDir::new()?;
     ledger_with_batches(
-        &project.path().join("hivemind"),
+        &project.path().join("loomtracer"),
         &["session-x:0-1", "session-x:1-2"],
     )?;
 
@@ -166,7 +169,7 @@ fn with_batches_waiting_the_hook_still_says_so() -> TestResult<()> {
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim_end(),
-        "[hivemind] classify-queue: 2 batch(es) pending — run /classify-queue to drain"
+        "[loomtracer] classify-queue: 2 batch(es) pending — run /classify-queue to drain"
     );
     Ok(())
 }

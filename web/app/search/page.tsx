@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { HiveMindProblem } from "@/components/hivemind-problem";
+import { LoomtracerProblem } from "@/components/loomtracer-problem";
 import { StatusBadge } from "@/components/status-badge";
-import { hivemind } from "@/lib/hivemind/client";
-import { load } from "@/lib/hivemind/load";
-import { projectPath, STATUSES, summarizeProjects } from "@/lib/hivemind/projects";
-import type { DecisionStatus, SearchPage } from "@/lib/hivemind/types";
+import { loomtracer } from "@/lib/loomtracer/client";
+import { load } from "@/lib/loomtracer/load";
+import { projectPath, STATUSES, summarizeProjects } from "@/lib/loomtracer/projects";
+import type { DecisionStatus, SearchPage } from "@/lib/loomtracer/types";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Search · Loomtracer" };
@@ -21,7 +21,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const status = STATUSES.find(item => item === params.status);
   const project = (params.project ?? "").trim();
   const result = await load(async () => {
-    const client = hivemind();
+    const client = loomtracer();
     const [page, listed] = await Promise.all([client.search({ q: q || undefined, status, project: project || undefined, limit: PAGE_SIZE, cursor: params.cursor || undefined }), client.projects()]);
     return { page, projects: summarizeProjects(listed.items) };
   });
@@ -34,7 +34,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       <select name="status" aria-label="Status" defaultValue={status ?? ""}><option value="">Any status</option>{STATUSES.map((item: DecisionStatus) => <option key={item} value={item}>{item[0]!.toUpperCase()}{item.slice(1)}</option>)}</select>
       <button className="button primary" type="submit">Search</button>
     </form>
-    {!result.ok ? <HiveMindProblem error={result.error} /> : <Results page={result.value.page} q={q} status={status} more={more} />}
+    {!result.ok ? <LoomtracerProblem error={result.error} /> : <Results page={result.value.page} q={q} status={status} more={more} />}
   </section></AppShell>;
 }
 

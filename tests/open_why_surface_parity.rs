@@ -20,7 +20,7 @@ use http_body_util::BodyExt as _;
 use serde_json::{json, Value};
 use tower::ServiceExt as _;
 
-use hivemind::cli::{run, Cli};
+use loomtracer::cli::{run, Cli};
 
 #[allow(dead_code)]
 #[path = "support/seed_data.rs"]
@@ -58,7 +58,7 @@ impl Seeded {
 
 fn cli(dir: &Path, args: &[&str]) -> TestResult<String> {
     let path = dir.to_str().ok_or("the ledger path is utf-8")?;
-    let mut argv = vec!["hivemind", "--actor", RECORDER, "--hivemind-dir", path];
+    let mut argv = vec!["loomtracer", "--actor", RECORDER, "--loomtracer-dir", path];
     argv.extend_from_slice(args);
     Ok(run(&Cli::parse_from(argv))?.trim().to_owned())
 }
@@ -294,8 +294,8 @@ impl Ask {
 fn via_cli(dir: &Path, ask: &Ask) -> TestResult<Value> {
     let path = dir.to_str().ok_or("the ledger path is utf-8")?;
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         path.to_owned(),
         "query".to_owned(),
         "get_open_why_decisions".to_owned(),
@@ -305,9 +305,9 @@ fn via_cli(dir: &Path, ask: &Ask) -> TestResult<Value> {
     Ok(serde_json::from_str(&output)?)
 }
 
-fn app(hivemind_dir: &Path) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir: hivemind_dir.to_path_buf(),
+fn app(loomtracer_dir: &Path) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir: loomtracer_dir.to_path_buf(),
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -325,7 +325,7 @@ fn app(hivemind_dir: &Path) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 /// `text` as a query-string value.
@@ -350,7 +350,7 @@ async fn via_http(dir: &Path, ask: &Ask) -> TestResult<(StatusCode, Value)> {
     let request = Request::builder()
         .method("GET")
         .uri(uri)
-        .header("x-hivemind-actor", RECORDER)
+        .header("x-loomtracer-actor", RECORDER)
         .body(Body::empty())?;
     let response = app(dir).oneshot(request).await?;
     let status = response.status();
@@ -373,7 +373,7 @@ async fn via_http_mcp(dir: &Path, ask: &Ask) -> TestResult<Value> {
         .method("POST")
         .uri("/mcp")
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", RECORDER)
+        .header("x-loomtracer-actor", RECORDER)
         .body(Body::from(serde_json::to_string(&body)?))?;
     let response = app(dir).oneshot(request).await?;
     let bytes = response.into_body().collect().await?.to_bytes();
@@ -394,8 +394,8 @@ struct McpServer {
 
 impl McpServer {
     fn start(dir: &Path) -> TestResult<Self> {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
             .arg(dir)
             .arg("mcp")
             .arg("--session-id")

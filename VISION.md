@@ -1,4 +1,4 @@
-# HiveMind Vision
+# Loomtracer Vision
 
 ## The bet
 
@@ -8,7 +8,7 @@ AI wholesale. We bet on the former — and we believe that requires a memory for
 decisions, where every decision, by every actor, is recorded, queryable, and
 contestable.
 
-HiveMind is that memory.
+Loomtracer is that memory.
 
 ## The pain
 
@@ -24,9 +24,9 @@ Wikis and documents do not solve this. They capture artifacts, not choices.
 They have no actor model. They can't represent "this superseded that on Tuesday
 because new evidence came in."
 
-## What HiveMind is
+## What Loomtracer is
 
-HiveMind is an event-sourced, graph-projected decision ledger. Every entry
+Loomtracer is an event-sourced, graph-projected decision ledger. Every entry
 records:
 
 - the decision that was made
@@ -46,7 +46,7 @@ of the record, never inside it.
 
 ## Who it's for
 
-HiveMind is for one person and the agents they work with, and the decisions
+Loomtracer is for one person and the agents they work with, and the decisions
 they make together — who actually decided, reviewed vs rubber-stamped, where
 they disagreed, whether it held up. The focus limits the unit, one person and
 their agents, not the field: engineering is where it runs today, on a
@@ -57,7 +57,7 @@ organizations, technical leaders, compliance teams — but they are not the
 current target. VISION and STRATEGY are the filters beads are judged against;
 the wide list invites scope creep.
 
-## What changes when HiveMind exists
+## What changes when Loomtracer exists
 
 - Juniors don't share chat URLs. They share decisions.
 - One agent's choice becomes the next agent's structured starting context,
@@ -75,18 +75,18 @@ that future.
 
 ## What this depends on
 
-HiveMind only works if two capabilities are excellent: **search** (find the
+Loomtracer only works if two capabilities are excellent: **search** (find the
 decisions that matter, given how you remember them) and **compactification**
 (keep the ledger queryable as it grows from hundreds to millions of decisions).
 Both live in the agentic layer that sits above the ledger. The vision rests on
 getting them right.
 
-## What HiveMind is not
+## What Loomtracer is not
 
-- Not a chat archive — chat is conversation; HiveMind is conclusion.
-- Not a notes app — notes are personal; HiveMind is organizational.
-- Not a task tracker — tasks are work to do; HiveMind is what was decided.
-- Not an agent's private memory: that serves the agent's next prompt. HiveMind
+- Not a chat archive — chat is conversation; Loomtracer is conclusion.
+- Not a notes app — notes are personal; Loomtracer is organizational.
+- Not a task tracker — tasks are work to do; Loomtracer is what was decided.
+- Not an agent's private memory: that serves the agent's next prompt. Loomtracer
   keeps what was decided, by whom and why, for you and for every later session.
-- Not a wiki replacement — wikis hold artifacts; HiveMind holds the structure
+- Not a wiki replacement — wikis hold artifacts; Loomtracer holds the structure
   of how those artifacts came to be.

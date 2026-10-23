@@ -1,6 +1,6 @@
 # Personal project: human:security
 
-Generated from HiveMind ledger offset 75 (last event 2026-01-02T00:50:16+00:00). Do not edit; regenerate with `hivemind export`.
+Generated from Loomtracer ledger offset 75 (last event 2026-01-02T00:50:16+00:00). Do not edit; regenerate with `loomtracer export`.
 
 Project: `personal:human:security` · [All projects](../../../INDEX.md)
 

@@ -2,7 +2,7 @@
 """Integration tests for capture/hook_ship.py against a real stub HTTP server.
 
 Drives hook_ship.py as a subprocess the same way Claude Code does: JSON hook
-payload on stdin, environment variables for the HiveMind server location.
+payload on stdin, environment variables for the Loomtracer server location.
 Exercises the real hook contract (session_id/transcript_path from stdin, a
 cwd containing dots) end to end, rather than monkeypatching internals.
 """
@@ -96,8 +96,8 @@ class TestHookShipStdinContract(unittest.TestCase):
 
     def _run_hook(self, payload):
         env = dict(os.environ)
-        env["HIVEMIND_API_URL"] = self.server.url
-        env["HOME"] = self.cursor_home  # isolate ~/.hivemind/cursors
+        env["LOOMTRACER_API_URL"] = self.server.url
+        env["HOME"] = self.cursor_home  # isolate ~/.loomtracer/cursors
         result = subprocess.run(
             [sys.executable, HOOK_SHIP],
             input=json.dumps(payload).encode(),
@@ -160,7 +160,7 @@ class TestHookShipStdinContract(unittest.TestCase):
         self.assertEqual(self.server.requests[0]["turns"][0]["turn_id"], "a1")
 
         cursor_file = os.path.join(
-            self.cursor_home, ".hivemind", "cursors", f"{self.session_id}.offset"
+            self.cursor_home, ".loomtracer", "cursors", f"{self.session_id}.offset"
         )
         self.assertTrue(os.path.exists(cursor_file))
         with open(cursor_file, encoding="utf-8") as fh:
@@ -210,7 +210,7 @@ class TestHookShipStdinContract(unittest.TestCase):
             )
 
         cursor_file = os.path.join(
-            self.cursor_home, ".hivemind", "cursors", f"{self.session_id}.offset"
+            self.cursor_home, ".loomtracer", "cursors", f"{self.session_id}.offset"
         )
         with open(cursor_file, encoding="utf-8") as fh:
             offset_before = int(fh.read())
@@ -231,7 +231,7 @@ class TestHookShipStdinContract(unittest.TestCase):
 
         # Unreachable server.
         env = dict(os.environ)
-        env["HIVEMIND_API_URL"] = "http://127.0.0.1:1"  # nothing listens here
+        env["LOOMTRACER_API_URL"] = "http://127.0.0.1:1"  # nothing listens here
         env["HOME"] = self.cursor_home
         result = subprocess.run(
             [sys.executable, HOOK_SHIP],
@@ -280,7 +280,7 @@ class TestHookShipStdinContract(unittest.TestCase):
         os.replace(self.transcript_path, fallback_path)
 
         env = dict(os.environ)
-        env["HIVEMIND_API_URL"] = self.server.url
+        env["LOOMTRACER_API_URL"] = self.server.url
         env["HOME"] = self.cursor_home
         env["CLAUDE_CODE_SESSION_ID"] = self.session_id
         env["CLAUDE_PROJECT_DIR"] = project_dir
@@ -296,7 +296,7 @@ class TestHookShipStdinContract(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
 
         cursor_file = os.path.join(
-            self.cursor_home, ".hivemind", "cursors", f"{self.session_id}.offset"
+            self.cursor_home, ".loomtracer", "cursors", f"{self.session_id}.offset"
         )
         self.assertTrue(
             os.path.exists(cursor_file),

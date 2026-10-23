@@ -22,7 +22,7 @@ use crate::Result;
 /// Backend selector for [`AnyLedger::open`].
 #[derive(Debug, Clone)]
 pub struct LedgerConfig {
-    pub hivemind_dir: PathBuf,
+    pub loomtracer_dir: PathBuf,
     /// `None` or empty selects SQLite.
     pub database_url: Option<String>,
 }
@@ -36,7 +36,7 @@ impl LedgerConfig {
             Some(url) if !url.is_empty() => format!("tenant `{tenant_id}` in the shared database"),
             _ => format!(
                 "tenant `{tenant_id}` in the local ledger under {}",
-                self.hivemind_dir.display()
+                self.loomtracer_dir.display()
             ),
         }
     }
@@ -54,7 +54,7 @@ impl AnyLedger {
     /// Selects the backend from `config.database_url`: set and non-empty
     /// connects to Postgres (a hard error names the feature when this binary
     /// was not built with `shared-backend-postgres`); unset or empty opens
-    /// the local SQLite ledger under `config.hivemind_dir`. Never falls back
+    /// the local SQLite ledger under `config.loomtracer_dir`. Never falls back
     /// from Postgres to SQLite on connection failure — a misconfigured cell
     /// must fail loudly, not silently write to a local file.
     ///
@@ -64,13 +64,13 @@ impl AnyLedger {
     pub fn open(config: &LedgerConfig, tenant_id: &TenantId) -> Result<Self> {
         match config.database_url.as_deref() {
             Some(url) if !url.is_empty() => Self::open_postgres(url, tenant_id),
-            _ => Self::open_sqlite(&config.hivemind_dir, tenant_id),
+            _ => Self::open_sqlite(&config.loomtracer_dir, tenant_id),
         }
     }
 
-    fn open_sqlite(hivemind_dir: &std::path::Path, tenant_id: &TenantId) -> Result<Self> {
+    fn open_sqlite(loomtracer_dir: &std::path::Path, tenant_id: &TenantId) -> Result<Self> {
         Ok(AnyLedger::Sqlite(SqliteEventLedger::open_for_tenant(
-            hivemind_dir,
+            loomtracer_dir,
             tenant_id,
         )?))
     }

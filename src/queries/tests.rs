@@ -6632,7 +6632,7 @@ fn misfiled_topic_fixture() -> Result<MemoryGraph> {
                 "decision_id": "decision:properly-filed",
                 "title": "Decision that actually belongs here",
                 "rationale": "Test fixture",
-                "topic_keys": ["hivemind-ui-work"],
+                "topic_keys": ["loomtracer-ui-work"],
                 "option_ids": [],
                 "chosen_option_id": null,
                 "hypothesis_ids": [],
@@ -6848,7 +6848,7 @@ fn memory_graph_failure_attribution_analyses_every_decision_when_the_corpus_take
 fn memory_graph_scan_misfiled_decisions_flags_a_decision_whose_id_sorts_past_the_first_page(
 ) -> Result<()> {
     let count = SMALL_PAGE * 2 + 2;
-    let mut events = numbered_proposals(count, |_| vec!["hivemind"]);
+    let mut events = numbered_proposals(count, |_| vec!["loomtracer"]);
     // The only foreign-topic decision sorts after every `decision:numbered-*` id.
     events.push(test_event(
         count as u128 + 1,

@@ -1,23 +1,23 @@
 import { z } from "zod";
 import { apiError, privateJson } from "@/lib/http";
-import { buildProjectBundle } from "@/lib/hivemind/bundle";
-import { hivemind } from "@/lib/hivemind/client";
-import { projectPath, summarizeProjects } from "@/lib/hivemind/projects";
+import { buildProjectBundle } from "@/lib/loomtracer/bundle";
+import { loomtracer } from "@/lib/loomtracer/client";
+import { projectPath, summarizeProjects } from "@/lib/loomtracer/projects";
 
 export const dynamic = "force-dynamic";
 
 const projectRef = z.string().min(1).max(200);
-/** How many of a project's newest decisions to draw. HiveMind's own ceiling is 1000. */
+/** How many of a project's newest decisions to draw. Loomtracer's own ceiling is 1000. */
 const decisionLimit = z.coerce.number().int().min(1).max(1000);
 
 /**
  * Read-only. Without `project_ref`: the projects of the tenant this workspace's key reads.
- * With it: that project's newest decisions (`limit`, default HiveMind's page) as a reasoning
+ * With it: that project's newest decisions (`limit`, default Loomtracer's page) as a reasoning
  * bundle, the ledger position it was read at, and how many of the project's decisions are shown.
  */
 export async function GET(request: Request) {
   try {
-    const client = hivemind();
+    const client = loomtracer();
     const params = new URL(request.url).searchParams;
     const wanted = params.get("project_ref");
     if (wanted === null) {

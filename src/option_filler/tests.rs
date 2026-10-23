@@ -22,7 +22,7 @@ use crate::quality_profile::{quality_profile_of, Level};
 
 fn unique_dir(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "hivemind-option-filler-{label}-{}",
+        "loomtracer-option-filler-{label}-{}",
         uuid::Uuid::new_v4()
     ))
 }
@@ -169,10 +169,10 @@ fn mcp_capture_without_an_option_description_reads_as_partial() {
 fn cli_capture_without_an_option_description_reads_as_partial() {
     let dir = unique_dir("cli");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",

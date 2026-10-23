@@ -101,11 +101,11 @@ pub(super) fn build_workos_state(config: &ApiConfig) -> (Option<WorkosConfig>, C
 
     match reqwest::blocking::get(jwks_url).and_then(|r| r.json::<JwkSet>()) {
         Ok(jwks) => {
-            tracing::info!(target: "hivemind::api", keys = jwks.keys.len(), "WorkOS JWKS loaded");
+            tracing::info!(target: "loomtracer::api", keys = jwks.keys.len(), "WorkOS JWKS loaded");
             (Some(workos_cfg), CachedJwks::build(&jwks))
         }
         Err(e) => {
-            tracing::warn!(target: "hivemind::api", error = %e, "WorkOS JWKS fetch failed — JWT auth disabled");
+            tracing::warn!(target: "loomtracer::api", error = %e, "WorkOS JWKS fetch failed — JWT auth disabled");
             (
                 Some(workos_cfg),
                 CachedJwks::build(&JwkSet { keys: vec![] }),
@@ -201,7 +201,7 @@ pub(super) async fn extract_ctx(state: &AppState, headers: &HeaderMap) -> ApiRes
         }
     }
 
-    // SQLite mode: try per-user token resolution for hm_tk_ prefixed tokens.
+    // SQLite mode: try per-user token resolution for lt_tk_ prefixed tokens.
     // If the user store is initialized and the token is not found/revoked, reject immediately.
     if bearer.starts_with(crate::ledger::SQLITE_TOKEN_PREFIX) {
         if let Some(ref user_store) = state.sqlite_user_store {
@@ -238,7 +238,7 @@ pub(super) async fn extract_ctx(state: &AppState, headers: &HeaderMap) -> ApiRes
         .and_then(|v| v.to_str().ok())
         .unwrap_or(TenantId::LOCAL_VALUE);
     let tenant_id = TenantId::new(tenant_str)
-        .map_err(|_| ApiError::validation("X-HiveMind-Tenant must not be empty"))?;
+        .map_err(|_| ApiError::validation("X-Loomtracer-Tenant must not be empty"))?;
 
     let actor_id = headers
         .get(HEADER_ACTOR)
@@ -278,15 +278,15 @@ async fn workos_validate_token(
                     .await;
             match result {
                 Ok(Ok(jwks)) => {
-                    tracing::info!(target: "hivemind::api", keys = jwks.keys.len(), "WorkOS JWKS refreshed on unknown kid");
+                    tracing::info!(target: "loomtracer::api", keys = jwks.keys.len(), "WorkOS JWKS refreshed on unknown kid");
                     let mut w = state.workos_jwks.write().unwrap(); // ubs:ignore: RwLock poisoned iff a prior thread panicked — propagate the panic
                     *w = CachedJwks::build(&jwks);
                 }
                 Ok(Err(e)) => {
-                    tracing::warn!(target: "hivemind::api", error = %e, "WorkOS JWKS refresh failed");
+                    tracing::warn!(target: "loomtracer::api", error = %e, "WorkOS JWKS refresh failed");
                 }
                 Err(e) => {
-                    tracing::warn!(target: "hivemind::api", error = %e, "WorkOS JWKS refresh task panicked");
+                    tracing::warn!(target: "loomtracer::api", error = %e, "WorkOS JWKS refresh task panicked");
                 }
             }
         }
@@ -381,8 +381,8 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 /// authenticating already does — a first WorkOS login on the Postgres backend provisions the
 /// user's tenant mapping.
 ///
-/// The shared `HIVEMIND_API_KEY` is not a person, so it answers `service:api` (or the
-/// caller-asserted `X-HiveMind-Actor` header that path already honours); a client can tell it
+/// The shared `LOOMTRACER_API_KEY` is not a person, so it answers `service:api` (or the
+/// caller-asserted `X-Loomtracer-Actor` header that path already honours); a client can tell it
 /// apart from a personal token and warn that writes will carry no person's name.
 pub(super) async fn whoami_handler(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match extract_ctx(&state, &headers).await {
@@ -407,7 +407,7 @@ pub(super) struct ProvisionTenantRequest {
 }
 
 /// Provision a new tenant and issue its initial bearer token.
-/// Requires the `Authorization: Bearer <HIVEMIND_ADMIN_KEY>` header.
+/// Requires the `Authorization: Bearer <LOOMTRACER_ADMIN_KEY>` header.
 /// Only available when the `shared-backend-postgres` feature is enabled.
 #[cfg(feature = "shared-backend-postgres")]
 pub(super) async fn provision_tenant_handler(
@@ -423,7 +423,7 @@ pub(super) async fn provision_tenant_handler(
         .unwrap_or("");
     match &state.admin_key {
         None => {
-            return ApiError::internal("HIVEMIND_ADMIN_KEY not configured").into_response();
+            return ApiError::internal("LOOMTRACER_ADMIN_KEY not configured").into_response();
         }
         Some(expected) => {
             if !constant_time_eq(provided, expected) {
@@ -482,7 +482,7 @@ pub(super) fn check_admin_key(state: &AppState, headers: &HeaderMap) -> Result<(
         .and_then(|v| v.strip_prefix("Bearer "))
         .unwrap_or("");
     match &state.admin_key {
-        None => Err(ApiError::internal("HIVEMIND_ADMIN_KEY not configured").into_response()),
+        None => Err(ApiError::internal("LOOMTRACER_ADMIN_KEY not configured").into_response()),
         Some(expected) => {
             if constant_time_eq(provided, expected) {
                 Ok(())
@@ -496,7 +496,7 @@ pub(super) fn check_admin_key(state: &AppState, headers: &HeaderMap) -> Result<(
 /// Answers 404 `unknown_tenant` for an admin route whose `tenant_id` (body or query, default
 /// `local`) is not registered on this backend, so the route mints, lists and revokes nothing for
 /// a tenant that does not exist — the same refusal the per-request seam gives a typo'd
-/// `X-HiveMind-Tenant`.
+/// `X-Loomtracer-Tenant`.
 #[allow(clippy::result_large_err)]
 async fn require_known_tenant(state: &AppState, tenant_id: &str) -> Result<(), Response> {
     let backend = Arc::clone(&state.backend);

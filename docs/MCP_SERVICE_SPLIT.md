@@ -8,12 +8,12 @@ TypeScript gateway) captured 2026-06-13; that direction was **declined
 `clients/mcp-gateway/` code this doc used to describe is removed as of this
 revision.
 
-Question answered: when HiveMind goes multi-tenant, where does the MCP server
+Question answered: when Loomtracer goes multi-tenant, where does the MCP server
 live, in what language, and how does it relate to the Rust core?
 
 ## Governing principle: strong types as the AI's correctness oracle
 
-HiveMind is written by AI under human direction. The compiler is therefore not
+Loomtracer is written by AI under human direction. The compiler is therefore not
 just a safety net — it is the model's feedback loop. The stricter the type
 system, the more AI mistakes (hallucinated methods, wrong shapes, unhandled
 variants) it rejects before they ship. Rank languages by
@@ -56,7 +56,7 @@ per [`ARCHITECTURE.md`](ARCHITECTURE.md)'s Surface Uniformity commitment.
 - `src/mcp.rs` — `tool_definitions()`, the single source of truth for the tool
   list (schema, description, read/write/layer-3 classification) shared by
   both transports, plus the stdio JSON-RPC serve loop (`serve_stdio`) used for
-  local self-host (`hivemind mcp`).
+  local self-host (`loomtracer mcp`).
 - `src/api/mcp_http.rs` — `POST /mcp`, the Streamable HTTP transport for the
   shared/hosted service. Routed at `/mcp` in `src/api.rs`. Auth goes through
   the same `extract_ctx` bearer/session resolution as `/v1/*`
@@ -66,16 +66,16 @@ per [`ARCHITECTURE.md`](ARCHITECTURE.md)'s Surface Uniformity commitment.
   as of this revision — verify against `tool_definitions()` rather than
   trusting this number as it drifts. The generated reference lives in the
   site repo and is kept honest by `generate-reference --check`, which that
-  repo's CI runs against hivemind `master` (see
+  repo's CI runs against loomtracer `master` (see
   [`QUALITY_GATES.md`](QUALITY_GATES.md#reference-docs-live-in-the-site-repo));
   it fails when `reference/mcp-tools.md` there stops matching
   `tool_definitions()`.
 - Capture-path framing: [`AGENT_DECISION_CAPTURE.md`](AGENT_DECISION_CAPTURE.md)
   covers where MCP sits among the capture paths (CLI, hooks, sidecar, MCP).
-- User-facing setup: [MCP Setup](https://alexknips.github.io/hivemind-site/guides/mcp-setup/)
+- User-facing setup: [MCP Setup](https://alexknips.github.io/loomtracer-site/guides/mcp-setup/)
   documents connecting to a self-hosted cell over HTTP and the local stdio
   server; the tool table there is hand-maintained prose, not generated, so
-  treat the [MCP Tools reference](https://alexknips.github.io/hivemind-site/reference/mcp-tools/)
+  treat the [MCP Tools reference](https://alexknips.github.io/loomtracer-site/reference/mcp-tools/)
   (generated, checked) as canonical for the exact tool list.
 - Multi-tenant RLS — Postgres Row-Level Security keyed on `tenant_id`,
   enforced at the database layer, applies identically regardless of which
@@ -85,6 +85,6 @@ per [`ARCHITECTURE.md`](ARCHITECTURE.md)'s Surface Uniformity commitment.
 
 - [`MULTI_TENANCY.md`](MULTI_TENANCY.md) — tenant as the top-level isolation boundary.
 - [`AUTH_MODEL.md`](AUTH_MODEL.md) — bearer tokens, OIDC sessions, tenant/capability scoping.
-- [`REMOTE_DB.md`](REMOTE_DB.md) — Postgres-backed HiveMind service and API boundary.
+- [`REMOTE_DB.md`](REMOTE_DB.md) — Postgres-backed Loomtracer service and API boundary.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — the three-layer boundary and Surface Uniformity commitment every transport must respect.
 - [`AGENT_DECISION_CAPTURE.md`](AGENT_DECISION_CAPTURE.md) — how MCP fits among the capture paths.

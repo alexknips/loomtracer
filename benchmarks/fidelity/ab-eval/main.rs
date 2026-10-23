@@ -1,6 +1,6 @@
 //! A/B uplift harness (Phase 1 + Tier 1.5) — see beads hivemind-4ygu, hivemind-92fs.
 //!
-//! Measures whether HiveMind's structured query output (treatment arm)
+//! Measures whether Loomtracer's structured query output (treatment arm)
 //! outperforms hand-authored ADR/MADR documents (control arm) on five
 //! decision-recall task types. Both arms use the same model.
 //!
@@ -13,7 +13,7 @@
 //!
 //! Honesty constraint: both arms derive from the SAME source documents.
 //! Control = flat doc bundle as-is. Treatment = same docs ingested through
-//! HiveMind (capture-time linking). Uplift is attributable only to capture.
+//! Loomtracer (capture-time linking). Uplift is attributable only to capture.
 //!
 //! Scoring:
 //!   T1 (decision-recall):         token-F1 over decision title + options
@@ -564,7 +564,7 @@ async fn main() {
         })
         .collect();
 
-    println!("HiveMind A/B Uplift Scorecard — Phase 1 + Tier 1.5");
+    println!("Loomtracer A/B Uplift Scorecard — Phase 1 + Tier 1.5");
     println!("PRELIMINARY — agent-only, 2026-07-16");
     if dry_run {
         println!("Mode: DRY-RUN (no API calls; scores are N/A)");

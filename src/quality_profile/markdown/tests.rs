@@ -201,7 +201,7 @@ pub(crate) fn assert_markdown_scenario(graph: &impl GraphView) -> Result<()> {
     )?;
     assert!(!page.data.findings.is_empty());
     for scanned in &page.data.findings {
-        let body = format_issue_description(scanned, Some("https://hivemind.example.com"));
+        let body = format_issue_description(scanned, Some("https://loomtracer.example.com"));
         let finding = &scanned.finding;
 
         assert!(

@@ -1,7 +1,10 @@
 use super::*;
 
 fn unique_test_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-current-project-{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!(
+        "loomtracer-current-project-{}",
+        uuid::Uuid::new_v4()
+    ))
 }
 
 #[test]

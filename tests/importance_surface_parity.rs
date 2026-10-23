@@ -20,7 +20,7 @@ use http_body_util::BodyExt as _;
 use serde_json::{json, Value};
 use tower::ServiceExt as _;
 
-use hivemind::cli::{run, Cli};
+use loomtracer::cli::{run, Cli};
 
 #[allow(dead_code)]
 #[path = "support/seed_data.rs"]
@@ -101,10 +101,10 @@ fn seed(dir: &Path) -> TestResult<Seeded> {
     let mut ids = Vec::new();
     for (label, title, decided) in DECISIONS {
         let mut argv = vec![
-            "hivemind",
+            "loomtracer",
             "--actor",
             RECORDER,
-            "--hivemind-dir",
+            "--loomtracer-dir",
             path,
             "emit",
             "decision.proposed",
@@ -131,10 +131,10 @@ fn seed(dir: &Path) -> TestResult<Seeded> {
     let seeded = Seeded { ids };
     for (follower, premise) in FOLLOWS {
         run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             RECORDER,
-            "--hivemind-dir",
+            "--loomtracer-dir",
             path,
             "emit",
             "relation.added",
@@ -212,8 +212,8 @@ impl Ask {
 fn via_cli(dir: &Path, ask: &Ask) -> TestResult<Value> {
     let path = dir.to_str().ok_or("the ledger path is utf-8")?;
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         path.to_owned(),
         "query".to_owned(),
         "rank_decisions_by_importance".to_owned(),
@@ -226,11 +226,11 @@ fn via_cli(dir: &Path, ask: &Ask) -> TestResult<Value> {
 /// The plugin's script, which finds the binary and the ledger the way a user's session does.
 fn via_plugin(dir: &Path, ask: &Ask) -> TestResult<Value> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = Command::new(root.join("plugins/hivemind-context/scripts/importance.sh"))
+    let output = Command::new(root.join("plugins/loomtracer-context/scripts/importance.sh"))
         .args(ask.cli_args())
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .output()?;
     if !output.status.success() {
@@ -243,9 +243,9 @@ fn via_plugin(dir: &Path, ask: &Ask) -> TestResult<Value> {
     Ok(serde_json::from_slice(&output.stdout)?)
 }
 
-fn app(hivemind_dir: &Path) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir: hivemind_dir.to_path_buf(),
+fn app(loomtracer_dir: &Path) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir: loomtracer_dir.to_path_buf(),
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -263,7 +263,7 @@ fn app(hivemind_dir: &Path) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 /// `text` as a query-string value.
@@ -288,7 +288,7 @@ async fn via_http(dir: &Path, ask: &Ask) -> TestResult<(StatusCode, Value)> {
     let request = Request::builder()
         .method("GET")
         .uri(uri)
-        .header("x-hivemind-actor", RECORDER)
+        .header("x-loomtracer-actor", RECORDER)
         .body(Body::empty())?;
     let response = app(dir).oneshot(request).await?;
     let status = response.status();
@@ -311,7 +311,7 @@ async fn via_http_mcp(dir: &Path, ask: &Ask) -> TestResult<Value> {
         .method("POST")
         .uri("/mcp")
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", RECORDER)
+        .header("x-loomtracer-actor", RECORDER)
         .body(Body::from(serde_json::to_string(&body)?))?;
     let response = app(dir).oneshot(request).await?;
     let bytes = response.into_body().collect().await?.to_bytes();
@@ -332,8 +332,8 @@ struct McpServer {
 
 impl McpServer {
     fn start(dir: &Path) -> TestResult<Self> {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
             .arg(dir)
             .arg("mcp")
             .arg("--session-id")

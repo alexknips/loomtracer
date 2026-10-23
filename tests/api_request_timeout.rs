@@ -32,14 +32,14 @@ const READ_TIMEOUT: Duration = Duration::from_millis(250);
 
 fn test_ledger_dir() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "hivemind-api-timeout-test-{}",
+        "loomtracer-api-timeout-test-{}",
         uuid::Uuid::new_v4()
     ))
 }
 
-fn config(hivemind_dir: &Path) -> hivemind::api::ApiConfig {
-    hivemind::api::ApiConfig {
-        hivemind_dir: hivemind_dir.to_path_buf(),
+fn config(loomtracer_dir: &Path) -> loomtracer::api::ApiConfig {
+    loomtracer::api::ApiConfig {
+        loomtracer_dir: loomtracer_dir.to_path_buf(),
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -60,13 +60,13 @@ fn config(hivemind_dir: &Path) -> hivemind::api::ApiConfig {
 }
 
 /// The default router: a 30 s read timeout, far longer than a warm-up request takes.
-fn default_app(hivemind_dir: &Path) -> axum::Router {
-    hivemind::api::create_router(&config(hivemind_dir))
+fn default_app(loomtracer_dir: &Path) -> axum::Router {
+    loomtracer::api::create_router(&config(loomtracer_dir))
 }
 
 /// A router that cuts a read off after [`READ_TIMEOUT`].
-fn short_timeout_app(hivemind_dir: &Path) -> axum::Router {
-    hivemind::api::create_router_with_read_timeout(&config(hivemind_dir), READ_TIMEOUT)
+fn short_timeout_app(loomtracer_dir: &Path) -> axum::Router {
+    loomtracer::api::create_router_with_read_timeout(&config(loomtracer_dir), READ_TIMEOUT)
 }
 
 async fn call(app: axum::Router, req: Request<Body>) -> (StatusCode, Value) {
@@ -88,7 +88,7 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -97,7 +97,7 @@ fn get_req(uri: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
         .uri(uri)
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::empty())
         .unwrap()
 }
@@ -116,12 +116,12 @@ fn capture_body(title: &str) -> Value {
     })
 }
 
-fn ledger_path(hivemind_dir: &Path) -> PathBuf {
-    hivemind_dir.join("ledger.sqlite")
+fn ledger_path(loomtracer_dir: &Path) -> PathBuf {
+    loomtracer_dir.join("ledger.sqlite")
 }
 
-fn count_events(hivemind_dir: &Path, event_type: &str) -> i64 {
-    rusqlite::Connection::open(ledger_path(hivemind_dir))
+fn count_events(loomtracer_dir: &Path, event_type: &str) -> i64 {
+    rusqlite::Connection::open(ledger_path(loomtracer_dir))
         .expect("open ledger")
         .query_row(
             "SELECT COUNT(*) FROM events WHERE type = ?1",
@@ -132,8 +132,8 @@ fn count_events(hivemind_dir: &Path, event_type: &str) -> i64 {
 }
 
 /// Takes the ledger's write lock and keeps it until the returned connection commits.
-fn hold_write_lock(hivemind_dir: &Path) -> rusqlite::Connection {
-    let lock = rusqlite::Connection::open(ledger_path(hivemind_dir)).expect("open ledger");
+fn hold_write_lock(loomtracer_dir: &Path) -> rusqlite::Connection {
+    let lock = rusqlite::Connection::open(ledger_path(loomtracer_dir)).expect("open ledger");
     lock.execute_batch("BEGIN IMMEDIATE").expect("take lock");
     lock
 }
@@ -141,8 +141,8 @@ fn hold_write_lock(hivemind_dir: &Path) -> rusqlite::Connection {
 /// Takes the whole ledger file, readers included, and keeps it until the returned connection is
 /// dropped. In exclusive locking mode SQLite keeps its file lock past COMMIT, so closing the
 /// connection is the release.
-fn hold_ledger_exclusively(hivemind_dir: &Path) -> rusqlite::Connection {
-    let lock = rusqlite::Connection::open(ledger_path(hivemind_dir)).expect("open ledger");
+fn hold_ledger_exclusively(loomtracer_dir: &Path) -> rusqlite::Connection {
+    let lock = rusqlite::Connection::open(ledger_path(loomtracer_dir)).expect("open ledger");
     lock.execute_batch("PRAGMA locking_mode=EXCLUSIVE; BEGIN IMMEDIATE")
         .expect("take the ledger");
     lock
@@ -246,7 +246,7 @@ fn post_then_stall(uri: &str, payload: &Value) -> Request<Body> {
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::new(StallingBody { first: Some(bytes) }))
         .expect("request builds")
 }
@@ -314,7 +314,7 @@ async fn stalled_bodies_do_not_hold_the_servers_request_slots() {
     // slot that never frees.
     let app = short_timeout_app(&dir);
     let payload = capture_body("Stalled decision");
-    let stalled: Vec<_> = (0..hivemind::api::MAX_CONCURRENT_REQUESTS + 10)
+    let stalled: Vec<_> = (0..loomtracer::api::MAX_CONCURRENT_REQUESTS + 10)
         .map(|_| {
             tokio::spawn(call(
                 app.clone(),

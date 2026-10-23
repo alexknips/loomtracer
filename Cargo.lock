@@ -1292,50 +1292,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hivemind"
-version = "0.7.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "chrono",
- "clap",
- "crossterm",
- "cxx-build",
- "deunicode",
- "fastembed",
- "http-body",
- "http-body-util",
- "jsonschema",
- "jsonwebtoken",
- "kuzu",
- "nalgebra",
- "native-tls",
- "pdf-extract",
- "postgres",
- "postgres-native-tls",
- "proptest",
- "r2d2",
- "r2d2_postgres",
- "ratatui",
- "reqwest",
- "ring",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "serde_yaml",
- "sha2 0.10.9",
- "tempfile",
- "thiserror",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "hmac"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1855,6 +1811,50 @@ name = "log"
 version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
+
+[[package]]
+name = "loomtracer"
+version = "0.8.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "crossterm",
+ "cxx-build",
+ "deunicode",
+ "fastembed",
+ "http-body",
+ "http-body-util",
+ "jsonschema",
+ "jsonwebtoken",
+ "kuzu",
+ "nalgebra",
+ "native-tls",
+ "pdf-extract",
+ "postgres",
+ "postgres-native-tls",
+ "proptest",
+ "r2d2",
+ "r2d2_postgres",
+ "ratatui",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "lopdf"

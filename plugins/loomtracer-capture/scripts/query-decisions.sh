@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage:
+  query-decisions.sh ["free text query"] [--q "..."] [--topic t,...]
+                     [--status s,...] [--actor-id actor,...]
+                     [--source agent|human] [--since T] [--until T]
+                     [--limit 10] [--cursor C] [--loomtracer-dir DIR]
+
+"What did we decide about X?" Free text first; forwards to the fluent verb:
+  loomtracer query recall
+
+`--q "..."` is accepted for backward compatibility and is treated the same
+as a bare positional query.
+
+This reads a local ledger (--loomtracer-dir) and never contacts a server. It
+refuses (exit 2, naming the directory) when that directory holds no ledger, and
+makes none, so a mistyped path is not read as "no decisions". With
+LOOMTRACER_API_URL set it otherwise answers from the ledger with a `notice`
+saying so.
+
+No actor or source filter is applied unless you pass --actor-id or
+--source explicitly — this is a free-text search over every decision in
+the ledger, not just the ones the calling session touched.
+
+For deeper follow-up on a specific decision — why it was made, whether it
+still holds, contesting or superseding it — install the loomtracer-context
+plugin and use its fluent verbs (recall/why/verify/chain/disagree/supersede);
+none of them take a decision id as primary input either. See
+docs/AGENT_DECISION_CONTEXT.md.
+USAGE
+}
+
+worktree_root() {
+  if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+    printf '%s\n' "$CLAUDE_PROJECT_DIR"
+  else
+    git rev-parse --path-format=absolute --show-toplevel 2>/dev/null || pwd
+  fi
+}
+
+project_root() {
+  local common_dir
+  common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$common_dir" ]]; then
+    dirname "$common_dir"
+  else
+    worktree_root
+  fi
+}
+
+log_loomtracer_resolution() {
+  printf 'loomtracer-dir resolved to %s (rig-root=%s worktree=%s)\n' \
+    "$LOOMTRACER_DIR" "$PROJECT_ROOT" "$WORKTREE_ROOT" >&2
+}
+
+install_hint() {
+  cat >&2 <<'HINT'
+Loomtracer CLI was not found.
+
+Install it first, then retry:
+  cargo install --path /path/to/loomtracer
+
+Or set LOOMTRACER_CAPTURE_BIN to a built loomtracer binary.
+HINT
+}
+
+WORKTREE_ROOT="$(worktree_root)"
+PROJECT_ROOT="$(project_root)"
+LOOMTRACER_DIR="${LOOMTRACER_DIR:-${CLAUDE_PLUGIN_OPTION_LOOMTRACER_DIR:-$PROJECT_ROOT/loomtracer}}"
+HAS_LIMIT=0
+QUERY=""
+FORWARDED=()
+
+# The free-text query, if present, is the leading run of words that don't
+# start with `-` (mirrors QueryRecallArgs' single positional `query` field,
+# which takes exactly one shell token). The command markdown passes the typed
+# arguments through bare, so a quoted `"current-project setting"` reaches us as
+# one word and an unquoted `current-project setting` as two; joining the
+# leading run with single spaces makes both one query. Wrapping the
+# substituted arguments in one more pair of quotes instead doubles a caller's
+# own quotes (`""a b""` splits into two words) and swallows any flags typed
+# after the query. Every later bare token is a flag's value and must stay in
+# place in FORWARDED, not be captured here — otherwise `--topic smoke` would
+# lose its value to this check on the next loop iteration.
+while [[ $# -gt 0 && "$1" != -* ]]; do
+  QUERY="${QUERY:+$QUERY }$1"
+  shift
+done
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    --loomtracer-dir)
+      LOOMTRACER_DIR="${2:-}"
+      shift 2
+      ;;
+    --q)
+      QUERY="${2:-}"
+      shift 2
+      ;;
+    --actor)
+      FORWARDED+=(--actor-id "${2:-}")
+      shift 2
+      ;;
+    --actor-id)
+      FORWARDED+=(--actor-id "${2:-}")
+      shift 2
+      ;;
+    --source)
+      FORWARDED+=(--source "${2:-}")
+      shift 2
+      ;;
+    --limit)
+      HAS_LIMIT=1
+      FORWARDED+=(--limit "${2:-}")
+      shift 2
+      ;;
+    --)
+      shift
+      FORWARDED+=("$@")
+      break
+      ;;
+    *)
+      FORWARDED+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "$HAS_LIMIT" -eq 0 ]]; then
+  FORWARDED+=(--limit 10)
+fi
+
+log_loomtracer_resolution
+
+if [[ -n "${LOOMTRACER_CAPTURE_BIN:-}" ]]; then
+  BASE_CMD=("$LOOMTRACER_CAPTURE_BIN")
+elif command -v loomtracer >/dev/null 2>&1; then
+  BASE_CMD=("$(command -v loomtracer)")
+elif [[ -x "$PROJECT_ROOT/target/debug/loomtracer" ]]; then
+  BASE_CMD=("$PROJECT_ROOT/target/debug/loomtracer")
+elif [[ -f "$PROJECT_ROOT/Cargo.toml" && -f "$PROJECT_ROOT/src/main.rs" ]]; then
+  BASE_CMD=(cargo run --quiet --manifest-path "$PROJECT_ROOT/Cargo.toml" --)
+else
+  install_hint
+  exit 127
+fi
+
+QUERY_ARGS=()
+if [[ -n "$QUERY" ]]; then
+  QUERY_ARGS=("$QUERY")
+fi
+
+# ${arr[@]+...}: macOS ships bash 3.2, where expanding an empty array under
+# `set -u` is an "unbound variable" error (no query leaves QUERY_ARGS empty).
+exec "${BASE_CMD[@]}" --loomtracer-dir "$LOOMTRACER_DIR" query recall \
+  ${QUERY_ARGS[@]+"${QUERY_ARGS[@]}"} "${FORWARDED[@]}"

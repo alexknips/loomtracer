@@ -1,6 +1,6 @@
 # Example override: publish Postgres on loopback so CLI/MCP agents running
 # on the host (outside the compose network) can reach it directly with
-# HIVEMIND_DATABASE_URL / --database-url. Not applied by default — the base
+# LOOMTRACER_DATABASE_URL / --database-url. Not applied by default — the base
 # docker-compose.yml only publishes port 8080.
 #
 # Usage:

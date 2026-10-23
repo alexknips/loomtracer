@@ -1,5 +1,5 @@
 /.gc/
-/hivemind/
+/loomtracer/
 /target/
 
 # Local environment secrets — use .env.example as the template

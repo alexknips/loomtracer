@@ -2,7 +2,7 @@
 
 ## Conclusion
 
-Shared-ledger concurrent writes are safe for same-host HiveMind processes if every
+Shared-ledger concurrent writes are safe for same-host Loomtracer processes if every
 writer opens the database through `SqliteEventLedger::open`.
 
 The enforced conditions are:
@@ -16,7 +16,7 @@ The enforced conditions are:
 - Event appends are single-row autocommit `INSERT OR IGNORE` statements.
 - Writers use local filesystem locking that SQLite can rely on.
 
-Under those conditions, multiple `hivemind mcp` or CLI subprocesses can append
+Under those conditions, multiple `loomtracer mcp` or CLI subprocesses can append
 events to the same `ledger.sqlite` without an application-level writer
 coordinator. SQLite serializes the writers, the `events.event_id` autoincrement
 column defines the ledger order, and replay reads events back in that order.
@@ -41,7 +41,7 @@ single-writer service.
 ## Reproduction
 
 `tests/sqlite_wal_multiprocess.rs` is the committed reproduction. It starts two
-independent OS processes against one HiveMind directory. Each process proposes
+independent OS processes against one Loomtracer directory. Each process proposes
 1,000 decisions through the command layer. Each proposal writes one
 `decision.proposed` event and one `relation.added` event, for 4,000 total ledger
 events.
@@ -61,7 +61,7 @@ cargo test --test sqlite_wal_multiprocess shared_sqlite_ledger_accepts_concurren
 ```
 
 `tests/mcp_stdio_e2e.rs` also covers the dogfood path through two real
-`hivemind mcp` subprocesses sharing one ledger. It synchronizes both servers at
+`loomtracer mcp` subprocesses sharing one ledger. It synchronizes both servers at
 the write call, captures one decision from each, and verifies the shared log is
 monotonic and replayable:
 

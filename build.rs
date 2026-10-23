@@ -1,24 +1,24 @@
-//! Embeds the commit this binary was built from into `HIVEMIND_BUILD_SHA`
+//! Embeds the commit this binary was built from into `LOOMTRACER_BUILD_SHA`
 //! (compile-time env var, consumed via `env!` in `src/lib.rs`), so
-//! `hivemind --version` and `/v1/version` report what was actually built
+//! `loomtracer --version` and `/v1/version` report what was actually built
 //! instead of a bare, unbumped Cargo.toml semver (hivemind-zdsh.7).
 //!
-//! `HIVEMIND_BUILD_SHA` overrides the git lookup when set: the Docker build
+//! `LOOMTRACER_BUILD_SHA` overrides the git lookup when set: the Docker build
 //! context excludes `.git` (see `.dockerignore`), so the Dockerfile passes it
 //! in via a `GIT_SHA` build-arg instead.
 
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-env-changed=HIVEMIND_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=LOOMTRACER_BUILD_SHA");
 
-    let sha = std::env::var("HIVEMIND_BUILD_SHA")
+    let sha = std::env::var("LOOMTRACER_BUILD_SHA")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .or_else(git_head_sha)
         .unwrap_or_else(|| "unknown".to_string());
 
-    println!("cargo:rustc-env=HIVEMIND_BUILD_SHA={}", short(&sha));
+    println!("cargo:rustc-env=LOOMTRACER_BUILD_SHA={}", short(&sha));
 
     // Watch the real HEAD/refs files git resolves for THIS checkout, not a
     // hardcoded ".git/HEAD" — inside a git worktree (every polecat/crew/

@@ -10,21 +10,21 @@ use crate::ledger::contract_tests::{
     assert_replay_from_zero_in_order, assert_typed_and_id_reads,
 };
 
-fn temp_hivemind_dir(prefix: &str) -> PathBuf {
+fn temp_loomtracer_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "hivemind-any-ledger-{prefix}-{nanos}-{}",
+        "loomtracer-any-ledger-{prefix}-{nanos}-{}",
         std::process::id()
     ))
 }
 
 fn with_sqlite_any_ledger<T>(prefix: &str, f: impl FnOnce(&AnyLedger) -> Result<T>) -> Result<T> {
-    let dir = temp_hivemind_dir(prefix);
+    let dir = temp_loomtracer_dir(prefix);
     let config = LedgerConfig {
-        hivemind_dir: dir.clone(),
+        loomtracer_dir: dir.clone(),
         database_url: None,
     };
     let ledger = AnyLedger::open(&config, &TenantId::local())?;
@@ -43,9 +43,9 @@ fn open_selects_sqlite_when_database_url_unset() -> Result<()> {
 
 #[test]
 fn open_selects_sqlite_when_database_url_empty() -> Result<()> {
-    let dir = temp_hivemind_dir("empty");
+    let dir = temp_loomtracer_dir("empty");
     let config = LedgerConfig {
-        hivemind_dir: dir.clone(),
+        loomtracer_dir: dir.clone(),
         database_url: Some(String::new()),
     };
     let ledger = AnyLedger::open(&config, &TenantId::local())?;
@@ -73,12 +73,12 @@ fn contract_tests_pass_against_any_ledger_sqlite() -> Result<()> {
 /// with, which the contract writes an event to.
 #[test]
 fn a_sqlite_any_ledger_opened_for_another_tenant_addresses_that_tenant() -> Result<()> {
-    let dir = temp_hivemind_dir("bound-tenant");
+    let dir = temp_loomtracer_dir("bound-tenant");
     let acme =
         TenantId::new("acme").map_err(|e| crate::error::LedgerError::Storage(e.to_string()))?;
     SqliteEventLedger::open(&dir)?.create_tenant(&acme)?;
     let config = LedgerConfig {
-        hivemind_dir: dir.clone(),
+        loomtracer_dir: dir.clone(),
         database_url: None,
     };
 
@@ -92,7 +92,7 @@ fn a_sqlite_any_ledger_opened_for_another_tenant_addresses_that_tenant() -> Resu
 #[test]
 fn open_names_the_feature_when_url_set_but_not_compiled() {
     let config = LedgerConfig {
-        hivemind_dir: temp_hivemind_dir("not-compiled"),
+        loomtracer_dir: temp_loomtracer_dir("not-compiled"),
         database_url: Some("postgres://example/db".to_owned()),
     };
     let err = AnyLedger::open(&config, &TenantId::local())
@@ -109,7 +109,7 @@ fn open_names_the_feature_when_url_set_but_not_compiled() {
 #[test]
 fn open_does_not_fall_back_to_sqlite_on_unreachable_postgres_url() {
     let config = LedgerConfig {
-        hivemind_dir: temp_hivemind_dir("unreachable"),
+        loomtracer_dir: temp_loomtracer_dir("unreachable"),
         database_url: Some("postgres://user:pass@127.0.0.1:1/hivemind_test".to_owned()),
     };
     let result = AnyLedger::open(&config, &TenantId::local());
@@ -118,7 +118,7 @@ fn open_does_not_fall_back_to_sqlite_on_unreachable_postgres_url() {
         "unreachable Postgres URL must not silently succeed"
     );
     assert!(
-        !config.hivemind_dir.exists(),
+        !config.loomtracer_dir.exists(),
         "must not have opened (and thereby created) a SQLite ledger as a fallback"
     );
 }
@@ -126,11 +126,11 @@ fn open_does_not_fall_back_to_sqlite_on_unreachable_postgres_url() {
 #[cfg(feature = "shared-backend-postgres")]
 #[test]
 fn open_selects_postgres_when_database_url_set() -> Result<()> {
-    let Some(database_url) = std::env::var("HIVEMIND_TEST_POSTGRES_URL")
+    let Some(database_url) = std::env::var("LOOMTRACER_TEST_POSTGRES_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
     else {
-        eprintln!("skipping Postgres AnyLedger test; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping Postgres AnyLedger test; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     let nanos = SystemTime::now()
@@ -141,7 +141,7 @@ fn open_selects_postgres_when_database_url_set() -> Result<()> {
     let store = crate::ledger::TenantStore::connect(&database_url)?;
     store.provision_tenant(tenant_id.as_str(), "AnyLedger open test tenant")?;
     let config = LedgerConfig {
-        hivemind_dir: temp_hivemind_dir("postgres-selected"),
+        loomtracer_dir: temp_loomtracer_dir("postgres-selected"),
         database_url: Some(database_url),
     };
     let ledger = AnyLedger::open(&config, &tenant_id)?;
@@ -157,9 +157,9 @@ fn open_selects_postgres_when_database_url_set() -> Result<()> {
 /// and the create path, and never opens a fresh empty scope.
 #[test]
 fn open_rejects_unknown_tenant_sqlite() {
-    let dir = temp_hivemind_dir("unknown-tenant");
+    let dir = temp_loomtracer_dir("unknown-tenant");
     let config = LedgerConfig {
-        hivemind_dir: dir.clone(),
+        loomtracer_dir: dir.clone(),
         database_url: None,
     };
     let tenant_id = TenantId::new("tenant:does-not-exist").expect("valid tenant id");
@@ -172,7 +172,7 @@ fn open_rejects_unknown_tenant_sqlite() {
         "error must name the tenant: {message}"
     );
     assert!(
-        message.contains("hivemind tenant create"),
+        message.contains("loomtracer tenant create"),
         "error must name the create path: {message}"
     );
 
@@ -195,11 +195,11 @@ fn open_accepts_local_default_tenant_sqlite() -> Result<()> {
 #[cfg(feature = "shared-backend-postgres")]
 #[test]
 fn open_rejects_unknown_tenant_postgres() -> Result<()> {
-    let Some(database_url) = std::env::var("HIVEMIND_TEST_POSTGRES_URL")
+    let Some(database_url) = std::env::var("LOOMTRACER_TEST_POSTGRES_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
     else {
-        eprintln!("skipping Postgres AnyLedger test; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping Postgres AnyLedger test; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     let nanos = SystemTime::now()
@@ -208,7 +208,7 @@ fn open_rejects_unknown_tenant_postgres() -> Result<()> {
     let tenant_id = TenantId::new(format!("tenant:test:any-ledger-unknown:{nanos}"))
         .map_err(|e| crate::error::LedgerError::Storage(e.to_string()))?;
     let config = LedgerConfig {
-        hivemind_dir: temp_hivemind_dir("postgres-unknown-tenant"),
+        loomtracer_dir: temp_loomtracer_dir("postgres-unknown-tenant"),
         database_url: Some(database_url),
     };
 

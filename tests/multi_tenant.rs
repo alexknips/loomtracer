@@ -1,4 +1,4 @@
-use hivemind::ledger::{EventLedger, InMemoryEventLedger};
+use loomtracer::ledger::{EventLedger, InMemoryEventLedger};
 
 #[path = "support/multi_tenant.rs"]
 mod multi_tenant;
@@ -129,10 +129,10 @@ fn tenant_ids_are_distinct() -> TestResult<()> {
 
 #[test]
 fn local_tenant_is_isolated_from_named_tenants() -> TestResult<()> {
-    use hivemind::commands::{
+    use loomtracer::commands::{
         CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding,
     };
-    use hivemind::events::{EventProvenance, TenantId};
+    use loomtracer::events::{EventProvenance, TenantId};
 
     let ledger = InMemoryEventLedger::new();
 

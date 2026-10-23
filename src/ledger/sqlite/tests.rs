@@ -233,7 +233,7 @@ fn configures_busy_timeout_for_write_contention() -> Result<()> {
 
 #[test]
 fn concurrent_first_open_initializes_schema_once() -> Result<()> {
-    let dir = temp_hivemind_dir("concurrent-first-open");
+    let dir = temp_loomtracer_dir("concurrent-first-open");
     fs::create_dir_all(&dir).map_err(storage_error)?;
 
     const EVENT_IDS: [&str; 8] = [
@@ -280,7 +280,7 @@ fn concurrent_first_open_initializes_schema_once() -> Result<()> {
 
 #[test]
 fn opening_an_initialized_ledger_does_not_wait_for_the_write_lock() -> Result<()> {
-    let dir = temp_hivemind_dir("open-without-write-lock");
+    let dir = temp_loomtracer_dir("open-without-write-lock");
     drop(SqliteEventLedger::open(&dir)?);
 
     // Another connection sits in a write transaction, as a running append does.
@@ -316,7 +316,7 @@ fn first_open_stamps_the_schema_version_so_later_opens_skip_setup() -> Result<()
 
 #[test]
 fn opening_a_ledger_from_before_the_schema_stamp_migrates_it_and_keeps_its_events() -> Result<()> {
-    let dir = temp_hivemind_dir("pre-stamp-migration");
+    let dir = temp_loomtracer_dir("pre-stamp-migration");
     fs::create_dir_all(&dir).map_err(storage_error)?;
     let legacy = rusqlite::Connection::open(dir.join("ledger.sqlite")).map_err(storage_error)?;
     legacy
@@ -381,7 +381,7 @@ fn a_read_after_an_event_id_searches_the_tenant_index_instead_of_scanning_the_te
 
 #[test]
 fn opening_a_ledger_stamped_before_the_event_id_index_adds_it() -> Result<()> {
-    let dir = temp_hivemind_dir("event-id-index-migration");
+    let dir = temp_loomtracer_dir("event-id-index-migration");
     let ledger = SqliteEventLedger::open(&dir)?;
     ledger
         .connection
@@ -451,19 +451,22 @@ fn with_sqlite_ledger<T>(
     prefix: &str,
     f: impl FnOnce(&SqliteEventLedger) -> Result<T>,
 ) -> Result<T> {
-    let dir = temp_hivemind_dir(prefix);
+    let dir = temp_loomtracer_dir(prefix);
     let ledger = SqliteEventLedger::open(&dir)?;
     let result = f(&ledger);
     let _ = fs::remove_dir_all(&dir);
     result
 }
 
-fn temp_hivemind_dir(prefix: &str) -> PathBuf {
+fn temp_loomtracer_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before unix epoch")
         .as_nanos();
-    std::env::temp_dir().join(format!("hivemind-{prefix}-{nanos}-{}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "loomtracer-{prefix}-{nanos}-{}",
+        std::process::id()
+    ))
 }
 
 fn write_shared_decision(
@@ -558,6 +561,6 @@ fn require_title(label: &str, actual: &str, expected: &str) -> Result<()> {
     }
 }
 
-fn test_failure(message: impl Into<String>) -> crate::HivemindError {
+fn test_failure(message: impl Into<String>) -> crate::LoomtracerError {
     CommandError::Invariant(message.into()).into()
 }

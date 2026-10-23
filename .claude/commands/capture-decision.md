@@ -1,10 +1,10 @@
 ---
 allowed-tools: Bash(.claude/scripts/capture-decision.sh:*)
 argument-hint: --title "..." --rationale "..." --topic-keys topic[,topic] --options "Label[,Label]" [--chose "Label"] [--decided-by actor-id] [--still-proposed] (--rests-on-decision "..." | --rests-on-evidence "..." --evidence-source "..." | --rests-on-assumption "..." | --bet ["..."]) (--binds "..." | --binds-nothing) (--undo-cost "..." | --cheap-to-undo) [--source human|agent]
-description: Capture a HiveMind decision in the local ledger
+description: Capture a Loomtracer decision in the local ledger
 ---
 
-When `/capture-decision` is invoked, capture exactly one HiveMind decision from
+When `/capture-decision` is invoked, capture exactly one Loomtracer decision from
 the supplied arguments:
 
 `$ARGUMENTS`
@@ -18,7 +18,7 @@ Use the repository-local capture helper:
 Default to `--source human`, which records `actor_id=human:<git-user>` and
 `source=human` for a decision explicitly requested through this slash command.
 Use `--source agent` only when you are recording an autonomous Claude Code
-decision; that records `actor_id=agent:claude:<name>` (`HIVEMIND_AGENT_SESSION` when set,
+decision; that records `actor_id=agent:claude:<name>` (`LOOMTRACER_AGENT_SESSION` when set,
 then Gas City's `GC_AGENT`/`GC_ALIAS`, otherwise the raw session id) and
 `source=agent`.
 

@@ -903,7 +903,7 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchApp) {
             vec![
                 Line::from("Empty ledger."),
                 Line::from("Seed: cargo test --test seed -- --include-ignored"),
-                Line::from("Emit: hivemind emit decision.proposed --title ... --rationale ..."),
+                Line::from("Emit: loomtracer emit decision.proposed --title ... --rationale ..."),
             ]
         } else {
             let constraints = app.active_constraints();
@@ -1111,7 +1111,7 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, app: &DecisionSearchApp) {
             "Seed: cargo test --test seed -- --include-ignored",
         ));
         lines.push(Line::from(
-            "Or emit the first decision with hivemind emit decision.proposed.",
+            "Or emit the first decision with loomtracer emit decision.proposed.",
         ));
     } else {
         lines.push(Line::from("No selected decision."));
@@ -1513,7 +1513,7 @@ fn navigable_endpoint<'a>(
 }
 
 pub fn render_neighborhood_dot(neighborhood: &NeighborhoodView) -> String {
-    let mut dot = String::from("digraph hivemind_neighborhood {\n  rankdir=LR;\n");
+    let mut dot = String::from("digraph loomtracer_neighborhood {\n  rankdir=LR;\n");
     let nodes = neighborhood
         .nodes
         .iter()
@@ -1807,7 +1807,7 @@ fn dot_node_key(kind: NodeKind, id: &str) -> String {
     format!("{}:{}", kind.table_name(), id)
 }
 
-fn tui_io_error(context: &str, error: impl std::fmt::Display) -> crate::HivemindError {
+fn tui_io_error(context: &str, error: impl std::fmt::Display) -> crate::LoomtracerError {
     CliError::InvalidInput(format!("{context}: {error}")).into()
 }
 

@@ -255,7 +255,7 @@ fn a_decision_recorded_by_hand_has_no_session_to_share() -> Result<()> {
 
 #[test]
 fn a_classification_of_batches_never_received_is_grouped_by_its_event() -> Result<()> {
-    // Batches the ledger never received (a `hivemind emit` capture names a fresh batch id) leave
+    // Batches the ledger never received (a `loomtracer emit` capture names a fresh batch id) leave
     // the decisions without a session, so the classification event that recorded them stays the
     // grouping: its own decisions are one conversation, and a second event is not joined to it.
     let scenario = Scenario::new();

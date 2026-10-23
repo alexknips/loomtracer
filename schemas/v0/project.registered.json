@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hivemind.local/schemas/v0/project.registered.json",
+  "$id": "https://loomtracer.local/schemas/v0/project.registered.json",
   "title": "project.registered event",
   "type": "object",
   "additionalProperties": false,

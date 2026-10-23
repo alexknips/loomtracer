@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hivemind.local/schemas/v0/hypothesis.recorded.json",
+  "$id": "https://loomtracer.local/schemas/v0/hypothesis.recorded.json",
   "title": "hypothesis.recorded event",
   "type": "object",
   "additionalProperties": false,

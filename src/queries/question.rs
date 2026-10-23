@@ -143,7 +143,7 @@ pub(super) fn question_text(
 /// The earliest explicit ask for the question `question_id`, if any — the `asked_at` a reader of
 /// an answered decision is shown alongside its own `occurred_at` (hivemind-bbnw.4). A question
 /// with no `Ask` node (every decision that has ever named it did so via `--question`, never
-/// `hivemind ask`) has no ask time; `None` says so rather than guessing.
+/// `loomtracer ask`) has no ask time; `None` says so rather than guessing.
 pub(super) fn earliest_ask(
     graph: &impl GraphView,
     question_id: &str,

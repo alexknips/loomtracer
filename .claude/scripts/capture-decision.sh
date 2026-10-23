@@ -15,15 +15,15 @@ Options:
   --actor-id ID              Override actor id. Required by direct human CLI calls.
   --source-ref REF           Override source_ref. Defaults to actor id.
   --agent-session SESSION    Session name for --source agent. Defaults to
-                             $HIVEMIND_AGENT_SESSION, then GC_AGENT/GC_ALIAS,
+                             $LOOMTRACER_AGENT_SESSION, then GC_AGENT/GC_ALIAS,
                              then Claude's own session id.
-  --hivemind-dir DIR         Ledger directory. Defaults to $HIVEMIND_DIR or ./hivemind.
+  --loomtracer-dir DIR         Ledger directory. Defaults to $LOOMTRACER_DIR or ./loomtracer.
 
 A capture must say what it rests on, what it binds and what undoing it would cost; one
 that leaves any of the three out is refused and nothing is written.
 
 Additional decision.capture flags such as --decided-by, --still-proposed,
---evidence, and --hypotheses are forwarded to the HiveMind CLI. --chose means
+--evidence, and --hypotheses are forwarded to the Loomtracer CLI. --chose means
 the decision was already made — it self-accepts unless --still-proposed is
 also given.
 USAGE
@@ -52,18 +52,18 @@ human_actor_id() {
 }
 
 PROJECT_ROOT="$(repo_root)"
-HIVEMIND_DIR="${HIVEMIND_DIR:-$PROJECT_ROOT/hivemind}"
+LOOMTRACER_DIR="${LOOMTRACER_DIR:-$PROJECT_ROOT/loomtracer}"
 SOURCE="human"
 ACTOR_ID=""
 SOURCE_REF=""
 AGENT_TOOL="claude"
-# Stable identity first: HIVEMIND_AGENT_SESSION, which the user sets to name one
+# Stable identity first: LOOMTRACER_AGENT_SESSION, which the user sets to name one
 # actor outside Gas City, then Gas City's fixed slot name (GC_AGENT, mirrored in
 # GC_ALIAS) that survives process restarts. A raw session id (CLAUDE_SESSION_ID,
 # ...) does not -- it's freshly generated on every run, so checking it first
 # makes the same physical agent appear as a different actor on every restart
 # (hivemind-zdsh.9).
-AGENT_SESSION="${HIVEMIND_AGENT_SESSION:-${GC_AGENT:-${GC_ALIAS:-${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-manual-session}}}}}"
+AGENT_SESSION="${LOOMTRACER_AGENT_SESSION:-${GC_AGENT:-${GC_ALIAS:-${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-manual-session}}}}}"
 FORWARDED=()
 
 while [[ $# -gt 0 ]]; do
@@ -92,8 +92,8 @@ while [[ $# -gt 0 ]]; do
       AGENT_SESSION="${2:-}"
       shift 2
       ;;
-    --hivemind-dir)
-      HIVEMIND_DIR="${2:-}"
+    --loomtracer-dir)
+      LOOMTRACER_DIR="${2:-}"
       shift 2
       ;;
     --)
@@ -116,7 +116,7 @@ case "$SOURCE" in
     ;;
 esac
 
-mkdir -p "$HIVEMIND_DIR"
+mkdir -p "$LOOMTRACER_DIR"
 
 PROVENANCE=(--source "$SOURCE")
 if [[ "$SOURCE" == "human" ]]; then
@@ -133,18 +133,18 @@ else
   fi
 fi
 
-if [[ -n "${HIVEMIND_CAPTURE_BIN:-}" ]]; then
-  BASE_CMD=("$HIVEMIND_CAPTURE_BIN")
-elif [[ -x "$PROJECT_ROOT/target/debug/hivemind" ]]; then
-  BASE_CMD=("$PROJECT_ROOT/target/debug/hivemind")
+if [[ -n "${LOOMTRACER_CAPTURE_BIN:-}" ]]; then
+  BASE_CMD=("$LOOMTRACER_CAPTURE_BIN")
+elif [[ -x "$PROJECT_ROOT/target/debug/loomtracer" ]]; then
+  BASE_CMD=("$PROJECT_ROOT/target/debug/loomtracer")
 elif [[ -f "$PROJECT_ROOT/Cargo.toml" ]]; then
   BASE_CMD=(cargo run --quiet --manifest-path "$PROJECT_ROOT/Cargo.toml" --)
-elif command -v hivemind >/dev/null 2>&1; then
-  BASE_CMD=("$(command -v hivemind)")
+elif command -v loomtracer >/dev/null 2>&1; then
+  BASE_CMD=("$(command -v loomtracer)")
 else
-  echo "could not find hivemind binary or Cargo.toml in $PROJECT_ROOT" >&2
+  echo "could not find loomtracer binary or Cargo.toml in $PROJECT_ROOT" >&2
   exit 127
 fi
 
-exec "${BASE_CMD[@]}" --hivemind-dir "$HIVEMIND_DIR" emit decision.capture \
+exec "${BASE_CMD[@]}" --loomtracer-dir "$LOOMTRACER_DIR" emit decision.capture \
   "${PROVENANCE[@]}" "${FORWARDED[@]}"

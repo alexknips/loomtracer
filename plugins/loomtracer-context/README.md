@@ -1,0 +1,208 @@
+# Loomtracer Context Plugin
+
+Status: **name provisional.** Working name `loomtracer-context`; see
+[Naming](#naming) below — the mayor and Alex may rename this directory,
+`plugin.json` `name` fields, and the marketplace entries before this ships.
+
+This directory is both the Codex context plugin and the Claude Code
+`loomtracer-context` plugin. It is the query/contest counterpart to
+`plugins/loomtracer-capture`: capture writes decisions, this plugin reads and
+contests them — fluently, by description, never by id. It ships **no MCP
+server**; every command is a thin `scripts/*.sh` wrapper that execs the
+`loomtracer` binary directly. See
+[docs/AGENT_DECISION_CONTEXT.md](../../docs/AGENT_DECISION_CONTEXT.md) for
+why this plugin exists alongside the MCP surface rather than instead of it.
+
+The Claude package installs:
+
+- `/loomtracer-context:situational` — "what should I know before I touch
+  this?" from the current diff/paths/branch, no question needed.
+- `/loomtracer-context:recall` — "what did we decide about X?", free text.
+- `/loomtracer-context:why` — rationale and neighborhood for a decision,
+  resolved by description.
+- `/loomtracer-context:verify` — "did that hold up?", resolved by
+  description.
+- `/loomtracer-context:importance` — "which decisions carry the most impact, and
+  who decided them?": the decisions with others resting on them, most first,
+  each with who decided it. A decision nothing is recorded about reads
+  `not_assessed`, never a score of zero.
+- `/loomtracer-context:disagree` — push back on a decision by description
+  (write verb, strict ambiguity gate). Asks first whether the disagreement is
+  with the decision or with a premise it rests on; a newer loomtracer's reply
+  lists the premises that still stand (`raise_upstream:`).
+- `/loomtracer-context:supersede` — replace a decision by description (write
+  verb, strict ambiguity gate). Asks the same question first; a newer
+  loomtracer's reply lists the premises of the replaced decision that still
+  stand (`raise_upstream:`).
+- `/loomtracer-context:ground` — say what an existing decision rests on, after
+  the fact, attributed to you (write verb, strict ambiguity gate).
+- `/loomtracer-context:reexamine` — "what rests on something that changed, and
+  has nobody looked again?": the open re-examine items, each naming the
+  decision, the premise, how it changed and when (read verb).
+- `/loomtracer-context:reaffirm` — say a decision still holds after a premise it
+  rests on changed, with a one-line reason, attributed to you; closes that
+  item (write verb, strict ambiguity gate; refuses when there is nothing to
+  re-examine).
+- The `loomtracer-context` skill, which teaches when to consult Loomtracer
+  before changing code, and forbids inventing decision ids.
+
+Every command maps 1:1 to one CLI verb from `hivemind-tenv.1`/`tenv.2`'s
+fluent surface (`query situational`, `query recall`, `query why`,
+`query verify`, `disagree`, `supersede`, `ground`, `reaffirm`) except
+`importance` and `reexamine`, which list instead of resolving
+(`query rank_decisions_by_importance`, `reexamine`). None of them take a `decision_id`
+as primary input — free text (or `#N` from a previous ambiguous result) is
+the interface; `--id`/`--decision`/`--old`/`--pick N` remain as escape
+hatches for callers that already have one.
+
+## Install
+
+Install the Loomtracer CLI first so `loomtracer` is on `PATH`.
+
+From Claude Code, add this repository as a marketplace and install the
+plugin:
+
+```text
+/plugin marketplace add alexknips/loomtracer
+/plugin install loomtracer-context@loomtracer
+/reload-plugins
+```
+
+For local development from this checkout:
+
+```text
+/plugin marketplace add .
+/plugin install loomtracer-context@loomtracer
+/reload-plugins
+```
+
+Claude Code can also test the plugin directory directly:
+
+```bash
+claude --plugin-dir ./plugins/loomtracer-context
+```
+
+The default ledger is the project-local `./loomtracer/` directory. To use
+another ledger, set the plugin option `loomtracer_dir`, export `LOOMTRACER_DIR`,
+or pass `--loomtracer-dir` to the underlying scripts.
+
+Every script uses that local ledger and never contacts a server. With
+`LOOMTRACER_API_URL` set, a script run where no ledger exists refuses (exit 2,
+nothing created, nothing recorded) and names the cell's own route for the same
+thing; where one exists it works and says which ledger it used, so the cell does
+not appear to have a disagreement or a replacement it never received. Without
+that variable, a script aimed at a directory that holds no ledger refuses the
+same way (exit 2, naming the directory) and creates none: a disagreement or a
+replacement has nothing to act on there, and a mistyped path is not a missing
+decision.
+
+## Provenance Defaults
+
+Read verbs (`situational`, `recall`, `why`, `verify`, `reexamine`) run under the CLI's
+own default actor and record no new events.
+
+Write verbs (`disagree`, `supersede`, `ground`, `reaffirm`) pass `--actor agent:<tool>:<name>`
+explicitly, derived the same way `loomtracer-capture`'s scripts derive it —
+`LOOMTRACER_AGENT_SESSION` first, then Gas City's stable `GC_AGENT`/`GC_ALIAS` slot identity
+(it survives process restarts), falling back to a raw per-run session id
+(`CLAUDE_SESSION_ID`/`CLAUDE_CODE_SESSION_ID` under Claude,
+`CODEX_THREAD_ID`/`CODEX_SESSION_ID`/`CODEX_TASK_ID` under Codex), then
+Gas City's session-instance variables. `run_disagree`/`run_supersede`/`run_ground`/`run_reaffirm`
+(`src/cli/run/`) derive `source` from that `--actor` value itself
+(`agent:` prefix → `EventProvenance::agent`, otherwise `::human`), so the
+emitted event's `source` field always matches its `actor_id`'s kind.
+
+## Projects
+
+`supersede` records a new decision, so it passes `--project-from-context` and
+the replacement lands in the project the working folder names: the
+`.loomtracer-project` files of the folders the uncommitted change touches (else the
+nearest one walking up from the working directory), then the project anchored to
+the Gas City rig (`GC_RIG`), then the current project set with `loomtracer project
+use`. `--project HANDLE` names one outright and wins. A change that spans
+projects is recorded for the nearest project they are all part of. When none
+applies, or the spanned projects share no parent, the replacement stays in the
+project the decision it replaces is filed in now: after `loomtracer move`, the
+project it was moved to, with `project_source=inherited`. A decision saved to a
+personal project is replaced into the replacer's own personal project (personal
+projects belong to one actor), and the reply says so. `supersede` runs as the agent (`--actor`),
+so the current-project rung reads the agent's own setting, not the person's. Its
+confirmation line shows `project=<handle>` and how it was determined
+(`project_source=`). The other write verbs record no decision and take no
+project. See the `loomtracer-capture` README for the full order.
+
+The marketplace serves this plugin from `master` while people install the latest
+release binary, so `lib.sh` passes `--project-from-context` only when the CLI
+lists it (an older CLI files the replacement in the decision's own project), and
+refuses a verb the CLI does not have at all (`ground`, `reaffirm` and `reexamine` on v0.7.0) with that said.
+`scripts/check_plugin_against_release.py` runs these scripts against the latest
+release in CI.
+
+The read verbs never work a project out from the folder. Pass `--project
+HANDLE` to `situational` or `recall` (`/loomtracer-context:situational --project
+billing`) to ask project-first: that project's decisions, then its parent's
+(labelled as inherited), then one hop over `depends_on`, with a scope note that
+says where the answer stopped. Without it the whole tenant is searched.
+The plugin has no command for moving a decision to another project; run
+`loomtracer move "<description>" --to <handle>` (or MCP `move_decision`).
+
+## Verify
+
+Ask what to know before touching a file:
+
+```text
+/loomtracer-context:situational --paths src/api.rs
+```
+
+Ask what was decided:
+
+```text
+/loomtracer-context:recall "bearer auth on postgres"
+```
+
+Check whether it still holds:
+
+```text
+/loomtracer-context:verify "bearer auth on postgres"
+```
+
+If a description matches more than one decision equally well, every verb
+above returns a numbered candidate list instead of guessing; write verbs
+additionally perform no write in that case. A write verb does the same
+whenever more than one decision holds every word of the description, even
+when one of them carries more of the words in its title: only a description
+that one decision alone matches in full, or that is a decision's exact title
+or id, writes in one call. Re-run with `--pick N` or a bare `#N`.
+
+## Naming
+
+The plugin directory, both `plugin.json` `name` fields, both marketplace
+entries, the skill directory, and this README all use the working name
+`loomtracer-context`. Alex rejected `loomtracer-recall` for this role — it
+implies knowing an id, which is exactly what this plugin avoids needing.
+Two alternatives considered:
+
+- `loomtracer-context` (current) — reads as the counterpart to
+  `loomtracer-capture` (write vs. read/contest); already the name used
+  throughout the `hivemind-tenv` epic's bead text.
+- `loomtracer-fluent` — matches the parent epic's own title ("agent-fluent
+  decision interaction"); more abstract as a plugin name.
+- `loomtracer-consult` — matches this skill's own framing ("teaches WHEN to
+  consult past decisions"); reads as an agent action rather than a noun.
+
+Renaming later is mechanical: the plugin directory, the `name` field in
+both `plugin.json` files, the two marketplace entries
+(`.claude-plugin/marketplace.json`, `.agents/plugins/marketplace.json`),
+the skill directory under `skills/`, and the doc/README references above.
+
+## Uninstall
+
+```text
+/plugin uninstall loomtracer-context@loomtracer --prune
+```
+
+Remove the marketplace if no other Loomtracer plugins are installed:
+
+```text
+/plugin marketplace remove loomtracer
+```

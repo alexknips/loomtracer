@@ -1,5 +1,5 @@
 //! Which agent a capture is filed under when nothing names it (hivemind-tiu9). A user who adds
-//! HiveMind to Claude Code or Cursor without `--agent-tool` used to get every capture filed as
+//! Loomtracer to Claude Code or Cursor without `--agent-tool` used to get every capture filed as
 //! `agent:codex:...`. The MCP server now takes the name from the client's own `initialize`
 //! handshake; a plain CLI write with nothing to go on gets a neutral name; the flag and the
 //! environment still win. Each test runs the real binary in an emptied environment, so the
@@ -10,8 +10,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -38,13 +38,13 @@ impl Drop for Scratch {
 }
 
 /// The real binary with no inherited environment but `PATH`: nothing in it names an agent.
-fn hivemind(dir: &Path, envs: &BTreeMap<&str, &str>) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
+fn loomtracer(dir: &Path, envs: &BTreeMap<&str, &str>) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
     command
         .env_clear()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .envs(envs)
-        .arg("--hivemind-dir")
+        .arg("--loomtracer-dir")
         .arg(dir);
     command
 }
@@ -69,7 +69,7 @@ fn mcp_capture_actor(
 ) -> TestResult<String> {
     let scratch = Scratch::new(label)?;
     let envs: BTreeMap<&str, &str> = envs.iter().copied().collect();
-    let mut child = hivemind(scratch.path(), &envs)
+    let mut child = loomtracer(scratch.path(), &envs)
         .arg("mcp")
         .args(server_args)
         .stdin(Stdio::piped())
@@ -131,7 +131,7 @@ fn assert_filed_under(actor: &str, tool: &str) {
 
 #[test]
 fn claude_code_with_no_flag_is_filed_as_claude() -> TestResult<()> {
-    // `claude mcp add hivemind -- hivemind mcp`: no flag, and the server Claude Code starts
+    // `claude mcp add loomtracer -- loomtracer mcp`: no flag, and the server Claude Code starts
     // sees none of the session variables.
     let actor = mcp_capture_actor(
         "claude",
@@ -206,7 +206,7 @@ fn the_environment_wins_over_the_client_handshake() -> TestResult<()> {
     let actor = mcp_capture_actor(
         "env-wins",
         &[],
-        &[("HIVEMIND_AGENT_TOOL", "codex")],
+        &[("LOOMTRACER_AGENT_TOOL", "codex")],
         Some(json!({"name": "claude-code"})),
     )?;
     assert_filed_under(&actor, "codex");
@@ -268,7 +268,7 @@ fn the_mcp_session_name_comes_from_the_first_of_flag_env_pin_gas_city_then_clien
             &[
                 ("CLAUDE_CODE_SESSION_ID", "run-1"),
                 ("GC_AGENT", "slot-b"),
-                ("HIVEMIND_AGENT_SESSION", "alice-laptop"),
+                ("LOOMTRACER_AGENT_SESSION", "alice-laptop"),
             ],
             "agent:claude:alice-laptop",
         ),
@@ -278,14 +278,14 @@ fn the_mcp_session_name_comes_from_the_first_of_flag_env_pin_gas_city_then_clien
             &[
                 ("CLAUDE_CODE_SESSION_ID", "run-1"),
                 ("GC_AGENT", "slot-b"),
-                ("HIVEMIND_AGENT_SESSION", "alice-laptop"),
+                ("LOOMTRACER_AGENT_SESSION", "alice-laptop"),
             ],
             "agent:claude:from-flag",
         ),
         (
             "env-pin-alone",
             &[],
-            &[("HIVEMIND_AGENT_SESSION", "alice-laptop")],
+            &[("LOOMTRACER_AGENT_SESSION", "alice-laptop")],
             "agent:claude:alice-laptop",
         ),
     ];
@@ -302,7 +302,7 @@ fn the_mcp_session_name_comes_from_the_first_of_flag_env_pin_gas_city_then_clien
 #[test]
 fn a_plain_cli_agent_capture_with_nothing_to_go_on_is_not_filed_as_codex() -> TestResult<()> {
     let scratch = Scratch::new("cli")?;
-    let output = hivemind(scratch.path(), &BTreeMap::new())
+    let output = loomtracer(scratch.path(), &BTreeMap::new())
         .args([
             "emit",
             "decision.capture",
@@ -335,7 +335,7 @@ fn a_plain_cli_agent_capture_with_nothing_to_go_on_is_not_filed_as_codex() -> Te
 #[test]
 fn a_cli_capture_with_the_flag_is_unchanged() -> TestResult<()> {
     let scratch = Scratch::new("cli-flag")?;
-    let output = hivemind(scratch.path(), &BTreeMap::new())
+    let output = loomtracer(scratch.path(), &BTreeMap::new())
         .args([
             "emit",
             "decision.capture",

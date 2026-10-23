@@ -1,15 +1,15 @@
-// Seeds a scratch HiveMind ledger with a small, fictional pricing study: two projects (one part of
+// Seeds a scratch Loomtracer ledger with a small, fictional pricing study: two projects (one part of
 // the other), every decision status, a cross-project edge and a refuted assumption. Used by the
-// e2e scratch server and to capture lib/hivemind/fixtures/graph.json. Needs `hivemind` on PATH
-// (or HIVEMIND_BIN).
+// e2e scratch server and to capture lib/loomtracer/fixtures/graph.json. Needs `loomtracer` on PATH
+// (or LOOMTRACER_BIN).
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const SEED_TOKEN = "e2e-scratch-token";
 
-export function seedLedger(dir, bin = process.env.HIVEMIND_BIN || "hivemind") {
-  const run = (actor, ...args) => execFileSync(bin, ["--hivemind-dir", dir, "--actor", actor, ...args], { encoding: "utf8", env: { ...process.env, HIVEMIND_API_URL: "", HIVEMIND_DATABASE_URL: "" } });
+export function seedLedger(dir, bin = process.env.LOOMTRACER_BIN || "loomtracer") {
+  const run = (actor, ...args) => execFileSync(bin, ["--loomtracer-dir", dir, "--actor", actor, ...args], { encoding: "utf8", env: { ...process.env, LOOMTRACER_API_URL: "", LOOMTRACER_DATABASE_URL: "" } });
   const json = (actor, ...args) => JSON.parse(run(actor, ...args, "--json").trim().split("\n").at(-1));
   const captureReply = (actor, project, fields) => json(actor, "emit", "decision.capture", "--project", project, ...Object.entries(fields).flatMap(([flag, value]) => value === true ? [`--${flag}`] : [`--${flag}`, String(value)]));
   const capture = (...args) => captureReply(...args).value;
@@ -66,8 +66,8 @@ export function seedLedger(dir, bin = process.env.HIVEMIND_BIN || "hivemind") {
 // A classifier draft: a decision read out of a session, whose id nobody chose (`capture:<event>:<index>`, colons in it).
 // Most decisions in a real ledger are drafts, so the e2e server holds two: one that chose among its options, one that
 // chose words it never weighed. Kept apart from seedLedger: they land in the submitter's personal project, and
-// lib/hivemind/fixtures is captured from the pricing study alone.
-export function seedDraft(dir, bin = process.env.HIVEMIND_BIN || "hivemind") {
+// lib/loomtracer/fixtures is captured from the pricing study alone.
+export function seedDraft(dir, bin = process.env.LOOMTRACER_BIN || "loomtracer") {
   const captures = join(dir, "draft-captures.json");
   writeFileSync(captures, JSON.stringify([{
     kind: "decision", title: "Chose a weekly release train over releasing on demand",
@@ -81,6 +81,6 @@ export function seedDraft(dir, bin = process.env.HIVEMIND_BIN || "hivemind") {
     topic_keys: ["releases"], evidence_ids: [], options: ["Merge commit", "Squash merge"],
     chosen_option: "Rebase in a scratch worktree", extraction_confidence: 0.9,
   }]));
-  execFileSync(bin, ["--hivemind-dir", dir, "--actor", "agent:hivemind:classifier", "emit", "ingest.batch_classified", "--captures", captures, "--source", "agent", "--json"],
-    { encoding: "utf8", env: { ...process.env, HIVEMIND_API_URL: "", HIVEMIND_DATABASE_URL: "" } });
+  execFileSync(bin, ["--loomtracer-dir", dir, "--actor", "agent:loomtracer:classifier", "emit", "ingest.batch_classified", "--captures", captures, "--source", "agent", "--json"],
+    { encoding: "utf8", env: { ...process.env, LOOMTRACER_API_URL: "", LOOMTRACER_DATABASE_URL: "" } });
 }

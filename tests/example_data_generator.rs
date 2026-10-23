@@ -1,5 +1,5 @@
-//! Builds a fresh HiveMind ledger through the real capture verbs
-//! (`hivemind::cli::run`, the same command layer the `hivemind` binary uses — never
+//! Builds a fresh Loomtracer ledger through the real capture verbs
+//! (`loomtracer::cli::run`, the same command layer the `loomtracer` binary uses — never
 //! hand-written fixture JSON, see hivemind-hc-yds and hu-0pf) and exports the two files the
 //! public demo's read-only UI needs: `GET /v1/graph`'s response body, verbatim, and, per
 //! decision, one `GET /v1/decisions/verify?id=` response and one
@@ -26,9 +26,9 @@ use std::path::{Path, PathBuf};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use clap::Parser;
-use hivemind::api::{create_router, ApiConfig};
-use hivemind::cli::{run, Cli};
 use http_body_util::BodyExt as _;
+use loomtracer::api::{create_router, ApiConfig};
+use loomtracer::cli::{run, Cli};
 use serde_json::Value;
 use tower::ServiceExt as _;
 
@@ -47,13 +47,13 @@ fn run_harness() -> TestResult<()> {
     let bless = parse_args()?;
 
     let scratch = unique_temp_dir("example-data-generator");
-    let hivemind_dir = scratch.join("hivemind");
-    std::fs::create_dir_all(&hivemind_dir)?;
+    let loomtracer_dir = scratch.join("loomtracer");
+    std::fs::create_dir_all(&loomtracer_dir)?;
 
-    build_story(&hivemind_dir)?;
+    build_story(&loomtracer_dir)?;
 
     let runtime = tokio::runtime::Runtime::new()?;
-    let (graph, briefs, status_events) = runtime.block_on(export_snapshot(&hivemind_dir))?;
+    let (graph, briefs, status_events) = runtime.block_on(export_snapshot(&loomtracer_dir))?;
 
     let cleanup = std::fs::remove_dir_all(&scratch);
     // Checked before writing: a shape that fails the check is never blessed into the
@@ -105,7 +105,7 @@ fn parse_args() -> TestResult<bool> {
 }
 
 fn unique_temp_dir(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-{label}-{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!("loomtracer-{label}-{}", uuid::Uuid::new_v4()))
 }
 
 // ---------------------------------------------------------------------------
@@ -610,15 +610,15 @@ fn twelve_angry_men(dir: &Path) -> TestResult<()> {
 // CLI helpers
 // ---------------------------------------------------------------------------
 
-/// Runs one `hivemind` command through the real command layer (`hivemind::cli::run`) — the
+/// Runs one `loomtracer` command through the real command layer (`loomtracer::cli::run`) — the
 /// same code path the built binary uses, not a hand-written ledger write. `actor` is always
 /// explicit (never the environment-derived default), so this generator can never pick up this
 /// city's own actor identity, session ids, or rig name.
 fn hm(dir: &Path, actor: &str, args: &[&str]) -> TestResult<Value> {
     let mut argv: Vec<String> = vec![
-        "hivemind".to_owned(),
+        "loomtracer".to_owned(),
         "--json".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),
@@ -656,13 +656,13 @@ fn first_rests_on_id(v: &Value) -> TestResult<String> {
 }
 
 // ---------------------------------------------------------------------------
-// API export — the same axum router the `hivemind serve` binary runs, called in-process
+// API export — the same axum router the `loomtracer serve` binary runs, called in-process
 // (tower's oneshot, no TCP bind) so the exported JSON is exactly what a real GET returns.
 // ---------------------------------------------------------------------------
 
-async fn export_snapshot(hivemind_dir: &Path) -> TestResult<(Value, Value, Value)> {
+async fn export_snapshot(loomtracer_dir: &Path) -> TestResult<(Value, Value, Value)> {
     let config = ApiConfig {
-        hivemind_dir: hivemind_dir.to_path_buf(),
+        loomtracer_dir: loomtracer_dir.to_path_buf(),
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,

@@ -1,6 +1,6 @@
 # Personal project: actor:planner
 
-Generated from HiveMind ledger offset 50 (last event 2026-01-01T00:00:50+00:00). Do not edit; regenerate with `hivemind export`.
+Generated from Loomtracer ledger offset 50 (last event 2026-01-01T00:00:50+00:00). Do not edit; regenerate with `loomtracer export`.
 
 Project: `personal:actor:planner` · [All projects](../../../INDEX.md)
 

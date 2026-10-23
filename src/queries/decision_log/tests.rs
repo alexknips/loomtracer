@@ -167,7 +167,7 @@ fn export_decision_log_composes_a_clean_decision() -> Result<()> {
     assert!(content.ends_with('\n'));
 
     let index = export.files.get("INDEX.md").expect("index present");
-    assert!(index.contains("Do not edit; regenerate with `hivemind export`."));
+    assert!(index.contains("Do not edit; regenerate with `loomtracer export`."));
     assert!(index.contains("## Personal project: human:alice"));
     assert!(index.contains(
         "[Adopt Postgres](projects/personal/human-alice/decisions/2026-01-02-adopt-postgres-1.md)"

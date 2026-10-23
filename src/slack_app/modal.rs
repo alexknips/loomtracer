@@ -16,9 +16,9 @@ use crate::ingest::{slack_source_ref, split_marker_list, DEFAULT_SLACK_TOPIC};
 use crate::Result;
 
 /// `callback_id` of the message shortcut declared in [`super::slack_app_manifest`].
-pub const CAPTURE_SHORTCUT_CALLBACK_ID: &str = "hivemind_capture_thread";
+pub const CAPTURE_SHORTCUT_CALLBACK_ID: &str = "loomtracer_capture_thread";
 /// `callback_id` of the modal the shortcut opens.
-pub const CAPTURE_MODAL_CALLBACK_ID: &str = "hivemind_capture_decision";
+pub const CAPTURE_MODAL_CALLBACK_ID: &str = "loomtracer_capture_decision";
 
 const TITLE_BLOCK: &str = "title";
 const RATIONALE_BLOCK: &str = "rationale";
@@ -63,7 +63,7 @@ pub enum SlackModalSubmissionError {
 }
 
 /// Renders one Slack message as a capture's evidence text, in the
-/// `{ts} {author}: {text}` line shape `hivemind ingest slack-thread` uses, so
+/// `{ts} {author}: {text}` line shape `loomtracer ingest slack-thread` uses, so
 /// who wrote the words, and when, stays in the ledger next to the decision.
 pub fn message_evidence(ts: &str, author: &str, text: &str) -> String {
     format!("{ts} {author}: {}", text.trim())
@@ -79,7 +79,7 @@ pub(super) fn capture_modal_view(private_metadata: Value) -> Value {
     json!({
         "type": "modal",
         "callback_id": CAPTURE_MODAL_CALLBACK_ID,
-        "title": {"type": "plain_text", "text": "HiveMind"},
+        "title": {"type": "plain_text", "text": "Loomtracer"},
         "submit": {"type": "plain_text", "text": "Capture"},
         "close": {"type": "plain_text", "text": "Cancel"},
         "private_metadata": private_metadata,
@@ -214,7 +214,7 @@ pub fn capture_from_modal_submission(
 ) -> std::result::Result<SlackCaptureRequest, SlackModalSubmissionError> {
     if view.get("callback_id").and_then(Value::as_str) != Some(CAPTURE_MODAL_CALLBACK_ID) {
         return Err(SlackModalSubmissionError::Malformed(
-            "view_submission is not the HiveMind capture modal".to_owned(),
+            "view_submission is not the Loomtracer capture modal".to_owned(),
         ));
     }
     let context: SlackCaptureModalContext = view

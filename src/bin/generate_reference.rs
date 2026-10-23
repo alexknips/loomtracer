@@ -1,4 +1,4 @@
-//! Reference doc generator for HiveMind MCP tools and CLI commands.
+//! Reference doc generator for Loomtracer MCP tools and CLI commands.
 //!
 //! Generates `website/src/content/docs/reference/mcp-tools.md` from
 //! `mcp::tool_definitions()` and validates that `cli.md` documents every
@@ -15,8 +15,8 @@
 use std::fmt::Write as FmtWrite;
 
 use clap::{Command, CommandFactory};
-use hivemind::cli::Cli;
-use hivemind::mcp::{tool_definitions, write_tool_names};
+use loomtracer::cli::Cli;
+use loomtracer::mcp::{tool_definitions, write_tool_names};
 use serde_json::Value;
 
 const CLI_PATH: &str = "website/src/content/docs/reference/cli.md";
@@ -190,7 +190,7 @@ fn count_available_tools_table_rows(text: &str) -> usize {
 // mcp-setup.md is hand-written prose (unlike mcp-tools.md, which is fully
 // generated), so it can't just be overwritten wholesale. Instead we scan it
 // for numbers immediately followed by "tool"/"tools" (e.g. "14 tools", "12
-// HiveMind tools") and treat each as an assertion about the total tool count
+// Loomtracer tools") and treat each as an assertion about the total tool count
 // that must match `tool_definitions().len()`.
 
 /// A number in `mcp-setup.md` immediately followed (within two words) by
@@ -314,14 +314,14 @@ fn generate_mcp_reference() -> String {
     writeln!(out, "title: MCP Tools").unwrap();
     writeln!(
         out,
-        "description: Reference for all {count} tools exposed by the HiveMind MCP server."
+        "description: Reference for all {count} tools exposed by the Loomtracer MCP server."
     )
     .unwrap();
     writeln!(out, "---").unwrap();
     writeln!(out).unwrap();
     writeln!(
         out,
-        "The HiveMind MCP server exposes {count} tools. Write tools append events to the"
+        "The Loomtracer MCP server exposes {count} tools. Write tools append events to the"
     )
     .unwrap();
     writeln!(
@@ -336,7 +336,7 @@ fn generate_mcp_reference() -> String {
     .unwrap();
     writeln!(out).unwrap();
     out.push_str(
-        "The Markdown decision-log export (`hivemind export --format markdown --out <dir>`) is\nCLI-only and has no MCP tool: its output is a directory tree, not a single result an\nMCP call can return.\n\n",
+        "The Markdown decision-log export (`loomtracer export --format markdown --out <dir>`) is\nCLI-only and has no MCP tool: its output is a directory tree, not a single result an\nMCP call can return.\n\n",
     );
     writeln!(
         out,

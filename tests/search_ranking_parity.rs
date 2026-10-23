@@ -9,10 +9,10 @@
 
 use clap::Parser;
 
-use hivemind::cli::{run, Cli};
-use hivemind::ledger::SqliteEventLedger;
-use hivemind::projector::{memory::MemoryGraph, rebuild_graph};
-use hivemind::queries::{
+use loomtracer::cli::{run, Cli};
+use loomtracer::ledger::SqliteEventLedger;
+use loomtracer::projector::{memory::MemoryGraph, rebuild_graph};
+use loomtracer::queries::{
     search_decisions_fts_with_context, search_decisions_with_ledger, QueryContext,
     SearchDecisionRequest,
 };
@@ -24,7 +24,7 @@ mod seed_data;
 use seed_data::{unique_temp_dir, TestResult};
 
 fn propose(
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     title: &str,
     rationale: &str,
     topic_key: &str,
@@ -32,11 +32,11 @@ fn propose(
     chose: &str,
 ) -> TestResult<String> {
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-parity",
-        "--hivemind-dir",
-        hivemind_dir.to_str().ok_or("seed path must be utf-8")?,
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().ok_or("seed path must be utf-8")?,
         "emit",
         "decision.proposed",
         "--title",
@@ -54,7 +54,7 @@ fn propose(
 }
 
 fn ranked_ids(
-    response: &hivemind::queries::QueryResponse<hivemind::queries::DecisionSearchResults>,
+    response: &loomtracer::queries::QueryResponse<loomtracer::queries::DecisionSearchResults>,
 ) -> Vec<(String, u8)> {
     response
         .data

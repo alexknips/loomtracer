@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HiveMind transcript sidecar daemon.
+"""Loomtracer transcript sidecar daemon.
 
 Polls ~/.claude/projects/ for JSONL transcript changes (by mtime) and ships
 new turns to /v1/ingest. Intended for hook-less harnesses (Codex, etc.) and
@@ -8,18 +8,18 @@ as a durability comparison against the hook shipper.
 No external dependencies: stdlib only (os, time, json, urllib).
 
 Configuration via environment variables:
-  HIVEMIND_API_URL            Base URL of the HiveMind server (default: http://localhost:8080)
-  HIVEMIND_API_KEY            Bearer token for /v1/ingest (optional in dev mode)
-  HIVEMIND_AGENT_TOOL         agent_tool field (default: claude)
-  HIVEMIND_SIDECAR_INTERVAL   Poll interval in seconds (default: 0.25)
-  HIVEMIND_PROJECTS_DIR       Override ~/.claude/projects/ watch root
+  LOOMTRACER_API_URL            Base URL of the Loomtracer server (default: http://localhost:8080)
+  LOOMTRACER_API_KEY            Bearer token for /v1/ingest (optional in dev mode)
+  LOOMTRACER_AGENT_TOOL         agent_tool field (default: claude)
+  LOOMTRACER_SIDECAR_INTERVAL   Poll interval in seconds (default: 0.25)
+  LOOMTRACER_PROJECTS_DIR       Override ~/.claude/projects/ watch root
 
 Usage:
   python3 capture/sidecar.py
 
   Or as a background process:
   python3 capture/sidecar.py &
-  echo $! > /tmp/hivemind-sidecar.pid
+  echo $! > /tmp/loomtracer-sidecar.pid
 """
 
 import os
@@ -32,31 +32,31 @@ from core import ship
 
 
 def main() -> None:
-    api_url = os.environ.get("HIVEMIND_API_URL", "http://localhost:8080")
-    api_key = os.environ.get("HIVEMIND_API_KEY", "")
-    agent_tool = os.environ.get("HIVEMIND_AGENT_TOOL", "claude")
-    poll_interval = float(os.environ.get("HIVEMIND_SIDECAR_INTERVAL", "0.25"))
+    api_url = os.environ.get("LOOMTRACER_API_URL", "http://localhost:8080")
+    api_key = os.environ.get("LOOMTRACER_API_KEY", "")
+    agent_tool = os.environ.get("LOOMTRACER_AGENT_TOOL", "claude")
+    poll_interval = float(os.environ.get("LOOMTRACER_SIDECAR_INTERVAL", "0.25"))
     projects_dir = os.environ.get(
-        "HIVEMIND_PROJECTS_DIR",
+        "LOOMTRACER_PROJECTS_DIR",
         os.path.expanduser("~/.claude/projects"),
     )
 
     # mtime cache: jsonl_path → last observed mtime
     mtimes: dict[str, float] = {}
 
-    print(f"hivemind-sidecar: watching {projects_dir}", file=sys.stderr)
+    print(f"loomtracer-sidecar: watching {projects_dir}", file=sys.stderr)
 
     try:
         while True:
             try:
                 _scan(projects_dir, mtimes, api_url, api_key, agent_tool)
             except Exception as exc:
-                print(f"hivemind-sidecar: scan error: {exc}", file=sys.stderr)
+                print(f"loomtracer-sidecar: scan error: {exc}", file=sys.stderr)
             time.sleep(poll_interval)
     except KeyboardInterrupt:
         pass
 
-    print("hivemind-sidecar: stopped", file=sys.stderr)
+    print("loomtracer-sidecar: stopped", file=sys.stderr)
 
 
 def _scan(

@@ -772,5 +772,5 @@ fn test_graph_dir(name: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after UNIX_EPOCH")
         .as_nanos();
-    std::env::temp_dir().join(format!("hivemind-{name}-{nanos}"))
+    std::env::temp_dir().join(format!("loomtracer-{name}-{nanos}"))
 }

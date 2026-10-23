@@ -1,7 +1,7 @@
-pub type Result<T> = std::result::Result<T, HivemindError>;
+pub type Result<T> = std::result::Result<T, LoomtracerError>;
 
 #[derive(Debug, thiserror::Error)]
-pub enum HivemindError {
+pub enum LoomtracerError {
     #[error(transparent)]
     Ledger(#[from] LedgerError),
 

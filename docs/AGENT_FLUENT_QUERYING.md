@@ -6,7 +6,7 @@ the rationale; where it names a flag, alias or status that differs from "What
 shipped", "What shipped" is right. See also
 [`docs/AGENT_DECISION_CONTEXT.md`](AGENT_DECISION_CONTEXT.md) for how this
 resolver fits into the two shipped interaction models (MCP vs. the
-`hivemind-context` CLI plugin).
+`loomtracer-context` CLI plugin).
 Bead: hivemind-tenv.1
 Parent epic: hivemind-tenv
 Author: gastown.rictus (polecat), 2026-09-07
@@ -28,18 +28,18 @@ parity for the resolver landed via `hivemind-ot72.4`–`hivemind-ot72.10`.
   description and `--topic T` narrows it, on every one of them except
   `reexamine`, which takes `--pick N` only. The single-decision outcome verb
   is `query verify`: the name `review` proposed in §3.1 was not used, so as
-  not to share a word with the bulk `hivemind review` report.
+  not to share a word with the bulk `loomtracer review` report.
 - **`#N` continuation.** Every description lookup overwrites
-  `<hivemind-dir>/.last-candidates-<session>.json` with its numbered
-  candidates; `<session>` is `$HIVEMIND_SESSION`, or `default` when it is
+  `<loomtracer-dir>/.last-candidates-<session>.json` with its numbered
+  candidates; `<session>` is `$LOOMTRACER_SESSION`, or `default` when it is
   unset, so parallel agents on one ledger directory do not collide. A later
   invocation's bare `#N` in place of a description reads that file and picks
   entry N (§5). There is no `--from-last` flag and no
-  `$HIVEMIND_LAST_CANDIDATES` variable.
+  `$LOOMTRACER_LAST_CANDIDATES` variable.
 - **MCP.** Every tool that acts on one decision takes `description` and
   `topic` in place of `decision_id`, with nothing required: `why`
   (`get_decision_neighborhood`), `verify` (`get_decision_outcome`),
-  `get_supersession_chain`, `hivemind_compact_view`, `disagree_decision`,
+  `get_supersession_chain`, `loomtracer_compact_view`, `disagree_decision`,
   `supersede_decision`, `move_decision`, `ground_decision`,
   `reaffirm_decision`. `get_decision`, `get_decision_context` and
   `score_decision` stay id-only, since they are called on a decision already
@@ -59,7 +59,7 @@ reading already done for this document is written until alex reviews and
 approves the design (see docs/INGESTION_CONNECTORS.md for the precedent this
 document follows).
 
-Today the only free-text entry points into HiveMind's query layer are
+Today the only free-text entry points into Loomtracer's query layer are
 `recall <query>` (`src/cli/args.rs:1007`, positional `Option<String>`),
 `search --q <query>` (`src/cli/args.rs:986`), and
 `get_relevant_decisions --topic <topic>` (`src/cli/args.rs:950`). Every
@@ -85,13 +85,13 @@ Scope (this bead, tenv.1):
   `shared-backend-postgres` feature).
 
 Out of scope (owned by siblings per the parent epic):
-- `hivemind query situational` (working name at the time this document was
-  written: `hivemind query context`; naming locked 2026-09-08 to
+- `loomtracer query situational` (working name at the time this document was
+  written: `loomtracer query context`; naming locked 2026-09-08 to
   `situational` — see hivemind-tenv's bead notes) — reuses this bead's
   resolver module if it lands first; coordinate through bead comments per
   tenv.2's description, do not fork a second ranker.
-- The `hivemind-context` Claude/Codex plugin (tenv.3).
-- Repointing `hivemind-capture`'s query script and docs/website (tenv.4).
+- The `loomtracer-context` Claude/Codex plugin (tenv.3).
+- Repointing `loomtracer-capture`'s query script and docs/website (tenv.4).
 - MCP tool schema changes are **sketched** in §3.4 for parity but the MCP
   server wiring itself is implementation work under this same bead once the
   design is approved — flagged, not deferred to another bead.
@@ -301,7 +301,7 @@ writer still never has a close candidate picked for it.
 **What the question is about** (hivemind-eral). Holding every word is not the same as
 being the decision asked about. A few decisions have long rationales and long
 evidence, and between them they hold nearly every common word, so for a plain
-question they match in full whatever it asks ("is the product still called HiveMind"
+question they match in full whatever it asks ("is the product still called Loomtracer"
 is matched in full by a decision on a triage gate, whose rationale says all three),
 and a full match drops every close candidate. The decision that is about the
 question says it in its title and topic keys, lacks one word, and used to be dropped.
@@ -952,7 +952,7 @@ differently, and say so; "What shipped" lists the flags as they are.
 
 **`ground` and the capture verbs share one grounding vocabulary.** A decision
 captured without saying what it rests on reads `rests on: nothing declared` in the
-brief (§4). `hivemind ground "<description>"` adds the answer later: the target is
+brief (§4). `loomtracer ground "<description>"` adds the answer later: the target is
 resolved with the strict write-verb ambiguity gate, and every premise named by
 `--rests-on-decision` is resolved by the same resolver before the first write, so
 an ambiguous or unmatched premise refuses the whole call with numbered candidates
@@ -968,7 +968,7 @@ on the target is refused, since it would close a loop.
 rests on a premise (a prior decision it follows from, or an assumption or bet) has a
 re-examine item when that premise is superseded, rejected, contested or refuted (see
 [`DECISION_SCORING.md`](DECISION_SCORING.md#re-examine-items-did-the-change-travel)).
-`hivemind reaffirm "<description>" --because "<reason>"` appends one `decision.reaffirmed`,
+`loomtracer reaffirm "<description>" --because "<reason>"` appends one `decision.reaffirmed`,
 attributed to whoever runs it. Before the write, on every surface, it checks the graph
 (`src/reaffirmation.rs`): with exactly one open item the premise is implied; with several
 the open items come back as `{outcome: "ambiguous", field: "premise", items}` and nothing is
@@ -977,7 +977,7 @@ its title; nothing open under that name is refused (exit 2 / MCP tool error / HT
 words that say why (the premise has not changed, the decision does not rest on it, the
 decision no longer stands, the decision is the one that superseded the premise, or the item is
 already closed, naming who closed it, when, and the event's ledger number and uuid). The command underneath does not check, which is why the
-check lives in the verb and runs on all four transports. `hivemind reexamine` lists the
+check lives in the verb and runs on all four transports. `loomtracer reexamine` lists the
 items. The MCP tools `reaffirm_decision` and `get_reexamine_items` are registered on both
 transports and take the `decision_id`/`description`/`topic` selectors; REST has the
 `POST /v1/decisions/{id}/reaffirmations` mirror, which takes the premise by id.
@@ -987,8 +987,8 @@ upstream** (hivemind-ottw.5). Both verbs act on one decision, the leaf, which of
 prior decision that other decisions rest on too; the disagreement may really be with that
 premise. The agent-side half is prose: before recording either verb on a decision that rests on
 something, run `verify`, show what it rests on and ask whether the disagreement is with the
-decision or with a premise (`plugins/hivemind-context`'s skill and its `disagree` and
-`supersede` commands; the Codex prompts; the `hivemind-capture` skill). The deterministic half
+decision or with a premise (`plugins/loomtracer-context`'s skill and its `disagree` and
+`supersede` commands; the Codex prompts; the `loomtracer-capture` skill). The deterministic half
 is in the reply, on every transport (`queries::upstream_of`, one hop over explicit
 `FOLLOWS_FROM` links, no traversal, no model):
 
@@ -1028,12 +1028,12 @@ verbs. Leave the existing bulk `review` subcommand untouched — it is a
 different, filter-shaped verb that was never a candidate for
 resolve-by-description (it has no single target to resolve). This is Open
 Question 5: confirm the naming does not collide confusingly once both exist
-side by side (`hivemind review` = bulk report, `hivemind query review
+side by side (`loomtracer review` = bulk report, `loomtracer query review
 <description>` = single-decision outcome check) — an alternate name
 (`verify`, `held-up`) may be clearer as the query-subcommand alias.
 
 **Shipped as `verify`.** `get_decision_outcome` has the alias `verify`
-(`hivemind query verify <description>`); `review` stays the bulk report only.
+(`loomtracer query verify <description>`); `review` stays the bulk report only.
 
 ### 3.2 `--pick N` and `--topic`
 
@@ -1047,7 +1047,7 @@ every fluent verb per §1.4/§5.
 
 No existing flag is removed or renamed. `--id` keeps its current behavior
 and error semantics on every verb (`decision_node_exists`,
-`shared.rs:15`, unchanged). Existing scripts, the `hivemind-capture` plugin,
+`shared.rs:15`, unchanged). Existing scripts, the `loomtracer-capture` plugin,
 and MCP callers that always pass `decision_id` are unaffected — this is a
 strictly additive contract change.
 
@@ -1078,7 +1078,7 @@ the same `decision_id`/`description`/`topic` selectors plus a `grounding` array;
 `description` inside it (a premise decision) returns the same
 `{outcome, field: "grounding[i]"}` shapes below.
 
-`get_supersession_chain` (`hivemind-ot72.9`) and `hivemind_compact_view`
+`get_supersession_chain` (`hivemind-ot72.9`) and `loomtracer_compact_view`
 (`hivemind-ot72.10`) take the same `decision_id`/`description`/`topic` selectors,
 so every MCP tool that acts on one decision is fluent.
 
@@ -1392,7 +1392,7 @@ to ask for; every surface that shows a decision says what it can, default-on, no
   entries) in its Outcome section; a decision that itself changed gets "Propagation". The
   UNFINISHED mark is left out there: it depends on today's date and the export carries no
   clock.
-- Graph views (`GET /v1/graph`, `hivemind dump --format dot`; `export` writes Markdown only): a
+- Graph views (`GET /v1/graph`, `loomtracer dump --format dot`; `export` writes Markdown only): a
   `Reaffirmation` is labelled with its reason and drawn with two lines to the decision it
   concerns (`REAFFIRMS`, "reaffirms") and the premise that changed (`REAFFIRMED_AFTER`, "after
   the change to"). They are read from the node's own properties and marked `"derived": true`
@@ -1440,7 +1440,7 @@ from the registered projects, never inferred (Layer 2 only).
 **`situational` is project-first.** `query situational --project <handle>` (MCP
 `get_situational_decisions` argument `project`) asks from one project: a
 registered handle or a personal address. An unregistered handle is refused with
-the `hivemind project register` hint, never answered as an empty result. The
+the `loomtracer project register` hint, never answered as an empty result. The
 answer holds only decisions filed under that project, then the project it is
 `part_of` (inherited constraints), then the projects it `depends_on`, in that
 order (each group keeps the usual score order). Each match carries a `scope`
@@ -1481,13 +1481,13 @@ passing `--project <handle>` (for a personal project, its address, for example
 `personal:human:alex`, which has no links, so the scope note names only itself).
 A decision with no recorded project, or one filed in a project outside the scope,
 is left out of a scoped answer; the scope note lists what was looked in. The
-`hivemind-context` plugin's read commands forward their arguments, so
-`/hivemind-context:situational --project billing` works, and without the flag
+`loomtracer-context` plugin's read commands forward their arguments, so
+`/loomtracer-context:situational --project billing` works, and without the flag
 the whole tenant is searched as before. Over HTTP the argument is the same: MCP
 `get_situational_decisions` and `recall_decisions` take `project`; the REST
 routes do not.
 
-**`move` puts a decision in the right project.** `hivemind move "<description>"
+**`move` puts a decision in the right project.** `loomtracer move "<description>"
 --to <handle>` (or `--decision <id>`, `[--pick N] [--topic T] [--reason R]`) and
 MCP `move_decision` (stdio and HTTP, one core function) resolve the decision the
 way `disagree` and `supersede` do, with the strict write gate: a description that
@@ -1501,7 +1501,7 @@ address is refused, and a decision already in the target is refused plainly. The
 reply is the recorded fact:
 
 ```text
-$ hivemind move "quarterly release trains" --to platform --reason "release cadence is a platform-wide rule"
+$ loomtracer move "quarterly release trains" --to platform --reason "release cadence is a platform-wide rule"
 event_id=37 decision_id=decision-1a81... from=personal:agent:claude to=platform
 ```
 
@@ -1514,17 +1514,17 @@ ends (`project_move {from, to, reason?}` in JSON, `moved=<from>-><to>` under
 ends swapped, and nothing is edited or deleted. `verify` and `why` show the
 decision's current project, not its moves.
 
-**A project's own list.** `hivemind project decisions <handle-or-personal-address>`
+**A project's own list.** `loomtracer project decisions <handle-or-personal-address>`
 lists the decisions filed under one project, oldest first, paged, with `truncated`
 and a cursor (`--limit`, `--cursor`); an unregistered handle is a successful reply,
 never an empty list: `outcome: not_found` in JSON, and in text a line naming the
-`hivemind project register` command. On a personal address it is the
+`loomtracer project register` command. On a personal address it is the
 review list, headed `in human:alex's personal project, not yet shared: N`: every
 session of one agent tool lists together (`personal:agent:claude`), and each row
 shows its `session` and how its project was determined. Nothing moves on being
 listed; picking a decision from it and moving it is the review.
 
-**The decision log is grouped per project.** `hivemind export --format markdown
+**The decision log is grouped per project.** `loomtracer export --format markdown
 --out <dir>` writes `INDEX.md` with one section per project, and per project a
 `projects/<handle>/INDEX.md` plus one file per decision; personal projects go
 under `projects/personal/<actor>/`. `--project <handle-or-personal-address>`
@@ -1544,11 +1544,11 @@ candidates, per grep — this is new ground).
 
 **Design:** every resolver-backed response — both `Ambiguous` candidate
 lists and `Resolved` single answers — writes its candidate set to a
-session-local file in the HiveMind directory,
-`<hivemind-dir>/.last-candidates-<session>.json`, where `<session>` is
-`$HIVEMIND_SESSION` (any character outside `A-Za-z0-9_-` becomes `_`) or
+session-local file in the Loomtracer directory,
+`<loomtracer-dir>/.last-candidates-<session>.json`, where `<session>` is
+`$LOOMTRACER_SESSION` (any character outside `A-Za-z0-9_-` becomes `_`) or
 `default` when it is unset. (The draft put the path behind a
-`--from-last <path>` flag and a `$HIVEMIND_LAST_CANDIDATES` variable; neither
+`--from-last <path>` flag and a `$LOOMTRACER_LAST_CANDIDATES` variable; neither
 was built.) The file holds the numbered candidate list (JSON) from the most
 recent resolver call. A subsequent invocation's `#N` positional argument
 (recognized by a `#` prefix, distinct from a free-text description) reads
@@ -1565,7 +1565,7 @@ ledger writes (continuation state is not decision memory — it's UI
 convenience and explicitly does not belong in the ledger per AGENTS.md §2,
 "not a chat archive or conversational memory store"), one file per session,
 overwritten on every resolver call. Concurrent sessions on one ledger
-directory are kept apart by `$HIVEMIND_SESSION` (Open Question 6, settled
+directory are kept apart by `$LOOMTRACER_SESSION` (Open Question 6, settled
 below); sessions that leave it unset share the `default` file.
 
 ---
@@ -1590,7 +1590,7 @@ multi-match description down to one.
 `src/projector/postgres/tests.rs` already runs `crate::queries::{get_decision,
 get_supersession_chain, search_decisions}` against both `MemoryGraph` and
 `PostgresGraphView` via `with_postgres_graph` (`tests.rs:227`, gated on
-`HIVEMIND_TEST_POSTGRES_URL` and the `shared-backend-postgres` feature,
+`LOOMTRACER_TEST_POSTGRES_URL` and the `shared-backend-postgres` feature,
 skips cleanly when the env var is unset). `resolve_decision_by_description`
 and `get_decision_brief` are added to that same parity test — same fixture
 ledger, same ranked-candidate assertion, both backends, one test body. This
@@ -1652,7 +1652,7 @@ the reference regenerated in the site repo so `cli.md` stays accurate — see
    collides in spirit with the existing bulk `review` report subcommand) or
    use a different alias (`verify`, `held-up`)? Recommendation: `verify`,
    with `review` left free for the existing bulk-report meaning, since
-   having `hivemind review` (bulk) and `hivemind query review <desc>`
+   having `loomtracer review` (bulk) and `loomtracer query review <desc>`
    (single-decision) coexist under the same word is exactly the kind of
    ambiguity this whole bead exists to eliminate for agents.
    **Settled: `verify`.**
@@ -1661,7 +1661,7 @@ the reference regenerated in the site repo so `cli.md` stays accurate — see
    process-global) or session/PID-scoped? Recommendation: fixed path for
    v1, matching the single-engineer-plus-agents scope in VISION.md.
    **Settled otherwise** (mayor, `hivemind-tenv.1`, 2026-09-07): the file is
-   scoped by `$HIVEMIND_SESSION`, so parallel agents sharing one ledger
+   scoped by `$LOOMTRACER_SESSION`, so parallel agents sharing one ledger
    directory do not overwrite each other's candidates (§5).
 
 7. **`get_supersession_chain` alias name.** Bead item (b) asks for "a

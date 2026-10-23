@@ -6,12 +6,12 @@ same queue using your agent's subscription seat.
 
 ---
 
-## Step 1 — Start a HiveMind cell
+## Step 1 — Start a Loomtracer cell
 
 Clone and start the cell in three commands:
 
 ```bash
-git clone https://github.com/alexknips/hivemind && cd hivemind
+git clone https://github.com/alexknips/loomtracer && cd loomtracer
 cp .env.example .env
 # Linux:
 sed -i "s/change-me-before-production/$(openssl rand -hex 32)/g" .env
@@ -25,39 +25,39 @@ No `ANTHROPIC_API_KEY` needed in `.env` — leave that line empty or omit it.
 Provision your first token:
 
 ```bash
-ADMIN_KEY=$(grep HIVEMIND_ADMIN_KEY .env | cut -d= -f2)
+ADMIN_KEY=$(grep LOOMTRACER_ADMIN_KEY .env | cut -d= -f2)
 TOKEN=$(curl -s -X POST http://localhost:8080/v1/tenants \
   -H "Authorization: Bearer $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"tenant_id": "me", "display_name": "Me"}' | jq -r '.token_secret')
-echo "$TOKEN"   # hm_tk_...
+echo "$TOKEN"   # lt_tk_...
 ```
 
 ---
 
-## Step 2 — Install the hivemind-capture plugin
+## Step 2 — Install the loomtracer-capture plugin
 
 From Claude Code:
 
 ```text
-/plugin marketplace add alexknips/hivemind
-/plugin install hivemind-capture@hivemind
+/plugin marketplace add alexknips/loomtracer
+/plugin install loomtracer-capture@loomtracer
 /reload-plugins
 ```
 
-The plugin adds `/hivemind-capture:capture`, `/hivemind-capture:query-decisions`,
-`/hivemind-capture:classify-queue`, a bundled MCP server, and a session-start
+The plugin adds `/loomtracer-capture:capture`, `/loomtracer-capture:query-decisions`,
+`/loomtracer-capture:classify-queue`, a bundled MCP server, and a session-start
 directive that tells each session to recall earlier decisions before acting and
 capture rules learned from failures, design choices later work must follow and
-reversals, not routine status (`HIVEMIND_DIRECTIVE_DISABLE=1` turns it off).
+reversals, not routine status (`LOOMTRACER_DIRECTIVE_DISABLE=1` turns it off).
 
 For Codex, install from the repository:
 
 ```bash
-codex plugin marketplace add https://github.com/alexknips/hivemind.git
+codex plugin marketplace add https://github.com/alexknips/loomtracer.git
 ```
 
-Then open `/plugins → HiveMind Plugins → HiveMind Capture`.
+Then open `/plugins → Loomtracer Plugins → Loomtracer Capture`.
 
 ---
 
@@ -66,7 +66,7 @@ Then open `/plugins → HiveMind Plugins → HiveMind Capture`.
 From Claude Code, call the `/capture` command during a live session:
 
 ```text
-/hivemind-capture:capture "Switch to Postgres for the shared backend" \
+/loomtracer-capture:capture "Switch to Postgres for the shared backend" \
   --kind decision \
   --title "Switch to Postgres for the shared backend" \
   --rationale "SQLite WAL mode does not scale across concurrent writers" \
@@ -78,21 +78,21 @@ From Claude Code, call the `/capture` command during a live session:
   --undo-cost "Moving back means exporting the ledger out of Postgres and replaying it"
 ```
 
-The command writes to a **local ledger**: the `hivemind/` folder of the project Claude Code runs
+The command writes to a **local ledger**: the `loomtracer/` folder of the project Claude Code runs
 in (the repository root, or the current folder outside a repository), created there if it is
-missing, or the folder `HIVEMIND_DIR` or the plugin's `hivemind_dir` option names. It does not
-contact the cell from Step 1, with `HIVEMIND_API_URL` set or not, and
+missing, or the folder `LOOMTRACER_DIR` or the plugin's `loomtracer_dir` option names. It does not
+contact the cell from Step 1, with `LOOMTRACER_API_URL` set or not, and
 neither does the plugin's bundled MCP server, which opens the same local ledger. It prints where
 it wrote:
 
 ```
-Captured HiveMind decision decision-<id> in <folder>/hivemind.
+Captured Loomtracer decision decision-<id> in <folder>/loomtracer.
 ```
 
 That decision does not enter the classification queue: it already carries its topic keys. The
 queue holds session transcripts sent to the cell's `POST /v1/ingest`, and Step 4 drains those.
 
-With `HIVEMIND_API_URL` set the command does not quietly record to the wrong place either: from a
+With `LOOMTRACER_API_URL` set the command does not quietly record to the wrong place either: from a
 folder with no ledger it refuses (exit 2, nothing recorded, nothing created), and from a folder
 that holds one it records there and says on stderr which ledger took it, and that the cell did
 not.
@@ -127,7 +127,7 @@ and calls `capture_decision`.
 Run the classify-queue command after your session:
 
 ```text
-/hivemind-capture:classify-queue
+/loomtracer-capture:classify-queue
 ```
 
 This uses your subscription model seat — no `ANTHROPIC_API_KEY` required.
@@ -141,15 +141,15 @@ The command:
 Pass `--limit N` to cap the number of batches per run (default 20):
 
 ```text
-/hivemind-capture:classify-queue --limit 5
+/loomtracer-capture:classify-queue --limit 5
 ```
 
 Check queue depth at any time. On a local ledger and against a server-backed cell
-(`HIVEMIND_API_URL` set) alike, the answer is an object whose `pending_total` is the whole
+(`LOOMTRACER_API_URL` set) alike, the answer is an object whose `pending_total` is the whole
 queue's depth and whose `truncated` says the page holds fewer batches than are pending:
 
 ```bash
-hivemind classify-queue list --json --limit 1 | jq .pending_total
+loomtracer classify-queue list --json --limit 1 | jq .pending_total
 ```
 
 That is the reply of builds after the v0.7.0 release. The v0.7.0 release prints the bare list of
@@ -161,38 +161,38 @@ batches for a local ledger (`--limit` 20 by default, so count it with a `--limit
 
 ## Step 5 — Query it back
 
-`hivemind query` and `/hivemind-capture:query-decisions` read a **local ledger**. Neither contacts
+`loomtracer query` and `/loomtracer-capture:query-decisions` read a **local ledger**. Neither contacts
 a server; only `classify-queue` does. Where you read depends on where Steps 3-4 wrote.
 
-**A local ledger** (`HIVEMIND_API_URL` unset):
+**A local ledger** (`LOOMTRACER_API_URL` unset):
 
 ```text
-/hivemind-capture:query-decisions --limit 5
+/loomtracer-capture:query-decisions --limit 5
 ```
 
 Or via CLI:
 
 ```bash
-hivemind query recent_decisions --since 1h --limit 5
-hivemind query get_relevant_decisions --topic infrastructure
-hivemind query search_decisions --q "postgres"
+loomtracer query recent_decisions --since 1h --limit 5
+loomtracer query get_relevant_decisions --topic infrastructure
+loomtracer query search_decisions --q "postgres"
 ```
 
-**The cell from Step 1** (`HIVEMIND_API_URL` set): ask its HTTP API with the token from Step 1.
+**The cell from Step 1** (`LOOMTRACER_API_URL` set): ask its HTTP API with the token from Step 1.
 Each call returns the same decisions the CLI lists for a local ledger.
 
 ```bash
-export HIVEMIND_API_URL=http://localhost:8080
+export LOOMTRACER_API_URL=http://localhost:8080
 SINCE=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)   # macOS: date -u -v-1H +%Y-%m-%dT%H:%M:%SZ
-curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/search?since=$SINCE&limit=5"
-curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/relevant?topic=infrastructure"
-curl -s -H "Authorization: Bearer $TOKEN" "$HIVEMIND_API_URL/v1/decisions/search?q=postgres"
+curl -s -H "Authorization: Bearer $TOKEN" "$LOOMTRACER_API_URL/v1/decisions/search?since=$SINCE&limit=5"
+curl -s -H "Authorization: Bearer $TOKEN" "$LOOMTRACER_API_URL/v1/decisions/relevant?topic=infrastructure"
+curl -s -H "Authorization: Bearer $TOKEN" "$LOOMTRACER_API_URL/v1/decisions/search?q=postgres"
 ```
 
-With `HIVEMIND_API_URL` set, `hivemind query` does not quietly read the wrong place. From a folder
+With `LOOMTRACER_API_URL` set, `loomtracer query` does not quietly read the wrong place. From a folder
 with no ledger it refuses and creates nothing; from a folder that holds one it answers from that
 ledger and adds a `notice` saying the answer is the local ledger's, not the server's. Unset
-`HIVEMIND_API_URL` to read a local ledger without the notice. `hivemind digest`, `review`,
+`LOOMTRACER_API_URL` to read a local ledger without the notice. `loomtracer digest`, `review`,
 `export` and `dump` follow the same rule (`dump` and `emit` say it on stderr, so their stdout stays
 a plain DOT graph or id). So do the verbs that act on a decision (`disagree`, `supersede`, `move`,
 `retitle`, `ground`), `ask`, `import`, `restatements`, `map` and `quality-scan`: each one refuses
@@ -225,7 +225,7 @@ Both workers write to the same queue and the result is the same — concurrent
 classification is idempotent (last writer wins per batch).
 
 If you later add `ANTHROPIC_API_KEY` to a SQLite server, Worker B starts
-classifying automatically. A Postgres server (`HIVEMIND_DATABASE_URL` set: the
+classifying automatically. A Postgres server (`LOOMTRACER_DATABASE_URL` set: the
 default compose stack, Fly) never starts Worker B: it reads a SQLite ledger and
 the captures are in Postgres, so the server ignores the key and logs one warning
 saying so. There Worker A is the only classifier. Worker A is also available for
@@ -236,6 +236,6 @@ on-demand draining on a SQLite server, or when the server key is absent.
 ## See also
 
 - [`docs/SELF_HOSTING.md`](SELF_HOSTING.md) — full self-host runbook
-- [`plugins/hivemind-capture/README.md`](../plugins/hivemind-capture/README.md) — plugin install, commands, and session hooks
+- [`plugins/loomtracer-capture/README.md`](../plugins/loomtracer-capture/README.md) — plugin install, commands, and session hooks
 - [`docs/AGENT_DECISION_CAPTURE.md`](AGENT_DECISION_CAPTURE.md) — all capture paths (CLI, HTTP API, hooks, MCP)
 - [`docs/CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md) — classifier design and queue mechanics

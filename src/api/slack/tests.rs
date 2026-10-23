@@ -88,9 +88,9 @@ fn constant_time_eq_rejects_mismatched_lengths_and_bytes() {
     assert!(!constant_time_eq(b"abc", b"ab"));
 }
 
-/// Runs `body` under a subscriber filtered the way `hivemind` filters by
-/// default (`hivemind=warn`, see `main.rs`) and returns what it logged, so an
-/// assertion here is about what an operator running a plain `hivemind serve`
+/// Runs `body` under a subscriber filtered the way `loomtracer` filters by
+/// default (`loomtracer=warn`, see `main.rs`) and returns what it logged, so an
+/// assertion here is about what an operator running a plain `loomtracer serve`
 /// actually sees.
 fn logged_at_the_default_level(body: impl FnOnce()) -> String {
     #[derive(Clone)]
@@ -110,7 +110,7 @@ fn logged_at_the_default_level(body: impl FnOnce()) -> String {
 
     let buffer = Buffer(Arc::default());
     let subscriber = tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new("hivemind=warn"))
+        .with_env_filter(tracing_subscriber::EnvFilter::new("loomtracer=warn"))
         .with_ansi(false)
         .with_writer({
             let buffer = buffer.clone();
@@ -124,7 +124,7 @@ fn logged_at_the_default_level(body: impl FnOnce()) -> String {
 
 #[test]
 fn a_capture_the_drain_cannot_write_is_a_warning_in_the_server_log() {
-    let error = "unknown tenant 'TCHK': run `hivemind tenant create TCHK` to register it";
+    let error = "unknown tenant 'TCHK': run `loomtracer tenant create TCHK` to register it";
     let report = SlackDrainReport {
         queued_before: 1,
         processed_count: 0,
@@ -166,7 +166,7 @@ fn a_drain_pass_that_wrote_everything_logs_nothing_at_the_default_level() {
 #[test]
 fn a_workspace_without_its_tenant_is_refused_and_named_in_the_log_until_it_is_registered() {
     let dir = std::env::temp_dir().join(format!(
-        "hivemind-slack-tenant-gate-{}",
+        "loomtracer-slack-tenant-gate-{}",
         uuid::Uuid::new_v4()
     ));
     let backend = ApiBackend::Sqlite(Arc::new(dir.clone()));
@@ -185,7 +185,7 @@ fn a_workspace_without_its_tenant_is_refused_and_named_in_the_log_until_it_is_re
         "{logged}"
     );
     assert!(
-        logged.contains("hivemind tenant create TCHK"),
+        logged.contains("loomtracer tenant create TCHK"),
         "the log names the fix: {logged}"
     );
 

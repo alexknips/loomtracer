@@ -11,8 +11,8 @@ use crate::error::{CliError, CommandError};
 use crate::ingest::{collect_document_import_paths, DocumentImportFormat, DocumentSourceSpan};
 use crate::Result;
 
-const DOCUMENT_CANDIDATE_PROTOCOL: &str = "hivemind.document_extraction_candidates.v1";
-const DOCUMENT_EXTRACTOR_EXECUTABLE: &str = "hivemind-document-extractor";
+const DOCUMENT_CANDIDATE_PROTOCOL: &str = "loomtracer.document_extraction_candidates.v1";
+const DOCUMENT_EXTRACTOR_EXECUTABLE: &str = "loomtracer-document-extractor";
 
 #[derive(Debug, Clone)]
 pub struct DocumentCandidateRequest {
@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn response_file_candidates_carry_source_provenance_without_ledger_access() {
-        let root = std::env::temp_dir().join(format!("hivemind-suggest-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("loomtracer-suggest-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("scratch dir");
         let document = root.join("memo.txt");
         fs::write(

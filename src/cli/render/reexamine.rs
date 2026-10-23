@@ -1,4 +1,4 @@
-//! Text and JSON for `hivemind reaffirm` and `hivemind reexamine` (hivemind-ottw.4).
+//! Text and JSON for `loomtracer reaffirm` and `loomtracer reexamine` (hivemind-ottw.4).
 //!
 //! The words are the ones the re-examine query already states (a change is `superseded`,
 //! `rejected`, `contested` or `refuted`; an item is open, reaffirmed, or closed because the

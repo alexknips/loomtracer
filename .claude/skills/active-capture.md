@@ -1,18 +1,18 @@
 ---
 name: active-capture
-description: Nudge HiveMind capture when durable decision memory is forming: comparing alternatives, choosing or rejecting a direction, recording real evidence, or stating a hypothesis. Do not activate for synthetic test data, routing chatter, task bookkeeping, or ordinary progress updates.
+description: Nudge Loomtracer capture when durable decision memory is forming: comparing alternatives, choosing or rejecting a direction, recording real evidence, or stating a hypothesis. Do not activate for synthetic test data, routing chatter, task bookkeeping, or ordinary progress updates.
 ---
 
-# Active HiveMind Capture
+# Active Loomtracer Capture
 
 Use this skill during the session when a capture-worthy moment is happening,
 not after the turn is over. This is a nudge path only: decide whether the
 moment is real, then ask the main agent to invoke `/capture`; do not write
-directly to the ledger from this skill. When the `hivemind` MCP server is
-registered over HTTP against a remote cell instead (no local `--hivemind-dir`
+directly to the ledger from this skill. When the `loomtracer` MCP server is
+registered over HTTP against a remote cell instead (no local `--loomtracer-dir`
 the CLI can reach), ask the main agent to call the equivalent
-`mcp__hivemind__capture_*` tool directly instead of `/capture` — see
-`hivemind-capture`'s "MCP-over-HTTP Capture" section.
+`mcp__loomtracer__capture_*` tool directly instead of `/capture` — see
+`loomtracer-capture`'s "MCP-over-HTTP Capture" section.
 
 ## Capture Moments
 
@@ -67,7 +67,7 @@ A decision capture must say what it rests on; one that names nothing is refused
 and writes nothing. Know the answer before you nudge. It is one or more of:
 
 - a decision we already made: `--rests-on-decision "<description>"`, ideally
-  one consulted before acting (`hivemind-context` `situational` or `recall`);
+  one consulted before acting (`loomtracer-context` `situational` or `recall`);
 - something observed and where: `--rests-on-evidence "<what>"
   --evidence-source "<URL, file@commit, test run, measurement>"`;
 - something we assume: `--rests-on-assumption "<statement>"`;
@@ -76,7 +76,7 @@ and writes nothing. Know the answer before you nudge. It is one or more of:
 The decider's own words are not a grounding. A Slack message or chat reply goes
 in `--quote` with `--question`, never in `--rests-on-evidence`. Pass
 `--confidence` only when the decider's own words state it. After a refusal, add
-the grounding and re-run; never drop the capture. The `hivemind-capture` skill
+the grounding and re-run; never drop the capture. The `loomtracer-capture` skill
 has the full text.
 
 ## The Decision Test: What Does It Bind, What Would Undoing It Cost?
@@ -120,7 +120,7 @@ Do NOT call this for synthetic test data or routing chatter. Do not invoke
 
 Before nudging a capture, and especially at the start of a session, after a
 restart, or when resuming a conversation someone else may have already
-captured pieces of, check `hivemind-context`'s `recall` for the topic — your
+captured pieces of, check `loomtracer-context`'s `recall` for the topic — your
 own transcript does not carry a prior session's writes. A hit that already
 covers this ground means: don't nudge another capture.
 

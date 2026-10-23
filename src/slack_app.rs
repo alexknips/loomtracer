@@ -37,7 +37,7 @@ pub struct SlackWorkspaceInstall {
     pub team_name: String,
     pub bot_token: String,
     pub signing_secret: String,
-    pub hivemind_url: String,
+    pub loomtracer_url: String,
     pub reaction_emoji: String,
     #[serde(default)]
     pub actor_mappings: BTreeMap<String, String>,
@@ -47,7 +47,7 @@ pub struct SlackWorkspaceInstall {
 pub struct SlackInstallSummary {
     pub team_id: String,
     pub team_name: String,
-    pub hivemind_url: String,
+    pub loomtracer_url: String,
     pub reaction_emoji: String,
     pub bot_token_stored: bool,
     pub signing_secret_stored: bool,
@@ -55,18 +55,18 @@ pub struct SlackInstallSummary {
 
 #[derive(Debug, Clone)]
 pub struct SlackAppStore {
-    hivemind_dir: PathBuf,
+    loomtracer_dir: PathBuf,
 }
 
 impl SlackAppStore {
-    pub fn new(hivemind_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(loomtracer_dir: impl Into<PathBuf>) -> Self {
         Self {
-            hivemind_dir: hivemind_dir.into(),
+            loomtracer_dir: loomtracer_dir.into(),
         }
     }
 
     pub fn app_dir(&self) -> PathBuf {
-        self.hivemind_dir.join(APP_DIR)
+        self.loomtracer_dir.join(APP_DIR)
     }
 
     fn installs_path(&self) -> PathBuf {
@@ -88,7 +88,7 @@ impl SlackAppStore {
         Ok(SlackInstallSummary {
             team_id: install.team_id,
             team_name: install.team_name,
-            hivemind_url: install.hivemind_url,
+            loomtracer_url: install.loomtracer_url,
             reaction_emoji: install.reaction_emoji,
             bot_token_stored: true,
             signing_secret_stored: true,
@@ -421,19 +421,19 @@ pub fn slack_app_manifest(
 
     Ok(json!({
         "display_information": {
-            "name": "HiveMind",
+            "name": "Loomtracer",
             "description": "Capture and query organizational decision memory",
             "background_color": "#1f2933"
         },
         "features": {
             "bot_user": {
-                "display_name": "HiveMind",
+                "display_name": "Loomtracer",
                 "always_online": false
             },
             "slash_commands": [{
-                "command": "/hivemind",
+                "command": "/loomtracer",
                 "url": request_url,
-                "description": "Capture or query HiveMind decisions",
+                "description": "Capture or query Loomtracer decisions",
                 "usage_hint": "capture | query <topic> | show <decision-id>",
                 "should_escape": false
             }],
@@ -441,7 +441,7 @@ pub fn slack_app_manifest(
                 "name": "Capture this thread as a decision",
                 "type": "message",
                 "callback_id": CAPTURE_SHORTCUT_CALLBACK_ID,
-                "description": "Capture this message as a HiveMind decision"
+                "description": "Capture this message as a Loomtracer decision"
             }]
         },
         "oauth_config": {
@@ -564,10 +564,10 @@ fn render_query_response<L: EventLedger, G: GraphView>(
     }
 
     let text = if response.data.items.is_empty() {
-        format!("No HiveMind decisions matched `{query}`.")
+        format!("No Loomtracer decisions matched `{query}`.")
     } else {
         format!(
-            "HiveMind found {} decision(s) for `{query}`.",
+            "Loomtracer found {} decision(s) for `{query}`.",
             response.data.items.len()
         )
     };
@@ -617,7 +617,7 @@ fn render_show_response<L: EventLedger, G: GraphView>(
 
     Ok(SlackAppResponse {
         response_type: "ephemeral".to_owned(),
-        text: format!("HiveMind decision `{}`", decision.id),
+        text: format!("Loomtracer decision `{}`", decision.id),
         blocks: vec![json!({
             "type": "section",
             "text": {
@@ -644,7 +644,7 @@ fn render_show_response<L: EventLedger, G: GraphView>(
 fn capture_modal_response(install: &SlackWorkspaceInstall, user_id: &str) -> SlackAppResponse {
     SlackAppResponse {
         response_type: "ephemeral".to_owned(),
-        text: "Opening HiveMind capture modal.".to_owned(),
+        text: "Opening Loomtracer capture modal.".to_owned(),
         blocks: Vec::new(),
         action: Some("open_modal".to_owned()),
         modal: Some(modal::capture_modal_view(json!({
@@ -658,7 +658,7 @@ fn unknown_command_response(text: &str) -> Result<SlackAppResponse> {
     Ok(SlackAppResponse {
         response_type: "ephemeral".to_owned(),
         text: format!(
-            "Unknown HiveMind command `{text}`. Use `capture`, `query <topic>`, or `show <id>`."
+            "Unknown Loomtracer command `{text}`. Use `capture`, `query <topic>`, or `show <id>`."
         ),
         blocks: Vec::new(),
         action: None,
@@ -803,7 +803,7 @@ fn validate_install(install: &SlackWorkspaceInstall) -> Result<()> {
     non_empty("team_name", &install.team_name)?;
     non_empty("bot_token", &install.bot_token)?;
     non_empty("signing_secret", &install.signing_secret)?;
-    non_empty("hivemind_url", &install.hivemind_url)?;
+    non_empty("loomtracer_url", &install.loomtracer_url)?;
     non_empty("reaction_emoji", &install.reaction_emoji)?;
     for (slack_user, actor_id) in &install.actor_mappings {
         non_empty("actor mapping Slack user", slack_user)?;

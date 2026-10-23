@@ -1,5 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
-use hivemind::events::{Event, EventSource, EventType, RelationKind};
+use loomtracer::events::{Event, EventSource, EventType, RelationKind};
 use serde_json::json;
 use uuid::Uuid;
 

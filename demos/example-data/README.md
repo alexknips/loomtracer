@@ -1,10 +1,10 @@
 # Example data
 
-A fresh, purpose-built HiveMind ledger, captured entirely through the real capture verbs
-(`hivemind emit decision.capture`, `supersede`, `disagree`, `ground`, `relation.added`, ...) —
+A fresh, purpose-built Loomtracer ledger, captured entirely through the real capture verbs
+(`loomtracer emit decision.capture`, `supersede`, `disagree`, `ground`, `relation.added`, ...) —
 never hand-written fixture JSON injected into a database. This is the public demo's example
 data (hivemind-hc-yds): nothing here is real, no city decisions, no real people, no real
-projects. It exists to show what HiveMind is for.
+projects. It exists to show what Loomtracer is for.
 
 An earlier hand-authored fixture corpus (removed) hid a broken live capture path for three
 months (hu-0pf) before anyone noticed, because nothing exercised the real capture verbs. This
@@ -33,7 +33,7 @@ Three fictional projects, four stories, eight decisions:
   `graph.json`.
 
 These are the three files the read-only public-demo UI reads (see hivemind-2cde's originating
-comment from the hivemind-ui side). Decision ids and timestamps are freshly generated on every
+comment from the loomtracer-ui side). Decision ids and timestamps are freshly generated on every
 regeneration — real capture, not a fixed fixture — so there is no byte-stable diff to preserve
 across runs; what's committed is simply the most recent blessed run.
 

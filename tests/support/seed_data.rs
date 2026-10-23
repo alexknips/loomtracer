@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, Utc};
-use hivemind::events::{Event, EventSource, EventType, RelationKind};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::events::{Event, EventSource, EventType, RelationKind};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -147,7 +147,7 @@ pub fn reset_seed_dir(seed_dir: &Path) -> TestResult<()> {
 }
 
 pub fn unique_temp_dir(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-seed-{label}-{}", Uuid::new_v4()))
+    std::env::temp_dir().join(format!("loomtracer-seed-{label}-{}", Uuid::new_v4()))
 }
 
 pub fn payload_str<'a>(event: &'a Event, key: &str) -> Option<&'a str> {

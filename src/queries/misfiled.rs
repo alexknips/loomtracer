@@ -12,14 +12,14 @@
 //! the ledger outside the commands layer keeps its spelling (`MCP`, `org.incident` from a
 //! classifier draft, a blocker report or an import), so the stored side is normalized here, at
 //! comparison time, and the candidate still reports the key as recorded.
-//! HiveMind does not decide on its own what is foreign; the caller (a human
+//! Loomtracer does not decide on its own what is foreign; the caller (a human
 //! reviewer, or a script that knows the city's rig names) supplies the list.
 //!
 //! Each candidate says which project it is filed under now. The report can be
 //! scoped to one project (`project`: only decisions filed exactly there, so a
 //! second run after the moves is clean) and can name where the flagged
 //! decisions belong (`move_to`: a registered project). It is still only a
-//! report. It never moves a decision: the move is `hivemind move --decision
+//! report. It never moves a decision: the move is `loomtracer move --decision
 //! <id> --to <project>` (`decision.moved`, recorded and reversible), run by
 //! whoever confirmed the list, so nothing is filed or re-filed by a rule.
 use std::collections::BTreeSet;
@@ -90,7 +90,7 @@ pub fn require_registered_project(ledger: &impl EventLedger, handle: &str) -> Re
     match get_project(ledger, handle)?.data {
         ProjectOutcome::Found { .. } => Ok(()),
         ProjectOutcome::NotFound => Err(query_error(format!(
-            "no project called {handle}: register it first with `hivemind project register {handle}`"
+            "no project called {handle}: register it first with `loomtracer project register {handle}`"
         ))
         .into()),
     }

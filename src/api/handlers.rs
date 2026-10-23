@@ -348,7 +348,7 @@ fn resolve_fluent_target_http(
 }
 
 /// Envelope shape shared by every query response: `{result_count, truncated,
-/// latency_ms, data}` (the same fields `hivemind query --json` prints). A plain
+/// latency_ms, data}` (the same fields `loomtracer query --json` prints). A plain
 /// `serde_json::Value` lets `why`/`verify` return either a resolve outcome or the
 /// underlying query's response through the same handler without a shared enum.
 fn envelope_value<T: Serialize>(response: &QueryResponse<T>) -> serde_json::Value {

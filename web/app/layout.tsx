@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import "./hivemind.css";
+import "./loomtracer.css";
 
 const fraunces = localFont({ src: "./fonts/fraunces-latin.woff2", variable: "--font-headline", weight: "600", style: "normal", display: "swap" });
 const sourceSans = localFont({ src: "./fonts/source-sans-3-latin.woff2", variable: "--font-body", weight: "400 600", style: "normal", display: "swap" });

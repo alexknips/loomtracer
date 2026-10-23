@@ -1,4 +1,4 @@
-# HiveMind Seed Dataset
+# Loomtracer Seed Dataset
 
 Run the deterministic slice-1 seed harness with:
 
@@ -6,8 +6,8 @@ Run the deterministic slice-1 seed harness with:
 cargo test --test seed -- --include-ignored
 ```
 
-By default the ignored seed test populates `./hivemind/` and refuses to run if
-that directory already exists. Set `HIVEMIND_SEED_DIR=/path/to/hivemind` to
+By default the ignored seed test populates `./loomtracer/` and refuses to run if
+that directory already exists. Set `LOOMTRACER_SEED_DIR=/path/to/loomtracer` to
 write somewhere else.
 
 The non-ignored tests verify that the canonical ledger event stream is
@@ -61,7 +61,7 @@ cargo test --test golden -- --bless
 mod multi_tenant;
 
 use multi_tenant::{seed_tenant, assert_tenant_isolation, TenantDataset};
-use hivemind::ledger::InMemoryEventLedger;
+use loomtracer::ledger::InMemoryEventLedger;
 
 #[test]
 fn my_multi_tenant_test() -> multi_tenant::TestResult<()> {

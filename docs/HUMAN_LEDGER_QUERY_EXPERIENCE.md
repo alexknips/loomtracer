@@ -1,6 +1,6 @@
 # Human Ledger Query Experience
 
-HiveMind should make decision history easy for humans to read without turning a
+Loomtracer should make decision history easy for humans to read without turning a
 history interface into a decision-making actor. The first product surface should
 be a read-only explorer UI over deterministic query APIs. A read-only history
 agent is useful later, but only as a citation-constrained presentation layer over
@@ -39,7 +39,7 @@ Humans need to answer these questions quickly:
 - What decisions, humans, or agents are blocked by stale or contested context?
 - What read-only summary can be shared back to a team without losing citations?
 
-These are ledger-history workflows, not project-management workflows. HiveMind
+These are ledger-history workflows, not project-management workflows. Loomtracer
 should surface blockers and stale assumptions when they are represented as
 decision graph state, but it should not become a task board.
 

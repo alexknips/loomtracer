@@ -3,11 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::ledger::{EventLedger, InMemoryEventLedger};
-use hivemind::projector::{memory::MemoryGraph, rebuild_graph};
-use hivemind::quality_profile::decision_log_section;
-use hivemind::queries::{export_decision_log, DecisionLogOutcome, DecisionLogRequest};
+use loomtracer::cli::{run, Cli};
+use loomtracer::ledger::{EventLedger, InMemoryEventLedger};
+use loomtracer::projector::{memory::MemoryGraph, rebuild_graph};
+use loomtracer::quality_profile::decision_log_section;
+use loomtracer::queries::{export_decision_log, DecisionLogOutcome, DecisionLogRequest};
 use serde_json::json;
 
 #[allow(dead_code)]
@@ -353,7 +353,7 @@ fn main() {
 fn run_harness() -> TestResult<()> {
     let bless = parse_args()?;
     let scratch_root = unique_temp_dir("golden");
-    let seed_dir = scratch_root.join("hivemind");
+    let seed_dir = scratch_root.join("loomtracer");
 
     if scratch_root.exists() {
         fs::remove_dir_all(&scratch_root)?;
@@ -414,13 +414,13 @@ fn capture_query_outputs(seed_dir: &Path) -> TestResult<Vec<QueryOutput>> {
     for (index, spec) in QUERY_SPECS.iter().chain(MOVE_SPECS).enumerate() {
         if index == QUERY_SPECS.len() {
             for setup in MOVE_SETUP {
-                let mut argv = vec!["hivemind", "--hivemind-dir", seed_dir.as_str()];
+                let mut argv = vec!["loomtracer", "--loomtracer-dir", seed_dir.as_str()];
                 argv.extend(setup.iter().copied());
                 run(&Cli::parse_from(argv))
                     .map_err(|error| format!("golden setup {setup:?} failed: {error}"))?;
             }
         }
-        let mut argv = vec!["hivemind", "--hivemind-dir", seed_dir.as_str()];
+        let mut argv = vec!["loomtracer", "--loomtracer-dir", seed_dir.as_str()];
         argv.extend(spec.args.iter().copied());
         let cli = Cli::parse_from(argv);
         let json = match (spec.expectation, run(&cli)) {

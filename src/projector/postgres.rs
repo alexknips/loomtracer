@@ -80,7 +80,7 @@ impl PostgresGraphView {
         let mut client = self.pool.get().map_err(pg_error)?;
         client
             .batch_execute(
-                "SELECT pg_advisory_xact_lock(hashtext('hivemind_schema_init'));
+                "SELECT pg_advisory_xact_lock(hashtext('loomtracer_schema_init'));
                 CREATE TABLE IF NOT EXISTS hm_nodes (
                     tenant_id   text    NOT NULL,
                     node_kind   text    NOT NULL,
@@ -1181,7 +1181,7 @@ fn projection_error(message: impl std::fmt::Display) -> ProjectorError {
     ProjectorError::Projection(message.to_string())
 }
 
-fn pg_error(error: impl std::fmt::Display) -> crate::HivemindError {
+fn pg_error(error: impl std::fmt::Display) -> crate::LoomtracerError {
     projection_error(error).into()
 }
 

@@ -1,4 +1,4 @@
-import type { DecisionStatus } from "@/lib/hivemind/types";
+import type { DecisionStatus } from "@/lib/loomtracer/types";
 
 const WORDS: Record<DecisionStatus, string> = {
   proposed: "Proposed", accepted: "Accepted", rejected: "Rejected", contested: "Contested", superseded: "Superseded",

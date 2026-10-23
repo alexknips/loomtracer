@@ -156,7 +156,7 @@
 //!
 //! # Asks (`question` module, hivemind-bbnw.4)
 //!
-//! `hivemind ask` / MCP `request_decision` record that someone explicitly asked a question,
+//! `loomtracer ask` / MCP `request_decision` record that someone explicitly asked a question,
 //! before any decision answers it. Enforced by `plan_ask` / `record_ask`:
 //!
 //! - A question must contain words, not only punctuation — the same rule `question` enforces.
@@ -172,7 +172,7 @@
 //!   source time: that is the source's time, not a guess, and it is the only place an ask time
 //!   lives (`decision.proposed` carries none).
 //! - No ask is written when nobody asked: `plan_ask` / `record_ask` are the only path that writes
-//!   `question.asked`, so a decision captured with `--question` (with no `hivemind ask` first)
+//!   `question.asked`, so a decision captured with `--question` (with no `loomtracer ask` first)
 //!   never fabricates one.
 //! - `capture --answers <request id>` resolves an existing request (`find_ask`, refused when the
 //!   request does not exist) to its question's text, then answers it exactly as `--question
@@ -1393,7 +1393,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             }
         } else if !self.project_exists(to)? {
             return Err(CommandError::Invariant(format!(
-                "project not registered: {to} -- register it first with `hivemind project register {to}`"
+                "project not registered: {to} -- register it first with `loomtracer project register {to}`"
             ))
             .into());
         }
@@ -3160,7 +3160,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
 
         if !self.project_exists(handle)? {
             return Err(CommandError::Invariant(format!(
-                "project not registered: {handle} -- register it first with `hivemind project register {handle}`"
+                "project not registered: {handle} -- register it first with `loomtracer project register {handle}`"
             ))
             .into());
         }
@@ -3187,7 +3187,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
         if !self.project_exists(handle)? {
             return Err(CommandError::Invariant(format!(
-                "project not registered: {handle} -- register it first with `hivemind project register {handle}`"
+                "project not registered: {handle} -- register it first with `loomtracer project register {handle}`"
             ))
             .into());
         }
@@ -4083,7 +4083,7 @@ fn undeclared_topics_refusal(
         if vocabulary.len() > TOPIC_REFUSAL_PREVIEW {
             let _ = write!(
                 listed,
-                ", and {} more (`hivemind project show {handle}` lists them all)",
+                ", and {} more (`loomtracer project show {handle}` lists them all)",
                 vocabulary.len() - TOPIC_REFUSAL_PREVIEW
             );
         }
@@ -4093,7 +4093,7 @@ fn undeclared_topics_refusal(
     format!(
         "{noun} {named} {verb} not declared for project {handle} (declared: {declared}). \
          To add {pronoun}, say so in this capture ({flags}, or `declare_topics` over MCP) \
-         or declare {pronoun} first with `hivemind project declare-topic {handle} {keys}`; \
+         or declare {pronoun} first with `loomtracer project declare-topic {handle} {keys}`; \
          otherwise use a declared topic."
     )
 }
@@ -4552,9 +4552,9 @@ fn require_not_own_premise(decision_id: &str, premise_id: &str) -> Result<()> {
 fn already_accepted_refusal(actor_id: &str, decision_id: &str) -> CommandError {
     CommandError::Invariant(format!(
         "{actor_id} already accepted decision {decision_id}, so it cannot also reject it. \
-         To change your own decision, record the replacement with `hivemind supersede --old {decision_id} \
+         To change your own decision, record the replacement with `loomtracer supersede --old {decision_id} \
          --title ... --rationale ... --chose ...`. If only the wording or the project is wrong, \
-         use `hivemind retitle` or `hivemind move`."
+         use `loomtracer retitle` or `loomtracer move`."
     ))
 }
 
@@ -4726,7 +4726,7 @@ fn generate_option_id() -> String {
 const MAX_OPTION_LABEL_LEN: usize = 80;
 
 /// Content quality gate for a captured option label, run once at `record_option_with_id` time —
-/// the single choke point every capture path (`capture_decision` MCP/API tool, `hivemind emit
+/// the single choke point every capture path (`capture_decision` MCP/API tool, `loomtracer emit
 /// decision.proposed`, and `supersede`) routes an option label through before it ever reaches
 /// the ledger. Three failure modes observed in the wild (hivemind-zdsh.10 audit, decisions
 /// ca4da326 / 502c4375 / others):

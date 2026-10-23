@@ -30,13 +30,13 @@ use crate::floor::{BindsAnswer, UndoCostAnswer};
 use crate::ledger::{EventLedger, SqliteEventLedger};
 
 const SCORER_MODEL: &str = "claude-haiku-4-5-20251001";
-const SCORER_MODEL_ENV: &str = "HIVEMIND_SCORER_MODEL";
+const SCORER_MODEL_ENV: &str = "LOOMTRACER_SCORER_MODEL";
 /// Names the wording of [`ASSESSOR_PROMPT`] on every assessment it produces, so an assessment
 /// traces back to it. `assessment-v2` added the decision floor's two recorded answers as input
 /// facts (hivemind-bbnw.11). `assessment-v3` stopped offering a classified capture's confidence
 /// and topic keys as quotable text and gave each option its own line (hivemind-m88ju).
 const ASSESSOR_PROMPT_VERSION: &str = "assessment-v3";
-const ACTOR_ID: &str = "agent:hivemind:scorer";
+const ACTOR_ID: &str = "agent:loomtracer:scorer";
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 /// How many times a decision's assessment may fail, through a failed call or an answer the
 /// write path refused, before the worker stops sending it to the model. Each attempt is a
@@ -48,9 +48,9 @@ const RETRY_BACKOFF: Duration = Duration::from_secs(300);
 const API_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_TOKENS: u32 = 3000;
 
-const ASSESSOR_PROMPT: &str = r#"You are the HiveMind decision quality assessor.
+const ASSESSOR_PROMPT: &str = r#"You are the Loomtracer decision quality assessor.
 
-HiveMind records organizational decisions. Assess one decision's seven quality
+Loomtracer records organizational decisions. Assess one decision's seven quality
 dimensions, EX ANTE — only from what was knowable at decision time. Never judge
 a dimension by how the decision turned out.
 
@@ -188,25 +188,32 @@ struct PendingAssessment {
 
 /// Spawn the background scorer task. Returns immediately; the worker runs
 /// in the background until the process exits.
-pub fn spawn_scorer(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
+pub fn spawn_scorer(loomtracer_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
     tokio::spawn(async move {
-        run_scorer_loop(hivemind_dir, tenant_id, api_key).await;
+        run_scorer_loop(loomtracer_dir, tenant_id, api_key).await;
     });
 }
 
-async fn run_scorer_loop(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
-    info!(target: "hivemind::scorer", "scorer worker started");
+async fn run_scorer_loop(loomtracer_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
+    info!(target: "loomtracer::scorer", "scorer worker started");
     let client = match reqwest::Client::builder().timeout(API_TIMEOUT).build() {
         Ok(c) => c,
         Err(e) => {
-            warn!(target: "hivemind::scorer", "failed to build http client: {e}");
+            warn!(target: "loomtracer::scorer", "failed to build http client: {e}");
             return;
         }
     };
 
     let mut attempts = AttemptLog::default();
     loop {
-        assess_pending_decisions(&client, &hivemind_dir, &tenant_id, &api_key, &mut attempts).await;
+        assess_pending_decisions(
+            &client,
+            &loomtracer_dir,
+            &tenant_id,
+            &api_key,
+            &mut attempts,
+        )
+        .await;
         tokio::time::sleep(POLL_INTERVAL).await;
     }
 }
@@ -284,13 +291,13 @@ impl AttemptLog {
     fn log_failure(&mut self, decision_id: &str, what: &str, error: &dyn std::fmt::Display) {
         match self.record_failure(decision_id, Instant::now()) {
             AfterFailure::Retry { attempt } => warn!(
-                target: "hivemind::scorer",
+                target: "loomtracer::scorer",
                 decision_id = %decision_id,
                 "{what}: {error}; attempt {attempt} of {MAX_ATTEMPTS}, retrying in {}s",
                 RETRY_BACKOFF.as_secs()
             ),
             AfterFailure::GaveUp { attempts } => warn!(
-                target: "hivemind::scorer",
+                target: "loomtracer::scorer",
                 decision_id = %decision_id,
                 "{what}: {error}; {attempts} attempts failed, giving up on this decision until the server restarts"
             ),
@@ -300,15 +307,15 @@ impl AttemptLog {
 
 async fn assess_pending_decisions(
     client: &reqwest::Client,
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     api_key: &str,
     attempts: &mut AttemptLog,
 ) {
-    let pending = match find_unscored_decisions(hivemind_dir, tenant_id) {
+    let pending = match find_unscored_decisions(loomtracer_dir, tenant_id) {
         Ok(p) => p,
         Err(e) => {
-            warn!(target: "hivemind::scorer", "ledger scan failed: {e}");
+            warn!(target: "loomtracer::scorer", "ledger scan failed: {e}");
             return;
         }
     };
@@ -318,7 +325,7 @@ async fn assess_pending_decisions(
             Standing::Ready => {}
             standing => {
                 debug!(
-                    target: "hivemind::scorer",
+                    target: "loomtracer::scorer",
                     decision_id = %decision.decision_id,
                     ?standing,
                     "not assessing decision"
@@ -326,12 +333,12 @@ async fn assess_pending_decisions(
                 continue;
             }
         }
-        debug!(target: "hivemind::scorer", decision_id = %decision.decision_id, "assessing decision");
+        debug!(target: "loomtracer::scorer", decision_id = %decision.decision_id, "assessing decision");
 
         match call_assessor(client, api_key, &decision.decision_text).await {
             Ok((output, model)) => {
                 if let Err(e) = write_assessment(
-                    hivemind_dir,
+                    loomtracer_dir,
                     tenant_id,
                     &decision.decision_id,
                     &model,
@@ -349,10 +356,10 @@ async fn assess_pending_decisions(
 }
 
 fn find_unscored_decisions(
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
 ) -> crate::Result<Vec<PendingAssessment>> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let mut offset = 0u64;
     const PAGE: usize = 256;
 
@@ -493,13 +500,13 @@ fn render_proposed_decision_text(payload: &serde_json::Value) -> String {
     out
 }
 
-/// Resolve the scorer model id given an already-read `HIVEMIND_SCORER_MODEL`
+/// Resolve the scorer model id given an already-read `LOOMTRACER_SCORER_MODEL`
 /// value: the override if present, otherwise the pinned default.
 fn resolve_scorer_model(env_override: Option<String>) -> String {
     env_override.unwrap_or_else(|| SCORER_MODEL.to_owned())
 }
 
-/// Model id actually used for scoring: `HIVEMIND_SCORER_MODEL` if set to a
+/// Model id actually used for scoring: `LOOMTRACER_SCORER_MODEL` if set to a
 /// non-empty value, otherwise the pinned default. Callers that both invoke
 /// the API and record provenance must call this once and reuse the result so
 /// the two agree even if the environment changes between calls.
@@ -625,7 +632,7 @@ pub(crate) fn resolve_capture_node_id<L: EventLedger>(
 }
 
 fn write_assessment(
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     decision_id: &str,
     model: &str,
@@ -634,7 +641,7 @@ fn write_assessment(
 ) -> crate::Result<()> {
     let payload = build_assessed_payload(decision_id, model, ASSESSOR_PROMPT_VERSION, output);
 
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(tenant_id.clone(), EventProvenance::agent(ACTOR_ID)),
@@ -645,15 +652,15 @@ fn write_assessment(
 
 /// Try to read the API key and spawn the worker. Logs a warning and returns
 /// `None` if the key is absent.
-pub fn try_spawn(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId) -> Option<()> {
+pub fn try_spawn(loomtracer_dir: Arc<PathBuf>, tenant_id: TenantId) -> Option<()> {
     match crate::classifier::anthropic_api_key() {
         Some(key) => {
-            spawn_scorer(hivemind_dir, tenant_id, key);
+            spawn_scorer(loomtracer_dir, tenant_id, key);
             Some(())
         }
         None => {
             warn!(
-                target: "hivemind::scorer",
+                target: "loomtracer::scorer",
                 "ANTHROPIC_API_KEY not set — Layer-3 scorer disabled"
             );
             None

@@ -14,8 +14,8 @@ The initial importer accepts UTF-8 local files in these forms:
 
 - Markdown files (`.md`, `.markdown`).
 - Plain text files (`.txt`).
-- Markdown or plain text files containing explicit HiveMind decision blocks.
-- Prepared PDF/OCR text emitted by `hivemind import prepare-documents`.
+- Markdown or plain text files containing explicit Loomtracer decision blocks.
+- Prepared PDF/OCR text emitted by `loomtracer import prepare-documents`.
 
 Only explicit decision blocks create decision events by default. An unmarked
 document is reported as `skipped_unmarked`; it is not heuristically converted
@@ -84,7 +84,7 @@ Decision:
 
 Text that is not indented under the `Decision:` marker is ordinary document
 text and is ignored: a heading or prose after the block, or the
-`# hivemind-source-ref:` line that starts the next prepared page. A block
+`# loomtracer-source-ref:` line that starts the next prepared page. A block
 written flush left has no indented fields, so nothing in it is refused for being
 unknown; indent the fields under the marker, as above, to have a misspelled key
 caught.
@@ -149,7 +149,7 @@ Initial extraction is deterministic structured-marker extraction:
 
 1. Scan each accepted local file for explicit decision blocks.
 2. Validate required fields and supported statuses.
-3. Emit canonical HiveMind events for the decision, options, evidence,
+3. Emit canonical Loomtracer events for the decision, options, evidence,
    hypotheses, supersession, and relations represented in the block.
 4. Report validation errors without writing partial events for that block.
 
@@ -161,10 +161,10 @@ candidates (see Prose Extraction).
 
 ## Prose Extraction
 
-`hivemind import documents` can turn free prose into decision candidates. This
+`loomtracer import documents` can turn free prose into decision candidates. This
 is layer-3 work wrapped around the importer, off unless the caller asks for it:
 
-- `--extractor-command hivemind-document-extractor` sends the source text plus
+- `--extractor-command loomtracer-document-extractor` sends the source text plus
   provenance to that executable as JSON on stdin and reads the response from
   stdout. The executable name is fixed so this path can be installed
   deliberately without allowing arbitrary command execution from
@@ -177,7 +177,7 @@ The two are alternatives, and `--extractor-arg` needs `--extractor-command`. A
 command line that breaks either rule exits 2 before the ledger is opened.
 
 ```bash
-hivemind --actor alice --json import documents ./decision-memo.txt \
+loomtracer --actor alice --json import documents ./decision-memo.txt \
   --llm-response ./llm-response.json
 ```
 
@@ -186,7 +186,7 @@ is parsed as described above. Each candidate is written through the same block
 import as an explicit block, with `candidate:document:<hash>` as its block id and
 the extractor's explanation kept in the event's source ref. It lands as
 `proposed`, whatever status the candidate names: extraction accepts nothing, and
-the decisions flow into `hivemind review --unreviewed-only`, where a reviewer
+the decisions flow into `loomtracer review --unreviewed-only`, where a reviewer
 accepts, rejects or supersedes them with ordinary events. A file for which the
 extractor returns no candidates stays `skipped_unmarked`.
 
@@ -243,13 +243,13 @@ LLM, and an extractor does not have to be installed or enabled.
 PDF and OCR inputs use a preparation step, not a direct ledger write:
 
 ```bash
-hivemind --json import prepare-documents ./source.pdf --output-dir ./prepared
-hivemind --actor alice --json import documents ./prepared
+loomtracer --json import prepare-documents ./source.pdf --output-dir ./prepared
+loomtracer --actor alice --json import documents ./prepared
 ```
 
 `prepare-documents` extracts text PDF pages and OCR-backed UTF-8 files such as
 `scan.ocr.txt` into deterministic intermediate text. Each prepared page includes
-a `# hivemind-source-ref: {...}` comment containing the original source path,
+a `# loomtracer-source-ref: {...}` comment containing the original source path,
 source hash, preparation run id, extraction kind, page number, page span, and a
 short source snippet. The reviewed intermediate text remains ordinary document
 input; `import documents` still performs the same structured block validation
@@ -388,11 +388,11 @@ looks like an implicit calendar guess.
 The minimum local demo flow is:
 
 ```bash
-hivemind --actor alice import documents ./decision-notes \
+loomtracer --actor alice import documents ./decision-notes \
   --format markdown \
   --json
 
-hivemind query get_decisions_added_since \
+loomtracer query get_decisions_added_since \
   --since "last week" \
   --timezone UTC \
   --source document \

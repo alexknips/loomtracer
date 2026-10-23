@@ -1,8 +1,10 @@
-use hivemind::commands::{CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding};
-use hivemind::events::{EventProvenance, TenantId};
-use hivemind::ledger::EventLedger;
-use hivemind::projector::memory::MemoryGraph;
-use hivemind::projector::{rebuild_graph_for_tenant, GraphParams, GraphValue, GraphView};
+use loomtracer::commands::{
+    CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding,
+};
+use loomtracer::events::{EventProvenance, TenantId};
+use loomtracer::ledger::EventLedger;
+use loomtracer::projector::memory::MemoryGraph;
+use loomtracer::projector::{rebuild_graph_for_tenant, GraphParams, GraphValue, GraphView};
 
 pub type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

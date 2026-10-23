@@ -61,7 +61,7 @@ jobs:
   # live `services: postgres` container to actually run
   # ledger/projector/queries Postgres tests instead of self-skipping (and to
   # let ledger::postgres::tests::async_safety_tests::pass_after_spawn_blocking_is_async_safe,
-  # which deliberately panics without HIVEMIND_TEST_POSTGRES_URL, run for
+  # which deliberately panics without LOOMTRACER_TEST_POSTGRES_URL, run for
   # real). Service containers require a Linux runner, which the `rust` job's
   # macos-latest leg cannot provide, so this is its own ubuntu-only job. Its
   # `name:` is fixed to the exact string that job's matrix used to render for
@@ -99,13 +99,13 @@ jobs:
 
       - name: Run tests
         env:
-          HIVEMIND_TEST_POSTGRES_URL: postgres://hivemind:hivemind@localhost:5432/hivemind
+          LOOMTRACER_TEST_POSTGRES_URL: postgres://hivemind:hivemind@localhost:5432/hivemind
           # Caps the r2d2 pool size opened per `PostgresEventLedger::connect`
           # call (production default is 16, eagerly filled). Each parallel
           # test thread opens its own pool through this path, directly or
           # via AnyLedger's CLI backend selection, so at default parallelism
           # N-threads x 16 easily exceeds Postgres's max_connections=100.
-          HIVEMIND_POSTGRES_POOL_SIZE: "4"
+          LOOMTRACER_POSTGRES_POOL_SIZE: "4"
         run: cargo test --locked --features shared-backend-postgres
 
   docker:
@@ -124,7 +124,7 @@ jobs:
         with:
           context: .
           push: false
-          tags: hivemind:ci
+          tags: loomtracer:ci
           build-args: |
             GIT_SHA=${{ github.sha }}
 
@@ -148,7 +148,7 @@ jobs:
 
   # The web UI (web/) and the bundle format it reads (packages/reasoning/) are one npm workspace at
   # the repository root. This builds and tests it; the browser tests (web/e2e) start a scratch
-  # `hivemind serve` and need a built binary and a Playwright Chromium, so they run locally.
+  # `loomtracer serve` and need a built binary and a Playwright Chromium, so they run locally.
   web:
     name: Web UI (build and unit tests)
     runs-on: ubuntu-latest
@@ -338,7 +338,7 @@ jobs:
           fi
           echo "UBS critical count ${criticals} — OK."
 
-      # UBS warning baseline established by hivemind-ubs-warning-triage-baseline-h4p2m and
+      # UBS warning baseline established by loomtracer-ubs-warning-triage-baseline-h4p2m and
       # tightened by hivemind-41n8s on 2026-05-22 with `ubs --ci --only=rust .`.
       # Bumped from 1900 -> 3164 on 2026-05-25 to unblock master after recent
       # backend work landed without paying the warning count down per PRINCIPLES §8.
@@ -407,9 +407,9 @@ jobs:
           context: .
           push: false
           load: true
-          tags: hivemind:e2e
+          tags: loomtracer:e2e
 
-      - name: Start HiveMind (SQLite, no auth)
+      - name: Start Loomtracer (SQLite, no auth)
         run: |
           docker compose \
             -f docker-compose.yml \
@@ -425,18 +425,18 @@ jobs:
           done
           curl -sf http://localhost:8080/v1/health | grep '"ok"'
 
-      - name: Install Rust toolchain (for hivemind binary)
+      - name: Install Rust toolchain (for loomtracer binary)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Build hivemind + fidelity-eval binaries
-        run: cargo build --locked --features eval-tools --bin hivemind --bin fidelity-eval
+      - name: Build loomtracer + fidelity-eval binaries
+        run: cargo build --locked --features eval-tools --bin loomtracer --bin fidelity-eval
 
       - name: Run E2E smoke (SQLite)
         env:
-          HIVEMIND_BIN: ./target/debug/hivemind
+          LOOMTRACER_BIN: ./target/debug/loomtracer
           FIDELITY_BIN: ./target/debug/fidelity-eval
         run: bash scripts/e2e_smoke.sh
 
@@ -477,11 +477,11 @@ jobs:
           context: .
           push: false
           load: true
-          tags: hivemind:e2e
+          tags: loomtracer:e2e
 
-      - name: Start HiveMind (Postgres)
+      - name: Start Loomtracer (Postgres)
         env:
-          HIVEMIND_ADMIN_KEY: e2e-admin-key-ci
+          LOOMTRACER_ADMIN_KEY: e2e-admin-key-ci
         run: |
           docker compose \
             -f docker-compose.yml \
@@ -497,18 +497,18 @@ jobs:
           done
           curl -sf http://localhost:8080/v1/health | grep '"ok"'
 
-      - name: Install Rust toolchain (for hivemind binary)
+      - name: Install Rust toolchain (for loomtracer binary)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Build hivemind binary
-        run: cargo build --locked --bin hivemind
+      - name: Build loomtracer binary
+        run: cargo build --locked --bin loomtracer
 
       - name: Provision Postgres tenants and run E2E smoke
         env:
-          HIVEMIND_BIN: ./target/debug/hivemind
+          LOOMTRACER_BIN: ./target/debug/loomtracer
         run: |
           # Provision tenant A (e2e-test)
           prov_a=$(curl -sf -X POST http://localhost:8080/v1/tenants \
@@ -532,8 +532,8 @@ jobs:
           fi
           echo "Tenant B provisioned: ${TOKEN_B:0:12}..."
 
-          HIVEMIND_E2E_API_KEY="$TOKEN_A" \
-          HIVEMIND_E2E_API_KEY_B="$TOKEN_B" \
+          LOOMTRACER_E2E_API_KEY="$TOKEN_A" \
+          LOOMTRACER_E2E_API_KEY_B="$TOKEN_B" \
             bash scripts/e2e_smoke.sh
 
       - name: Dump server logs on failure

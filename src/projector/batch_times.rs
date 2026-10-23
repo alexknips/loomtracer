@@ -38,7 +38,7 @@ struct Submitter {
 }
 
 /// The conversation a classification was drawn from, as the batches it covers state it. Each part
-/// is empty when the ledger received none of the batches (a `hivemind emit` capture names a fresh
+/// is empty when the ledger received none of the batches (a `loomtracer emit` capture names a fresh
 /// batch id): who was in a conversation is never guessed.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct ClassifiedSession {

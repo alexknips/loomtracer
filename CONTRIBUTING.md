@@ -1,13 +1,13 @@
-# Contributing to HiveMind
+# Contributing to Loomtracer
 
-Welcome. HiveMind is memory for decisions: what was decided, which options
+Welcome. Loomtracer is memory for decisions: what was decided, which options
 lost and why, and who decided. Contributions are welcome from humans and from
 AI agents — both are first-class actors in the project.
 
 Before you start, please read:
 
-- [`VISION.md`](VISION.md) — why HiveMind exists and what it is for
-- [`PRINCIPLES.md`](PRINCIPLES.md) — the constraints HiveMind cannot trade away
+- [`VISION.md`](VISION.md) — why Loomtracer exists and what it is for
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the constraints Loomtracer cannot trade away
 - [`STRATEGY.md`](STRATEGY.md) — the active investment fronts that judge
   whether a change is on-target
 - [`AGENTS.md`](AGENTS.md) — the standard of excellence every contributor
@@ -17,7 +17,7 @@ Before you start, please read:
 
 ## How work is tracked
 
-HiveMind uses beads for all work tracking. They live in the city's Dolt
+Loomtracer uses beads for all work tracking. They live in the city's Dolt
 server, not in files in this repo (`.beads/issues.jsonl` is a stale export).
 Planning lives in beads; the level-1 docs above are the compass beads are
 judged against.
@@ -52,7 +52,7 @@ set, proof-line format, and the docs-only exception's rationale — summary:
   ```
 
 The site and its docs live in
-[`alexknips/hivemind-site`](https://github.com/alexknips/hivemind-site), not
+[`alexknips/loomtracer-site`](https://github.com/alexknips/loomtracer-site), not
 here. If you add or change a CLI subcommand, flag, or MCP tool, regenerate the
 reference there and open a matching pull request; see
 [docs/QUALITY_GATES.md → Reference Docs](docs/QUALITY_GATES.md#reference-docs-live-in-the-site-repo).
@@ -73,7 +73,7 @@ Uniformity](docs/ARCHITECTURE.md#surface-uniformity).
 
 ## Tests
 
-HiveMind has several test layers:
+Loomtracer has several test layers:
 
 ```bash
 cargo test                              # full default test suite
@@ -103,13 +103,13 @@ cargo test --features graph-kuzu kuzu -- --nocapture
    [docs/QUALITY_GATES.md](docs/QUALITY_GATES.md) in its description, filled
    in honestly.
 3. Reference the bead id in the PR description and in the commit message
-   trailer (e.g., `(hivemind-bead-id-XXXX)`).
+   trailer (e.g., `(loomtracer-bead-id-XXXX)`).
 4. The PR is reviewed; once gates pass on the rebased state and review is
    complete, it lands.
 
 ## License & sign-off
 
-HiveMind is licensed under [AGPL-3.0-only](LICENSE). By contributing
+Loomtracer is licensed under [AGPL-3.0-only](LICENSE). By contributing
 you agree your contribution is provided under the same license.
 
 Outside contributors use the

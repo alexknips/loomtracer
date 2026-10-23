@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { BrandLogo } from "@/components/brand-logo";
-import { hivemind } from "@/lib/hivemind/client";
+import { loomtracer } from "@/lib/loomtracer/client";
 
 const LINKS = [
   ["Reasoning", "/graph"],
@@ -13,15 +13,15 @@ const LINKS = [
 
 export async function AppShell({ children, active }: { children: ReactNode; active: string }) {
   // The tenant and actor the server resolves for this workspace's key: what everything below is read as.
-  const who = await hivemind().whoami().catch(() => null);
+  const who = await loomtracer().whoami().catch(() => null);
   return (
     <div className="app-shell">
       <header className="topbar">
         <Link className="brand" href="/graph" aria-label="Loomtracer graph home">
           <BrandLogo className="app-brand-logo" />
           <span className="brand-identity">
-            <span className="workspace-identity" data-testid="workspace-identity" title={who ? `Reading tenant ${who.tenant_id} as ${who.actor_id}` : "HiveMind is not connected"}>
-              {who ? `${who.tenant_id} · ${who.actor_id}` : "HiveMind not connected"}
+            <span className="workspace-identity" data-testid="workspace-identity" title={who ? `Reading tenant ${who.tenant_id} as ${who.actor_id}` : "Loomtracer is not connected"}>
+              {who ? `${who.tenant_id} · ${who.actor_id}` : "Loomtracer not connected"}
             </span>
           </span>
         </Link>

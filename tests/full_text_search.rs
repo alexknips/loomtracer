@@ -4,10 +4,10 @@ use std::sync::Barrier;
 use std::thread;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::ledger::SqliteEventLedger;
-use hivemind::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
-use hivemind::queries::{search_decisions_fts_with_context, QueryContext, SearchDecisionRequest};
+use loomtracer::cli::{run, Cli};
+use loomtracer::ledger::SqliteEventLedger;
+use loomtracer::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
+use loomtracer::queries::{search_decisions_fts_with_context, QueryContext, SearchDecisionRequest};
 use rusqlite::Connection;
 
 #[allow(dead_code)]
@@ -76,7 +76,7 @@ fn concurrent_tenant_searches_each_see_only_their_own_decisions() -> TestResult<
     let ledger = SqliteEventLedger::open(&dir)?;
     let mut tenants = Vec::new();
     for name in ["alpha-corp", "beta-startup", "gamma-labs"] {
-        ledger.create_tenant(&hivemind::events::TenantId::new(name)?)?;
+        ledger.create_tenant(&loomtracer::events::TenantId::new(name)?)?;
         tenants.push(seed_tenant(&ledger, name)?);
     }
     drop(ledger);
@@ -154,8 +154,8 @@ fn search_own_decisions(
 
 fn run_seed_search(seed_dir: &Path) -> TestResult<serde_json::Value> {
     let output = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         seed_dir.to_str().ok_or("seed path must be utf-8")?,
         "query",
         "search",

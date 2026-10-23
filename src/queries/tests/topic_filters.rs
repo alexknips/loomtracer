@@ -229,7 +229,7 @@ fn get_relevant_decisions_refuses_a_topic_with_no_letter_or_digit() {
         assert!(
             matches!(
                 error,
-                crate::HivemindError::Command(crate::error::CommandError::Validation(_))
+                crate::LoomtracerError::Command(crate::error::CommandError::Validation(_))
             ),
             "{blank:?}: {error:?}"
         );

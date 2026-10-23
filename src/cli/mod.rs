@@ -18,7 +18,7 @@ use {
     crate::ledger::{EventLedger, SqliteEventLedger},
     crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant},
     crate::queries::{derive_decision_status, DecisionStatus},
-    crate::HivemindError,
+    crate::LoomtracerError,
     chrono::Utc,
     clap::Parser,
     project_context::ProjectContextEnv,

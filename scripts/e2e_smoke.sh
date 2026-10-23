@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for HiveMind — drives a real running HTTP server.
+# End-to-end smoke test for Loomtracer — drives a real running HTTP server.
 #
 # Usage:
 #   ./scripts/e2e_smoke.sh [--base-url URL] [--api-key KEY] [--tenant TENANT]
 #
 # Environment overrides (lowest precedence; flags win):
-#   HIVEMIND_E2E_BASE_URL   — default: http://localhost:8080
-#   HIVEMIND_E2E_API_KEY    — default: (empty — dev/no-auth mode)
-#   HIVEMIND_E2E_TENANT     — default: e2e-test
-#   HIVEMIND_BIN            — path to hivemind binary (for CLI + MCP legs)
+#   LOOMTRACER_E2E_BASE_URL   — default: http://localhost:8080
+#   LOOMTRACER_E2E_API_KEY    — default: (empty — dev/no-auth mode)
+#   LOOMTRACER_E2E_TENANT     — default: e2e-test
+#   LOOMTRACER_BIN            — path to loomtracer binary (for CLI + MCP legs)
 #   FIDELITY_BIN            — path to fidelity-eval binary (for ceiling-mode smoke)
 #   FIDELITY_CORPUS         — path to fidelity corpus YAML (default: benchmarks/fidelity/corpus.yaml)
 #   FIDELITY_CORPUS_SMOKE   — path to mini smoke corpus (default: benchmarks/fidelity/corpus-smoke.yaml)
@@ -22,12 +22,12 @@
 #
 # Exit codes: 0 = all checks passed; 1 = at least one check failed.
 #
-# Minimal runtime deps: curl, jq.  hivemind binary for CLI/MCP legs.
+# Minimal runtime deps: curl, jq.  loomtracer binary for CLI/MCP legs.
 # The script does NOT start or stop the server — call it after compose is up.
 #
 # The "Fluent CLI leg (in-container, both backends)" section below shells out to
-# `docker compose exec hivemind hivemind ...` to run the CLI against whichever
-# backend the running compose stack is wired to (HIVEMIND_DIR/HIVEMIND_DATABASE_URL
+# `docker compose exec hivemind loomtracer ...` to run the CLI against whichever
+# backend the running compose stack is wired to (LOOMTRACER_DIR/LOOMTRACER_DATABASE_URL
 # already set in the container's own environment — this script never branches on
 # backend). It SKIPs cleanly when no `docker compose`-managed `hivemind` service is
 # running (e.g. a bare `cargo run` local server) — see hivemind-ot72.13a.
@@ -35,14 +35,14 @@
 set -euo pipefail
 
 # ── defaults ──────────────────────────────────────────────────────────────────
-BASE_URL="${HIVEMIND_E2E_BASE_URL:-http://localhost:8080}"
-API_KEY="${HIVEMIND_E2E_API_KEY:-}"
-API_KEY_B="${HIVEMIND_E2E_API_KEY_B:-}"  # separate token for tenant-B in auth mode
-TENANT="${HIVEMIND_E2E_TENANT:-e2e-test}"
+BASE_URL="${LOOMTRACER_E2E_BASE_URL:-http://localhost:8080}"
+API_KEY="${LOOMTRACER_E2E_API_KEY:-}"
+API_KEY_B="${LOOMTRACER_E2E_API_KEY_B:-}"  # separate token for tenant-B in auth mode
+TENANT="${LOOMTRACER_E2E_TENANT:-e2e-test}"
 TENANT_B="e2e-test-other"  # fixed second tenant for multi-tenant isolation
-HIVEMIND_BIN="${HIVEMIND_BIN:-hivemind}"
-SKIP_MAP="${HIVEMIND_E2E_SKIP_MAP:-false}"     # flag kept for local convenience; map works on all backends since 270r
-SKIP_SEARCH="${HIVEMIND_E2E_SKIP_SEARCH:-false}"  # set true for Postgres (FTS not in shared-backend)
+LOOMTRACER_BIN="${LOOMTRACER_BIN:-loomtracer}"
+SKIP_MAP="${LOOMTRACER_E2E_SKIP_MAP:-false}"     # flag kept for local convenience; map works on all backends since 270r
+SKIP_SEARCH="${LOOMTRACER_E2E_SKIP_SEARCH:-false}"  # set true for Postgres (FTS not in shared-backend)
 FIDELITY_BIN="${FIDELITY_BIN:-fidelity-eval}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -85,8 +85,8 @@ curl_api() {
   local auth_args=()
   [[ -n "$API_KEY" ]] && auth_args+=(-H "Authorization: Bearer $API_KEY")
   curl -s \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: agent:e2e:smoke" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: agent:e2e:smoke" \
     "${auth_args[@]}" \
     -X "$method" \
     "${extra[@]}" \
@@ -101,8 +101,8 @@ curl_json() {
   [[ -n "$API_KEY" ]] && auth_args+=(-H "Authorization: Bearer $API_KEY")
   curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: agent:e2e:smoke" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: agent:e2e:smoke" \
     "${auth_args[@]}" \
     -X "$method" \
     -d "$body" \
@@ -110,7 +110,7 @@ curl_json() {
 }
 
 # ── tenant provisioning (dev/no-auth SQLite backend only) ──────────────────────
-# Unknown --tenant / X-HiveMind-Tenant now hard-errors at the ledger-open seam
+# Unknown --tenant / X-Loomtracer-Tenant now hard-errors at the ledger-open seam
 # (hivemind-rkbf) instead of silently opening a fresh scope. The Postgres CI
 # job provisions tenant A + B itself via the admin-gated POST /v1/tenants
 # route before this script runs (see ci.yml) — that route only exists with
@@ -123,7 +123,7 @@ curl_json() {
 if [[ -z "$API_KEY" ]] && command -v docker > /dev/null 2>&1 \
    && docker compose ps --status running --services 2>/dev/null | grep -qx hivemind; then
   for t in "$TENANT" "$TENANT_B"; do
-    if ! out=$(docker compose exec -T hivemind hivemind tenant create "$t" 2>&1); then
+    if ! out=$(docker compose exec -T hivemind loomtracer tenant create "$t" 2>&1); then
       echo "WARNING: failed to provision SQLite tenant '$t': $out" >&2
     fi
   done
@@ -201,22 +201,22 @@ section "Capture — CLI"
 CLI_DATA_DIR=$(mktemp -d)
 trap 'rm -rf "$CLI_DATA_DIR" "${EDGE_DIR:-}" "${CONTEXT_DIR:-}"' EXIT
 
-if command -v "$HIVEMIND_BIN" > /dev/null 2>&1; then
+if command -v "$LOOMTRACER_BIN" > /dev/null 2>&1; then
   # --project-from-context (what the capture plugins pass) works the project out from the
-  # working directory: the nearest .hivemind-project walking up. The captures below run from
+  # working directory: the nearest .loomtracer-project walking up. The captures below run from
   # folders under the throwaway ledger dir, so this repository's own marker (a project this
   # ledger has never registered) can never decide them; the binary path is made absolute
   # because CI hands us a relative one.
-  CLI_BIN=$(command -v "$HIVEMIND_BIN")
+  CLI_BIN=$(command -v "$LOOMTRACER_BIN")
   case "$CLI_BIN" in /*) ;; *) CLI_BIN="$PWD/$CLI_BIN" ;; esac
   CLI_BARE_DIR="$CLI_DATA_DIR/bare"
   mkdir -p "$CLI_BARE_DIR"
 
-  # Fresh --hivemind-dir only seeds the "local" default tenant; register
+  # Fresh --loomtracer-dir only seeds the "local" default tenant; register
   # ours before the emit below hits the unknown-tenant hard error.
-  "$CLI_BIN" --hivemind-dir "$CLI_DATA_DIR" tenant create "$TENANT" > /dev/null
+  "$CLI_BIN" --loomtracer-dir "$CLI_DATA_DIR" tenant create "$TENANT" > /dev/null
   cli_out=$(cd "$CLI_BARE_DIR" && "$CLI_BIN" \
-    --hivemind-dir "$CLI_DATA_DIR" \
+    --loomtracer-dir "$CLI_DATA_DIR" \
     --actor "agent:e2e:smoke-cli" \
     --tenant "$TENANT" \
     --json \
@@ -246,15 +246,15 @@ if command -v "$HIVEMIND_BIN" > /dev/null 2>&1; then
   fi
 
   # A folder attached to a registered project files the capture there: no fallback, no reminder.
-  "$CLI_BIN" --hivemind-dir "$CLI_DATA_DIR" --actor "agent:e2e:smoke-cli" --tenant "$TENANT" \
+  "$CLI_BIN" --loomtracer-dir "$CLI_DATA_DIR" --actor "agent:e2e:smoke-cli" --tenant "$TENANT" \
     project register e2e-smoke-project > /dev/null 2>&1 || true
   # A registered project's topic keys are declared (hivemind-zywz); the capture below uses these.
-  "$CLI_BIN" --hivemind-dir "$CLI_DATA_DIR" --actor "agent:e2e:smoke-cli" --tenant "$TENANT" \
+  "$CLI_BIN" --loomtracer-dir "$CLI_DATA_DIR" --actor "agent:e2e:smoke-cli" --tenant "$TENANT" \
     project declare-topic e2e-smoke-project e2e tooling > /dev/null 2>&1 || true
   mkdir -p "$CLI_DATA_DIR/attached/src"
-  printf 'e2e-smoke-project\n' > "$CLI_DATA_DIR/attached/.hivemind-project"
+  printf 'e2e-smoke-project\n' > "$CLI_DATA_DIR/attached/.loomtracer-project"
   cli_marker_out=$(cd "$CLI_DATA_DIR/attached/src" && "$CLI_BIN" \
-    --hivemind-dir "$CLI_DATA_DIR" \
+    --loomtracer-dir "$CLI_DATA_DIR" \
     --actor "agent:e2e:smoke-cli" \
     --tenant "$TENANT" \
     --json \
@@ -271,7 +271,7 @@ if command -v "$HIVEMIND_BIN" > /dev/null 2>&1; then
     fail "CLI (local ledger): capture from a marked folder did not land in its project — output: $cli_marker_out"
   fi
 else
-  skip "CLI leg — hivemind binary not on PATH (set HIVEMIND_BIN)"
+  skip "CLI leg — loomtracer binary not on PATH (set LOOMTRACER_BIN)"
 fi
 
 # ── capture via MCP HTTP ──────────────────────────────────────────────────────
@@ -285,8 +285,8 @@ mcp_auth_args=()
 mcp_init_headers=$(mktemp)
 curl -s \
   -H "Content-Type: application/json" \
-  -H "X-HiveMind-Tenant: $TENANT" \
-  -H "X-HiveMind-Actor: $MCP_ACTOR" \
+  -H "X-Loomtracer-Tenant: $TENANT" \
+  -H "X-Loomtracer-Actor: $MCP_ACTOR" \
   "${mcp_auth_args[@]}" \
   -X POST \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
@@ -301,8 +301,8 @@ mcp_session_args=()
 # tools/call capture_decision against the live server
 mcp_capture=$(curl -s \
   -H "Content-Type: application/json" \
-  -H "X-HiveMind-Tenant: $TENANT" \
-  -H "X-HiveMind-Actor: $MCP_ACTOR" \
+  -H "X-Loomtracer-Tenant: $TENANT" \
+  -H "X-Loomtracer-Actor: $MCP_ACTOR" \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
@@ -336,8 +336,8 @@ section "Fluent disagree — MCP HTTP"
 
 mcp_capture_fluent_a=$(curl -s \
   -H "Content-Type: application/json" \
-  -H "X-HiveMind-Tenant: $TENANT" \
-  -H "X-HiveMind-Actor: $MCP_ACTOR" \
+  -H "X-Loomtracer-Tenant: $TENANT" \
+  -H "X-Loomtracer-Actor: $MCP_ACTOR" \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
@@ -345,8 +345,8 @@ mcp_capture_fluent_a=$(curl -s \
   "$BASE_URL/mcp")
 mcp_capture_fluent_b=$(curl -s \
   -H "Content-Type: application/json" \
-  -H "X-HiveMind-Tenant: $TENANT" \
-  -H "X-HiveMind-Actor: $MCP_ACTOR" \
+  -H "X-Loomtracer-Tenant: $TENANT" \
+  -H "X-Loomtracer-Actor: $MCP_ACTOR" \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
@@ -376,8 +376,8 @@ if [[ -n "$MCP_FLUENT_DECISION_A" && -n "$MCP_FLUENT_DECISION_B" ]]; then
 
   mcp_disagree_ambiguous=$(curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: $MCP_ACTOR" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: $MCP_ACTOR" \
     "${mcp_auth_args[@]}" \
     "${mcp_session_args[@]}" \
     -X POST \
@@ -400,8 +400,8 @@ if [[ -n "$MCP_FLUENT_DECISION_A" && -n "$MCP_FLUENT_DECISION_B" ]]; then
 
   mcp_disagree_resolved=$(curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: $MCP_ACTOR" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: $MCP_ACTOR" \
     "${mcp_auth_args[@]}" \
     "${mcp_session_args[@]}" \
     -X POST \
@@ -434,8 +434,8 @@ if [[ -n "$MCP_FLUENT_DECISION_A" && -n "$MCP_FLUENT_DECISION_B" ]]; then
   # instead of retracing the ambiguous path already covered above.
   mcp_neighborhood=$(curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: $MCP_ACTOR" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: $MCP_ACTOR" \
     "${mcp_auth_args[@]}" \
     "${mcp_session_args[@]}" \
     -X POST \
@@ -564,7 +564,7 @@ fi
 
 # ── fluent CLI leg — inside the container (BOTH backends) ────────────────────
 # Runs the CLI's fluent verbs via `docker compose exec` against the server's OWN
-# backend (SQLite or Postgres, whichever HIVEMIND_DATABASE_URL selects inside the
+# backend (SQLite or Postgres, whichever LOOMTRACER_DATABASE_URL selects inside the
 # running container — hivemind-ot72.2) instead of a throwaway local ledger. One
 # script body, no backend branching: the container's own environment already
 # picked the backend before this script ever runs.
@@ -588,12 +588,12 @@ CLI_IC_REVIEWER="agent:e2e:smoke-cli-incontainer-reviewer"
 CLI_IC_TOPIC="smokeclifluent"
 
 hm_ic() {
-  docker compose exec -T hivemind hivemind \
+  docker compose exec -T hivemind loomtracer \
     --tenant "$CLI_IC_TENANT" --actor "$CLI_IC_ACTOR" --json "$@" 2>&1
 }
 
 hm_ic_reviewer() {
-  docker compose exec -T hivemind hivemind \
+  docker compose exec -T hivemind loomtracer \
     --tenant "$CLI_IC_TENANT" --actor "$CLI_IC_REVIEWER" --json "$@" 2>&1
 }
 
@@ -623,7 +623,7 @@ if ! command -v docker > /dev/null 2>&1 \
   skip "CLI (in-container): query verify (post-supersede) — no running 'hivemind' compose service"
 else
   # --project-from-context is what the capture plugins pass. The container's working directory
-  # has no .hivemind-project above it and no rig, so this lands in the actor's personal project
+  # has no .loomtracer-project above it and no rig, so this lands in the actor's personal project
   # on whichever backend the stack runs -- and the reply must say so.
   ic_d1=$(hm_ic emit decision.proposed \
     --project-from-context \
@@ -818,8 +818,8 @@ curl_json_tenant_b() {
   [[ -n "$key_b" ]] && auth_args+=(-H "Authorization: Bearer $key_b")
   curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT_B" \
-    -H "X-HiveMind-Actor: agent:e2e:smoke-b" \
+    -H "X-Loomtracer-Tenant: $TENANT_B" \
+    -H "X-Loomtracer-Actor: agent:e2e:smoke-b" \
     "${auth_args[@]}" \
     -X "$method" \
     -d "$body" \
@@ -848,8 +848,8 @@ section "Quality scan — MCP HTTP"
 # Uses the same HTTP MCP endpoint; scans decisions already captured on the live server.
 qs_resp=$(curl -s \
   -H "Content-Type: application/json" \
-  -H "X-HiveMind-Tenant: $TENANT" \
-  -H "X-HiveMind-Actor: agent:e2e:smoke" \
+  -H "X-Loomtracer-Tenant: $TENANT" \
+  -H "X-Loomtracer-Actor: agent:e2e:smoke" \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
@@ -863,8 +863,8 @@ fi
 
 gs_resp=$(curl -s \
   -H "Content-Type: application/json" \
-  -H "X-HiveMind-Tenant: $TENANT" \
-  -H "X-HiveMind-Actor: agent:e2e:smoke" \
+  -H "X-Loomtracer-Tenant: $TENANT" \
+  -H "X-Loomtracer-Actor: agent:e2e:smoke" \
   "${mcp_auth_args[@]}" \
   "${mcp_session_args[@]}" \
   -X POST \
@@ -882,8 +882,8 @@ section "Quality score + summarize"
 if [[ -n "$DECISION_ID" ]]; then
   score_resp=$(curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: agent:e2e:smoke" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: agent:e2e:smoke" \
     "${mcp_auth_args[@]}" \
     "${mcp_session_args[@]}" \
     -X POST \
@@ -904,8 +904,8 @@ if [[ -n "$DECISION_ID" ]]; then
 
   sum_resp=$(curl -s \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: agent:e2e:smoke" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: agent:e2e:smoke" \
     "${mcp_auth_args[@]}" \
     "${mcp_session_args[@]}" \
     -X POST \
@@ -946,11 +946,11 @@ fi
 # ── LLM-gated (subscription/edge path) ───────────────────────────────────────
 # RE-SCOPED 2026-09-07 (hivemind-fabq.3, subscription-first — no ANTHROPIC_API_KEY).
 # These legs exercise the path a real coding agent actually uses: decision
-# extraction happens IN-SESSION, at the edge, via the hivemind-capture plugin's
+# extraction happens IN-SESSION, at the edge, via the loomtracer-capture plugin's
 # "Batch Capture via Haiku Subagent (Keyless)" workflow (see
-# plugins/hivemind-capture/skills/hivemind-capture/SKILL.md), riding the
+# plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md), riding the
 # operator's own Claude subscription through a headless `claude -p` session —
-# never a HiveMind-held ANTHROPIC_API_KEY (hivemind-mfc7). This is a DIFFERENT
+# never a Loomtracer-held ANTHROPIC_API_KEY (hivemind-mfc7). This is a DIFFERENT
 # mechanism from the server-side classifier/scorer background workers
 # (src/classifier.rs, src/scorer.rs), which stay dark and unexercised here.
 #
@@ -987,15 +987,15 @@ else
   # capture workflow, run through a REAL headless claude -p session under the
   # operator's subscription. The classifier prompt is extracted verbatim from
   # SKILL.md (single source of truth) rather than duplicated here.
-  EDGE_PLUGIN_DIR="$REPO_ROOT/plugins/hivemind-capture"
-  EDGE_SKILL_FILE="$EDGE_PLUGIN_DIR/skills/hivemind-capture/SKILL.md"
+  EDGE_PLUGIN_DIR="$REPO_ROOT/plugins/loomtracer-capture"
+  EDGE_SKILL_FILE="$EDGE_PLUGIN_DIR/skills/loomtracer-capture/SKILL.md"
   EDGE_DIR=$(mktemp -d)
   EDGE_SESSION="e2e-fabq3-edge-classifier"
   EDGE_ACTOR="agent:claude:$EDGE_SESSION"
   EDGE_CAPTURES_FILE="$EDGE_DIR/captures.json"
 
   EDGE_PROMPT_TEMPLATE=$(awk '
-    /You are the HiveMind capture classifier\.$/ { capture=1 }
+    /You are the Loomtracer capture classifier\.$/ { capture=1 }
     capture { print }
     /Return only the JSON array, no other text\.$/ { exit }
   ' "$EDGE_SKILL_FILE" | sed 's/^   //')
@@ -1047,7 +1047,7 @@ $EDGE_TRANSCRIPT"
         fail "LLM classifier enrichment (edge) — claude -p did not return a JSON array: $edge_json"
       else
         echo "$edge_json" > "$EDGE_CAPTURES_FILE"
-        edge_emit=$("$HIVEMIND_BIN" --hivemind-dir "$EDGE_DIR" --actor "$EDGE_ACTOR" --json \
+        edge_emit=$("$LOOMTRACER_BIN" --loomtracer-dir "$EDGE_DIR" --actor "$EDGE_ACTOR" --json \
           emit ingest.batch_classified \
           --captures "$EDGE_CAPTURES_FILE" \
           --agent-tool claude \
@@ -1057,7 +1057,7 @@ $EDGE_TRANSCRIPT"
           EDGE_BATCH_ID=$(echo "$edge_emit" | jq -r '.value')
           pass "LLM classifier enrichment (edge): claude -p classified the transcript, batch $EDGE_BATCH_ID submitted via ingest.batch_classified"
 
-          edge_activity=$("$HIVEMIND_BIN" --hivemind-dir "$EDGE_DIR" --json query get_recent_activity --actor-id "$EDGE_ACTOR" --limit 10)
+          edge_activity=$("$LOOMTRACER_BIN" --loomtracer-dir "$EDGE_DIR" --json query get_recent_activity --actor-id "$EDGE_ACTOR" --limit 10)
           if echo "$edge_activity" | jq -e '.data.items[] | select(.event_type == "ingest.batch_classified")' > /dev/null 2>&1; then
             pass "LLM classifier enrichment (edge): ingest.batch_classified event lands in the ledger (schema parity with src/classifier.rs)"
           else
@@ -1083,7 +1083,7 @@ $EDGE_TRANSCRIPT"
       fail "LLM quality-score enrichment (edge) — no decision-kind capture in LEG 1's batch to score"
     else
       EDGE_SCORE_PROMPT_TEMPLATE=$(awk '
-        /You are the HiveMind decision quality assessor\.$/ { capture=1 }
+        /You are the Loomtracer decision quality assessor\.$/ { capture=1 }
         /^   ---DECISION---$/ { exit }
         capture { print }
       ' "$EDGE_SKILL_FILE" | sed 's/^   //')
@@ -1146,7 +1146,7 @@ $EDGE_DECISION_TEXT"
 
           EDGE_SCORES_FILE="$EDGE_DIR/scores.json"
           echo "$edge_score_json" > "$EDGE_SCORES_FILE"
-          edge_score_emit=$("$HIVEMIND_BIN" --hivemind-dir "$EDGE_DIR" --actor "$EDGE_ACTOR" --json \
+          edge_score_emit=$("$LOOMTRACER_BIN" --loomtracer-dir "$EDGE_DIR" --actor "$EDGE_ACTOR" --json \
             emit decision.scored \
             --batch-id "$EDGE_BATCH_ID" \
             --capture-index "$EDGE_DECISION_IDX" \
@@ -1173,7 +1173,7 @@ $EDGE_DECISION_TEXT"
             edge_score_event_id=$(echo "$edge_score_emit" | jq -r '.value')
             pass "LLM quality-score enrichment (edge): claude -p scored the decision, event $edge_score_event_id submitted via decision.scored"
 
-            edge_score_activity=$("$HIVEMIND_BIN" --hivemind-dir "$EDGE_DIR" --json query get_recent_activity --actor-id "$EDGE_ACTOR" --limit 10)
+            edge_score_activity=$("$LOOMTRACER_BIN" --loomtracer-dir "$EDGE_DIR" --json query get_recent_activity --actor-id "$EDGE_ACTOR" --limit 10)
             if echo "$edge_score_activity" | jq -e '.data.items[] | select(.event_type == "decision.scored")' > /dev/null 2>&1; then
               pass "LLM quality-score enrichment (edge): decision.scored event lands in the ledger (schema parity with src/scorer.rs)"
             else
@@ -1224,48 +1224,48 @@ $EDGE_DECISION_TEXT"
     fi
   fi
 
-  # LEG 4: hivemind-context plugin slash-command smoke (hivemind-tenv.3
+  # LEG 4: loomtracer-context plugin slash-command smoke (hivemind-tenv.3
   # reopen). Drives the plugin through a REAL `claude -p` session issuing the
   # actual slash command with an UNQUOTED multi-word free-text description —
   # the natural, unprompted phrasing an agent reaches for first, and the
   # exact shape that broke before this leg existed. Calling
-  # plugins/hivemind-context/scripts/recall.sh directly cannot catch this
+  # plugins/loomtracer-context/scripts/recall.sh directly cannot catch this
   # class of bug: the defect was in how Claude Code's $ARGUMENTS
   # command-template substitution fed the script, not in the script's own
   # argument handling in isolation — that gap is why the original landing
   # (PR #33) shipped it and only a real plugin invocation during tenv.5's
   # fan-in re-verification found it.
-  if ! command -v "$HIVEMIND_BIN" > /dev/null 2>&1; then
-    skip "hivemind-context plugin slash-command smoke — hivemind binary not found (HIVEMIND_BIN=$HIVEMIND_BIN)"
+  if ! command -v "$LOOMTRACER_BIN" > /dev/null 2>&1; then
+    skip "loomtracer-context plugin slash-command smoke — loomtracer binary not found (LOOMTRACER_BIN=$LOOMTRACER_BIN)"
   else
-    CONTEXT_PLUGIN_DIR="$REPO_ROOT/plugins/hivemind-context"
+    CONTEXT_PLUGIN_DIR="$REPO_ROOT/plugins/loomtracer-context"
     CONTEXT_DIR=$(mktemp -d)
     CONTEXT_TITLE="Plugin smoke test fixture decision"
 
     context_seed_rc=0
-    "$HIVEMIND_BIN" --hivemind-dir "$CONTEXT_DIR" --actor "agent:e2e:smoke-context" --json \
+    "$LOOMTRACER_BIN" --loomtracer-dir "$CONTEXT_DIR" --actor "agent:e2e:smoke-context" --json \
       emit decision.proposed \
       --title "$CONTEXT_TITLE" \
-      --rationale "Seeded by scripts/e2e_smoke.sh LEG 4 so a real /hivemind-context:recall slash-command invocation has something to match." \
+      --rationale "Seeded by scripts/e2e_smoke.sh LEG 4 so a real /loomtracer-context:recall slash-command invocation has something to match." \
       --options fixture \
       --chose fixture \
       --topic-keys plugin-smoke-fixture \
       > /dev/null 2>&1 || context_seed_rc=$?
 
     if [[ "$context_seed_rc" -ne 0 ]]; then
-      fail "hivemind-context plugin slash-command smoke — could not seed the fixture decision (exit $context_seed_rc)"
+      fail "loomtracer-context plugin slash-command smoke — could not seed the fixture decision (exit $context_seed_rc)"
     else
       # Bash-tool subprocesses spawned by claude -p do not inherit an
-      # arbitrary HIVEMIND_DIR env var reliably (verified empirically: it
-      # fell back to the plugin's default ./hivemind/ resolution). Point the
+      # arbitrary LOOMTRACER_DIR env var reliably (verified empirically: it
+      # fell back to the plugin's default ./loomtracer/ resolution). Point the
       # plugin at the fixture ledger the documented way instead — a trailing
-      # --hivemind-dir flag, which the plugin's scripts forward straight to
-      # the CLI (README: "or pass --hivemind-dir to the underlying
+      # --loomtracer-dir flag, which the plugin's scripts forward straight to
+      # the CLI (README: "or pass --loomtracer-dir to the underlying
       # scripts"). This also exercises the fix for the multi-word
       # description + trailing flag case, not just the bare description
-      # case. HIVEMIND_CAPTURE_BIN *does* propagate (verified) and pins the
-      # binary under test rather than whatever `hivemind` is on PATH.
-      context_prompt="/hivemind-context:recall plugin smoke test fixture decision --hivemind-dir $CONTEXT_DIR"
+      # case. LOOMTRACER_CAPTURE_BIN *does* propagate (verified) and pins the
+      # binary under test rather than whatever `loomtracer` is on PATH.
+      context_prompt="/loomtracer-context:recall plugin smoke test fixture decision --loomtracer-dir $CONTEXT_DIR"
       context_rc=0
       # stream-json + --verbose, not the single-result "json" format: a
       # Haiku session that hits the bug on its first Bash call reliably
@@ -1273,7 +1273,7 @@ $EDGE_DECISION_TEXT"
       # (observed directly while building this leg), so the FINAL result
       # text looks clean even when the regression fired. Only the raw
       # tool_result stream shows the first attempt honestly.
-      context_result=$(env -u ANTHROPIC_API_KEY HIVEMIND_CAPTURE_BIN="$HIVEMIND_BIN" \
+      context_result=$(env -u ANTHROPIC_API_KEY LOOMTRACER_CAPTURE_BIN="$LOOMTRACER_BIN" \
         "$CLAUDE_BIN" -p "$context_prompt" \
         --model claude-haiku-4-5-20251001 \
         --plugin-dir "$CONTEXT_PLUGIN_DIR" \
@@ -1284,17 +1284,17 @@ $EDGE_DECISION_TEXT"
         --max-budget-usd 1.00 < /dev/null 2>&1) || context_rc=$?
 
       if [[ "$context_rc" -ne 0 ]]; then
-        fail "hivemind-context plugin slash-command smoke — claude -p exited $context_rc: $context_result"
+        fail "loomtracer-context plugin slash-command smoke — claude -p exited $context_rc: $context_result"
       else
         context_tool_results=$(echo "$context_result" | jq -c 'select(.type=="user") | .message.content[]? | select(.type=="tool_result")' 2>/dev/null)
         if [[ -z "$context_tool_results" ]]; then
-          fail "hivemind-context plugin slash-command smoke — no Bash tool_result observed in the transcript: $context_result"
+          fail "loomtracer-context plugin slash-command smoke — no Bash tool_result observed in the transcript: $context_result"
         elif echo "$context_tool_results" | grep -qi "unexpected argument"; then
-          fail "hivemind-context plugin slash-command smoke — a Bash tool_result shows the CLI rejected the unquoted multi-word description (the exact hivemind-tenv.3 reopen regression), even if a later retry in the same session masked it: $context_tool_results"
+          fail "loomtracer-context plugin slash-command smoke — a Bash tool_result shows the CLI rejected the unquoted multi-word description (the exact hivemind-tenv.3 reopen regression), even if a later retry in the same session masked it: $context_tool_results"
         elif echo "$context_tool_results" | grep -qF "$CONTEXT_TITLE"; then
-          pass "hivemind-context plugin slash-command smoke: unquoted multi-word /hivemind-context:recall round-tripped through claude -p and matched the seeded fixture decision, on the first attempt"
+          pass "loomtracer-context plugin slash-command smoke: unquoted multi-word /loomtracer-context:recall round-tripped through claude -p and matched the seeded fixture decision, on the first attempt"
         else
-          fail "hivemind-context plugin slash-command smoke — ran without the arg-parsing regression but never surfaced the seeded fixture decision: $context_tool_results"
+          fail "loomtracer-context plugin slash-command smoke — ran without the arg-parsing regression but never surfaced the seeded fixture decision: $context_tool_results"
         fi
       fi
     fi
@@ -1308,8 +1308,8 @@ if [[ -n "$API_KEY" ]]; then
   unauth_status=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "$BASE_URL/v1/decisions" \
     -H "Content-Type: application/json" \
-    -H "X-HiveMind-Tenant: $TENANT" \
-    -H "X-HiveMind-Actor: agent:e2e:smoke" \
+    -H "X-Loomtracer-Tenant: $TENANT" \
+    -H "X-Loomtracer-Actor: agent:e2e:smoke" \
     -d '{"title":"401-regression","rationale":"test","topic_keys":[],"options":[{"label":"x"}]}')
   if [[ "$unauth_status" == "401" ]]; then
     pass "POST /v1/decisions without bearer → 401 (server enforces auth)"

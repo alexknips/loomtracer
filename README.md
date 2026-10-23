@@ -1,9 +1,9 @@
-# HiveMind
+# Loomtracer
 
-[![CI](https://github.com/alexknips/hivemind/actions/workflows/ci.yml/badge.svg)](https://github.com/alexknips/hivemind/actions/workflows/ci.yml)
-[![Kuzu nightly](https://github.com/alexknips/hivemind/actions/workflows/kuzu-nightly.yml/badge.svg?branch=master)](https://github.com/alexknips/hivemind/actions/workflows/kuzu-nightly.yml)
+[![CI](https://github.com/alexknips/loomtracer/actions/workflows/ci.yml/badge.svg)](https://github.com/alexknips/loomtracer/actions/workflows/ci.yml)
+[![Kuzu nightly](https://github.com/alexknips/loomtracer/actions/workflows/kuzu-nightly.yml/badge.svg?branch=master)](https://github.com/alexknips/loomtracer/actions/workflows/kuzu-nightly.yml)
 
-HiveMind is memory for decisions. You and your agents record what was decided,
+Loomtracer is memory for decisions. You and your agents record what was decided,
 which options lost and why, and who decided, you or the agent. The next session
 does not reintroduce what you dropped or rewrite what you agreed. When a
 decision is contested or replaced, its status changes; nothing goes quietly
@@ -13,7 +13,7 @@ It is not only for engineering. A decision record holds a title, a rationale,
 the options weighed, the evidence it rests on and who decided; nothing in it is
 specific to code, so it fits a research design, a launch plan or a purchase as
 well as an architecture choice. The examples below are engineering ones because
-a developer's setup is what can run HiveMind today: a local ledger or a
+a developer's setup is what can run Loomtracer today: a local ledger or a
 self-hosted cell, the MCP server, and the Claude Code and Codex plugins.
 
 It is deliberately a decision graph, not a chat archive, notes app, or task
@@ -31,7 +31,7 @@ The fastest first run uses an isolated temporary ledger, captures one decision,
 and immediately queries it back:
 
 ```bash
-hivemind --actor human:alice quickstart
+loomtracer --actor human:alice quickstart
 ```
 
 From a fresh clone before installing the binary:
@@ -44,26 +44,26 @@ Every write carries actor provenance. Use `--actor` to override the actor with
 a stable human id such as `human:alice` or an agent id such as
 `agent:codex:<name>` (a name that stays the same from one session to the next).
 If `--actor` is omitted, the CLI falls back to
-`HIVEMIND_ACTOR`, then `human:<git config user.email>`, then a local user name. When
+`LOOMTRACER_ACTOR`, then `human:<git config user.email>`, then a local user name. When
 the environment shows an agent (an agent tool or session variable, or a Gas City
 identity), the fallback is that agent's `agent:<tool>:<name>` instead of the git
 user, so an agent's `ground`, `retitle`, `disagree` and `supersede` are recorded as
-the agent that ran them; a `HIVEMIND_ACTOR` that already names an agent is kept.
+the agent that ran them; a `LOOMTRACER_ACTOR` that already names an agent is kept.
 
 To capture and query the first real decision in the current directory:
 
 ```bash
-hivemind --actor human:alice --hivemind-dir ./hivemind emit decision.capture \
-  --title "Use HiveMind for architecture decisions" \
+loomtracer --actor human:alice --loomtracer-dir ./loomtracer emit decision.capture \
+  --title "Use Loomtracer for architecture decisions" \
   --rationale "We need a durable record of what was decided, why, and by whom" \
   --topic-keys onboarding,architecture \
-  --options "HiveMind,Notes" \
-  --chose "HiveMind" \
+  --options "Loomtracer,Notes" \
+  --chose "Loomtracer" \
   --rests-on-assumption "Architecture choices are revisited often enough to need a record" \
   --binds "Later architecture decisions are recorded here, not left in chat" \
   --cheap-to-undo
 
-hivemind --hivemind-dir ./hivemind query search_decisions \
+loomtracer --loomtracer-dir ./loomtracer query search_decisions \
   --topic onboarding \
   --limit 5
 ```
@@ -71,7 +71,7 @@ hivemind --hivemind-dir ./hivemind query search_decisions \
 The three answers at the end (what it rests on, what it binds, what undoing it
 costs) are required; [CLI Shape](#cli-shape) says why.
 
-## What HiveMind Does Today
+## What Loomtracer Does Today
 
 - **Write.** A typed event ledger records decision, evidence, hypothesis,
   option, and relation events. The `commands` module validates invariants and
@@ -91,7 +91,7 @@ costs) are required; [CLI Shape](#cli-shape) says why.
   plus the bundled MCP stdio server, let agents capture decisions in-flow
   with auto-populated actor and provenance defaults.
 
-## Decision Quality — Where HiveMind is Heading
+## Decision Quality — Where Loomtracer is Heading
 
 *The quality profile, attention findings and failure-mode attribution below are shipped; the organizational feedback loop is planned.*
 
@@ -100,7 +100,7 @@ they held up — and feeding that signal back so organizations can improve how
 they make decisions.
 
 **Quality profile (shipped).** For any decision, `score_decision` (MCP, and
-`hivemind query score_decision`) returns seven dimensions: framing, alternatives,
+`loomtracer query score_decision`) returns seven dimensions: framing, alternatives,
 information, reasoning, values and tradeoffs, bias exposure and calibration. Each is
 either assessed (a level of none, partial or solid, with the reasons and the ids of the
 records behind it) or *not assessed*, with the reason. The levels come from what the
@@ -136,14 +136,14 @@ and needs no LLM.
 **Organizational self-improvement (planned).**
 The goal is understanding *how* mistakes happen in an organization — by
 condition and pattern, not by assigning blame to individuals. Engineers are
-becoming decision engineers; HiveMind aims to give that discipline measurable
+becoming decision engineers; Loomtracer aims to give that discipline measurable
 metrics and a structured feedback loop. The metrics above ship; the loop that
 carries them back into how an organization decides is planned. External
 consumers — dashboards, automation, factory loops — pull profiles, findings and
 signals via MCP.
 
-The default CLI stores events in SQLite at `./hivemind/ledger.sqlite` or the
-directory passed with `--hivemind-dir`. A write creates the ledger on first use;
+The default CLI stores events in SQLite at `./loomtracer/ledger.sqlite` or the
+directory passed with `--loomtracer-dir`. A write creates the ledger on first use;
 a read (`query`, `digest`, `dump`, `export`, `map`, `reexamine`, `tui`,
 `restatements propose`, `classify-queue list`, `project list`, `show` and
 `decisions`) aimed at a folder
@@ -169,11 +169,11 @@ the ledger; federation is a later step on the shared-backend front —
 
 ## Self-hosting
 
-Run a full HiveMind cell on your own infrastructure — your data stays on your
+Run a full Loomtracer cell on your own infrastructure — your data stays on your
 machine, nothing phones home, no API key required to get started.
 
 ```bash
-git clone https://github.com/alexknips/hivemind && cd hivemind
+git clone https://github.com/alexknips/loomtracer && cd loomtracer
 cp .env.example .env
 sed -i "s/change-me-before-production/$(openssl rand -hex 32)/g" .env
 docker compose up --build -d
@@ -190,49 +190,49 @@ walkthrough that needs no `ANTHROPIC_API_KEY`.
 
 ## Install
 
-HiveMind is self-hosted: you install it and run it yourself, and the ledger
+Loomtracer is self-hosted: you install it and run it yourself, and the ledger
 stays on your own machine or infrastructure.
 
 Install the default CLI directly from Git:
 
 ```bash
-cargo install --git https://github.com/alexknips/hivemind --locked hivemind
+cargo install --git https://github.com/alexknips/loomtracer --locked loomtracer
 ```
 
 Tagged releases publish prebuilt tarballs for Linux (x86_64 and ARM64) and
 macOS (ARM64 / Apple Silicon). On Intel macOS, install from source with the
 `cargo install --git` command above. The installer selects the matching
-asset and verifies its SHA-256 checksum before copying `hivemind` into
+asset and verifies its SHA-256 checksum before copying `loomtracer` into
 `~/.local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alexknips/hivemind/master/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/alexknips/loomtracer/master/scripts/install.sh | sh
 ```
 
-Set `HIVEMIND_VERSION=v0.7.0` to install a specific release tag or
-`HIVEMIND_INSTALL_DIR=/usr/local/bin` to choose another destination.
+Set `LOOMTRACER_VERSION=v0.7.0` to install a specific release tag or
+`LOOMTRACER_INSTALL_DIR=/usr/local/bin` to choose another destination.
 
 Verify the installed binary:
 
 ```bash
-hivemind --version
-hivemind --help
+loomtracer --version
+loomtracer --help
 ```
 
 The release asset names are:
 
 | Platform | Asset |
 | --- | --- |
-| Linux x86_64 | `hivemind-linux-x86_64.tar.gz` |
-| Linux ARM64 | `hivemind-linux-arm64.tar.gz` |
-| macOS ARM64 | `hivemind-macos-arm64.tar.gz` |
+| Linux x86_64 | `loomtracer-linux-x86_64.tar.gz` |
+| Linux ARM64 | `loomtracer-linux-arm64.tar.gz` |
+| macOS ARM64 | `loomtracer-macos-arm64.tar.gz` |
 
 Kuzu support and the terminal UI are optional and not part of the default
 binary:
 
 ```bash
-cargo install --git https://github.com/alexknips/hivemind --locked --features graph-kuzu hivemind
-cargo install --git https://github.com/alexknips/hivemind --locked --features tui hivemind
+cargo install --git https://github.com/alexknips/loomtracer --locked --features graph-kuzu loomtracer
+cargo install --git https://github.com/alexknips/loomtracer --locked --features tui loomtracer
 ```
 
 The crate is prepared for packaging but is not yet published to crates.io;
@@ -246,8 +246,8 @@ cargo build
 cargo test
 ```
 
-To build from this checkout and install `hivemind` onto `$PATH` for local
-dogfooding, run `make install` instead of copying `target/debug/hivemind` by
+To build from this checkout and install `loomtracer` onto `$PATH` for local
+dogfooding, run `make install` instead of copying `target/debug/loomtracer` by
 hand — see [`docs/DOGFOOD.md`](docs/DOGFOOD.md#starting-an-agent).
 
 Kuzu support is optional and may compile bundled native C++ code:
@@ -279,11 +279,11 @@ and verifies topic/status queries expose distinct Slack and agent provenance.
 
 `cargo test --test slack_app -- --nocapture` exercises the real local-first
 Slack app shell: manifest generation, workspace install state, queued thread
-capture, queue drain into the HiveMind ledger, `/hivemind query`, and
-`/hivemind show` responses with source citations.
+capture, queue drain into the Loomtracer ledger, `/loomtracer query`, and
+`/loomtracer show` responses with source citations.
 
 `cargo test --test seed -- --include-ignored` writes a deterministic demo ledger
-under `./hivemind/` unless `HIVEMIND_SEED_DIR` points somewhere else. The replay
+under `./loomtracer/` unless `LOOMTRACER_SEED_DIR` points somewhere else. The replay
 smoke test is warning-only for query drift and exits non-zero only for setup,
 ledger, projection, or query failures.
 
@@ -291,13 +291,13 @@ ledger, projection, or query failures.
 
 Use `--actor` to override the human or agent taking the action. Bare terminal
 writes default to `human:<git config user.email>` with `source=human`. Use
-`--hivemind-dir` to choose the ledger directory.
+`--loomtracer-dir` to choose the ledger directory.
 
 ```bash
-hivemind --actor alice emit evidence.recorded \
+loomtracer --actor alice emit evidence.recorded \
   --content "SQLite WAL is sufficient for current local writes"
 
-hivemind --actor alice emit hypothesis.recorded \
+loomtracer --actor alice emit hypothesis.recorded \
   --statement "Embedded storage keeps onboarding under five minutes"
 ```
 
@@ -306,7 +306,7 @@ by an agent with no `--actor` typed, it records a stable `agent:<tool>:<name>`
 and writes events with `source=agent`; a typed `--actor` is recorded as typed:
 
 ```bash
-hivemind --hivemind-dir ./hivemind/ emit decision.capture \
+loomtracer --loomtracer-dir ./loomtracer/ emit decision.capture \
   --title "Use direct CLI capture for agent decisions" \
   --rationale "The local command is deterministic and does not depend on hooks" \
   --topic-keys agents,capture \
@@ -334,7 +334,7 @@ nothing is written.
 Humans can review recent agent decisions in a guided terminal flow:
 
 ```bash
-hivemind --actor human:lead --hivemind-dir ./hivemind review \
+loomtracer --actor human:lead --loomtracer-dir ./loomtracer review \
   --actor 'agent:*' \
   --since 7d \
   --unreviewed-only
@@ -344,7 +344,7 @@ The review flow reads candidates through the deterministic `query recent`
 path, then records explicit write-layer events: approve appends
 `decision.accepted`, disagree appends `decision.rejected` with the reason, and
 supersede proposes a replacement decision plus `decision.superseded`.
-HiveMind does not create a separate review event. Reviewed/unreviewed state is
+Loomtracer does not create a separate review event. Reviewed/unreviewed state is
 derived from reviewer-authored accept, reject, or supersede events, so replaying
 the ledger reproduces the same reviewed state.
 
@@ -356,80 +356,80 @@ packages teach agents when to preserve a decision and how to call the same
 path; MCP is bundled as a supplemental tool transport.
 
 Claude Code uses the marketplace at `.claude-plugin/marketplace.json` and the
-plugin in `plugins/hivemind-capture`. Install it from Claude Code:
+plugin in `plugins/loomtracer-capture`. Install it from Claude Code:
 
 ```text
-/plugin marketplace add alexknips/hivemind
-/plugin install hivemind-capture@hivemind
+/plugin marketplace add alexknips/loomtracer
+/plugin install loomtracer-capture@loomtracer
 /reload-plugins
 ```
 
 In this repository, `.claude/settings.json` advertises the marketplace and
-enables `hivemind-capture@hivemind` so trusted Claude Code sessions are prompted
+enables `loomtracer-capture@loomtracer` so trusted Claude Code sessions are prompted
 to install it. The plugin provides:
 
-- `/hivemind-capture:capture` — capture a decision, evidence, or hypothesis
-- `/hivemind-capture:capture-decision` — legacy decision-only shorthand
-- `/hivemind-capture:query-decisions` — free-text recall: "what did we decide about X?"
-- `/hivemind-capture:batch-capture` — classify the recent conversation with a
+- `/loomtracer-capture:capture` — capture a decision, evidence, or hypothesis
+- `/loomtracer-capture:capture-decision` — legacy decision-only shorthand
+- `/loomtracer-capture:query-decisions` — free-text recall: "what did we decide about X?"
+- `/loomtracer-capture:batch-capture` — classify the recent conversation with a
   Haiku subagent in your own session and capture the durable decisions in it
   (keyless)
-- `/hivemind-capture:classify-queue` — drain the pending classification queue
+- `/loomtracer-capture:classify-queue` — drain the pending classification queue
   using your subscription seat (**no `ANTHROPIC_API_KEY` required**)
 - Hooks on Claude Code's `AskUserQuestion` tool: the question an agent puts to
   you is recorded as an ask, and your answer as a decision that answers it
-- A `hivemind` MCP server wired to `hivemind mcp`
+- A `loomtracer` MCP server wired to `loomtracer mcp`
 - A session-start directive: every session is told (about 595 characters) to call
   `recall_decisions` before acting and `capture_decision` for a rule learned from a
   failure, a design choice later work must follow, or a reversal, not routine status,
   so an agent nobody briefed still checks and fills the ledger.
-  Turn it off with `HIVEMIND_DIRECTIVE_DISABLE=1`.
+  Turn it off with `LOOMTRACER_DIRECTIVE_DISABLE=1`.
 
-See `plugins/hivemind-capture/README.md` for uninstall and verification steps.
+See `plugins/loomtracer-capture/README.md` for uninstall and verification steps.
 
-A second plugin from the same marketplace, `plugins/hivemind-context`, is the
+A second plugin from the same marketplace, `plugins/loomtracer-context`, is the
 read and contest side: it consults, verifies and pushes back on decisions by
 describing them, never by id, through the local CLI (it ships no MCP server).
 Install it next to the capture plugin:
 
 ```text
-/plugin install hivemind-context@hivemind
+/plugin install loomtracer-context@loomtracer
 ```
 
-- `/hivemind-context:situational` — "what should I know before I touch this?",
+- `/loomtracer-context:situational` — "what should I know before I touch this?",
   from the current diff, paths or branch
-- `/hivemind-context:recall` — "what did we decide about X?"
-- `/hivemind-context:why` and `/hivemind-context:verify` — a decision's
+- `/loomtracer-context:recall` — "what did we decide about X?"
+- `/loomtracer-context:why` and `/loomtracer-context:verify` — a decision's
   rationale and neighborhood, and whether it held up
-- `/hivemind-context:importance` — which decisions carry the most impact, and
+- `/loomtracer-context:importance` — which decisions carry the most impact, and
   who decided them
-- `/hivemind-context:disagree` and `/hivemind-context:supersede` — contest or
+- `/loomtracer-context:disagree` and `/loomtracer-context:supersede` — contest or
   replace a decision
-- `/hivemind-context:ground`, `/hivemind-context:reexamine` and
-  `/hivemind-context:reaffirm` — say what a decision rests on, list the
+- `/loomtracer-context:ground`, `/loomtracer-context:reexamine` and
+  `/loomtracer-context:reaffirm` — say what a decision rests on, list the
   decisions whose premise changed, and say one still holds
 
-See `plugins/hivemind-context/README.md` for the full list and the install
+See `plugins/loomtracer-context/README.md` for the full list and the install
 steps.
 
 **Keyless capture:** `ANTHROPIC_API_KEY` is optional. Without it the server
-runs without a background classifier; run `/hivemind-capture:classify-queue`
+runs without a background classifier; run `/loomtracer-capture:classify-queue`
 after a session to classify pending batches using your agent's subscription
 seat. See [`docs/KEYLESS_CAPTURE.md`](docs/KEYLESS_CAPTURE.md) for the full
 zero-to-first-decision walkthrough.
 
-From a local HiveMind checkout, start Codex in this repository, open `/plugins`,
-choose `HiveMind Plugins`, and install `HiveMind Capture`. From another
+From a local Loomtracer checkout, start Codex in this repository, open `/plugins`,
+choose `Loomtracer Plugins`, and install `Loomtracer Capture`. From another
 checkout or machine, add this repository as a marketplace first:
 
 ```bash
-codex plugin marketplace add https://github.com/alexknips/hivemind.git
+codex plugin marketplace add https://github.com/alexknips/loomtracer.git
 ```
 
 Users who only want the instruction bundle can copy
-`plugins/hivemind-capture/skills/hivemind-capture` into `$HOME/.agents/skills/`
-and invoke `$hivemind-capture` directly. Local capture defaults to
-`./hivemind/`; set `HIVEMIND_DIR` or pass `--hivemind-dir` to point Codex at a
+`plugins/loomtracer-capture/skills/loomtracer-capture` into `$HOME/.agents/skills/`
+and invoke `$loomtracer-capture` directly. Local capture defaults to
+`./loomtracer/`; set `LOOMTRACER_DIR` or pass `--loomtracer-dir` to point Codex at a
 shared ledger.
 
 ### MCP Server
@@ -438,10 +438,10 @@ Any MCP-aware client (Claude Desktop, Claude Code, Cursor, Codex with MCP
 support, etc.) can capture and query decisions through the bundled MCP stdio
 server. The server is a thin transport: capture tools call into the same
 `Commands` API the CLI uses, query tools call into the same `queries` API.
-Smart behavior stays out — see the "What HiveMind Does Today" section above.
+Smart behavior stays out — see the "What Loomtracer Does Today" section above.
 
 ```bash
-hivemind --hivemind-dir ./hivemind/ mcp
+loomtracer --loomtracer-dir ./loomtracer/ mcp
 ```
 
 Once installed, point your MCP client at the same binary. Example config for
@@ -451,10 +451,10 @@ on macOS):
 ```json
 {
   "mcpServers": {
-    "hivemind": {
-      "command": "hivemind",
+    "loomtracer": {
+      "command": "loomtracer",
       "args": ["mcp"],
-      "env": { "HIVEMIND_DIR": "/absolute/path/to/your/hivemind/dir" }
+      "env": { "LOOMTRACER_DIR": "/absolute/path/to/your/loomtracer/dir" }
     }
   }
 }
@@ -502,29 +502,29 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `classify_queue_list` | read | `classify-queue list` (MCP over HTTP only) |
 | `dump_graph` | read | `dump --format dot` |
 | `recall_decisions` | layer-3 | search + ranked digest |
-| `hivemind_compact_view` | layer-3 | compact subgraph projection |
+| `loomtracer_compact_view` | layer-3 | compact subgraph projection |
 | `summarize_decisions` | layer-3 | decision digest |
 
 `actor_id` is optional on every capture tool. Left out, it defaults to
 `agent:<tool>:<name>`, where the tool is `--agent-tool` if given, else taken from
 the environment, else from the MCP client's own name (`claude` for Claude Code,
 `codex` for Codex). The `<name>` stays the same across sessions only when
-something names it, first match wins: `--session-id`, `HIVEMIND_AGENT_SESSION`,
+something names it, first match wins: `--session-id`, `LOOMTRACER_AGENT_SESSION`,
 or a Gas City agent's `GC_AGENT`/`GC_ALIAS`. With none of those it is the
 client's own session id (`CLAUDE_CODE_SESSION_ID` under Claude Code), or a fresh
 `mcp-<uuid>` for each server process when the client passes none, so every
 session records under a new actor and one person's agent shows up as many. To
-keep one actor outside Gas City, start your client with `HIVEMIND_AGENT_SESSION`
+keep one actor outside Gas City, start your client with `LOOMTRACER_AGENT_SESSION`
 set (say `alice-laptop`), or pass `actor_id` on every call. Pass `actor_id` to
 record a different actor. The server records `source=agent` for every write.
 Anonymous writes are still impossible: the underlying `Commands` API requires a
 non-empty actor.
 
-`HIVEMIND_DIR` selects the ledger directory if `--hivemind-dir` is not set.
+`LOOMTRACER_DIR` selects the ledger directory if `--loomtracer-dir` is not set.
 
 Local markdown or text decision notes can be imported without network access.
 All imported decisions land in the ledger as **unreviewed** (proposed, not
-auto-accepted) and flow into `hivemind review --unreviewed-only`.
+auto-accepted) and flow into `loomtracer review --unreviewed-only`.
 
 Auto-detection: files containing explicit `Decision:` blocks use the
 deterministic block parser. Files without them are treated as prose and the
@@ -534,10 +534,10 @@ default; resolve with `--on-conflict keep_existing`, `supersede`, `contest`,
 or `add_context`:
 
 ```bash
-hivemind --actor alice --json import documents --file ./notes/decision.md
-hivemind --actor alice --json import documents --on-conflict supersede ./notes/
+loomtracer --actor alice --json import documents --file ./notes/decision.md
+loomtracer --actor alice --json import documents --on-conflict supersede ./notes/
 # Prose extraction via extractor command:
-hivemind --actor alice import documents --extractor-command hivemind-document-extractor ./notes/memo.txt
+loomtracer --actor alice import documents --extractor-command loomtracer-document-extractor ./notes/memo.txt
 ```
 
 `--extractor-command` and `--llm-response` are alternatives, and `--extractor-arg` needs
@@ -550,9 +550,9 @@ metadata, then the reviewed output can be imported through the same document
 importer:
 
 ```bash
-hivemind --json import prepare-documents ./sources/decision.pdf \
+loomtracer --json import prepare-documents ./sources/decision.pdf \
   --output-dir ./prepared
-hivemind --actor alice --json import documents ./prepared
+loomtracer --actor alice --json import documents ./prepared
 ```
 
 OCR text files such as `scan.ocr.txt` are marked `review_required`, and that
@@ -564,32 +564,32 @@ structured output envelope.
 Query commands return JSON:
 
 ```bash
-hivemind query get_decision --id decision-001
-hivemind query get_relevant_decisions --topic architecture
-hivemind query get_relevant_decisions --topic architecture --status accepted
-hivemind query get_supersession_chain --id decision-001
-hivemind query recent_decisions --since 1h --limit 5
+loomtracer query get_decision --id decision-001
+loomtracer query get_relevant_decisions --topic architecture
+loomtracer query get_relevant_decisions --topic architecture --status accepted
+loomtracer query get_supersession_chain --id decision-001
+loomtracer query recent_decisions --since 1h --limit 5
 ```
 
 With a binary installed using `--features graph-kuzu`, use the persistent local
 Kuzu projection explicitly:
 
 ```bash
-hivemind --graph-backend kuzu query get_relevant_decisions \
+loomtracer --graph-backend kuzu query get_relevant_decisions \
   --topic architecture
 ```
 
 Export the current projected graph as deterministic Graphviz DOT:
 
 ```bash
-hivemind dump --format dot > graph.dot
+loomtracer dump --format dot > graph.dot
 ```
 
 With a binary installed using `--features tui`, run the read-only decision
 search TUI:
 
 ```bash
-hivemind tui --q queue --topic architecture \
+loomtracer tui --q queue --topic architecture \
   --status accepted --dot-output focused-neighborhood.dot
 ```
 
@@ -600,18 +600,18 @@ navigation, and exports the focused one-hop neighborhood as DOT with `x`.
 
 Level-1 guidance (read these first):
 
-- [`VISION.md`](VISION.md) — why HiveMind exists and who it's for.
-- [`PRINCIPLES.md`](PRINCIPLES.md) — the constraints HiveMind cannot trade
+- [`VISION.md`](VISION.md) — why Loomtracer exists and who it's for.
+- [`PRINCIPLES.md`](PRINCIPLES.md) — the constraints Loomtracer cannot trade
   away.
 - [`STRATEGY.md`](STRATEGY.md) — active investment fronts; the filter a bead
   is judged against.
 
 Site and reference docs:
 
-- [alexknips.github.io/hivemind-site](https://alexknips.github.io/hivemind-site/)
+- [alexknips.github.io/loomtracer-site](https://alexknips.github.io/loomtracer-site/)
   — guides, concepts, the CLI and MCP reference, and the live demo. The site
   lives in its own repo,
-  [`alexknips/hivemind-site`](https://github.com/alexknips/hivemind-site).
+  [`alexknips/loomtracer-site`](https://github.com/alexknips/loomtracer-site).
 
 Architecture and surfaces:
 

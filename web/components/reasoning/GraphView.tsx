@@ -12,7 +12,7 @@ const relationColors: Partial<Record<Relation, string>> = {
   supports: '#1D90CD', adopts: '#1D90CD',
   challenges: '#E25432', withdraws: '#E25432',
   compares: '#F3BA1E', revises: '#F3BA1E',
-  // HiveMind's relations: resting on and supporting, refuting, replacing.
+  // Loomtracer's relations: resting on and supporting, refuting, replacing.
   'legacy:supports': '#1D90CD', 'legacy:based_on': '#1D90CD', 'legacy:premised_on': '#1D90CD', 'legacy:premised_on_direct': '#1D90CD',
   'legacy:refutes': '#E25432',
   'legacy:supersedes': '#F3BA1E', 'legacy:follows_from': '#F3BA1E',

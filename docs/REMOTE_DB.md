@@ -10,13 +10,13 @@ to `org_id` below are storage-level tenant keys, not a separate identity model.
 
 ## Recommendation
 
-Build the next shared HiveMind persistence layer as a HiveMind service backed
+Build the next shared Loomtracer persistence layer as a Loomtracer service backed
 by Postgres:
 
 - Postgres is the canonical remote event ledger.
 - Postgres also holds the first shared graph projection in typed node and edge
   tables.
-- All agents, CLIs, integrations, and future UIs call the HiveMind service. They
+- All agents, CLIs, integrations, and future UIs call the Loomtracer service. They
   do not write directly to the database.
 - SQLite and Kuzu remain the local prototype and developer projection path, not
   shared production infrastructure.
@@ -26,7 +26,7 @@ state is a rebuildable projection, and query/read APIs stay deterministic.
 
 ## Canonical Model
 
-HiveMind needs both an event ledger and a graph projection.
+Loomtracer needs both an event ledger and a graph projection.
 
 The event ledger is authoritative because auditability is the product. Every
 write appends one event with `actor_id`, `event_uuid`, `correlation_id`,
@@ -91,8 +91,8 @@ Keep private:
 This boundary matters because non-developers and non-Codex agents need a stable
 product API, not database credentials or a git/file synchronization workflow.
 
-**As shipped, the CLI/`hivemind mcp` "remote mode" is narrower than the bullet
-above:** `HIVEMIND_DATABASE_URL`/`--database-url` (see
+**As shipped, the CLI/`loomtracer mcp` "remote mode" is narrower than the bullet
+above:** `LOOMTRACER_DATABASE_URL`/`--database-url` (see
 [Local To Remote Mapping](#local-to-remote-mapping) below and
 [DEPLOYMENT.md](DEPLOYMENT.md#cli-and-mcp-direct-postgres-mode)) opens a
 direct Postgres connection with the raw connection string, not a call through
@@ -107,9 +107,9 @@ section otherwise describes — that still requires the HTTP/JSON surface.
 
 | Backend | Use now? | Reason |
 | --- | --- | --- |
-| Postgres ledger plus Postgres projection | Yes | Best short-run fit: mature Rust clients, hosted and self-hosted options, ACID transactions, JSONB payloads, indexes, row-level security options, backups, and operational familiarity. Graph traversal is less elegant than Cypher, but HiveMind's shared-backend queries are bounded and status derivation is explicit. |
+| Postgres ledger plus Postgres projection | Yes | Best short-run fit: mature Rust clients, hosted and self-hosted options, ACID transactions, JSONB payloads, indexes, row-level security options, backups, and operational familiarity. Graph traversal is less elegant than Cypher, but Loomtracer's shared-backend queries are bounded and status derivation is explicit. |
 | Neo4j / Aura | Not canonical yet | Strong graph tooling, Cypher, hosted Aura, ACID graph transactions, and visualization. The Rust path is weaker than Postgres: Neo4j's official driver list does not include Rust, so Rust service code uses the HTTP Query API or unofficial Bolt crates. It also introduces a second remote system before the ledger/service contract is proven. Keep as a later `GraphView` projection candidate. |
-| Memgraph | Not canonical yet | Attractive for Cypher-compatible server graph queries and streaming-style graph workloads. It should not own HiveMind writes because ledger audit, org tenancy, command validation, and non-developer auth still need the HiveMind service. Query portability with Neo4j/Kuzu is close but not identical. |
+| Memgraph | Not canonical yet | Attractive for Cypher-compatible server graph queries and streaming-style graph workloads. It should not own Loomtracer writes because ledger audit, org tenancy, command validation, and non-developer auth still need the Loomtracer service. Query portability with Neo4j/Kuzu is close but not identical. |
 | FalkorDB | Not canonical yet | Has a first-party Rust client and simple server deployment, plus openCypher-style querying. It is a reasonable future graph projection experiment, but Redis-module operations, product lock-in, and auth/multi-tenancy shape are worse short-run fits than one Postgres-backed service. |
 | SQLite plus Kuzu | Local only | This is still the fastest developer/prototype path. It is embedded and file-local, which is exactly why it is wrong as the shared remote source of truth for humans and agents. |
 | Direct DB clients from agents | No | This would bypass command invariants, make audit/auth inconsistent, and expose projection internals as public API. |
@@ -123,12 +123,12 @@ Current local storage remains useful:
 - New `PostgresEventLedger` implements the same ledger trait.
 - New `PostgresGraphView` implements the same projection/query trait, using SQL
   over typed node and edge tables.
-- The CLI (and `hivemind mcp`) default to local SQLite mode for quick
-  onboarding. Setting `HIVEMIND_DATABASE_URL` (or `--database-url`) switches
+- The CLI (and `loomtracer mcp`) default to local SQLite mode for quick
+  onboarding. Setting `LOOMTRACER_DATABASE_URL` (or `--database-url`) switches
   a process to a direct Postgres connection instead, scoped to the tenant
-  named by `HIVEMIND_TENANT`/`--tenant`. This is a direct database
+  named by `LOOMTRACER_TENANT`/`--tenant`. This is a direct database
   connection, not a call through the HTTP service — there is no separate
-  `HIVEMIND_URL` client mode; `--actor` provides local provenance the same
+  `LOOMTRACER_URL` client mode; `--actor` provides local provenance the same
   way it does in SQLite mode. See [DEPLOYMENT.md](DEPLOYMENT.md#cli-and-mcp-direct-postgres-mode).
 
 Remote mode must treat the service as authoritative. Local SQLite/Kuzu copies

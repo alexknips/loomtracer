@@ -252,7 +252,7 @@ fn mcp_tools_call_blocking(
         "scan_misfiled_decisions" => mcp_scan_misfiled_decisions(backend, ctx, args, cache),
         "analyze_failure_modes" => mcp_analyze_failure_modes(backend, ctx, args, cache),
         "dump_graph" => mcp_dump_graph(backend, ctx, cache),
-        "hivemind_compact_view" => mcp_compact_view(backend, ctx, args, cache),
+        "loomtracer_compact_view" => mcp_compact_view(backend, ctx, args, cache),
         "summarize_decisions" => mcp_summarize(backend, ctx, args, cache),
         "classify_queue_list" => mcp_classify_queue_list(backend, ctx, args),
         "classify_queue_submit" => mcp_classify_queue_submit(backend, ctx, args),

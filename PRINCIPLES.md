@@ -1,11 +1,11 @@
-# HiveMind Principles
+# Loomtracer Principles
 
-This document names the constraints HiveMind cannot trade away. They are
+This document names the constraints Loomtracer cannot trade away. They are
 load-bearing: every architectural decision, every feature, every refactor must
 respect them. Consult this doc when a proposed change feels clever but
 suspicious — that feeling usually means a principle is at risk.
 
-The vision tells you why HiveMind exists. The principles tell you what HiveMind
+The vision tells you why Loomtracer exists. The principles tell you what Loomtracer
 will and will not become along the way.
 
 ---
@@ -14,7 +14,7 @@ will and will not become along the way.
 
 Events are appended. State is derived. No smart behavior — no search, ranking,
 summarization, model call, similarity, or recommendation — ever touches the
-write path. The ledger is the part of HiveMind that has to stay trustworthy at
+write path. The ledger is the part of Loomtracer that has to stay trustworthy at
 all costs, and trustworthiness comes from refusing to put anything
 probabilistic between the actor and the record.
 
@@ -23,10 +23,10 @@ projection, the feature is the wrong shape, not the architecture.
 
 ## 2. Every state change is auditable
 
-There is always a complete, replayable record of how HiveMind reached its
+There is always a complete, replayable record of how Loomtracer reached its
 current state. Status, derivations, reversals, supersessions — all can be
 reconstructed from the audit record without inference or guesswork. State
-you cannot replay is state you cannot audit, and HiveMind exists to be
+you cannot replay is state you cannot audit, and Loomtracer exists to be
 audited.
 
 This is the load-bearing property. *How* it is realized — event-sourcing
@@ -51,7 +51,7 @@ the agent's decisions are first-class, not second-class.
 
 ## 4. Disagreement is information, not error
 
-When two actors take incompatible positions on a decision, HiveMind records
+When two actors take incompatible positions on a decision, Loomtracer records
 both and surfaces the `contested` status. Disagreement is never resolved by
 overwriting, deduplication, silent merge, or last-write-wins. The conflict is
 the signal.
@@ -83,7 +83,7 @@ layer 3 (agentic). Layer 2 (query) does not call LLMs, score, cluster, or rank.
 If a change requires crossing these boundaries, the change is wrong, even if
 it is convenient.
 
-This is the principle most likely to be tested when HiveMind starts to scale.
+This is the principle most likely to be tested when Loomtracer starts to scale.
 Smart behavior wants to creep down. The principle is what keeps it where it
 belongs.
 

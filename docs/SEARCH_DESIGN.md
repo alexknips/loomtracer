@@ -1,6 +1,6 @@
-# HiveMind Search Design
+# Loomtracer Search Design
 
-HiveMind search is a layer-2 read surface for finding decisions and their
+Loomtracer search is a layer-2 read surface for finding decisions and their
 explicit graph context. It is not a semantic answer engine, a recommendation
 system, or a write-path deduplication tool. A good search result helps a human
 or agent recover what was decided, why, by whom, what it depends on, and whether
@@ -10,7 +10,7 @@ This document defines the storage-agnostic search contract. SQLite FTS5, Kuzu,
 Postgres, or a future service may implement the contract differently, but CLI,
 MCP, and internal callers should see the same request and response semantics.
 
-Status: this is the contract, and `hivemind query search` ships a subset of it. The
+Status: this is the contract, and `loomtracer query search` ships a subset of it. The
 filters it takes are under [CLI Surface](#cli-surface) and the response fields it returns
 are under [Result Envelope](#result-envelope). Everything else here is planned, and each
 place says so.
@@ -64,7 +64,7 @@ These are the real user questions the surface must cover.
 ## Operation Name
 
 The storage-agnostic operation is `search_decisions`. The CLI spells it
-`hivemind query search`; `hivemind query search_decisions` is the same command under the
+`loomtracer query search`; `loomtracer query search_decisions` is the same command under the
 name the MCP tool and the HTTP API use. Both call the same internal operation and return
 the same JSON.
 
@@ -76,7 +76,7 @@ Flags normalize into the same request DTO used by MCP and library callers.
 Flags the CLI takes today:
 
 ```bash
-hivemind query search \
+loomtracer query search \
   --q <text> \
   --topic <topic-key>[,<topic-key>...] \
   --status proposed|accepted|rejected|contested|superseded \
@@ -112,15 +112,15 @@ or result envelope.
 
 `--supersedes-decision-id` is a planned *search filter* (find decisions that supersede a
 given decision id), unrelated to the create-time reversal flow. To capture a decision that
-reverses a prior one today, use `hivemind supersede`
-(see [CLI reference](https://alexknips.github.io/hivemind-site/reference/cli/#supersede)).
+reverses a prior one today, use `loomtracer supersede`
+(see [CLI reference](https://alexknips.github.io/loomtracer-site/reference/cli/#supersede)).
 
 CLI examples:
 
 ```bash
-hivemind query search --q authentication --since 2026-05-19T00:00:00Z --until 2026-05-20T00:00:00Z
-hivemind query search --actor-id agent:claude:s1 --since 2026-04-01T00:00:00Z --until 2026-07-01T00:00:00Z
-hivemind query search --topic infrastructure --status contested
+loomtracer query search --q authentication --since 2026-05-19T00:00:00Z --until 2026-05-20T00:00:00Z
+loomtracer query search --actor-id agent:claude:s1 --since 2026-04-01T00:00:00Z --until 2026-07-01T00:00:00Z
+loomtracer query search --topic infrastructure --status contested
 ```
 
 ## Request Semantics
@@ -448,7 +448,7 @@ No response may silently omit rows because a backend limit was reached.
 ## Storage-Bound Behaviors
 
 These behaviors may vary by backend and must not leak into the public contract
-unless HiveMind explicitly versions the contract:
+unless Loomtracer explicitly versions the contract:
 
 - FTS5 tokenizer details, stemming, prefix matching, phrase grammar, `MATCH`
   syntax, BM25 values, snippet highlighting, and offset APIs.
@@ -513,4 +513,4 @@ schemas. The safe migration path is:
 
 FTS5 can be an implementation detail for a local SQLite baseline, but the
 contract above is what survives replacement by another text index, graph
-database, or remote HiveMind service.
+database, or remote Loomtracer service.

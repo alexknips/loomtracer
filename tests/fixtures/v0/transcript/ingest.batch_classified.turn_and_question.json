@@ -4,9 +4,9 @@
   "correlation_id": null,
   "causation_event_id": 1,
   "type": "ingest.batch_classified",
-  "actor_id": "agent:hivemind:classifier",
+  "actor_id": "agent:loomtracer:classifier",
   "source": "agent",
-  "source_ref": "agent:hivemind:classifier",
+  "source_ref": "agent:loomtracer:classifier",
   "payload": {
     "batch_id": "session-abc:0-512",
     "classifier_model": "claude-haiku-4-5-20251001",

@@ -16,7 +16,7 @@ fn oauth_url_escapes_query_values() {
 
 #[test]
 fn capture_processing_uses_mapping_when_present() {
-    let scratch = std::env::temp_dir().join(format!("hivemind-slack-app-{}", Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("loomtracer-slack-app-{}", Uuid::new_v4()));
     let store = SlackAppStore::new(&scratch);
     store
         .install_workspace(SlackWorkspaceInstall {
@@ -24,8 +24,8 @@ fn capture_processing_uses_mapping_when_present() {
             team_name: "Example".to_owned(),
             bot_token: generated_test_secret("bot"),
             signing_secret: generated_test_secret("signing"),
-            hivemind_url: "http://127.0.0.1:8787".to_owned(),
-            reaction_emoji: "hivemind".to_owned(),
+            loomtracer_url: "http://127.0.0.1:8787".to_owned(),
+            reaction_emoji: "loomtracer".to_owned(),
             actor_mappings: BTreeMap::from([("U111".to_owned(), "actor:alice".to_owned())]),
         })
         .expect("install succeeds");
@@ -50,7 +50,7 @@ fn capture_processing_uses_mapping_when_present() {
 
 #[test]
 fn reaction_capture_requires_configured_emoji() {
-    let scratch = std::env::temp_dir().join(format!("hivemind-slack-app-{}", Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("loomtracer-slack-app-{}", Uuid::new_v4()));
     let store = SlackAppStore::new(&scratch);
     store
         .install_workspace(SlackWorkspaceInstall {
@@ -58,8 +58,8 @@ fn reaction_capture_requires_configured_emoji() {
             team_name: "Example".to_owned(),
             bot_token: generated_test_secret("bot"),
             signing_secret: generated_test_secret("signing"),
-            hivemind_url: "http://127.0.0.1:8787".to_owned(),
-            reaction_emoji: "hivemind".to_owned(),
+            loomtracer_url: "http://127.0.0.1:8787".to_owned(),
+            reaction_emoji: "loomtracer".to_owned(),
             actor_mappings: BTreeMap::new(),
         })
         .expect("install succeeds");
@@ -73,7 +73,7 @@ fn reaction_capture_requires_configured_emoji() {
         process_capture(&ledger, &store, &capture).expect_err("wrong emoji should be rejected");
     assert!(error.to_string().contains("configured trigger"));
 
-    capture.reaction_emoji = Some("hivemind".to_owned());
+    capture.reaction_emoji = Some("loomtracer".to_owned());
     process_capture(&ledger, &store, &capture).expect("configured emoji captures");
 
     let _ = fs::remove_dir_all(scratch);
@@ -89,7 +89,7 @@ fn reaction_capture_requires_configured_emoji() {
 /// collapse every capture into one tenant regardless of `team_id`.
 #[test]
 fn drain_queue_multi_tenant_resolves_each_capture_to_its_own_tenant() {
-    let scratch = std::env::temp_dir().join(format!("hivemind-slack-app-{}", Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("loomtracer-slack-app-{}", Uuid::new_v4()));
     let store = SlackAppStore::new(&scratch);
     store
         .install_workspace(SlackWorkspaceInstall {
@@ -97,8 +97,8 @@ fn drain_queue_multi_tenant_resolves_each_capture_to_its_own_tenant() {
             team_name: "Team A".to_owned(),
             bot_token: generated_test_secret("bot"),
             signing_secret: generated_test_secret("signing"),
-            hivemind_url: "http://127.0.0.1:8787".to_owned(),
-            reaction_emoji: "hivemind".to_owned(),
+            loomtracer_url: "http://127.0.0.1:8787".to_owned(),
+            reaction_emoji: "loomtracer".to_owned(),
             actor_mappings: BTreeMap::new(),
         })
         .expect("install A succeeds");
@@ -108,8 +108,8 @@ fn drain_queue_multi_tenant_resolves_each_capture_to_its_own_tenant() {
             team_name: "Team B".to_owned(),
             bot_token: generated_test_secret("bot"),
             signing_secret: generated_test_secret("signing"),
-            hivemind_url: "http://127.0.0.1:8787".to_owned(),
-            reaction_emoji: "hivemind".to_owned(),
+            loomtracer_url: "http://127.0.0.1:8787".to_owned(),
+            reaction_emoji: "loomtracer".to_owned(),
             actor_mappings: BTreeMap::new(),
         })
         .expect("install B succeeds");
@@ -402,7 +402,7 @@ fn modal_submission_that_is_not_ours_or_lost_its_metadata_is_malformed() {
 
 /// A scratch store with one installed workspace, `T123`, mapping `actor_mappings`.
 fn installed_store(actor_mappings: BTreeMap<String, String>) -> (PathBuf, SlackAppStore) {
-    let scratch = std::env::temp_dir().join(format!("hivemind-slack-app-{}", Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("loomtracer-slack-app-{}", Uuid::new_v4()));
     let store = SlackAppStore::new(&scratch);
     store
         .install_workspace(SlackWorkspaceInstall {
@@ -410,8 +410,8 @@ fn installed_store(actor_mappings: BTreeMap<String, String>) -> (PathBuf, SlackA
             team_name: "Example".to_owned(),
             bot_token: generated_test_secret("bot"),
             signing_secret: generated_test_secret("signing"),
-            hivemind_url: "http://127.0.0.1:8787".to_owned(),
-            reaction_emoji: "hivemind".to_owned(),
+            loomtracer_url: "http://127.0.0.1:8787".to_owned(),
+            reaction_emoji: "loomtracer".to_owned(),
             actor_mappings,
         })
         .expect("install succeeds");
@@ -550,7 +550,7 @@ fn reaction_capture_is_recorded_by_the_reactor_and_decided_by_the_author() {
             user_id: "U111".to_owned(),
             decided_by_user_id: Some("U222".to_owned()),
             surface: SlackCaptureSurface::Reaction,
-            reaction_emoji: Some("hivemind".to_owned()),
+            reaction_emoji: Some("loomtracer".to_owned()),
             ..capture()
         })
         .expect("queue accepts it");
@@ -576,7 +576,7 @@ fn reaction_by_the_author_of_the_message_records_and_decides_as_one_actor() {
             user_id: "U111".to_owned(),
             decided_by_user_id: Some("U111".to_owned()),
             surface: SlackCaptureSurface::Reaction,
-            reaction_emoji: Some("hivemind".to_owned()),
+            reaction_emoji: Some("loomtracer".to_owned()),
             ..capture()
         })
         .expect("queue accepts it");
@@ -598,7 +598,7 @@ fn reaction_capture_of_an_unchosen_decision_names_no_decider() {
             decided_by_user_id: Some("U222".to_owned()),
             chosen_option_label: None,
             surface: SlackCaptureSurface::Reaction,
-            reaction_emoji: Some("hivemind".to_owned()),
+            reaction_emoji: Some("loomtracer".to_owned()),
             ..capture()
         })
         .expect("a decider with nothing chosen is not an error");
@@ -622,7 +622,7 @@ fn recorder_and_decider_are_each_mapped_through_the_installs_actor_mappings() {
             user_id: "U111".to_owned(),
             decided_by_user_id: Some("U222".to_owned()),
             surface: SlackCaptureSurface::Reaction,
-            reaction_emoji: Some("hivemind".to_owned()),
+            reaction_emoji: Some("loomtracer".to_owned()),
             ..capture()
         })
         .expect("queue accepts it");

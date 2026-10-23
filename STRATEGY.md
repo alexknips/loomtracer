@@ -1,4 +1,4 @@
-# HiveMind Strategy
+# Loomtracer Strategy
 
 This document does not plan work. Beads plan work.
 
@@ -16,7 +16,7 @@ wrong, and it needs to be rewritten in the open before the bead proceeds.
 
 ## Active fronts
 
-These are the directions HiveMind is investing in right now. Beads that
+These are the directions Loomtracer is investing in right now. Beads that
 advance any of these fronts are well-aimed by default. Multiple fronts proceed
 in parallel; nothing here is sequenced.
 
@@ -50,7 +50,7 @@ on a decision" to "I have pushed back, and the push-back is in the ledger."
 
 ### Shared backend
 
-Move HiveMind from local-prototype to multi-machine, multi-actor, multi-org.
+Move Loomtracer from local-prototype to multi-machine, multi-actor, multi-org.
 The ledger should be a real service when more than one human or agent needs
 to read and write the same decision history.
 
@@ -59,17 +59,17 @@ testable, or more deployable.
 
 ### Ecosystem reach
 
-Extend HiveMind to where decisions are already being made: more MCP clients,
+Extend Loomtracer to where decisions are already being made: more MCP clients,
 more agent harnesses, more capture entry points (slash commands, hooks,
 plugins, document import). The vision applies to all knowledge work, so the
 capture surfaces should too.
 
-A bead advances this front if it brings HiveMind to a new decision surface
+A bead advances this front if it brings Loomtracer to a new decision surface
 without compromising the principles.
 
 ### Adoption ease
 
-Make HiveMind installable, configurable, and producing value within five
+Make Loomtracer installable, configurable, and producing value within five
 minutes of "I want to try this." Every install surface, every capture path,
 and every plugin must respect this threshold. Adoption *depth* is a different
 concern — covered by the other fronts. The question here is whether someone
@@ -77,7 +77,7 @@ gets past the activation barrier at all.
 
 A bead advances this front if it reduces the time-to-first-captured-decision
 for a new adopter — a new human user, a new agent integration, or a new repo
-trying HiveMind for the first time.
+trying Loomtracer for the first time.
 
 ### Layer-3 capabilities
 
@@ -120,7 +120,7 @@ rather than systemic-condition data.
 
 ## Not active fronts
 
-These are directions HiveMind is **not** investing in. Beads aimed here will
+These are directions Loomtracer is **not** investing in. Beads aimed here will
 be redirected or rejected unless this document changes first.
 
 - **Becoming a chat archive, notes app, task tracker, or wiki replacement.**
@@ -149,9 +149,9 @@ When creating, claiming, or reviewing a bead, ask:
    up.
 
 Strategy changes when the world changes. The fronts here are not eternal.
-They are what HiveMind is investing in *now*.
+They are what Loomtracer is investing in *now*.
 
-How fast HiveMind moves depends on how many agents are pulling beads in
+How fast Loomtracer moves depends on how many agents are pulling beads in
 parallel and how complex those beads are — not on a calendar. A bead is sized
 by its complexity, not by a date. A front advances when its beads close, at
 whatever rate parallel agent throughput makes possible.

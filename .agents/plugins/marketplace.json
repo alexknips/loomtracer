@@ -1,14 +1,14 @@
 {
-  "name": "hivemind-plugins",
+  "name": "loomtracer-plugins",
   "interface": {
-    "displayName": "HiveMind Plugins"
+    "displayName": "Loomtracer Plugins"
   },
   "plugins": [
     {
-      "name": "hivemind-capture",
+      "name": "loomtracer-capture",
       "source": {
         "source": "local",
-        "path": "./plugins/hivemind-capture"
+        "path": "./plugins/loomtracer-capture"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -17,10 +17,10 @@
       "category": "Productivity"
     },
     {
-      "name": "hivemind-context",
+      "name": "loomtracer-context",
       "source": {
         "source": "local",
-        "path": "./plugins/hivemind-context"
+        "path": "./plugins/loomtracer-context"
       },
       "policy": {
         "installation": "AVAILABLE",

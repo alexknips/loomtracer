@@ -225,7 +225,7 @@ const PROJECT_EVENT_TYPES: &[EventType] = &[
 ];
 
 /// Reads every `project.*` fact for the current tenant and nets adds against
-/// removes, exactly like `commands::HiveMindCommands::active_project_links` does
+/// removes, exactly like `commands::LoomtracerCommands::active_project_links` does
 /// for the write layer's own existence checks -- see the module doc comment for why
 /// this can't be a graph read. Only the project events leave the ledger, so a read that names
 /// a project costs the handful of facts it nets, not the transcripts around them

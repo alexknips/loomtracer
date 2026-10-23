@@ -23,17 +23,17 @@ use crate::ledger::{EventLedger, SqliteEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 
 const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
-const CLASSIFIER_MODEL_ENV: &str = "HIVEMIND_CLASSIFIER_MODEL";
+const CLASSIFIER_MODEL_ENV: &str = "LOOMTRACER_CLASSIFIER_MODEL";
 pub const SCHEMA_VERSION: &str = "2";
-const ACTOR_ID: &str = "agent:hivemind:classifier";
+const ACTOR_ID: &str = "agent:loomtracer:classifier";
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 const HAIKU_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TOKENS: u32 = 1200;
 
 // Classifier prompt from CAPTURE_CLASSIFIER.md
-const CLASSIFIER_PROMPT: &str = r#"You are the HiveMind capture classifier.
+const CLASSIFIER_PROMPT: &str = r#"You are the Loomtracer capture classifier.
 
-HiveMind stores organizational decision memory: durable decisions, evidence,
+Loomtracer stores organizational decision memory: durable decisions, evidence,
 hypotheses, blockers, and notifications with provenance. It does not store chat
 history, task tracking, private scratch notes, or raw tool logs.
 
@@ -257,18 +257,18 @@ struct CaptureItemRaw {
 
 /// Spawn the background classifier task. Returns immediately; the worker runs
 /// in the background until the process exits.
-pub fn spawn_classifier(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
+pub fn spawn_classifier(loomtracer_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
     tokio::spawn(async move {
-        run_classifier_loop(hivemind_dir, tenant_id, api_key).await;
+        run_classifier_loop(loomtracer_dir, tenant_id, api_key).await;
     });
 }
 
-async fn run_classifier_loop(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
-    info!(target: "hivemind::classifier", "classifier worker started");
+async fn run_classifier_loop(loomtracer_dir: Arc<PathBuf>, tenant_id: TenantId, api_key: String) {
+    info!(target: "loomtracer::classifier", "classifier worker started");
     let client = match reqwest::Client::builder().timeout(HAIKU_TIMEOUT).build() {
         Ok(c) => c,
         Err(e) => {
-            warn!(target: "hivemind::classifier", "failed to build http client: {e}");
+            warn!(target: "loomtracer::classifier", "failed to build http client: {e}");
             return;
         }
     };
@@ -276,14 +276,14 @@ async fn run_classifier_loop(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId, ap
     let classifier = HaikuClassifier {
         client: &client,
         api_key: &api_key,
-        hivemind_dir: &hivemind_dir,
+        loomtracer_dir: &loomtracer_dir,
         tenant_id: &tenant_id,
     };
     let mut state = PassState::default();
     loop {
         classify_pending_batches(
             &classifier,
-            &hivemind_dir,
+            &loomtracer_dir,
             &tenant_id,
             daily_classification_cap(),
             &mut state,
@@ -630,12 +630,12 @@ pub fn pending_queue_for_ledger(
 /// for the next day rather than being dropped.
 pub const DEFAULT_DAILY_CLASSIFICATION_CAP: usize = 150;
 
-/// Resolves the active daily cap: `HIVEMIND_CLASSIFY_DAILY_CAP` when set to a
+/// Resolves the active daily cap: `LOOMTRACER_CLASSIFY_DAILY_CAP` when set to a
 /// valid positive integer, otherwise [`DEFAULT_DAILY_CLASSIFICATION_CAP`].
 /// The override exists so tests can exercise cap enforcement without writing
 /// 150 real events.
 pub fn daily_classification_cap() -> usize {
-    std::env::var("HIVEMIND_CLASSIFY_DAILY_CAP")
+    std::env::var("LOOMTRACER_CLASSIFY_DAILY_CAP")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|v| *v > 0)
@@ -726,7 +726,7 @@ trait BatchClassifier {
 struct HaikuClassifier<'a> {
     client: &'a reqwest::Client,
     api_key: &'a str,
-    hivemind_dir: &'a PathBuf,
+    loomtracer_dir: &'a PathBuf,
     tenant_id: &'a TenantId,
 }
 
@@ -772,7 +772,7 @@ impl BatchClassifier for HaikuClassifier<'_> {
             self.client,
             self.api_key,
             &model,
-            self.hivemind_dir,
+            self.loomtracer_dir,
             self.tenant_id,
             &mut captures,
         )
@@ -787,33 +787,33 @@ impl BatchClassifier for HaikuClassifier<'_> {
 /// batch is left for tomorrow (see [`PassState`]).
 async fn classify_pending_batches(
     classifier: &impl BatchClassifier,
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     cap: usize,
     state: &mut PassState,
 ) {
     state.start_pass(Utc::now().date_naive());
-    let Some(budget) = calls_left(hivemind_dir, tenant_id, cap, state) else {
+    let Some(budget) = calls_left(loomtracer_dir, tenant_id, cap, state) else {
         return;
     };
-    let batches = match pending_batches(hivemind_dir, tenant_id, &state.failed, budget) {
+    let batches = match pending_batches(loomtracer_dir, tenant_id, &state.failed, budget) {
         Ok(b) => b,
         Err(e) => {
-            warn!(target: "hivemind::classifier", "ledger scan failed: {e}");
+            warn!(target: "loomtracer::classifier", "ledger scan failed: {e}");
             return;
         }
     };
 
     for batch in batches {
         // Another worker may have spent the cap since the pass began.
-        if calls_left(hivemind_dir, tenant_id, cap, state).is_none() {
+        if calls_left(loomtracer_dir, tenant_id, cap, state).is_none() {
             return;
         }
-        debug!(target: "hivemind::classifier", batch_id = %batch.batch_id, "classifying batch");
+        debug!(target: "loomtracer::classifier", batch_id = %batch.batch_id, "classifying batch");
 
         let outcome = match classifier.classify(&batch).await {
             Ok(classified) => write_classification(
-                hivemind_dir,
+                loomtracer_dir,
                 tenant_id,
                 &batch.batch_id,
                 &classified.model,
@@ -825,7 +825,7 @@ async fn classify_pending_batches(
         };
         if let Err(reason) = outcome {
             warn!(
-                target: "hivemind::classifier",
+                target: "loomtracer::classifier",
                 batch_id = %batch.batch_id,
                 "{reason}; the batch is not sent again today"
             );
@@ -837,24 +837,24 @@ async fn classify_pending_batches(
 /// How many more calls today's cap allows, or `None` when the cap is spent (said once a day) or
 /// the ledger could not be read.
 fn calls_left(
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     cap: usize,
     state: &mut PassState,
 ) -> Option<usize> {
-    let status = SqliteEventLedger::open(hivemind_dir)
+    let status = SqliteEventLedger::open(loomtracer_dir)
         .and_then(|ledger| daily_cap_status_under(&ledger, tenant_id, cap));
     let left = match status {
         Ok(status) => status.remaining.saturating_sub(state.failed.len()),
         Err(e) => {
-            warn!(target: "hivemind::classifier", "daily cap unreadable: {e}");
+            warn!(target: "loomtracer::classifier", "daily cap unreadable: {e}");
             return None;
         }
     };
     if left == 0 {
         if !state.cap_said {
             info!(
-                target: "hivemind::classifier",
+                target: "loomtracer::classifier",
                 cap,
                 "daily classification cap spent; batches wait for the next UTC day"
             );
@@ -872,17 +872,17 @@ async fn mark_restatements_best_effort(
     client: &reqwest::Client,
     api_key: &str,
     model: &str,
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     captures: &mut [CaptureItem],
 ) {
     if !captures.iter().any(|capture| capture.kind == "decision") {
         return;
     }
-    let graph = match recorded_decisions_graph(hivemind_dir, tenant_id) {
+    let graph = match recorded_decisions_graph(loomtracer_dir, tenant_id) {
         Ok(graph) => graph,
         Err(e) => {
-            warn!(target: "hivemind::classifier", "restatement check skipped: {e}");
+            warn!(target: "loomtracer::classifier", "restatement check skipped: {e}");
             return;
         }
     };
@@ -892,10 +892,10 @@ async fn mark_restatements_best_effort(
 /// The recorded decisions as a graph, for the restatement judgement. The ledger is closed again
 /// before the model is asked anything.
 fn recorded_decisions_graph(
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
 ) -> crate::Result<MemoryGraph> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let graph = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, tenant_id, &graph)?;
     Ok(graph)
@@ -905,12 +905,12 @@ fn recorded_decisions_graph(
 /// today, with their turns. Which batches are pending is decided from heads, as the queue listing
 /// does; the turns of only the chosen few are read, in one query by event id.
 fn pending_batches(
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     failed: &std::collections::HashSet<EventId>,
     limit: usize,
 ) -> crate::Result<Vec<BatchInfo>> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let event_ids: Vec<EventId> = pending_batch_heads(&ledger, tenant_id)?
         .into_iter()
         .map(|head| head.event_id)
@@ -931,7 +931,7 @@ fn batch_info_from_event(event: &crate::events::Event) -> Option<BatchInfo> {
     let batch_text = render_batch_text(event);
     if batch_text.is_empty() {
         debug!(
-            target: "hivemind::classifier",
+            target: "loomtracer::classifier",
             "batch {batch_id} has no renderable turns; will classify empty text"
         );
     }
@@ -1014,13 +1014,13 @@ fn conform_to_batch(captures: &mut [CaptureItem], turn_ids: &[String]) {
     }
 }
 
-/// Resolve the classifier model id given an already-read `HIVEMIND_CLASSIFIER_MODEL`
+/// Resolve the classifier model id given an already-read `LOOMTRACER_CLASSIFIER_MODEL`
 /// value: the override if present, otherwise the pinned default.
 fn resolve_classifier_model(env_override: Option<String>) -> String {
     env_override.unwrap_or_else(|| CLASSIFIER_MODEL.to_owned())
 }
 
-/// Model id actually used for classification: `HIVEMIND_CLASSIFIER_MODEL` if
+/// Model id actually used for classification: `LOOMTRACER_CLASSIFIER_MODEL` if
 /// set to a non-empty value, otherwise the pinned default. Callers that both
 /// invoke the API and record provenance must call this once and reuse the
 /// result so the two agree even if the environment changes between calls.
@@ -1030,7 +1030,7 @@ fn effective_classifier_model() -> String {
 
 /// Public accessor for [`effective_classifier_model`], for callers (the
 /// fidelity evaluator) that need to record which model `classify_text` used
-/// without duplicating the `HIVEMIND_CLASSIFIER_MODEL` resolution logic.
+/// without duplicating the `LOOMTRACER_CLASSIFIER_MODEL` resolution logic.
 pub fn resolved_model() -> String {
     effective_classifier_model()
 }
@@ -1104,14 +1104,14 @@ pub fn parse_capture_response(text: &str) -> Result<Vec<CaptureItem>, serde_json
 }
 
 fn write_classification(
-    hivemind_dir: &PathBuf,
+    loomtracer_dir: &PathBuf,
     tenant_id: &TenantId,
     batch_id: &str,
     model: &str,
     captures: Vec<CaptureItem>,
     causation_event_id: Option<u64>,
 ) -> crate::Result<()> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(tenant_id.clone(), EventProvenance::agent(ACTOR_ID)),
@@ -1150,15 +1150,15 @@ pub(crate) fn anthropic_api_key() -> Option<String> {
 
 /// Try to read the API key and spawn the worker. Logs a warning and returns
 /// `None` if the key is absent.
-pub fn try_spawn(hivemind_dir: Arc<PathBuf>, tenant_id: TenantId) -> Option<()> {
+pub fn try_spawn(loomtracer_dir: Arc<PathBuf>, tenant_id: TenantId) -> Option<()> {
     match anthropic_api_key() {
         Some(key) => {
-            spawn_classifier(hivemind_dir, tenant_id, key);
+            spawn_classifier(loomtracer_dir, tenant_id, key);
             Some(())
         }
         None => {
             warn!(
-                target: "hivemind::classifier",
+                target: "loomtracer::classifier",
                 "ANTHROPIC_API_KEY not set — Layer-3 classifier disabled"
             );
             None

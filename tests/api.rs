@@ -14,13 +14,13 @@ use serde_json::Value;
 use tower::ServiceExt as _;
 
 fn test_ledger_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("hivemind-api-test-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("loomtracer-api-test-{}", uuid::Uuid::new_v4()));
     dir
 }
 
-fn app(hivemind_dir: PathBuf) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+fn app(loomtracer_dir: PathBuf) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -38,12 +38,12 @@ fn app(hivemind_dir: PathBuf) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
-fn app_with_key(hivemind_dir: PathBuf, key: &str) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+fn app_with_key(loomtracer_dir: PathBuf, key: &str) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -61,12 +61,12 @@ fn app_with_key(hivemind_dir: PathBuf, key: &str) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
-fn app_with_cors(hivemind_dir: PathBuf, origins: Vec<String>) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+fn app_with_cors(loomtracer_dir: PathBuf, origins: Vec<String>) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -84,7 +84,7 @@ fn app_with_cors(hivemind_dir: PathBuf, origins: Vec<String>) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 async fn call(app: axum::Router, req: Request<Body>) -> (StatusCode, Value) {
@@ -105,7 +105,7 @@ fn post_json(uri: &str, body: Value) -> Request<Body> {
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -115,8 +115,8 @@ fn post_json_as_tenant(uri: &str, body: Value, tenant: &str) -> Request<Body> {
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", "agent:test:session-1")
-        .header("x-hivemind-tenant", tenant)
+        .header("x-loomtracer-actor", "agent:test:session-1")
+        .header("x-loomtracer-tenant", tenant)
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -125,7 +125,7 @@ fn get_req(uri: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
         .uri(uri)
-        .header("x-hivemind-actor", "agent:test:session-1")
+        .header("x-loomtracer-actor", "agent:test:session-1")
         .body(Body::empty())
         .unwrap()
 }
@@ -134,8 +134,8 @@ fn get_req_as_tenant(uri: &str, tenant: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
         .uri(uri)
-        .header("x-hivemind-actor", "agent:test:session-1")
-        .header("x-hivemind-tenant", tenant)
+        .header("x-loomtracer-actor", "agent:test:session-1")
+        .header("x-loomtracer-tenant", tenant)
         .body(Body::empty())
         .unwrap()
 }
@@ -267,7 +267,7 @@ async fn search_source_filter_matches_api_source() {
 async fn search_actor_id_accepts_comma_separated_list() {
     let dir = test_ledger_dir();
 
-    // post_json sends X-Hivemind-Actor: agent:test:session-1 — that becomes the stored actor_id
+    // post_json sends X-Loomtracer-Actor: agent:test:session-1 — that becomes the stored actor_id
     let (status, _) = call(
         app(dir.clone()),
         post_json(
@@ -697,11 +697,11 @@ async fn capture_warns_about_a_slug_option_label_and_records_it_as_given() {
     assert_eq!(warnings[0]["suggestion"], "Direct CLI"); // ubs:ignore
 
     // The label is stored as sent: the warning rewrites nothing.
-    let ledger = hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
-    let events = hivemind::ledger::EventLedger::read(&ledger, 0, 64).expect("events read");
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = loomtracer::ledger::EventLedger::read(&ledger, 0, 64).expect("events read");
     let proposal = events
         .iter()
-        .find(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+        .find(|event| event.event_type == loomtracer::events::EventType::DecisionProposed)
         .expect("the capture is recorded");
     assert_eq!(
         // ubs:ignore
@@ -953,11 +953,11 @@ async fn supersede_warns_about_a_slug_option_label_and_records_it_as_given() {
     assert_eq!(warnings[0]["suggestion"], "Direct CLI"); // ubs:ignore
 
     // The label is stored as sent: the warning rewrites nothing.
-    let ledger = hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
-    let events = hivemind::ledger::EventLedger::read(&ledger, 0, 128).expect("events read");
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = loomtracer::ledger::EventLedger::read(&ledger, 0, 128).expect("events read");
     let replacement_proposal = events
         .iter()
-        .filter(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+        .filter(|event| event.event_type == loomtracer::events::EventType::DecisionProposed)
         .nth(1)
         .expect("the replacement is recorded");
     assert_eq!(
@@ -1129,7 +1129,7 @@ async fn ingest_batch_enforces_auth() {
 
 #[tokio::test]
 async fn rls_cross_tenant_decision_not_visible() {
-    // In SQLite dev mode the X-HiveMind-Tenant header controls which tenant's
+    // In SQLite dev mode the X-Loomtracer-Tenant header controls which tenant's
     // ledger is opened. A decision captured as tenant "alpha" must not appear
     // in a GET /v1/decisions/{id} request scoped to tenant "beta".
     let dir = test_ledger_dir();
@@ -1138,10 +1138,10 @@ async fn rls_cross_tenant_decision_not_visible() {
     // ledger-open time instead of silently opening a fresh scope, so both
     // tenants used below must be registered first.
     let ledger =
-        hivemind::ledger::SqliteEventLedger::open(&dir).expect("open ledger for provisioning");
+        loomtracer::ledger::SqliteEventLedger::open(&dir).expect("open ledger for provisioning");
     for tenant in ["alpha", "beta"] {
         ledger
-            .create_tenant(&hivemind::events::TenantId::new(tenant).expect("valid tenant id"))
+            .create_tenant(&loomtracer::events::TenantId::new(tenant).expect("valid tenant id"))
             .expect("register test tenant");
     }
 
@@ -1197,7 +1197,7 @@ async fn rls_cross_tenant_decision_not_visible() {
 #[tokio::test]
 async fn unregistered_tenant_header_is_rejected_on_read_and_write() {
     // Unlike "alpha"/"beta" above, this tenant is never registered via
-    // SqliteEventLedger::create_tenant — a typo'd X-HiveMind-Tenant must not
+    // SqliteEventLedger::create_tenant — a typo'd X-Loomtracer-Tenant must not
     // silently open a fresh, empty scope (hivemind-rkbf.1). It is answered with its own code,
     // `unknown_tenant`, not `not_found`: a client that reads `not_found` as "that one id is
     // unknown" would skip it, when every call fails for the one configuration reason
@@ -1269,7 +1269,7 @@ fn post_json_as_actor(uri: &str, body: Value, actor: &str) -> Request<Body> {
         .method("POST")
         .uri(uri)
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", actor)
+        .header("x-loomtracer-actor", actor)
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -1300,14 +1300,14 @@ async fn capture_resting_on(dir: &Path, title: &str, premise_id: Option<&str>) -
     body["decision_id"].as_str().unwrap().to_owned()
 }
 
-fn reaffirmed_events(dir: &Path) -> Vec<hivemind::events::Event> {
-    use hivemind::ledger::EventLedger as _;
-    hivemind::ledger::SqliteEventLedger::open(dir)
+fn reaffirmed_events(dir: &Path) -> Vec<loomtracer::events::Event> {
+    use loomtracer::ledger::EventLedger as _;
+    loomtracer::ledger::SqliteEventLedger::open(dir)
         .unwrap()
         .read(0, 1000)
         .unwrap()
         .into_iter()
-        .filter(|event| event.event_type == hivemind::events::EventType::DecisionReaffirmed)
+        .filter(|event| event.event_type == loomtracer::events::EventType::DecisionReaffirmed)
         .collect()
 }
 
@@ -1360,7 +1360,7 @@ async fn reaffirmation_closes_the_open_item_and_names_what_it_covered() {
     assert_eq!(recorded[0].actor_id, "agent:codex:reviewer"); // ubs:ignore
     assert_eq!(
         recorded[0].source,
-        hivemind::events::EventSource::Api,
+        loomtracer::events::EventSource::Api,
         "recorded over the API"
     ); // ubs:ignore
     assert_eq!(recorded[0].payload["decision_id"], dependent.as_str()); // ubs:ignore
@@ -2138,9 +2138,9 @@ async fn classifier_try_spawn_without_api_key_is_noop() {
     let saved = std::env::var("ANTHROPIC_API_KEY").ok();
     unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
 
-    let result = hivemind::classifier::try_spawn(
+    let result = loomtracer::classifier::try_spawn(
         std::sync::Arc::new(test_ledger_dir()),
-        hivemind::events::TenantId::local(),
+        loomtracer::events::TenantId::local(),
     );
     assert!(
         // ubs:ignore
@@ -2155,9 +2155,9 @@ async fn classifier_try_spawn_without_api_key_is_noop() {
 
 #[tokio::test]
 async fn classifier_batch_classified_event_round_trips() {
-    use hivemind::commands::{CommandContext, Commands};
-    use hivemind::events::{CaptureItem, EventProvenance, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::commands::{CommandContext, Commands};
+    use loomtracer::events::{CaptureItem, EventProvenance, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     let ledger = SqliteEventLedger::open(&dir).unwrap();
@@ -2199,7 +2199,7 @@ async fn classifier_batch_classified_event_round_trips() {
 
     let classified_event_id = commands
         .record_ingest_batch_classified(
-            "agent:hivemind:classifier",
+            "agent:loomtracer:classifier",
             &["session-x:0-4".to_owned()],
             "claude-haiku-4-5-20251001",
             "1",
@@ -2581,8 +2581,8 @@ async fn classify_queue_submit_links_a_restatement_and_does_not_record_the_same_
 
 #[tokio::test]
 async fn a_supersession_link_is_the_tokens_own_and_the_newer_decision_keeps_its_decider() {
-    use hivemind::events::{EventType, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::events::{EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     let admin_key = "supersession-link-admin";
@@ -2794,7 +2794,7 @@ async fn record_fable_ruling(app: &axum::Router) -> [String; 3] {
 /// The newest event id in the tenant's ledger, read straight from the SQLite file: a request
 /// that must write nothing leaves it where it was.
 fn ledger_len(dir: &PathBuf) -> u64 {
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
     SqliteEventLedger::open(dir)
         .expect("opens ledger")
         .latest_offset()
@@ -2901,11 +2901,11 @@ async fn restatement_proposals_are_listed_a_page_at_a_time_and_write_nothing() {
 
 /// The bead's own check, over HTTP: the question that was ambiguous among three records of one
 /// ruling resolves to ONE decision once the links are made with a token, and the link is the
-/// token's, whatever `X-HiveMind-Actor` says.
+/// token's, whatever `X-Loomtracer-Actor` says.
 #[tokio::test]
 async fn a_restatement_link_is_the_tokens_own_and_why_then_resolves_to_one_decision() {
-    use hivemind::events::{EventType, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::events::{EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     let admin_key = "restatement-admin";
@@ -3535,7 +3535,7 @@ async fn possibly_related_joins_a_session_the_classifier_recorded_in_two_events(
 }
 
 /// Requires the `shared-backend-postgres` feature and a live Postgres
-/// instance. Set HIVEMIND_TEST_POSTGRES_URL to run; skipped when unset (same
+/// instance. Set LOOMTRACER_TEST_POSTGRES_URL to run; skipped when unset (same
 /// pattern as tests/migrate.rs). CI's dedicated `rust-postgres` job always
 /// sets it, so this always runs for real there — see hivemind-zdsh.18's
 /// acceptance criteria: ingest, list, and submit over HTTP against a
@@ -3544,7 +3544,7 @@ async fn possibly_related_joins_a_session_the_classifier_recorded_in_two_events(
 mod classify_queue_postgres {
     use super::*;
 
-    pub(super) const TEST_DATABASE_URL_ENV: &str = "HIVEMIND_TEST_POSTGRES_URL";
+    pub(super) const TEST_DATABASE_URL_ENV: &str = "LOOMTRACER_TEST_POSTGRES_URL";
 
     pub(super) fn skip_if_no_postgres() -> Option<String> {
         std::env::var(TEST_DATABASE_URL_ENV)
@@ -3560,8 +3560,8 @@ mod classify_queue_postgres {
     }
 
     fn app_postgres(database_url: &str) -> axum::Router {
-        let config = hivemind::api::ApiConfig {
-            hivemind_dir: test_ledger_dir(),
+        let config = loomtracer::api::ApiConfig {
+            loomtracer_dir: test_ledger_dir(),
             bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             port: 0,
             allow_unauthenticated_remote: false,
@@ -3579,7 +3579,7 @@ mod classify_queue_postgres {
             slack_signing_secret: None,
             slack_api_base_url: None,
         };
-        hivemind::api::create_router(&config)
+        loomtracer::api::create_router(&config)
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3605,7 +3605,7 @@ mod classify_queue_postgres {
         .expect("spawn_blocking join must not panic");
 
         // Provision a tenant; its token authenticates every call below —
-        // Postgres mode ignores x-hivemind-actor/x-hivemind-tenant headers
+        // Postgres mode ignores x-loomtracer-actor/x-loomtracer-tenant headers
         // and derives both from the bearer token (docs/SELF_HOSTING.md).
         let (status, body) = call(
             app.clone(),
@@ -3750,7 +3750,7 @@ fn mcp_post(body: serde_json::Value) -> Request<Body> {
         .method("POST")
         .uri("/mcp")
         .header("content-type", "application/json")
-        .header("x-hivemind-actor", "agent:test:mcp-session")
+        .header("x-loomtracer-actor", "agent:test:mcp-session")
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -3774,7 +3774,7 @@ async fn mcp_http_initialize_returns_session_id() {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["result"]["protocolVersion"], "2025-03-26"); // ubs:ignore
-    assert_eq!(body["result"]["serverInfo"]["name"], "hivemind"); // ubs:ignore
+    assert_eq!(body["result"]["serverInfo"]["name"], "loomtracer"); // ubs:ignore
 }
 
 #[tokio::test]
@@ -4025,9 +4025,9 @@ async fn graph_returns_each_edge_once() {
 /// use. The HTTP capture files a decision under its caller's personal project and cannot name a
 /// registered one, so the fixtures below write through the commands.
 fn register_billing_and_platform(dir: &Path) {
-    use hivemind::commands::Commands;
-    use hivemind::events::ProjectLinkKind;
-    let ledger = hivemind::ledger::SqliteEventLedger::open(dir).expect("ledger opens");
+    use loomtracer::commands::Commands;
+    use loomtracer::events::ProjectLinkKind;
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(dir).expect("ledger opens");
     let commands = Commands::new(&ledger);
     for (handle, name) in [("platform", "Platform"), ("billing", "Billing")] {
         commands
@@ -4044,10 +4044,10 @@ fn register_billing_and_platform(dir: &Path) {
 
 /// One decision with a chosen option, filed under `project` (`None`: alex's personal project).
 fn file_decision(dir: &Path, project: Option<&str>, title: &str) -> String {
-    use hivemind::commands::{
+    use loomtracer::commands::{
         Commands, DecisionProposalInput, DeterminedProject, FloorInput, Grounding,
     };
-    let ledger = hivemind::ledger::SqliteEventLedger::open(dir).expect("ledger opens");
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(dir).expect("ledger opens");
     let commands = Commands::new(&ledger);
     let option_id = commands
         .record_option("human:alex", "Per seat", "One price for each seat")
@@ -4205,9 +4205,9 @@ async fn graph_of_one_project_is_a_bounded_page_that_the_cursor_walks() {
 /// option nobody weighed is not `HAS_OPTION`.
 #[tokio::test]
 async fn graph_of_a_draft_that_chose_an_option_it_did_not_weigh_holds_the_chosen_option() {
-    use hivemind::commands::{CommandContext, Commands};
-    use hivemind::events::{CaptureItem, EventProvenance, TenantId};
-    use hivemind::ledger::SqliteEventLedger;
+    use loomtracer::commands::{CommandContext, Commands};
+    use loomtracer::events::{CaptureItem, EventProvenance, TenantId};
+    use loomtracer::ledger::SqliteEventLedger;
 
     let dir = test_ledger_dir();
     {
@@ -4248,7 +4248,7 @@ async fn graph_of_a_draft_that_chose_an_option_it_did_not_weigh_holds_the_chosen
         };
         commands
             .record_ingest_batch_classified(
-                "agent:hivemind:classifier",
+                "agent:loomtracer:classifier",
                 &["session-x:0-4".to_owned()],
                 "claude-haiku-4-5-20251001",
                 "1",
@@ -4351,12 +4351,12 @@ async fn graph_of_a_draft_that_chose_an_option_it_did_not_weigh_holds_the_chosen
 /// not followed.
 #[tokio::test]
 async fn graph_of_one_project_names_the_decision_of_another_project_it_is_linked_to() {
-    use hivemind::commands::Commands;
+    use loomtracer::commands::Commands;
     let dir = test_ledger_dir();
     register_billing_and_platform(&dir);
     let old = file_decision(&dir, Some("billing"), "Price per seat");
     let new = file_decision(&dir, Some("platform"), "Price per organisation");
-    Commands::new(&hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens"))
+    Commands::new(&loomtracer::ledger::SqliteEventLedger::open(&dir).expect("ledger opens"))
         .supersede_decision(&old, &new, "human:alex")
         .expect("supersedes");
 
@@ -4437,13 +4437,13 @@ async fn graph_of_a_project_refuses_what_it_cannot_page_and_says_when_the_projec
 /// whole graph, and says the same as the whole graph about everything it names.
 #[tokio::test]
 async fn graph_of_one_decision_is_that_decision_and_what_hangs_off_it() {
-    use hivemind::commands::Commands;
+    use loomtracer::commands::Commands;
     let dir = test_ledger_dir();
     register_billing_and_platform(&dir);
     let old = file_decision(&dir, Some("billing"), "Price per seat");
     let new = file_decision(&dir, Some("platform"), "Price per organisation");
     let unrelated = file_decision(&dir, Some("billing"), "Bill monthly");
-    Commands::new(&hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens"))
+    Commands::new(&loomtracer::ledger::SqliteEventLedger::open(&dir).expect("ledger opens"))
         .supersede_decision(&old, &new, "human:alex")
         .expect("supersedes");
 
@@ -4669,8 +4669,8 @@ async fn search_takes_a_project_and_refuses_one_nobody_registered() {
 
 #[tokio::test]
 async fn graph_decisions_carry_a_decided_at_timestamp() {
-    use hivemind::events::{Event, EventSource, EventType, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::events::{Event, EventSource, EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     let ts = chrono::DateTime::parse_from_rfc3339("2026-01-15T10:30:00Z")
@@ -4725,8 +4725,8 @@ async fn graph_decisions_carry_a_decided_at_timestamp() {
 
 #[tokio::test]
 async fn graph_draws_a_reaffirmation_with_the_decision_it_is_about() {
-    use hivemind::events::{Event, EventSource, EventType, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::events::{Event, EventSource, EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     let ledger = SqliteEventLedger::open(&dir).unwrap();
@@ -4833,8 +4833,8 @@ async fn graph_draws_a_reaffirmation_with_the_decision_it_is_about() {
 /// untitled.
 #[tokio::test]
 async fn graph_labels_a_question_an_ask_a_blocker_and_a_decision_request() {
-    use hivemind::events::{Event, EventSource, EventType, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::events::{Event, EventSource, EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     let ledger = SqliteEventLedger::open(&dir).unwrap();
@@ -5132,7 +5132,7 @@ async fn attention_lists_and_the_decision_timeline_read_over_http() {
             .method("POST")
             .uri(format!("/v1/decisions/{disputed}/disagreements"))
             .header("content-type", "application/json")
-            .header("x-hivemind-actor", "human:dana")
+            .header("x-loomtracer-actor", "human:dana")
             .body(Body::from(
                 serde_json::json!({ "reason": "This does not survive the load numbers" })
                     .to_string(),
@@ -5293,7 +5293,7 @@ async fn status_events_list_what_changed_a_decisions_status_over_http() {
             .method("POST")
             .uri(format!("/v1/decisions/{decision}/disagreements"))
             .header("content-type", "application/json")
-            .header("x-hivemind-actor", "human:dana")
+            .header("x-loomtracer-actor", "human:dana")
             .body(Body::from(
                 serde_json::json!({ "reason": "This does not survive the load numbers" })
                     .to_string(),
@@ -5383,7 +5383,7 @@ async fn graph_decisions_carry_their_status_and_who_decided() {
             .method("POST")
             .uri(format!("/v1/decisions/{contested}/disagreements"))
             .header("content-type", "application/json")
-            .header("x-hivemind-actor", "human:dana")
+            .header("x-loomtracer-actor", "human:dana")
             .body(Body::from(
                 serde_json::json!({ "reason": "This does not survive the load numbers" })
                     .to_string(),
@@ -5614,8 +5614,8 @@ async fn graph_option_nodes_carry_what_was_recorded_when_it_reads_differently() 
 
 #[tokio::test]
 async fn graph_option_recorded_without_a_label_is_titled_by_its_id() {
-    use hivemind::events::{Event, EventSource, EventType, TenantId};
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::events::{Event, EventSource, EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 
     let dir = test_ledger_dir();
     // A decision recorded before options carried labels, with an id that names nothing.
@@ -5763,8 +5763,8 @@ async fn cors_auth_still_enforced_on_cross_origin_request() {
     // without a bearer token must still return 401, not 200.
     let dir = test_ledger_dir();
     let origin = "https://alexknips.github.io";
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir: dir,
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir: dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -5788,7 +5788,7 @@ async fn cors_auth_still_enforced_on_cross_origin_request() {
         .header("origin", origin)
         .body(Body::empty())
         .unwrap();
-    let response = hivemind::api::create_router(&config)
+    let response = loomtracer::api::create_router(&config)
         .oneshot(req)
         .await
         .expect("handler error");
@@ -5803,9 +5803,9 @@ async fn cors_auth_still_enforced_on_cross_origin_request() {
 // Multi-user auth (SQLite user store)
 // ---------------------------------------------------------------------------
 
-fn app_with_admin_key(hivemind_dir: PathBuf, admin_key: &str) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+fn app_with_admin_key(loomtracer_dir: PathBuf, admin_key: &str) -> axum::Router {
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -5823,7 +5823,7 @@ fn app_with_admin_key(hivemind_dir: PathBuf, admin_key: &str) -> axum::Router {
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 fn admin_post(uri: &str, body: Value, admin_key: &str) -> Request<Body> {
@@ -5852,7 +5852,7 @@ fn authed_post(uri: &str, body: Value, token: &str) -> Request<Body> {
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {token}"))
         // intentionally different from the token-bound actor to test spoofing prevention
-        .header("x-hivemind-actor", "agent:evil:spoofer")
+        .header("x-loomtracer-actor", "agent:evil:spoofer")
         .body(Body::from(serde_json::to_string(&body).unwrap()))
         .unwrap()
 }
@@ -5890,7 +5890,7 @@ async fn create_user_and_authenticate() {
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}"); // ubs:ignore
     let token = body["token_secret"].as_str().unwrap().to_owned();
-    assert!(token.starts_with("hm_tk_"), "token must have hm_tk_ prefix"); // ubs:ignore
+    assert!(token.starts_with("lt_tk_"), "token must have lt_tk_ prefix"); // ubs:ignore
 
     // Token must grant access to the API
     let req = Request::builder()
@@ -5905,7 +5905,7 @@ async fn create_user_and_authenticate() {
 
 #[tokio::test]
 async fn actor_bound_to_token_not_header() {
-    // actor_id must come from the token record, not X-HiveMind-Actor header
+    // actor_id must come from the token record, not X-Loomtracer-Actor header
     let dir = test_ledger_dir();
     let admin_key = "admin-key-abc";
     let app = app_with_admin_key(dir, admin_key);
@@ -5921,7 +5921,7 @@ async fn actor_bound_to_token_not_header() {
     .await;
     let token = body["token_secret"].as_str().unwrap().to_owned();
 
-    // Capture a decision using the user token but with a spoofed X-HiveMind-Actor header
+    // Capture a decision using the user token but with a spoofed X-Loomtracer-Actor header
     let (status, dec) = call(
         app.clone(),
         authed_post(
@@ -6126,10 +6126,10 @@ async fn mint_agent_token_writes_show_agent_actor() {
     assert_eq!(status, StatusCode::CREATED, "{body}"); // ubs:ignore
     assert_eq!(body["actor_id"], "agent:claude:gastown-crew"); // ubs:ignore
     let token = body["token_secret"].as_str().unwrap().to_owned();
-    assert!(token.starts_with("hm_tk_"), "token must have hm_tk_ prefix"); // ubs:ignore
+    assert!(token.starts_with("lt_tk_"), "token must have lt_tk_ prefix"); // ubs:ignore
 
     // A decision captured with this token — even with a spoofed
-    // X-HiveMind-Actor header — must be credited to the minted agent
+    // X-Loomtracer-Actor header — must be credited to the minted agent
     // identity, never the header and never a human:<email> shape.
     let (status, dec) = call(
         app.clone(),
@@ -6427,9 +6427,10 @@ fn mcp_tools_call_body(tool: &str, arguments: Value) -> Value {
 
 /// Registers `acme` beside the default tenant in the SQLite ledger under `dir`.
 fn register_acme(dir: &Path) {
-    let ledger = hivemind::ledger::SqliteEventLedger::open(dir).expect("open ledger to provision");
+    let ledger =
+        loomtracer::ledger::SqliteEventLedger::open(dir).expect("open ledger to provision");
     ledger
-        .create_tenant(&hivemind::events::TenantId::new("acme").expect("valid tenant id"))
+        .create_tenant(&loomtracer::events::TenantId::new("acme").expect("valid tenant id"))
         .expect("register acme");
 }
 
@@ -6548,8 +6549,8 @@ async fn mcp_http_recent_changed_and_why_timeline_read_the_tenant_of_the_header_
                 .uri("/mcp")
                 .header("content-type", "application/json")
                 .header("authorization", "Bearer static-key")
-                .header("x-hivemind-actor", "agent:test:tenant-reads")
-                .header("x-hivemind-tenant", tenant)
+                .header("x-loomtracer-actor", "agent:test:tenant-reads")
+                .header("x-loomtracer-tenant", tenant)
                 .body(Body::from(mcp_tools_call_body(tool, arguments).to_string()))
                 .unwrap()
         }
@@ -6820,7 +6821,7 @@ fn capture_body(title: &str, grounding: Value) -> Value {
 }
 
 async fn ledger_offset_of(dir: &PathBuf) -> i64 {
-    use hivemind::ledger::{EventLedger, SqliteEventLedger};
+    use loomtracer::ledger::{EventLedger, SqliteEventLedger};
     let ledger = SqliteEventLedger::open(dir).unwrap();
     ledger.latest_offset().unwrap() as i64
 }
@@ -7032,7 +7033,7 @@ async fn supersession_requires_and_records_grounding() {
 // ---------------------------------------------------------------------------
 
 /// `GET /v1/whoami`, with `Authorization: Bearer <token>` when a token is given (`Some("")` is
-/// the empty token). It sends no `X-HiveMind-Actor` header: the shared-key path honours one.
+/// the empty token). It sends no `X-Loomtracer-Actor` header: the shared-key path honours one.
 fn whoami_req(token: Option<&str>) -> Request<Body> {
     let mut builder = Request::builder().method("GET").uri("/v1/whoami");
     if let Some(token) = token {
@@ -7049,12 +7050,12 @@ async fn whoami(app: &axum::Router, token: Option<&str>) -> (StatusCode, Value) 
 /// tokens are all live, and a request with no token is refused (a server with per-user tokens
 /// alone stays open to token-less requests).
 fn app_with_shared_and_admin_keys(
-    hivemind_dir: PathBuf,
+    loomtracer_dir: PathBuf,
     shared_key: &str,
     admin_key: &str,
 ) -> axum::Router {
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -7072,21 +7073,21 @@ fn app_with_shared_and_admin_keys(
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 /// A server that trusts the WorkOS stand-in at `workos_jwks_url` (when given), on Postgres when
 /// `database_url` is given. `create_router` fetches the JWKS with a blocking client, so call it
 /// outside any Tokio runtime or from `spawn_blocking`.
 fn app_with_auth(
-    hivemind_dir: PathBuf,
+    loomtracer_dir: PathBuf,
     database_url: Option<&str>,
     admin_key: Option<&str>,
     workos_jwks_url: Option<&str>,
 ) -> axum::Router {
     let workos_domain = workos_jwks_url.map(|_| workos_double::DOMAIN.to_owned());
-    let config = hivemind::api::ApiConfig {
-        hivemind_dir,
+    let config = loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -7104,7 +7105,7 @@ fn app_with_auth(
         slack_signing_secret: None,
         slack_api_base_url: None,
     };
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
 /// Stands in for WorkOS: a JWKS endpoint on a local port publishing one ES256 key, and JWTs
@@ -7214,7 +7215,7 @@ async fn whoami_names_the_identity_each_credential_carries() {
         serde_json::json!({ "actor_id": "service:api", "tenant_id": "local" })
     ); // ubs:ignore
 
-    // A user token names its person, whatever the caller claims in X-HiveMind-Actor.
+    // A user token names its person, whatever the caller claims in X-Loomtracer-Actor.
     let (status, user) = call(
         app.clone(),
         admin_post(
@@ -7228,7 +7229,7 @@ async fn whoami_names_the_identity_each_credential_carries() {
     let mut request = whoami_req(user["token_secret"].as_str());
     request
         .headers_mut()
-        .insert("x-hivemind-actor", "agent:evil:spoofer".parse().unwrap());
+        .insert("x-loomtracer-actor", "agent:evil:spoofer".parse().unwrap());
     let (status, body) = call(app.clone(), request).await;
     assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
     assert_eq!(
@@ -7289,7 +7290,7 @@ async fn whoami_refuses_missing_empty_unknown_and_revoked_tokens() {
     let response = app.clone().oneshot(revoke).await.unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT); // ubs:ignore
 
-    let unknown_user_token = format!("hm_tk_{}", "0".repeat(64));
+    let unknown_user_token = format!("lt_tk_{}", "0".repeat(64));
     for (what, credential) in [
         ("no token", None),
         ("empty token", Some("")),
@@ -7437,7 +7438,7 @@ mod whoami_postgres {
         let response = app.clone().oneshot(revoke).await.unwrap();
         assert_eq!(response.status(), StatusCode::NO_CONTENT); // ubs:ignore
 
-        let unknown_user_token = format!("hm_tk_{}", "0".repeat(64));
+        let unknown_user_token = format!("lt_tk_{}", "0".repeat(64));
         for (what, credential) in [
             ("no token", None),
             ("empty token", Some("")),
@@ -7477,7 +7478,7 @@ mod whoami_postgres {
         ); // ubs:ignore
 
         // With WorkOS configured a WorkOS JWT is the only credential.
-        let opaque_token = format!("hm_tk_{}", "0".repeat(64));
+        let opaque_token = format!("lt_tk_{}", "0".repeat(64));
         let forged = workos_double::forged_token(claims());
         for (what, credential) in [
             ("no token", None),

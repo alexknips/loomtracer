@@ -842,7 +842,7 @@ fn propose_decision_refuses_unregistered_project_handle() {
     let message = error.to_string();
     assert!(message.contains("billing"), "unexpected error: {message}");
     assert!(
-        message.contains("hivemind project register"),
+        message.contains("loomtracer project register"),
         "refusal must name the register command: {message}"
     );
     assert!(ledger.read(0, 10).expect("read succeeds").is_empty());
@@ -1302,7 +1302,7 @@ fn a_project_source_only_the_write_layer_may_record_is_refused_with_a_handle() {
         let error = commands
             .propose_decision_placed(fixture.proposal(
                 "actor:alice",
-                "Claims a source only HiveMind records",
+                "Claims a source only Loomtracer records",
                 Some(DeterminedProject {
                     handle: "billing",
                     source,
@@ -1620,7 +1620,7 @@ fn agent_actor_session_is_the_part_the_personal_address_drops() {
 
 #[test]
 fn direct_agent_decision_persists_agent_provenance() {
-    let dir = std::env::temp_dir().join(format!("hivemind-agent-provenance-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("loomtracer-agent-provenance-{}", Uuid::new_v4()));
     let actor_id = "agent:codex:furiosa";
     let decision_id = {
         let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
@@ -3315,7 +3315,7 @@ fn anchor_project_rejects_duplicate_rig_anchor_value() {
     let ledger = InMemoryEventLedger::new();
     let commands = Commands::new(&ledger);
 
-    for handle in ["hivemind", "hivemind-ui"] {
+    for handle in ["loomtracer", "loomtracer-ui"] {
         commands
             .register_project("actor:alice", handle, None, None)
             .expect("register");
@@ -3324,9 +3324,9 @@ fn anchor_project_rejects_duplicate_rig_anchor_value() {
     commands
         .anchor_project(
             "actor:alice",
-            "hivemind",
+            "loomtracer",
             ProjectAnchorKind::Rig,
-            "hivemind",
+            "loomtracer",
         )
         .expect("first rig anchor succeeds");
 
@@ -3334,9 +3334,9 @@ fn anchor_project_rejects_duplicate_rig_anchor_value() {
     assert!(commands
         .anchor_project(
             "actor:alice",
-            "hivemind-ui",
+            "loomtracer-ui",
             ProjectAnchorKind::Rig,
-            "hivemind",
+            "loomtracer",
         )
         .is_err());
 
@@ -3344,7 +3344,7 @@ fn anchor_project_rejects_duplicate_rig_anchor_value() {
     commands
         .anchor_project(
             "actor:alice",
-            "hivemind",
+            "loomtracer",
             ProjectAnchorKind::Folder,
             "services/billing",
         )
@@ -3352,7 +3352,7 @@ fn anchor_project_rejects_duplicate_rig_anchor_value() {
     assert!(commands
         .anchor_project(
             "actor:alice",
-            "hivemind-ui",
+            "loomtracer-ui",
             ProjectAnchorKind::Folder,
             "services/billing",
         )
@@ -5771,14 +5771,14 @@ fn an_assessment_quoting_the_decision_in_every_place_its_words_live_is_recorded(
     );
 
     let event_id = commands
-        .record_decision_assessed("agent:hivemind:scorer", payload.clone(), None)
+        .record_decision_assessed("agent:loomtracer:scorer", payload.clone(), None)
         .expect("an assessment that quotes the decision is recorded");
 
     let events = ledger.read(0, 100).expect("read");
     let event = events.last().expect("the assessment is the newest event");
     assert_eq!(event.event_id, Some(event_id));
     assert_eq!(event.event_type, EventType::DecisionScored);
-    assert_eq!(event.actor_id, "agent:hivemind:scorer");
+    assert_eq!(event.actor_id, "agent:loomtracer:scorer");
     assert_eq!(event.payload["schema_version"], 2);
     assert_eq!(
         validate(event).expect("the recorded event validates"),
@@ -5795,7 +5795,7 @@ fn an_assessment_that_assesses_nothing_needs_no_quote() {
 
     commands
         .record_decision_assessed(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             assessment_payload(&decision_id, dimensions_of(&[])),
             None,
         )
@@ -5816,7 +5816,7 @@ fn a_none_answer_needs_no_quote_but_partial_and_solid_do() {
     for level in ["partial", "solid"] {
         let error = commands
             .record_decision_assessed(
-                "agent:hivemind:scorer",
+                "agent:loomtracer:scorer",
                 assessment_payload(
                     &decision_id,
                     dimensions_of(&[
@@ -5833,7 +5833,7 @@ fn a_none_answer_needs_no_quote_but_partial_and_solid_do() {
     }
     let error = commands
         .record_decision_assessed(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             assessment_payload(
                 &decision_id,
                 dimensions_of(&[(
@@ -5864,7 +5864,7 @@ fn a_none_answer_needs_no_quote_but_partial_and_solid_do() {
         ]),
     );
     let event_id = commands
-        .record_decision_assessed("agent:hivemind:scorer", payload.clone(), None)
+        .record_decision_assessed("agent:loomtracer:scorer", payload.clone(), None)
         .expect("a none answer with no quote is recorded");
 
     let events = ledger.read(0, 100).expect("read");
@@ -5903,7 +5903,7 @@ fn a_quote_that_is_not_in_the_decision_refuses_the_whole_assessment_and_writes_n
     );
 
     let error = commands
-        .record_decision_assessed("agent:hivemind:scorer", payload, None)
+        .record_decision_assessed("agent:loomtracer:scorer", payload, None)
         .expect_err("a quote the decision never said is refused");
 
     let message = error.to_string();
@@ -5941,7 +5941,7 @@ fn a_quote_must_be_verbatim() {
         );
         assert!(
             commands
-                .record_decision_assessed("agent:hivemind:scorer", payload, None)
+                .record_decision_assessed("agent:loomtracer:scorer", payload, None)
                 .is_err(),
             "{close:?} is not verbatim"
         );
@@ -5960,7 +5960,7 @@ fn text_the_decision_only_cites_is_not_its_recorded_text() {
 
     let error = commands
         .record_decision_assessed(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             assessment_payload(
                 &decision_id,
                 dimensions_of(&[("information", assessed_answer(GATEWAY_EVIDENCE))]),
@@ -5989,7 +5989,7 @@ fn a_decision_that_is_not_recorded_cannot_be_assessed() {
     ] {
         let error = commands
             .record_decision_assessed(
-                "agent:hivemind:scorer",
+                "agent:loomtracer:scorer",
                 assessment_payload(missing, dimensions_of(&[])),
                 None,
             )
@@ -6001,7 +6001,7 @@ fn a_decision_that_is_not_recorded_cannot_be_assessed() {
     }
     assert!(commands
         .record_decision_assessed(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             assessment_payload(&decision_id, dimensions_of(&[])),
             None,
         )
@@ -6021,14 +6021,14 @@ fn a_malformed_assessment_is_refused_before_the_ledger_is_read() {
         dimensions_of(&[("framing", assessed_answer("   "))]),
     );
     let error = commands
-        .record_decision_assessed("agent:hivemind:scorer", blank_quote, None)
+        .record_decision_assessed("agent:loomtracer:scorer", blank_quote, None)
         .expect_err("a blank quote proves nothing");
     assert!(error.to_string().contains("framing.quote"), "{error}");
 
     let mut wrong_version = assessment_payload(&decision_id, dimensions_of(&[]));
     wrong_version.schema_version = 1;
     assert!(commands
-        .record_decision_assessed("agent:hivemind:scorer", wrong_version, None)
+        .record_decision_assessed("agent:loomtracer:scorer", wrong_version, None)
         .is_err());
 
     // Every write names who made it: an anonymous assessment is refused.
@@ -6085,7 +6085,7 @@ fn a_classified_capture_can_be_assessed_against_its_own_text() {
         .expect("evidence");
     let batch_event = commands
         .record_ingest_batch_classified(
-            "agent:hivemind:classifier",
+            "agent:loomtracer:classifier",
             &["batch-1".to_owned()],
             "claude-haiku-4-5-20251001",
             "v1",
@@ -6115,7 +6115,7 @@ fn a_classified_capture_can_be_assessed_against_its_own_text() {
     ] {
         commands
             .record_decision_assessed(
-                "agent:hivemind:scorer",
+                "agent:loomtracer:scorer",
                 assessment_payload(
                     &node_id,
                     dimensions_of(&[("framing", assessed_answer(quote))]),
@@ -6130,7 +6130,7 @@ fn a_classified_capture_can_be_assessed_against_its_own_text() {
     let refused_before = ledger.latest_offset().expect("latest offset");
     assert!(commands
         .record_decision_assessed(
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             assessment_payload(
                 &node_id,
                 dimensions_of(&[("framing", assessed_answer("Use MySQL for the ledger"))]),
@@ -6145,7 +6145,7 @@ fn a_classified_capture_can_be_assessed_against_its_own_text() {
     ] {
         let error = commands
             .record_decision_assessed(
-                "agent:hivemind:scorer",
+                "agent:loomtracer:scorer",
                 assessment_payload(&wrong, dimensions_of(&[])),
                 None,
             )
@@ -6246,7 +6246,7 @@ fn a_capture_into_a_project_may_only_use_declared_topics() {
         "the refusal must say how to declare: {message}"
     );
     assert!(
-        message.contains("hivemind project declare-topic billing pricing"),
+        message.contains("loomtracer project declare-topic billing pricing"),
         "the refusal must name the standalone verb: {message}"
     );
     assert!(
@@ -6456,7 +6456,7 @@ fn declare_project_topic_normalises_repeats_quietly_and_refuses_bad_targets() {
         .expect_err("an unregistered project has no vocabulary")
         .to_string();
     assert!(
-        unregistered.contains("hivemind project register nosuch"),
+        unregistered.contains("loomtracer project register nosuch"),
         "{unregistered}"
     );
 
@@ -6669,7 +6669,7 @@ fn classified_batch(
         vec![turn(&format!("{batch_id}-turn"), ts)],
     )?;
     commands.record_ingest_batch_classified(
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         &[batch_id.to_owned()],
         "claude-haiku-4-5-20251001",
         "2",
@@ -6886,7 +6886,7 @@ fn restates_id_must_name_a_recorded_decision_or_nothing_is_written() {
         let before = ledger.latest_offset().expect("offset");
         let error = commands
             .record_ingest_batch_classified(
-                "agent:hivemind:classifier",
+                "agent:loomtracer:classifier",
                 &["batch-2".to_owned()],
                 "claude-haiku-4-5-20251001",
                 "2",
@@ -6921,7 +6921,7 @@ fn only_a_decision_can_restate_a_decision() {
     evidence.kind = "evidence".to_owned();
     let error = commands
         .record_ingest_batch_classified(
-            "agent:hivemind:classifier",
+            "agent:loomtracer:classifier",
             &["batch-2".to_owned()],
             "claude-haiku-4-5-20251001",
             "2",

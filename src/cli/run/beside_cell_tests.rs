@@ -5,12 +5,12 @@ use clap::Parser;
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
 
-/// What the guard makes of `hivemind <args>`: the verb's name when it guards it, `None` when the
+/// What the guard makes of `loomtracer <args>`: the verb's name when it guards it, `None` when the
 /// verb is left out.
 fn guarded_as(
     args: &[&str],
 ) -> std::result::Result<Option<&'static str>, Box<dyn std::error::Error>> {
-    let mut argv = vec!["hivemind"];
+    let mut argv = vec!["loomtracer"];
     argv.extend_from_slice(args);
     let cli = Cli::try_parse_from(argv)?;
     Ok(CellBesideVerb::of(&cli.command).map(CellBesideVerb::name))
@@ -66,7 +66,7 @@ fn every_verb_that_opens_the_ledger_is_guarded_under_its_own_name() -> TestResul
     for (args, name) in cases {
         let guarded = guarded_as(args)?;
         if guarded != Some(*name) {
-            return Err(format!("hivemind {args:?}: expected {name:?}, got {guarded:?}").into());
+            return Err(format!("loomtracer {args:?}: expected {name:?}, got {guarded:?}").into());
         }
     }
     Ok(())
@@ -103,7 +103,7 @@ fn the_verbs_left_out_on_purpose_are_not_guarded() -> TestResult {
     for args in cases {
         let guarded = guarded_as(args)?;
         if guarded.is_some() {
-            return Err(format!("hivemind {args:?} must not be guarded, got {guarded:?}").into());
+            return Err(format!("loomtracer {args:?} must not be guarded, got {guarded:?}").into());
         }
     }
     Ok(())
@@ -113,11 +113,11 @@ fn the_verbs_left_out_on_purpose_are_not_guarded() -> TestResult {
 /// the one line it prints on stdout is left as it was.
 #[test]
 fn the_tui_notice_goes_to_stderr_and_leaves_stdout_alone() -> TestResult {
-    let cli = Cli::try_parse_from(["hivemind", "--hivemind-dir", "/ledger/here", "tui"])?;
+    let cli = Cli::try_parse_from(["loomtracer", "--loomtracer-dir", "/ledger/here", "tui"])?;
     let cell = LocalLedgerBesideCell {
         verb: CellBesideVerb::Tui,
         api_url: "http://cell.example.test".to_owned(),
-        hivemind_dir: PathBuf::from("/ledger/here"),
+        loomtracer_dir: PathBuf::from("/ledger/here"),
     };
     let mut stderr = Vec::new();
 
@@ -127,8 +127,8 @@ fn the_tui_notice_goes_to_stderr_and_leaves_stdout_alone() -> TestResult {
         return Err(format!("stdout changed: {stdout:?}").into());
     }
     let stderr = String::from_utf8(stderr)?;
-    if !(stderr.starts_with("notice: HIVEMIND_API_URL is set (http://cell.example.test)")
-        && stderr.contains("`hivemind tui`")
+    if !(stderr.starts_with("notice: LOOMTRACER_API_URL is set (http://cell.example.test)")
+        && stderr.contains("`loomtracer tui`")
         && stderr.contains("/ledger/here"))
     {
         return Err(
@@ -143,11 +143,11 @@ fn the_tui_notice_goes_to_stderr_and_leaves_stdout_alone() -> TestResult {
 // none, refuses and makes none
 // ---------------------------------------------------------------------------------------------
 
-/// What `hivemind <args>` does with the ledger it opens, `None` when it opens none.
+/// What `loomtracer <args>` does with the ledger it opens, `None` when it opens none.
 fn ledger_use_of(
     args: &[&str],
 ) -> std::result::Result<Option<LedgerUse>, Box<dyn std::error::Error>> {
-    let mut argv = vec!["hivemind"];
+    let mut argv = vec!["loomtracer"];
     argv.extend_from_slice(args);
     let cli = Cli::try_parse_from(argv)?;
     Ok(CellBesideVerb::of(&cli.command).map(CellBesideVerb::ledger_use))
@@ -253,14 +253,14 @@ fn every_verb_is_placed_by_what_it_does_with_the_ledger() -> TestResult {
     for (args, name) in READ_VERBS {
         let used = ledger_use_of(args)?;
         if used != Some(LedgerUse::Reads) {
-            return Err(format!("hivemind {args:?} ({name}) is not a read: {used:?}").into());
+            return Err(format!("loomtracer {args:?} ({name}) is not a read: {used:?}").into());
         }
     }
     for (args, name) in ACT_ON_VERBS {
         let used = ledger_use_of(args)?;
         if used != Some(LedgerUse::ReadsAndWrites) {
             return Err(
-                format!("hivemind {args:?} ({name}) does not act on a ledger: {used:?}").into(),
+                format!("loomtracer {args:?} ({name}) does not act on a ledger: {used:?}").into(),
             );
         }
     }
@@ -268,14 +268,14 @@ fn every_verb_is_placed_by_what_it_does_with_the_ledger() -> TestResult {
         let used = ledger_use_of(args)?;
         if used != Some(LedgerUse::WritesTo) {
             return Err(
-                format!("hivemind {args:?} must be able to start a ledger: {used:?}").into(),
+                format!("loomtracer {args:?} must be able to start a ledger: {used:?}").into(),
             );
         }
     }
     Ok(())
 }
 
-/// `classify-queue` opens the ledger under `--hivemind-dir` only while `HIVEMIND_API_URL` is
+/// `classify-queue` opens the ledger under `--loomtracer-dir` only while `LOOMTRACER_API_URL` is
 /// unset (hivemind-odmnc): it is placed by what it does with that ledger, so a folder with none is
 /// refused, and it is the one verb the cell guard leaves alone, because with the variable set it
 /// asks that server instead.
@@ -301,36 +301,36 @@ fn classify_queue_is_placed_by_its_ledger_use_and_left_to_the_cell() -> TestResu
         (submit, "classify-queue submit"),
     ] {
         if guarded_as(args)? != Some(name) {
-            return Err(format!("hivemind {args:?} is not named {name:?}").into());
+            return Err(format!("loomtracer {args:?} is not named {name:?}").into());
         }
-        let mut argv = vec!["hivemind"];
+        let mut argv = vec!["loomtracer"];
         argv.extend_from_slice(args);
         let cli = Cli::try_parse_from(argv)?;
         let honours = CellBesideVerb::of(&cli.command).is_some_and(CellBesideVerb::honours_api_url);
         if !honours {
-            return Err(format!("hivemind {args:?} must be left to the cell guard").into());
+            return Err(format!("loomtracer {args:?} must be left to the cell guard").into());
         }
     }
     // No other verb is: each of them ignores the variable and is guarded beside a cell.
     for (args, name) in READ_VERBS.iter().chain(ACT_ON_VERBS) {
-        let mut argv = vec!["hivemind"];
+        let mut argv = vec!["loomtracer"];
         argv.extend_from_slice(args);
         let cli = Cli::try_parse_from(argv)?;
         if CellBesideVerb::of(&cli.command).is_some_and(CellBesideVerb::honours_api_url) {
-            return Err(format!("hivemind {args:?} ({name}) honours HIVEMIND_API_URL").into());
+            return Err(format!("loomtracer {args:?} ({name}) honours LOOMTRACER_API_URL").into());
         }
     }
     Ok(())
 }
 
-/// What the refusal makes of `hivemind --hivemind-dir <dir> <args>`: its message, `None` when the
+/// What the refusal makes of `loomtracer --loomtracer-dir <dir> <args>`: its message, `None` when the
 /// verb is let through. `--database-url ""` keeps a shared database in the environment out of it.
 fn ledger_refusal(
     dir: &Path,
     args: &[&str],
 ) -> std::result::Result<Option<String>, Box<dyn std::error::Error>> {
     let dir = dir.display().to_string();
-    let mut argv = vec!["hivemind", "--database-url", "", "--hivemind-dir", &dir];
+    let mut argv = vec!["loomtracer", "--database-url", "", "--loomtracer-dir", &dir];
     argv.extend_from_slice(args);
     let cli = Cli::try_parse_from(argv)?;
     Ok(refuse_verb_without_ledger(&cli)
@@ -348,9 +348,9 @@ fn a_read_with_no_ledger_under_the_folder_is_refused_naming_the_folder_and_makes
     for (args, name) in READ_VERBS {
         for dir in [&missing, &empty] {
             let message = ledger_refusal(dir, args)?
-                .ok_or_else(|| format!("hivemind {args:?} was let through under {dir:?}"))?;
+                .ok_or_else(|| format!("loomtracer {args:?} was let through under {dir:?}"))?;
             let shown = dir.display().to_string();
-            if !(message.contains(&format!("`hivemind {name}` reads a local ledger"))
+            if !(message.contains(&format!("`loomtracer {name}` reads a local ledger"))
                 && message.contains(&shown)
                 && message.contains("none was created"))
             {
@@ -380,9 +380,9 @@ fn a_verb_that_acts_on_a_ledger_with_none_under_the_folder_is_refused_naming_the
     for (args, name) in ACT_ON_VERBS {
         for dir in [&missing, &empty] {
             let message = ledger_refusal(dir, args)?
-                .ok_or_else(|| format!("hivemind {args:?} was let through under {dir:?}"))?;
+                .ok_or_else(|| format!("loomtracer {args:?} was let through under {dir:?}"))?;
             let shown = dir.display().to_string();
-            if !(message.contains(&format!("`hivemind {name}` acts on what a local ledger"))
+            if !(message.contains(&format!("`loomtracer {name}` acts on what a local ledger"))
                 && message.contains(&shown)
                 && message.contains("nothing was recorded and none was created")
                 && !message.contains("reads a local ledger"))
@@ -412,7 +412,9 @@ fn a_verb_under_a_folder_that_holds_a_ledger_is_let_through_even_when_it_holds_n
     let acts = ACT_ON_VERBS.iter().map(|(args, _)| *args);
     for args in reads.chain(acts) {
         if let Some(message) = ledger_refusal(scratch.path(), args)? {
-            return Err(format!("hivemind {args:?} refused an existing ledger: {message}").into());
+            return Err(
+                format!("loomtracer {args:?} refused an existing ledger: {message}").into(),
+            );
         }
     }
     Ok(())
@@ -424,7 +426,7 @@ fn the_verbs_that_write_keep_their_first_run_behaviour() -> TestResult {
     let missing = scratch.path().join("fresh");
     for args in WRITE_VERBS {
         if let Some(message) = ledger_refusal(&missing, args)? {
-            return Err(format!("hivemind {args:?} starts a ledger, but: {message}").into());
+            return Err(format!("loomtracer {args:?} starts a ledger, but: {message}").into());
         }
     }
     Ok(())
@@ -435,10 +437,10 @@ fn a_shared_database_names_no_folder_so_a_read_is_not_refused_for_one() -> TestR
     let scratch = tempfile::tempdir()?;
     let dir = scratch.path().join("typo").display().to_string();
     let cli = Cli::try_parse_from([
-        "hivemind",
+        "loomtracer",
         "--database-url",
         "postgres://nobody@127.0.0.1:9/none",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir,
         "query",
         "recall",

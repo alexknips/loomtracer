@@ -2,8 +2,8 @@
 //! uuid, actor, source, source ref, correlation id, payload and time (hivemind-jawy).
 //!
 //! This is how a ledger moves into a cell without anyone holding the cell's database password:
-//! `hivemind migrate --to-url` reads the source and sends it here in batches. Auth is the admin
-//! key (`HIVEMIND_ADMIN_KEY`), not a tenant token, because the events carry their own actors:
+//! `loomtracer migrate --to-url` reads the source and sends it here in batches. Auth is the admin
+//! key (`LOOMTRACER_ADMIN_KEY`), not a tenant token, because the events carry their own actors:
 //! the route records who each event was by, not who sent it. The rules (dedup by event uuid, a
 //! causation link numbered by its cause's uuid, a batch with an unresolvable link writes
 //! nothing) are those of [`crate::replay::replay_events`].

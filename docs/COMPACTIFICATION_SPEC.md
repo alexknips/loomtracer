@@ -150,15 +150,15 @@ candidates, cites them, and states "Current status: none" when no single decisio
 
 ## CLI and MCP surfaces
 
-**CLI (new subcommand under `hivemind query`):**
+**CLI (new subcommand under `loomtracer query`):**
 ```
-hivemind query compact-view <decision-id> [--summary]
+loomtracer query compact-view <decision-id> [--summary]
 ```
 Returns `CompactView` as JSON by default; `--summary` renders human-readable text. Mirrors the existing `neighborhood` subcommand pattern.
 
 **MCP tool (new tool in `src/mcp.rs`):**
 ```
-Tool name: hivemind_compact_view
+Tool name: loomtracer_compact_view
 Input:  { decision_id?: string, description?: string, topic?: string }  // exactly one of decision_id, description
 Output: CompactView (JSON)
 ```
@@ -197,4 +197,4 @@ Every `CompactView` response:
 
 3. **Supersession chain oldest_id only vs full chain** — the spec provides `oldest_id` in `SupersessionSummary` and relies on a follow-up `get_supersession_chain` call for the ordered list. Alternative: embed the full `decision_ids: Vec<String>` in `SupersessionSummary`. Which is cheaper for the caller?
 
-4. **CLI surface** — `hivemind query compact-view` as a new subcommand vs `hivemind query get_decision_neighborhood --compact` flag. Separate subcommand is cleaner (distinct return type); flag is discoverable. Preference?
+4. **CLI surface** — `loomtracer query compact-view` as a new subcommand vs `loomtracer query get_decision_neighborhood --compact` flag. Separate subcommand is cleaner (distinct return type); flag is discoverable. Preference?

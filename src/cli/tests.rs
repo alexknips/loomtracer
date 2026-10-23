@@ -168,7 +168,7 @@ fn unknown_phrase_returns_friendly_error() {
 fn parses_get_decisions_added_since_command() -> std::result::Result<(), Box<dyn std::error::Error>>
 {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "query",
         "get_decisions_added_since",
         "--since",
@@ -207,7 +207,7 @@ fn parses_get_decisions_added_since_command() -> std::result::Result<(), Box<dyn
 fn parses_recent_decisions_command_with_composable_filters(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "query",
         "recent_decisions",
         "--since",
@@ -256,7 +256,7 @@ fn parses_recent_decisions_command_with_composable_filters(
 
 #[test]
 fn parses_legacy_recent_alias() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    let cli = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     let Command::Query(args) = cli.command else {
         return Err("expected query command".into());
     };
@@ -269,7 +269,7 @@ fn parses_legacy_recent_alias() -> std::result::Result<(), Box<dyn std::error::E
 fn query_summary_flag_is_global_for_graph_queries(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "query",
         "search_decisions",
         "--q",
@@ -299,7 +299,7 @@ fn query_help_documents_json_default_and_summary_mode(
 }
 
 /// Quality bar H18: a user never has to ask what a command is for. Walks the whole command tree
-/// (`hivemind --help`, `hivemind query --help`, `emit`, `import`, ...) so a new subcommand
+/// (`loomtracer --help`, `loomtracer query --help`, `emit`, `import`, ...) so a new subcommand
 /// without a doc comment fails here rather than in the after-deploy product check
 /// (hivemind-pdeh).
 #[test]
@@ -322,7 +322,7 @@ fn every_command_says_what_it_does() -> CliTestResult {
     }
 
     let mut missing = Vec::new();
-    collect_undescribed(&Cli::command(), "hivemind", &mut missing);
+    collect_undescribed(&Cli::command(), "loomtracer", &mut missing);
     ensure(
         missing.is_empty(),
         &format!("commands without a description: {missing:?}"),
@@ -370,7 +370,7 @@ fn supersede_and_capture_help_open_with_what_they_do() -> CliTestResult {
 #[test]
 fn parses_review_command_with_actor_window_and_unreviewed_filter() -> CliTestResult {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:senior",
         "review",
@@ -437,11 +437,11 @@ fn parses_review_command_with_actor_window_and_unreviewed_filter() -> CliTestRes
 #[test]
 fn parses_global_flags_and_emit_subcommand() {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         "./state",
         "--graph-backend",
         "memory",
@@ -455,7 +455,7 @@ fn parses_global_flags_and_emit_subcommand() {
     assert_eq!(cli.actor, "agent-1");
     assert!(cli.json);
     assert_eq!(cli.verbose, 2);
-    assert_eq!(cli.hivemind_dir, PathBuf::from("./state"));
+    assert_eq!(cli.loomtracer_dir, PathBuf::from("./state"));
     assert_eq!(cli.graph_backend, Some(GraphBackend::Memory));
     assert!(matches!(
         &cli.command,
@@ -477,7 +477,7 @@ fn cli_version_is_cargo_semver_plus_build_sha() {
 #[test]
 fn quickstart_records_and_queries_decision_on_temp_ledger() {
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
         "--json",
@@ -510,8 +510,8 @@ fn quickstart_records_and_queries_decision_on_temp_ledger() {
 #[test]
 fn parses_tui_filters_and_export_path() {
     let cli = Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         "./state",
         "tui",
         "--q",
@@ -549,14 +549,14 @@ fn parses_tui_filters_and_export_path() {
 #[cfg(not(feature = "tui"))]
 #[test]
 fn tui_command_requires_feature() {
-    let hivemind_dir = unique_test_dir("tui-feature-required");
+    let loomtracer_dir = unique_test_dir("tui-feature-required");
     // `tui` reads the ledger, and a read of a folder with no ledger is refused before dispatch
     // reaches the feature check (hivemind-i6ply).
-    crate::ledger::SqliteEventLedger::open(&hivemind_dir).expect("seed an empty ledger");
+    crate::ledger::SqliteEventLedger::open(&loomtracer_dir).expect("seed an empty ledger");
     let cli = Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "tui",
     ]);
 
@@ -581,29 +581,32 @@ fn parses_graph_backend_from_env_aliases() {
 #[test]
 fn maps_exit_codes_by_error_kind() {
     assert_eq!(
-        exit_code_for_error(&HivemindError::Cli(CliError::InvalidInput("x".into()))).code(),
+        exit_code_for_error(&LoomtracerError::Cli(CliError::InvalidInput("x".into()))).code(),
         2
     );
     assert_eq!(
-        exit_code_for_error(&HivemindError::Command(CommandError::Validation(
+        exit_code_for_error(&LoomtracerError::Command(CommandError::Validation(
             "x".into()
         )))
         .code(),
         2
     );
     assert_eq!(
-        exit_code_for_error(&HivemindError::Command(CommandError::Invariant("x".into()))).code(),
+        exit_code_for_error(&LoomtracerError::Command(CommandError::Invariant(
+            "x".into()
+        )))
+        .code(),
         3
     );
     assert_eq!(
-        exit_code_for_error(&HivemindError::Ledger(crate::LedgerError::Storage(
+        exit_code_for_error(&LoomtracerError::Ledger(crate::LedgerError::Storage(
             "x".into()
         )))
         .code(),
         4
     );
     assert_eq!(
-        exit_code_for_error(&HivemindError::Query(crate::QueryError::Execution(
+        exit_code_for_error(&LoomtracerError::Query(crate::QueryError::Execution(
             "x".into()
         )))
         .code(),
@@ -613,14 +616,14 @@ fn maps_exit_codes_by_error_kind() {
 
 #[test]
 fn emit_records_evidence_as_json() {
-    let hivemind_dir = unique_test_dir("emit-records-evidence");
+    let loomtracer_dir = unique_test_dir("emit-records-evidence");
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "evidence.recorded",
         "--content",
@@ -647,13 +650,13 @@ fn emit_records_evidence_as_json() {
 
 #[test]
 fn emit_proposes_decision_with_cli_option_labels() {
-    let hivemind_dir = unique_test_dir("emit-proposes-decision");
+    let loomtracer_dir = unique_test_dir("emit-proposes-decision");
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -678,12 +681,12 @@ fn option_flag_keeps_a_comma_inside_its_label() -> CliTestResult {
     // hivemind-0cbl: `--options "...,Rename after the comparison, before the first listing,..."`
     // recorded the label as two options and read both as rejected. `--option` takes one label
     // whole, so the comma stays, and `--chose` repeats it exactly.
-    let hivemind_dir = unique_test_dir("option-flag-keeps-comma");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("option-flag-keeps-comma");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let label = "Rename after the comparison, before the first listing";
     run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.capture",
@@ -709,9 +712,9 @@ fn option_flag_keeps_a_comma_inside_its_label() -> CliTestResult {
     ]))?;
 
     let json = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -736,7 +739,7 @@ fn option_flag_keeps_a_comma_inside_its_label() -> CliTestResult {
         "the label is not also recorded as rejected fragments",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -745,14 +748,14 @@ fn text_answers_quote_an_option_label_that_holds_a_comma() -> CliTestResult {
     // hivemind-2gbo: joined with ", ", a three-option decision read as four and "before the first
     // listing" read as an option of its own. why, verify and digest quote the label that holds a
     // comma so each option counts as one; the JSON keeps every label whole and unquoted.
-    let hivemind_dir = unique_test_dir("text-answers-quote-comma-label");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("text-answers-quote-comma-label");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let label = "Rename after the comparison, before the first listing";
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -773,8 +776,8 @@ fn text_answers_quote_an_option_label_that_holds_a_comma() -> CliTestResult {
     let quoted = format!("\"{label}\"");
     for verb in ["why", "verify"] {
         let summary = run(&Cli::parse_from([
-            "hivemind",
-            "--hivemind-dir",
+            "loomtracer",
+            "--loomtracer-dir",
             dir,
             "query",
             verb,
@@ -797,8 +800,8 @@ fn text_answers_quote_an_option_label_that_holds_a_comma() -> CliTestResult {
     }
 
     let digest = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "digest",
         "--window",
@@ -815,9 +818,9 @@ fn text_answers_quote_an_option_label_that_holds_a_comma() -> CliTestResult {
     )?;
 
     let json = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -837,7 +840,7 @@ fn text_answers_quote_an_option_label_that_holds_a_comma() -> CliTestResult {
         "the JSON keeps the label whole, without quotes",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -857,7 +860,7 @@ fn options_flag_refuses_a_piece_that_is_not_a_clean_label() -> CliTestResult {
         ("Rename now,Pause,", "must not be empty"),
     ] {
         let error = Cli::try_parse_from([
-            "hivemind",
+            "loomtracer",
             "emit",
             "decision.proposed",
             "--title",
@@ -877,7 +880,7 @@ fn options_flag_refuses_a_piece_that_is_not_a_clean_label() -> CliTestResult {
     }
 
     let error = Cli::try_parse_from([
-        "hivemind",
+        "loomtracer",
         "emit",
         "decision.proposed",
         "--title",
@@ -897,7 +900,7 @@ fn options_flag_refuses_a_piece_that_is_not_a_clean_label() -> CliTestResult {
     for option in ["", "  ", " Rename now", "Rename now "] {
         ensure(
             Cli::try_parse_from([
-                "hivemind",
+                "loomtracer",
                 "emit",
                 "decision.proposed",
                 "--title",
@@ -917,7 +920,7 @@ fn options_flag_refuses_a_piece_that_is_not_a_clean_label() -> CliTestResult {
 #[test]
 fn supersede_takes_option_labels_with_a_comma_whole() -> CliTestResult {
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "supersede",
         "--binds-nothing",
         "--cheap-to-undo",
@@ -948,13 +951,13 @@ fn supersede_takes_option_labels_with_a_comma_whole() -> CliTestResult {
 
 #[test]
 fn emit_hypothesis_recorded_defaults_to_assumption_kind() {
-    let hivemind_dir = unique_test_dir("emit-hypothesis-default");
+    let loomtracer_dir = unique_test_dir("emit-hypothesis-default");
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "hypothesis.recorded",
         "--statement",
@@ -967,13 +970,13 @@ fn emit_hypothesis_recorded_defaults_to_assumption_kind() {
 
 #[test]
 fn emit_hypothesis_recorded_accepts_bet_kind_check_by_and_would_change_if() {
-    let hivemind_dir = unique_test_dir("emit-hypothesis-bet");
+    let loomtracer_dir = unique_test_dir("emit-hypothesis-bet");
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "hypothesis.recorded",
         "--statement",
@@ -992,13 +995,13 @@ fn emit_hypothesis_recorded_accepts_bet_kind_check_by_and_would_change_if() {
 
 #[test]
 fn emit_hypothesis_recorded_rejects_malformed_check_by() {
-    let hivemind_dir = unique_test_dir("emit-hypothesis-bad-date");
+    let loomtracer_dir = unique_test_dir("emit-hypothesis-bad-date");
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "hypothesis.recorded",
         "--statement",
@@ -1018,14 +1021,14 @@ fn emit_hypothesis_recorded_rejects_malformed_check_by() {
 
 #[test]
 fn emit_relation_added_follows_from_links_decisions() {
-    let hivemind_dir = unique_test_dir("emit-relation-follows-from");
-    let dir_str = hivemind_dir.to_str().expect("utf-8 temp path").to_owned();
+    let loomtracer_dir = unique_test_dir("emit-relation-follows-from");
+    let dir_str = loomtracer_dir.to_str().expect("utf-8 temp path").to_owned();
 
     let earlier_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir_str,
         "emit",
         "decision.proposed",
@@ -1041,10 +1044,10 @@ fn emit_relation_added_follows_from_links_decisions() {
     .expect("propose earlier decision");
 
     let later_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir_str,
         "emit",
         "decision.proposed",
@@ -1060,10 +1063,10 @@ fn emit_relation_added_follows_from_links_decisions() {
     .expect("propose later decision");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir_str,
         "emit",
         "relation.added",
@@ -1080,14 +1083,14 @@ fn emit_relation_added_follows_from_links_decisions() {
 
 #[test]
 fn emit_relation_added_based_on_names_follows_from_when_target_is_a_decision() {
-    let hivemind_dir = unique_test_dir("emit-relation-based-on-decision-target");
-    let dir_str = hivemind_dir.to_str().expect("utf-8 temp path").to_owned();
+    let loomtracer_dir = unique_test_dir("emit-relation-based-on-decision-target");
+    let dir_str = loomtracer_dir.to_str().expect("utf-8 temp path").to_owned();
 
     let decision_a = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir_str,
         "emit",
         "decision.proposed",
@@ -1103,10 +1106,10 @@ fn emit_relation_added_based_on_names_follows_from_when_target_is_a_decision() {
     .expect("propose decision A");
 
     let decision_b = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir_str,
         "emit",
         "decision.proposed",
@@ -1122,10 +1125,10 @@ fn emit_relation_added_based_on_names_follows_from_when_target_is_a_decision() {
     .expect("propose decision B");
 
     let error = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir_str,
         "emit",
         "relation.added",
@@ -1145,13 +1148,13 @@ fn emit_relation_added_based_on_names_follows_from_when_target_is_a_decision() {
 
 #[test]
 fn disagree_cli_records_reason_contests_and_is_idempotent() {
-    let hivemind_dir = unique_test_dir("disagree-cli");
+    let loomtracer_dir = unique_test_dir("disagree-cli");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -1165,11 +1168,11 @@ fn disagree_cli_records_reason_contests_and_is_idempotent() {
     ]))
     .expect("decision proposed");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:bob",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.accepted",
         "--decision-id",
@@ -1178,12 +1181,12 @@ fn disagree_cli_records_reason_contests_and_is_idempotent() {
     .expect("decision accepted");
 
     let first_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:carol",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "disagree",
         "--decision",
         &decision_id,
@@ -1200,15 +1203,15 @@ fn disagree_cli_records_reason_contests_and_is_idempotent() {
     );
     let first_event_id = first_output["event_id"].as_u64().expect("event id");
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
     let second_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:carol",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "disagree",
         "--decision",
         &decision_id,
@@ -1243,7 +1246,7 @@ fn disagree_cli_records_reason_contests_and_is_idempotent() {
         Some("misses auth implications")
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
@@ -1251,13 +1254,13 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
     // hivemind-xm93: run_disagree previously hardcoded EventProvenance::human
     // regardless of --actor, so an agent-initiated disagree was misattributed as
     // human-sourced (AGENTS.md #2). An `agent:`-shaped actor must record source=agent.
-    let hivemind_dir = unique_test_dir("disagree-cli-agent-source");
+    let loomtracer_dir = unique_test_dir("disagree-cli-agent-source");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -1271,11 +1274,11 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
     ]))
     .expect("decision proposed");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:bob",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.accepted",
         "--decision-id",
@@ -1284,12 +1287,12 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
     .expect("decision accepted");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent:claude:tenv3-smoke-test",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "disagree",
         "--decision",
         &decision_id,
@@ -1300,7 +1303,7 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
     let output: serde_json::Value = serde_json::from_str(&output).expect("valid disagree json");
     let event_id = output["event_id"].as_u64().expect("event id");
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 20).expect("events read");
     let rejected = events
         .iter()
@@ -1310,7 +1313,7 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
     assert_eq!(rejected.source, crate::events::EventSource::Agent);
     assert_eq!(rejected.actor_id, "agent:claude:tenv3-smoke-test");
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 // hivemind-09j6r: an actor that accepted a decision (a capture accepts itself) and later wants to
@@ -1318,14 +1321,14 @@ fn disagree_cli_records_agent_source_for_agent_actor() {
 // accepted it and names `supersede`, instead of reading like an internal error.
 #[test]
 fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
-    let hivemind_dir = unique_test_dir("disagree-own-accepted");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("disagree-own-accepted");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let actor = "agent:claude:gastown.dog-1";
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         actor,
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -1340,10 +1343,10 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
     ]))
     .expect("decision proposed");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         actor,
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.accepted",
@@ -1352,14 +1355,14 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
     ]))
     .expect("the actor accepts its own decision");
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_before = ledger.latest_offset().expect("latest offset");
 
     let by_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         actor,
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "disagree",
         "--decision",
@@ -1369,10 +1372,10 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
     ]))
     .expect_err("disagreeing with your own accepted decision is refused");
     let by_description = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         actor,
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "disagree",
         "async billing queue",
@@ -1381,10 +1384,10 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
     ]))
     .expect_err("the same refusal by description");
     let by_emit = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         actor,
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.rejected",
@@ -1402,11 +1405,11 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
             "names who accepted what: {printed}"
         );
         assert!(
-            printed.contains(&format!("hivemind supersede --old {decision_id} --title")),
+            printed.contains(&format!("loomtracer supersede --old {decision_id} --title")),
             "names supersede: {printed}"
         );
         assert!(
-            printed.contains("hivemind retitle") && printed.contains("hivemind move"),
+            printed.contains("loomtracer retitle") && printed.contains("loomtracer move"),
             "names the wording and project fixes: {printed}"
         );
         assert!(
@@ -1421,19 +1424,19 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
         "a refused disagree writes nothing"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 // The other direction: an actor that rejected a decision cannot also accept it, and says so.
 #[test]
 fn accepting_a_decision_you_rejected_says_so() {
-    let hivemind_dir = unique_test_dir("accept-own-rejected");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("accept-own-rejected");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -1448,10 +1451,10 @@ fn accepting_a_decision_you_rejected_says_so() {
     ]))
     .expect("decision proposed");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:bob",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.rejected",
@@ -1461,10 +1464,10 @@ fn accepting_a_decision_you_rejected_says_so() {
     .expect("bob rejects");
 
     let error = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:bob",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.accepted",
@@ -1481,18 +1484,18 @@ fn accepting_a_decision_you_rejected_says_so() {
     );
     assert_eq!(exit_code_for_error(&error).code(), 3, "{printed}");
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
-    let hivemind_dir = unique_test_dir("supersede-cli");
+    let loomtracer_dir = unique_test_dir("supersede-cli");
     let old_decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -1507,12 +1510,12 @@ fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
     .expect("decision proposed");
 
     let first_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:bob",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "supersede",
         "--binds-nothing",
         "--cheap-to-undo",
@@ -1549,15 +1552,15 @@ fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
         serde_json::json!("accepted")
     );
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
     let second_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:bob",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "supersede",
         "--binds-nothing",
         "--cheap-to-undo",
@@ -1589,18 +1592,18 @@ fn supersede_cli_proposes_replacement_marks_old_and_is_idempotent() {
         latest_after_first
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn supersede_cli_still_proposed_keeps_a_chosen_replacement_open() {
-    let hivemind_dir = unique_test_dir("supersede-cli-still-proposed");
+    let loomtracer_dir = unique_test_dir("supersede-cli-still-proposed");
     let old_decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -1616,12 +1619,12 @@ fn supersede_cli_still_proposed_keeps_a_chosen_replacement_open() {
 
     let supersede = |title: &str, extra: &[&str]| {
         let mut args = vec![
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:bob",
             "--json",
-            "--hivemind-dir",
-            hivemind_dir.to_str().expect("utf-8 temp path"),
+            "--loomtracer-dir",
+            loomtracer_dir.to_str().expect("utf-8 temp path"),
             "supersede",
             "--binds-nothing",
             "--cheap-to-undo",
@@ -1653,7 +1656,7 @@ fn supersede_cli_still_proposed_keeps_a_chosen_replacement_open() {
         serde_json::json!("proposed")
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
@@ -1661,13 +1664,13 @@ fn supersede_cli_records_agent_source_for_agent_actor() {
     // hivemind-xm93: run_supersede previously hardcoded EventProvenance::human
     // regardless of --actor, so an agent-initiated supersede was misattributed as
     // human-sourced (AGENTS.md #2). An `agent:`-shaped actor must record source=agent.
-    let hivemind_dir = unique_test_dir("supersede-cli-agent-source");
+    let loomtracer_dir = unique_test_dir("supersede-cli-agent-source");
     let old_decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -1682,12 +1685,12 @@ fn supersede_cli_records_agent_source_for_agent_actor() {
     .expect("decision proposed");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent:claude:tenv3-smoke-test",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "supersede",
         "--binds-nothing",
         "--cheap-to-undo",
@@ -1709,7 +1712,7 @@ fn supersede_cli_records_agent_source_for_agent_actor() {
         .as_u64()
         .expect("superseded event id");
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 20).expect("events read");
     let superseded = events
         .iter()
@@ -1719,7 +1722,7 @@ fn supersede_cli_records_agent_source_for_agent_actor() {
     assert_eq!(superseded.source, crate::events::EventSource::Agent);
     assert_eq!(superseded.actor_id, "agent:claude:tenv3-smoke-test");
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 fn disagree_fluent_description_resolves_uniquely_and_records_body(
@@ -1780,7 +1783,7 @@ fn disagree_fluent_description_resolves_uniquely_and_records() -> CliTestResult 
 #[test]
 fn disagree_fluent_description_resolves_uniquely_and_records_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("disagree-fluent-resolve-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     disagree_fluent_description_resolves_uniquely_and_records_body(&backend)
@@ -1864,7 +1867,7 @@ fn disagree_fluent_ambiguous_description_short_circuits_without_writing() -> Cli
 fn disagree_fluent_ambiguous_description_short_circuits_without_writing_postgres() -> CliTestResult
 {
     let Some(backend) = TestBackend::postgres("disagree-fluent-ambiguous-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     disagree_fluent_ambiguous_description_short_circuits_without_writing_body(&backend)
@@ -1951,7 +1954,7 @@ fn disagree_fluent_pick_disambiguates_and_hash_handle_reuses_it() -> CliTestResu
 #[test]
 fn disagree_fluent_pick_disambiguates_and_hash_handle_reuses_it_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("disagree-fluent-pick-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     disagree_fluent_pick_disambiguates_and_hash_handle_reuses_it_body(&backend)
@@ -2084,7 +2087,7 @@ fn writers_list_decisions_that_hold_every_word_and_write_nothing() -> CliTestRes
 #[test]
 fn writers_list_decisions_that_hold_every_word_and_write_nothing_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("writers-list-full-matches-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     writers_list_decisions_that_hold_every_word_and_write_nothing_body(&backend)
@@ -2147,7 +2150,7 @@ fn disagree_fluent_topic_narrows_ambiguous_to_resolved() -> CliTestResult {
 #[test]
 fn disagree_fluent_topic_narrows_ambiguous_to_resolved_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("disagree-fluent-topic-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     disagree_fluent_topic_narrows_ambiguous_to_resolved_body(&backend)
@@ -2220,7 +2223,7 @@ fn supersede_fluent_description_resolves_uniquely_and_records() -> CliTestResult
 #[test]
 fn supersede_fluent_description_resolves_uniquely_and_records_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("supersede-fluent-resolve-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_fluent_description_resolves_uniquely_and_records_body(&backend)
@@ -2319,7 +2322,7 @@ fn supersede_fluent_ambiguous_description_short_circuits_without_writing() -> Cl
 fn supersede_fluent_ambiguous_description_short_circuits_without_writing_postgres() -> CliTestResult
 {
     let Some(backend) = TestBackend::postgres("supersede-fluent-ambiguous-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_fluent_ambiguous_description_short_circuits_without_writing_body(&backend)
@@ -2332,14 +2335,14 @@ fn supersede_fluent_ambiguous_description_short_circuits_without_writing_postgre
 #[cfg(not(feature = "shared-backend-postgres"))]
 #[test]
 fn database_url_without_feature_errors_before_any_write() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("database-url-no-feature");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("database-url-no-feature");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
 
     let result = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "--database-url",
         "postgres://user:pass@127.0.0.1/hivemind",
@@ -2360,23 +2363,23 @@ fn database_url_without_feature_errors_before_any_write() -> CliTestResult {
         "error must name the missing feature",
     )?;
     ensure(
-        !hivemind_dir.exists(),
+        !loomtracer_dir.exists(),
         "must not have created a SQLite ledger as a fallback before failing",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn query_chain_and_why_aliases_resolve_by_description() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-chain-why-fluent");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-chain-why-fluent");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let old_decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -2390,10 +2393,10 @@ fn query_chain_and_why_aliases_resolve_by_description() -> CliTestResult {
         "shared-token",
     ]))?;
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:bob",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "supersede",
         "--binds-nothing",
@@ -2412,9 +2415,9 @@ fn query_chain_and_why_aliases_resolve_by_description() -> CliTestResult {
     ]))?;
 
     let chain = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "chain",
@@ -2436,9 +2439,9 @@ fn query_chain_and_why_aliases_resolve_by_description() -> CliTestResult {
     )?;
 
     let why = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2451,20 +2454,20 @@ fn query_chain_and_why_aliases_resolve_by_description() -> CliTestResult {
         "why alias resolves the description to the decision's neighborhood root",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> CliTestResult {
     // hivemind-hk5z: a slug-shaped option reads as words, and `why` still says what was recorded.
-    let hivemind_dir = unique_test_dir("query-why-recorded-option-text");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-why-recorded-option-text");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -2481,8 +2484,8 @@ fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Cl
     ]))?;
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2500,9 +2503,9 @@ fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Cl
     }
 
     let json = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2530,13 +2533,13 @@ fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Cl
 #[test]
 fn query_why_and_verify_list_the_options_of_an_undecided_decision_as_open() -> CliTestResult {
     // hivemind-d6ar: options with no choice are an open question; nobody turned them down.
-    let hivemind_dir = unique_test_dir("query-why-open-options");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-why-open-options");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -2551,8 +2554,8 @@ fn query_why_and_verify_list_the_options_of_an_undecided_decision_as_open() -> C
     ]))?;
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2569,9 +2572,9 @@ fn query_why_and_verify_list_the_options_of_an_undecided_decision_as_open() -> C
     )?;
 
     let verify = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "verify",
@@ -2596,19 +2599,19 @@ fn query_why_and_verify_list_the_options_of_an_undecided_decision_as_open() -> C
         &format!("no choice is recorded, got: {verify}"),
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn query_why_answers_a_natural_question_with_the_why() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-why-natural-question");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-why-natural-question");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -2625,8 +2628,8 @@ fn query_why_answers_a_natural_question_with_the_why() -> CliTestResult {
     ]))?;
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2658,9 +2661,9 @@ fn query_why_answers_a_natural_question_with_the_why() -> CliTestResult {
         "why is the demo cell still on shared Postgres",
     ] {
         let asked = run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--json",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "query",
             "why",
@@ -2682,9 +2685,9 @@ fn query_why_answers_a_natural_question_with_the_why() -> CliTestResult {
     }
 
     let json = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2712,7 +2715,7 @@ fn query_why_answers_a_natural_question_with_the_why() -> CliTestResult {
         "root carries the rejected option label",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -2722,14 +2725,14 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     // hivemind-eral: the triage decision's rationale says product, called and Upheld, so it
     // matches in full; the decision named after the product lacks "called" but is about the
     // question. `recall` and `why` must both name the second, and `why` must say what it lacks.
-    let hivemind_dir = unique_test_dir("query-why-about-the-question");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-why-about-the-question");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let emit = |title: &str, rationale: &str, topic: &str, option: &str| {
         run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -2766,9 +2769,9 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     let question = "is the product still called Upheld";
 
     let recalled = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "recall",
@@ -2782,9 +2785,9 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     )?;
 
     let why = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2803,8 +2806,8 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     )?;
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2818,13 +2821,13 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     )?;
 
     // A verb that writes lists the decision first and writes nothing.
-    let events_before = ledger_event_count(&hivemind_dir);
+    let events_before = ledger_event_count(&loomtracer_dir);
     let disagreed = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:bob",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "disagree",
         question,
@@ -2843,12 +2846,12 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
         "the decision about the question is listed first",
     )?;
     ensure_eq(
-        ledger_event_count(&hivemind_dir),
+        ledger_event_count(&loomtracer_dir),
         events_before,
         "disagree wrote nothing",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -2857,13 +2860,13 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
 ) -> CliTestResult {
     // hivemind-3lko: `recall` returns the decision for this question, so `why` and `verify` must
     // answer it too, instead of "no decision matches".
-    let hivemind_dir = unique_test_dir("query-why-close-match");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-why-close-match");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -2879,10 +2882,10 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
         "Title slugs",
     ]))?;
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -2901,9 +2904,9 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
     let question = "how do we keep decision links stable in browsers";
 
     let recalled = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "recall",
@@ -2917,9 +2920,9 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
     )?;
 
     let why = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2944,8 +2947,8 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
 
     for verb in ["why", "verify"] {
         let summary = run(&Cli::parse_from([
-            "hivemind",
-            "--hivemind-dir",
+            "loomtracer",
+            "--loomtracer-dir",
             dir,
             "query",
             verb,
@@ -2963,9 +2966,9 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
     }
 
     let compact = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "compact-view",
@@ -2980,9 +2983,9 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
 
     // A description that matches in full says nothing extra.
     let exact = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "why",
@@ -2995,13 +2998,13 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
     )?;
 
     // A verb that writes still needs more than half of the words and never picks for the asker.
-    let events_before = ledger_event_count(&hivemind_dir);
+    let events_before = ledger_event_count(&loomtracer_dir);
     let disagreed = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:bob",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "disagree",
         question,
@@ -3015,12 +3018,12 @@ fn query_why_and_verify_answer_a_question_that_shares_half_its_words_and_say_wha
         "disagree does not act on a decision that lacks half of the words",
     )?;
     ensure_eq(
-        ledger_event_count(&hivemind_dir),
+        ledger_event_count(&loomtracer_dir),
         events_before,
         "disagree wrote nothing",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -3030,14 +3033,14 @@ fn query_why_lists_a_decision_that_lacks_the_word_the_question_is_about_instead_
     // hivemind-tfde: nothing in this ledger is about Postgres. The hosted-plan decision holds
     // "hosted" in its title and "cell" in its rationale and lacks "postgres": it is listed, with
     // what it lacks, and not answered as the decision the question asks about.
-    let hivemind_dir = unique_test_dir("query-why-lacks-the-subject");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-why-lacks-the-subject");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let emit = |title: &str, rationale: &str, topic: &str, option: &str| {
         run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -3072,7 +3075,7 @@ fn query_why_lists_a_decision_that_lacks_the_word_the_question_is_about_instead_
         "Two columns",
     )?;
     let why = |question: &str, extra: &[&str]| -> crate::Result<String> {
-        let mut args = vec!["hivemind", "--hivemind-dir", dir];
+        let mut args = vec!["loomtracer", "--loomtracer-dir", dir];
         args.extend_from_slice(extra);
         args.extend_from_slice(&["query", "why", question]);
         run(&Cli::parse_from(args))
@@ -3114,15 +3117,15 @@ fn query_why_lists_a_decision_that_lacks_the_word_the_question_is_about_instead_
         "and it still says what it lacks",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 /// Leave an assessment nobody can parse in the ledger, as a buggy or old producer, a partial
 /// import or a hand edit could: `Commands::record_decision_assessed` refuses it, the ledger
 /// itself does not. Returns the ledger offset it landed at.
-fn inject_malformed_assessment(hivemind_dir: &std::path::Path, decision_id: &str) -> u64 {
-    let ledger = SqliteEventLedger::open(hivemind_dir).expect("ledger opens");
+fn inject_malformed_assessment(loomtracer_dir: &std::path::Path, decision_id: &str) -> u64 {
+    let ledger = SqliteEventLedger::open(loomtracer_dir).expect("ledger opens");
     ledger
         .append(crate::events::Event {
             tenant_id: Default::default(),
@@ -3131,7 +3134,7 @@ fn inject_malformed_assessment(hivemind_dir: &std::path::Path, decision_id: &str
             correlation_id: None,
             causation_event_id: None,
             event_type: crate::events::EventType::DecisionScored,
-            actor_id: "agent:hivemind:scorer".to_owned(),
+            actor_id: "agent:loomtracer:scorer".to_owned(),
             source: crate::events::EventSource::Agent,
             source_ref: Some("scorer-session".to_owned()),
             payload: serde_json::json!({
@@ -3149,11 +3152,11 @@ fn inject_malformed_assessment(hivemind_dir: &std::path::Path, decision_id: &str
 #[test]
 fn every_read_verb_answers_past_a_malformed_assessment_row_and_says_it_skipped_it() -> CliTestResult
 {
-    let hivemind_dir = unique_test_dir("read-past-malformed-assessment");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("read-past-malformed-assessment");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let out_dir = unique_test_dir("read-past-malformed-assessment-export");
     let cli = |extra: &[&str]| -> crate::Result<String> {
-        let mut args = vec!["hivemind", "--hivemind-dir", dir];
+        let mut args = vec!["loomtracer", "--loomtracer-dir", dir];
         args.extend_from_slice(extra);
         run(&Cli::parse_from(args))
     };
@@ -3196,7 +3199,7 @@ fn every_read_verb_answers_past_a_malformed_assessment_row_and_says_it_skipped_i
         )?;
     }
 
-    let bad_offset = inject_malformed_assessment(&hivemind_dir, &decision_id);
+    let bad_offset = inject_malformed_assessment(&loomtracer_dir, &decision_id);
     let notice_start =
         format!("1 assessment row could not be read and was skipped (ledger event {bad_offset}:");
 
@@ -3258,20 +3261,20 @@ fn every_read_verb_answers_past_a_malformed_assessment_row_and_says_it_skipped_i
         "a write carries no read notice",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&out_dir);
     Ok(())
 }
 
 #[test]
 fn query_verify_alias_returns_decision_brief() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-verify-fluent");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-verify-fluent");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -3288,9 +3291,9 @@ fn query_verify_alias_returns_decision_brief() -> CliTestResult {
     ]))?;
 
     let verify = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "verify",
@@ -3319,21 +3322,21 @@ fn query_verify_alias_returns_decision_brief() -> CliTestResult {
         "DecisionBrief resolves the chosen option",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_is_superseded(
 ) -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-verify-rests-on");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-verify-rests-on");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let propose = |title: &str, rationale: &str| {
         run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -3356,10 +3359,10 @@ fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_i
         "Consistent with shipping the hosted MVP",
     )?;
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "relation.added",
@@ -3374,9 +3377,9 @@ fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_i
     let verify_json =
         |description: &str| -> std::result::Result<serde_json::Value, Box<dyn std::error::Error>> {
             let output = run(&Cli::parse_from([
-                "hivemind",
+                "loomtracer",
                 "--json",
-                "--hivemind-dir",
+                "--loomtracer-dir",
                 dir,
                 "query",
                 "verify",
@@ -3421,10 +3424,10 @@ fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_i
 
     // Supersede the premise: the decision that rests on it is stale, and says why.
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "supersede",
         "--binds-nothing",
@@ -3459,8 +3462,8 @@ fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_i
     )?;
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "--summary",
@@ -3476,19 +3479,19 @@ fn query_verify_shows_what_a_decision_rests_on_and_goes_stale_when_the_premise_i
         "the text answer names the superseding decision",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn query_compact_view_fluent_resolves_by_description() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-compact-view-fluent");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-compact-view-fluent");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -3503,9 +3506,9 @@ fn query_compact_view_fluent_resolves_by_description() -> CliTestResult {
     ]))?;
 
     let compact = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "compact-view",
@@ -3518,19 +3521,19 @@ fn query_compact_view_fluent_resolves_by_description() -> CliTestResult {
         "compact-view resolves the description before rendering the view",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn query_fluent_verb_reports_not_found_for_no_match() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-fluent-not-found");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-fluent-not-found");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "actor:alice",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -3545,9 +3548,9 @@ fn query_fluent_verb_reports_not_found_for_no_match() -> CliTestResult {
     ]))?;
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "query",
         "verify",
@@ -3560,20 +3563,20 @@ fn query_fluent_verb_reports_not_found_for_no_match() -> CliTestResult {
         "a fluent verb reports not_found rather than erroring on zero matches",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn review_prompt_shows_option_labels_and_marks_the_chosen_one() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("review-option-labels");
-    let hivemind_dir_arg = hivemind_dir.to_string_lossy().into_owned();
+    let loomtracer_dir = unique_test_dir("review-option-labels");
+    let loomtracer_dir_arg = loomtracer_dir.to_string_lossy().into_owned();
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent:codex:one",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "emit",
         "decision.proposed",
         "--title",
@@ -3589,11 +3592,11 @@ fn review_prompt_shows_option_labels_and_marks_the_chosen_one() -> CliTestResult
     ]))?;
 
     let review_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:lead",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "review",
         "--actor",
         "agent:*",
@@ -3623,20 +3626,20 @@ fn review_prompt_shows_option_labels_and_marks_the_chosen_one() -> CliTestResult
         "review prompt shows no opaque option id",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("review-cli");
-    let hivemind_dir_arg = hivemind_dir.to_string_lossy().into_owned();
+    let loomtracer_dir = unique_test_dir("review-cli");
+    let loomtracer_dir_arg = loomtracer_dir.to_string_lossy().into_owned();
     let disagree_decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent:codex:one",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "emit",
         "decision.proposed",
         "--title",
@@ -3651,11 +3654,11 @@ fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> 
         "permissive",
     ]))?;
     let approve_decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent:codex:two",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "emit",
         "decision.proposed",
         "--title",
@@ -3670,11 +3673,11 @@ fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> 
         "keep",
     ]))?;
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:architect",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "emit",
         "decision.accepted",
         "--decision-id",
@@ -3682,12 +3685,12 @@ fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> 
     ]))?;
 
     let review_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:senior",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "review",
         "--actor",
         "agent:codex:*",
@@ -3769,7 +3772,7 @@ fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> 
         "disagreed old status",
     )?;
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(&loomtracer_dir)?;
     let graph = MemoryGraph::default();
     let tenant_id = cli_tenant(&review_cli)?;
     rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
@@ -3829,12 +3832,12 @@ fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> 
     )?;
 
     let unreviewed_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:senior",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "review",
         "--actor",
         "agent:codex:*",
@@ -3861,21 +3864,21 @@ fn review_cli_walkthrough_accepts_disagrees_and_filters_reviewed_decisions() -> 
         "unreviewed empty prompt",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn search_decisions_cli_returns_query_response(
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let hivemind_dir = unique_test_dir("query-search-decisions");
-    let hivemind_dir_arg = hivemind_dir.to_string_lossy().into_owned();
+    let loomtracer_dir = unique_test_dir("query-search-decisions");
+    let loomtracer_dir_arg = loomtracer_dir.to_string_lossy().into_owned();
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "emit",
         "decision.proposed",
         "--title",
@@ -3891,9 +3894,9 @@ fn search_decisions_cli_returns_query_response(
     ]))?;
 
     let query = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "query",
         "search_decisions",
         "--q",
@@ -3919,9 +3922,9 @@ fn search_decisions_cli_returns_query_response(
     assert_eq!(query["data"]["next_cursor"], serde_json::Value::Null);
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir_arg.as_str(),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir_arg.as_str(),
         "query",
         "search_decisions",
         "--q",
@@ -3932,19 +3935,19 @@ fn search_decisions_cli_returns_query_response(
     assert!(summary.contains("rank=1")); // ubs:ignore: test-only CLI summary assertion.
     assert!(summary.contains("Pick queue")); // ubs:ignore: test-only CLI summary assertion.
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn search_cli_alias_uses_fts_surface_with_time_filters() {
-    let hivemind_dir = unique_test_dir("query-search-fts");
+    let loomtracer_dir = unique_test_dir("query-search-fts");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-fts",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -3961,9 +3964,9 @@ fn search_cli_alias_uses_fts_surface_with_time_filters() {
     .expect("emit decision succeeds");
 
     let query = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "search",
         "--q",
@@ -3996,18 +3999,18 @@ fn search_cli_alias_uses_fts_surface_with_time_filters() {
         serde_json::json!("2000-01-01T00:00:00Z")
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn recall_cli_returns_ranked_decisions_and_digest() {
-    let hivemind_dir = unique_test_dir("query-recall");
+    let loomtracer_dir = unique_test_dir("query-recall");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-recall",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -4025,9 +4028,9 @@ fn recall_cli_returns_ranked_decisions_and_digest() {
 
     // JSON mode: structured recall response
     let query = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "recall",
         "circuit breaker",
@@ -4059,9 +4062,9 @@ fn recall_cli_returns_ranked_decisions_and_digest() {
 
     // Summary mode: human-friendly text
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "--summary",
         "recall",
@@ -4077,13 +4080,13 @@ fn recall_cli_returns_ranked_decisions_and_digest() {
         "summary output must contain match line"
     ); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn recall_answers_its_own_documented_question_form() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-recall-question");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-recall-question");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     for (title, rationale) in [
         (
             "An agent's personal project is per agent kind and tool, never per session",
@@ -4095,10 +4098,10 @@ fn recall_answers_its_own_documented_question_form() -> CliTestResult {
         ),
     ] {
         run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -4118,8 +4121,8 @@ fn recall_answers_its_own_documented_question_form() -> CliTestResult {
     let recall =
         |question: &str, extra: &[&str]| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
             let mut argv = vec![
-                "hivemind",
-                "--hivemind-dir",
+                "loomtracer",
+                "--loomtracer-dir",
                 dir,
                 "query",
                 "recall",
@@ -4174,8 +4177,8 @@ fn recall_answers_its_own_documented_question_form() -> CliTestResult {
         "no decision about billing",
     )?;
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "--summary",
@@ -4195,20 +4198,20 @@ fn recall_answers_its_own_documented_question_form() -> CliTestResult {
         "no ignored_words key when nothing was dropped",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn recall_finds_a_decision_from_a_plain_question_that_shares_most_of_its_words() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("query-recall-plain-question");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-recall-plain-question");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let emit = |title: &str, rationale: &str| -> Result<String, Box<dyn std::error::Error>> {
         Ok(run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -4256,8 +4259,8 @@ fn recall_finds_a_decision_from_a_plain_question_that_shares_most_of_its_words()
 
     let recall = |question: &str| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
         Ok(serde_json::from_str(&run(&Cli::parse_from([
-            "hivemind",
-            "--hivemind-dir",
+            "loomtracer",
+            "--loomtracer-dir",
             dir,
             "query",
             "recall",
@@ -4309,8 +4312,8 @@ fn recall_finds_a_decision_from_a_plain_question_that_shares_most_of_its_words()
         "the close match says which word of the question it lacks",
     )?;
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "--summary",
@@ -4431,7 +4434,7 @@ fn recall_finds_a_decision_from_a_plain_question_that_shares_most_of_its_words()
         )?;
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -4439,14 +4442,14 @@ fn recall_finds_a_decision_from_a_plain_question_that_shares_most_of_its_words()
 fn recall_finds_a_decision_asked_with_another_form_or_a_synonym_of_its_words() -> CliTestResult {
     // hivemind-md0y: "superseded" never matched "supersession", "interface" never found "UI", and
     // a question that says "laptop and phone" never found the decision about every browser.
-    let hivemind_dir = unique_test_dir("query-recall-forms-and-synonyms");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-recall-forms-and-synonyms");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let emit = |title: &str, rationale: &str| -> Result<String, Box<dyn std::error::Error>> {
         Ok(run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -4499,8 +4502,8 @@ fn recall_finds_a_decision_asked_with_another_form_or_a_synonym_of_its_words() -
     let top_ranked =
         |question: &str, limit: usize| -> Result<Vec<String>, Box<dyn std::error::Error>> {
             let answer: serde_json::Value = serde_json::from_str(&run(&Cli::parse_from([
-                "hivemind",
-                "--hivemind-dir",
+                "loomtracer",
+                "--loomtracer-dir",
                 dir,
                 "query",
                 "recall",
@@ -4578,7 +4581,7 @@ fn recall_finds_a_decision_asked_with_another_form_or_a_synonym_of_its_words() -
         "nothing recorded about kubernetes",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -4586,14 +4589,14 @@ fn recall_finds_a_decision_asked_with_another_form_or_a_synonym_of_its_words() -
 fn a_negation_is_polarity_in_every_spelling_never_a_word_the_decision_lacks() -> CliTestResult {
     // hivemind-g889: "not" and "doesn't" are never missing words, and a negated question never
     // resolves to the decision that says the opposite.
-    let hivemind_dir = unique_test_dir("query-negation-polarity");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("query-negation-polarity");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let emit = |title: &str, rationale: &str| -> Result<String, Box<dyn std::error::Error>> {
         Ok(run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--actor",
             "human:alice",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.proposed",
@@ -4619,7 +4622,7 @@ fn a_negation_is_polarity_in_every_spelling_never_a_word_the_decision_lacks() ->
     )?;
     let ask =
         |verb: &str, summary: bool, question: &str| -> Result<String, Box<dyn std::error::Error>> {
-            let mut args = vec!["hivemind", "--hivemind-dir", dir, "query"];
+            let mut args = vec!["loomtracer", "--loomtracer-dir", dir, "query"];
             if summary {
                 args.push("--summary");
             }
@@ -4703,19 +4706,19 @@ fn a_negation_is_polarity_in_every_spelling_never_a_word_the_decision_lacks() ->
         )?;
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn digest_cli_returns_decisions_in_window() {
-    let hivemind_dir = unique_test_dir("digest");
+    let loomtracer_dir = unique_test_dir("digest");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-digest-test",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -4733,9 +4736,9 @@ fn digest_cli_returns_decisions_in_window() {
 
     // JSON mode: structured digest response
     let out = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "digest",
         "--window",
         "7d",
@@ -4761,9 +4764,9 @@ fn digest_cli_returns_decisions_in_window() {
 
     // Summary mode: prose output
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "digest",
         "--window",
         "7d",
@@ -4795,7 +4798,7 @@ fn digest_cli_returns_decisions_in_window() {
          (hivemind-zdsh.3) — each already appears in its own bullet: {summary}"
     ); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
@@ -4803,14 +4806,14 @@ fn decision_capture_with_decided_by_is_the_acceptance_test_for_ledger_fidelity()
     // hivemind-zdsh.3 acceptance test: capture Alex's ruling itself — a decision he made,
     // recorded by the capturing agent — with correct attribution, and confirm the digest
     // renders it readably. decided_by=human:alex.knips@gmail.com must appear as who decided;
-    // agent:claude:hivemind-crew (the recorder) must appear as who recorded it — neither
+    // agent:claude:loomtracer-crew (the recorder) must appear as who recorded it — neither
     // hidden, both visible in the same "By:" line — and the decision must land as accepted,
     // not stuck at proposed.
-    let hivemind_dir = unique_test_dir("ledger-fidelity-acceptance");
+    let loomtracer_dir = unique_test_dir("ledger-fidelity-acceptance");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
         "--binds-nothing",
@@ -4819,7 +4822,7 @@ fn decision_capture_with_decided_by_is_the_acceptance_test_for_ledger_fidelity()
         "--agent-tool",
         "claude",
         "--agent-session",
-        "hivemind-crew",
+        "loomtracer-crew",
         "--title",
         "Ledger must distinguish who decided from who recorded",
         "--rationale",
@@ -4839,9 +4842,9 @@ fn decision_capture_with_decided_by_is_the_acceptance_test_for_ledger_fidelity()
     .expect("decision.capture with decided_by succeeds");
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "digest",
         "--window",
         "7d",
@@ -4868,11 +4871,11 @@ fn decision_capture_with_decided_by_is_the_acceptance_test_for_ledger_fidelity()
         "digest must render option titles, not raw option ids: {summary}"
     ); // ubs:ignore: test-only assertion
     assert!(
-        summary.contains("By: agent:claude:hivemind-crew, human:alex.knips@gmail.com"),
+        summary.contains("By: agent:claude:loomtracer-crew, human:alex.knips@gmail.com"),
         "digest must be honest about both who recorded and who decided, in one line: {summary}"
     ); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 /// The lines of one decision's bullet in a `digest --summary` rendering: from its
@@ -4901,12 +4904,12 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
     // agent decided, the delegation visible on the record; (3) an agent decides alone -> the
     // agent decided, nothing on the record says a human sanctioned it. All three land as
     // accepted, and the digest has to let a reader tell them apart at a glance.
-    let hivemind_dir = unique_test_dir("delegation-three-cases");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("delegation-three-cases");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let capture = |title: &str, session: &str, extra: &[&str]| -> String {
         let mut args = vec![
-            "hivemind",
-            "--hivemind-dir",
+            "loomtracer",
+            "--loomtracer-dir",
             dir,
             "emit",
             "decision.capture",
@@ -4945,8 +4948,8 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
     let decided_alone = capture("Case 3: agent decided alone", "builder", &[]);
 
     let summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "digest",
         "--window",
@@ -4998,8 +5001,8 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
 
     // `verify` (the decision brief) shows the same fact, as text and as JSON.
     let verify_text = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "--summary",
@@ -5014,8 +5017,8 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
         "verify text shows who decided and who delegated: {verify_text}"
     ); // ubs:ignore: test-only assertion
     let verify_json = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "verify",
@@ -5029,8 +5032,8 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
         serde_json::json!("human:alex")
     );
     let alone_text = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "query",
         "--summary",
@@ -5044,20 +5047,20 @@ fn digest_shows_the_three_attribution_cases_side_by_side() {
         "an agent that decided alone has no delegation line: {alone_text}"
     ); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_refuses_a_delegation_that_is_not_an_agent_deciding_for_itself() {
     // A human recording under their own name is not "an agent deciding within a delegation",
     // and nothing may be written for a refused capture.
-    let hivemind_dir = unique_test_dir("delegation-refused");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("delegation-refused");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let refused = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:sam",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "emit",
         "decision.proposed",
@@ -5077,8 +5080,8 @@ fn decision_capture_refuses_a_delegation_that_is_not_an_agent_deciding_for_itsel
     assert!(refused.is_err(), "a human recorder must be refused");
 
     let digest = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
+        "loomtracer",
+        "--loomtracer-dir",
         dir,
         "digest",
         "--window",
@@ -5091,18 +5094,18 @@ fn decision_capture_refuses_a_delegation_that_is_not_an_agent_deciding_for_itsel
         "the refused capture must leave nothing behind: {digest}"
     ); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn ledger_history_cli_queries_and_exports_read_only_summary() {
-    let hivemind_dir = unique_test_dir("query-ledger-history");
+    let loomtracer_dir = unique_test_dir("query-ledger-history");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -5119,9 +5122,9 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
     .expect("emit decision succeeds");
 
     let recent = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_recent_activity",
         "--limit",
@@ -5140,9 +5143,9 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
         .starts_with("event:"));
 
     let recent_decisions = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "recent_decisions",
         "--since",
@@ -5174,9 +5177,9 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
     );
 
     let empty_recent_decisions = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "recent_decisions",
         "--since",
@@ -5192,9 +5195,9 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
     );
 
     let recent_summary = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "recent_decisions",
         "--since",
@@ -5206,9 +5209,9 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
     assert!(recent_summary.contains("accepted"));
 
     let changed = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decisions_changed_since",
         "--since-offset",
@@ -5225,9 +5228,9 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
     );
 
     let export = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "export_read_only_summary",
         "--query",
@@ -5251,21 +5254,21 @@ fn ledger_history_cli_queries_and_exports_read_only_summary() {
         .expect("markdown body")
         .contains("citation=event:1"));
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn import_documents_cli_imports_queryable_document_decisions_and_reimport_noops() {
-    let hivemind_dir = unique_test_dir("import-documents");
+    let loomtracer_dir = unique_test_dir("import-documents");
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/documents");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         fixtures.to_str().expect("utf-8 fixture path"),
@@ -5275,13 +5278,13 @@ fn import_documents_cli_imports_queryable_document_decisions_and_reimport_noops(
     assert_eq!(output["summary"]["blocks_imported"], serde_json::json!(2));
     assert_eq!(output["summary"]["events_written"].as_u64(), Some(14));
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
 
     let search = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "search_decisions",
         "--source",
@@ -5354,12 +5357,12 @@ fn import_documents_cli_imports_queryable_document_decisions_and_reimport_noops(
     assert_eq!(report_ref["original_actor_id"], serde_json::Value::Null);
 
     let second_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         fixtures.to_str().expect("utf-8 fixture path"),
@@ -5395,12 +5398,12 @@ fn import_documents_cli_imports_queryable_document_decisions_and_reimport_noops(
         latest_after_first
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn import_documents_cli_lands_as_unreviewed_and_review_flow_works() {
-    let hivemind_dir = unique_test_dir("import-documents-unreviewed");
+    let loomtracer_dir = unique_test_dir("import-documents-unreviewed");
     let scratch_dir = unique_test_dir("import-documents-unreviewed-doc");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let doc_path = scratch_dir.join("decision.md");
@@ -5411,12 +5414,12 @@ fn import_documents_cli_lands_as_unreviewed_and_review_flow_works() {
     .expect("write test document");
 
     let import_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:test",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -5432,12 +5435,12 @@ fn import_documents_cli_lands_as_unreviewed_and_review_flow_works() {
 
     // Decision must land as proposed (unreviewed) even though the document says status: accepted.
     let unreviewed_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:human",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "review",
         "--actor",
         "actor:alice",
@@ -5467,12 +5470,12 @@ fn import_documents_cli_lands_as_unreviewed_and_review_flow_works() {
 
     // Approve the decision in a review session.
     let review_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:human",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "review",
         "--actor",
         "actor:alice",
@@ -5498,12 +5501,12 @@ fn import_documents_cli_lands_as_unreviewed_and_review_flow_works() {
 
     // After review, must not appear as unreviewed.
     let post_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:human",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "review",
         "--actor",
         "actor:alice",
@@ -5526,13 +5529,13 @@ fn import_documents_cli_lands_as_unreviewed_and_review_flow_works() {
         "reviewed decision must not appear as unreviewed after accept"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn prepare_documents_cli_extracts_pdf_text_for_reviewed_import() {
-    let hivemind_dir = unique_test_dir("prepare-pdf-ledger");
+    let loomtracer_dir = unique_test_dir("prepare-pdf-ledger");
     let scratch_dir = unique_test_dir("prepare-pdf-source");
     let output_dir = scratch_dir.join("prepared");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
@@ -5557,7 +5560,7 @@ fn prepare_documents_cli_extracts_pdf_text_for_reviewed_import() {
     );
 
     let prepared = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
         "import",
         "prepare-documents",
@@ -5583,16 +5586,16 @@ fn prepare_documents_cli_extracts_pdf_text_for_reviewed_import() {
             .expect("prepared path"),
     );
     let prepared_text = std::fs::read_to_string(&prepared_path).expect("prepared text");
-    assert!(prepared_text.contains("# hivemind-source-ref:"));
+    assert!(prepared_text.contains("# loomtracer-source-ref:"));
     assert!(prepared_text.contains("Decision:"));
 
     let imported = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:pdf",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -5602,7 +5605,7 @@ fn prepare_documents_cli_extracts_pdf_text_for_reviewed_import() {
     let imported: serde_json::Value = serde_json::from_str(&imported).expect("valid import json");
     assert_eq!(imported["summary"]["blocks_imported"], serde_json::json!(1));
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 100).expect("events read");
     let proposal = events
         .iter()
@@ -5634,12 +5637,12 @@ fn prepare_documents_cli_extracts_pdf_text_for_reviewed_import() {
         .ends_with("decision.pdf"));
 
     let _ = std::fs::remove_dir_all(&scratch_dir);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn prepare_documents_cli_surfaces_ocr_uncertainty_before_import() {
-    let hivemind_dir = unique_test_dir("prepare-ocr-ledger");
+    let loomtracer_dir = unique_test_dir("prepare-ocr-ledger");
     let scratch_dir = unique_test_dir("prepare-ocr-source");
     let output_dir = scratch_dir.join("prepared");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
@@ -5651,7 +5654,7 @@ fn prepare_documents_cli_surfaces_ocr_uncertainty_before_import() {
     .expect("write OCR text");
 
     let prepared = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
         "import",
         "prepare-documents",
@@ -5684,12 +5687,12 @@ fn prepare_documents_cli_surfaces_ocr_uncertainty_before_import() {
     assert!(prepared_text.contains("# ocr_review_required: true"));
 
     let imported = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:ocr",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -5703,7 +5706,7 @@ fn prepare_documents_cli_surfaces_ocr_uncertainty_before_import() {
         .expect("OCR import message")
         .contains("OCR"));
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 100).expect("events read");
     let proposal = events
         .iter()
@@ -5727,12 +5730,12 @@ fn prepare_documents_cli_surfaces_ocr_uncertainty_before_import() {
     );
 
     let _ = std::fs::remove_dir_all(&scratch_dir);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn import_documents_cli_reports_changed_same_id_as_conflict_without_writes() {
-    let hivemind_dir = unique_test_dir("import-document-conflict-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-conflict-ledger");
     let scratch_dir = unique_test_dir("import-document-conflict-doc");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let document_path = scratch_dir.join("decision.md");
@@ -5743,18 +5746,18 @@ fn import_documents_cli_reports_changed_same_id_as_conflict_without_writes() {
     .expect("write initial doc");
 
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
         document_path.to_str().expect("utf-8 doc path"),
     ]))
     .expect("initial import succeeds");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
 
     std::fs::write(
@@ -5764,12 +5767,12 @@ fn import_documents_cli_reports_changed_same_id_as_conflict_without_writes() {
     .expect("write changed doc");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -5834,12 +5837,12 @@ fn import_documents_cli_reports_changed_same_id_as_conflict_without_writes() {
     );
 
     let kept_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--on-conflict",
@@ -5869,13 +5872,13 @@ fn import_documents_cli_reports_changed_same_id_as_conflict_without_writes() {
         latest_after_first
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn import_documents_cli_can_resolve_conflict_as_supersession() {
-    let hivemind_dir = unique_test_dir("import-document-conflict-supersede-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-conflict-supersede-ledger");
     let scratch_dir = unique_test_dir("import-document-conflict-supersede-doc");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let document_path = scratch_dir.join("decision.md");
@@ -5886,18 +5889,18 @@ fn import_documents_cli_can_resolve_conflict_as_supersession() {
     .expect("write initial doc");
 
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
         document_path.to_str().expect("utf-8 doc path"),
     ]))
     .expect("initial import succeeds");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
 
     std::fs::write(
@@ -5907,12 +5910,12 @@ fn import_documents_cli_can_resolve_conflict_as_supersession() {
     .expect("write changed doc");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--on-conflict",
@@ -5937,9 +5940,9 @@ fn import_documents_cli_can_resolve_conflict_as_supersession() {
     assert!(ledger.latest_offset().expect("events appended") > latest_after_first);
 
     let old_view = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decision",
         "--id",
@@ -5950,9 +5953,9 @@ fn import_documents_cli_can_resolve_conflict_as_supersession() {
     assert_eq!(old_view["data"]["status"], serde_json::json!("superseded"));
 
     let new_view = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decision",
         "--id",
@@ -5966,13 +5969,13 @@ fn import_documents_cli_can_resolve_conflict_as_supersession() {
         serde_json::json!("Superseding title")
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn import_documents_cli_can_resolve_conflict_by_contesting_existing_decision() {
-    let hivemind_dir = unique_test_dir("import-document-conflict-contest-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-conflict-contest-ledger");
     let scratch_dir = unique_test_dir("import-document-conflict-contest-doc");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let document_path = scratch_dir.join("decision.md");
@@ -5983,12 +5986,12 @@ fn import_documents_cli_can_resolve_conflict_by_contesting_existing_decision() {
     .expect("write initial doc");
 
     let first_import = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -6003,11 +6006,11 @@ fn import_documents_cli_can_resolve_conflict_by_contesting_existing_decision() {
 
     // Explicitly accept the decision so that a contest can produce a "contested" status.
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.accepted",
         "--decision-id",
@@ -6023,12 +6026,12 @@ fn import_documents_cli_can_resolve_conflict_by_contesting_existing_decision() {
 
     // Use a different actor to reject (contest) — same actor cannot both accept and reject.
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "dissenter:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--on-conflict",
@@ -6047,9 +6050,9 @@ fn import_documents_cli_can_resolve_conflict_by_contesting_existing_decision() {
         .expect("decision id");
 
     let view = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decision",
         "--id",
@@ -6059,13 +6062,13 @@ fn import_documents_cli_can_resolve_conflict_by_contesting_existing_decision() {
     let view: serde_json::Value = serde_json::from_str(&view).expect("valid json");
     assert_eq!(view["data"]["status"], serde_json::json!("contested"));
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn import_documents_cli_can_resolve_conflict_by_adding_context() {
-    let hivemind_dir = unique_test_dir("import-document-conflict-context-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-conflict-context-ledger");
     let scratch_dir = unique_test_dir("import-document-conflict-context-doc");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let document_path = scratch_dir.join("decision.md");
@@ -6076,18 +6079,18 @@ fn import_documents_cli_can_resolve_conflict_by_adding_context() {
     .expect("write initial doc");
 
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
         document_path.to_str().expect("utf-8 doc path"),
     ]))
     .expect("initial import succeeds");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_first = ledger.latest_offset().expect("latest offset");
 
     std::fs::write(
@@ -6097,12 +6100,12 @@ fn import_documents_cli_can_resolve_conflict_by_adding_context() {
     .expect("write changed doc");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--on-conflict",
@@ -6121,9 +6124,9 @@ fn import_documents_cli_can_resolve_conflict_by_adding_context() {
         .expect("decision id");
 
     let view = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decision",
         "--id",
@@ -6147,9 +6150,9 @@ fn import_documents_cli_can_resolve_conflict_by_adding_context() {
     );
 
     let diff = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decisions_added_since",
         "--since-offset",
@@ -6163,13 +6166,13 @@ fn import_documents_cli_can_resolve_conflict_by_adding_context() {
         serde_json::json!(decision_id)
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn import_documents_cli_reports_near_duplicate_fuzzy_candidate_without_writes() {
-    let hivemind_dir = unique_test_dir("import-document-fuzzy-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-fuzzy-ledger");
     let scratch_dir = unique_test_dir("import-document-fuzzy-docs");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let original_path = scratch_dir.join("storage.md");
@@ -6181,18 +6184,18 @@ fn import_documents_cli_reports_near_duplicate_fuzzy_candidate_without_writes() 
     .expect("write original doc");
 
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
         original_path.to_str().expect("utf-8 doc path"),
     ]))
     .expect("original import succeeds");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_original = ledger.latest_offset().expect("latest offset");
 
     std::fs::write(
@@ -6202,12 +6205,12 @@ fn import_documents_cli_reports_near_duplicate_fuzzy_candidate_without_writes() 
     .expect("write near duplicate doc");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -6251,13 +6254,13 @@ fn import_documents_cli_reports_near_duplicate_fuzzy_candidate_without_writes() 
         latest_after_original
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn import_documents_cli_requires_review_for_ambiguous_fuzzy_matches() {
-    let hivemind_dir = unique_test_dir("import-document-ambiguous-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-ambiguous-ledger");
     let scratch_dir = unique_test_dir("import-document-ambiguous-docs");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let storage_path = scratch_dir.join("storage.md");
@@ -6275,11 +6278,11 @@ fn import_documents_cli_requires_review_for_ambiguous_fuzzy_matches() {
     .expect("write offline doc");
 
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -6287,18 +6290,18 @@ fn import_documents_cli_requires_review_for_ambiguous_fuzzy_matches() {
     ]))
     .expect("storage import succeeds");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
         offline_path.to_str().expect("utf-8 doc path"),
     ]))
     .expect("offline import succeeds");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let latest_after_seed = ledger.latest_offset().expect("latest offset");
 
     std::fs::write(
@@ -6307,12 +6310,12 @@ fn import_documents_cli_requires_review_for_ambiguous_fuzzy_matches() {
     )
     .expect("write ambiguous doc");
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -6336,13 +6339,13 @@ fn import_documents_cli_requires_review_for_ambiguous_fuzzy_matches() {
         latest_after_seed
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn import_documents_cli_imports_non_duplicate_without_similarity_matches() {
-    let hivemind_dir = unique_test_dir("import-document-non-duplicate-ledger");
+    let loomtracer_dir = unique_test_dir("import-document-non-duplicate-ledger");
     let scratch_dir = unique_test_dir("import-document-non-duplicate-docs");
     std::fs::create_dir_all(&scratch_dir).expect("scratch dir");
     let storage_path = scratch_dir.join("storage.md");
@@ -6353,11 +6356,11 @@ fn import_documents_cli_imports_non_duplicate_without_similarity_matches() {
     )
     .expect("write storage doc");
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -6371,12 +6374,12 @@ fn import_documents_cli_imports_non_duplicate_without_similarity_matches() {
     )
     .expect("write notifications doc");
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:local",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "import",
         "documents",
         "--file",
@@ -6392,19 +6395,19 @@ fn import_documents_cli_imports_non_duplicate_without_similarity_matches() {
         "non-duplicates should not carry fuzzy matches"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     let _ = std::fs::remove_dir_all(&scratch_dir);
 }
 
 #[test]
 fn emit_decision_capture_records_codex_and_claude_agent_provenance() {
-    let hivemind_dir = unique_test_dir("emit-agent-decision-capture");
+    let loomtracer_dir = unique_test_dir("emit-agent-decision-capture");
 
     let codex_decision = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
         "--binds-nothing",
@@ -6429,10 +6432,10 @@ fn emit_decision_capture_records_codex_and_claude_agent_provenance() {
     let codex_decision = envelope_value(&codex_decision);
 
     let claude_decision = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
         "--binds-nothing",
@@ -6456,10 +6459,10 @@ fn emit_decision_capture_records_codex_and_claude_agent_provenance() {
     .expect("claude capture succeeds");
     let claude_decision = envelope_value(&claude_decision);
 
-    assert_decision_queryable(&hivemind_dir, &codex_decision);
-    assert_decision_queryable(&hivemind_dir, &claude_decision);
+    assert_decision_queryable(&loomtracer_dir, &codex_decision);
+    assert_decision_queryable(&loomtracer_dir, &claude_decision);
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 100).expect("events read");
     for (decision_id, actor_id) in [
         (&codex_decision, "agent:codex:session-1"),
@@ -6496,18 +6499,18 @@ fn emit_decision_capture_records_codex_and_claude_agent_provenance() {
         }
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn emit_decision_capture_records_human_provenance_when_requested() {
-    let hivemind_dir = unique_test_dir("emit-human-decision-capture");
+    let loomtracer_dir = unique_test_dir("emit-human-decision-capture");
 
     let human_decision = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
         "--binds-nothing",
@@ -6531,9 +6534,9 @@ fn emit_decision_capture_records_human_provenance_when_requested() {
     .expect("human capture succeeds");
     let human_decision = envelope_value(&human_decision);
 
-    assert_decision_queryable(&hivemind_dir, &human_decision);
+    assert_decision_queryable(&loomtracer_dir, &human_decision);
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 100).expect("events read");
     let event = events
         .iter()
@@ -6565,16 +6568,16 @@ fn emit_decision_capture_records_human_provenance_when_requested() {
         assert_eq!(relation_event.source_ref.as_deref(), Some("human:alice"));
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 /// Every ledger event a `decision.capture` wrote for `decision_id`: the proposal, its
 /// fan-out and the acceptance that `--chose` self-issues.
 fn capture_events_for(
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     decision_id: &str,
 ) -> Vec<crate::events::Event> {
-    let ledger = SqliteEventLedger::open(hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(loomtracer_dir).expect("ledger opens");
     ledger
         .read(0, 100)
         .expect("events read")
@@ -6590,14 +6593,14 @@ fn capture_events_for(
         .collect()
 }
 
-fn capture_with_actor_flag(hivemind_dir: &std::path::Path, actor: &str, title: &str) -> String {
+fn capture_with_actor_flag(loomtracer_dir: &std::path::Path, actor: &str, title: &str) -> String {
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         actor,
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.capture",
         "--binds-nothing",
@@ -6623,14 +6626,14 @@ fn emit_decision_capture_records_a_typed_human_actor_as_the_decider() {
     // hivemind-6ait: `--actor human:alice` used to be ignored by `decision.capture`, which
     // derived an agent identity from the environment instead and recorded a person's
     // decision as an agent's. Whatever the environment says, a typed --actor is believed.
-    let hivemind_dir = unique_test_dir("emit-capture-typed-human-actor");
+    let loomtracer_dir = unique_test_dir("emit-capture-typed-human-actor");
     let decision_id = capture_with_actor_flag(
-        &hivemind_dir,
+        &loomtracer_dir,
         "human:alice",
         "Use nightly builds for testers",
     );
 
-    let events = capture_events_for(&hivemind_dir, &decision_id);
+    let events = capture_events_for(&loomtracer_dir, &decision_id);
     assert!(
         events
             .iter()
@@ -6649,9 +6652,9 @@ fn emit_decision_capture_records_a_typed_human_actor_as_the_decider() {
     }
 
     let verify = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "--summary",
         "verify",
@@ -6668,20 +6671,20 @@ fn emit_decision_capture_records_a_typed_human_actor_as_the_decider() {
         "no agent appears on a decision no agent made: {verify}"
     ); // ubs:ignore: test-only assertion
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn emit_decision_capture_records_a_typed_agent_actor_as_an_agent() {
     // The typed --actor is believed in both directions: an agent-shaped id is an agent write.
-    let hivemind_dir = unique_test_dir("emit-capture-typed-agent-actor");
+    let loomtracer_dir = unique_test_dir("emit-capture-typed-agent-actor");
     let decision_id = capture_with_actor_flag(
-        &hivemind_dir,
+        &loomtracer_dir,
         "agent:claude:crew-x",
         "Use nightly builds for testers",
     );
 
-    let events = capture_events_for(&hivemind_dir, &decision_id);
+    let events = capture_events_for(&loomtracer_dir, &decision_id);
     assert!(!events.is_empty());
     for event in &events {
         assert_eq!(
@@ -6698,7 +6701,7 @@ fn emit_decision_capture_records_a_typed_agent_actor_as_an_agent() {
         assert_eq!(event.source_ref.as_deref(), Some("agent:claude:crew-x"));
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 fn capture_provenance_args(source: Option<DecisionCaptureSource>) -> EmitCaptureProvenanceArgs {
@@ -6715,7 +6718,7 @@ fn capture_provenance_args(source: Option<DecisionCaptureSource>) -> EmitCapture
 fn decision_capture_actor_is_the_default_actor_when_no_agent_is_present() {
     // hivemind-6ait: a person at a plain terminal (no --actor typed, no agent in the
     // environment) is the CLI's default actor -- never an invented agent:unknown:manual-session.
-    let mut cli = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    let mut cli = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     assert!(!cli.actor_given.0, "no --actor was typed");
     cli.actor = "human:alice".to_owned();
 
@@ -6733,7 +6736,7 @@ fn decision_capture_actor_is_the_default_actor_when_no_agent_is_present() {
 fn decision_capture_actor_stays_an_agent_when_an_agent_is_present_and_no_actor_is_typed() {
     // The agent derivation is unchanged where there is an agent to derive it from: the CLI's
     // default actor is only a guess about who is at the keyboard, so it must not rename it.
-    let mut cli = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    let mut cli = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     cli.actor = "human:alice".to_owned();
 
     let (actor_id, provenance) =
@@ -6750,7 +6753,7 @@ fn decision_capture_actor_stays_an_agent_when_an_agent_is_present_and_no_actor_i
 fn decision_capture_provenance_flags_still_win_over_a_typed_actor() {
     // `--source`/`--actor-id`/`--agent-*` are the fuller form the capture plugins pass.
     let cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
         "query",
@@ -6773,7 +6776,7 @@ fn decision_capture_provenance_flags_still_win_over_a_typed_actor() {
 fn an_unnamed_write_is_the_agent_the_environment_shows() {
     // hivemind-jglb7: the default actor is a guess about who is at the keyboard; with an agent
     // in the environment it is the agent that acts.
-    let mut cli = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    let mut cli = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     cli.actor = "human:alice".to_owned();
 
     cli.adopt_ambient_agent(Some("agent:claude:crew-x".to_owned()));
@@ -6787,7 +6790,7 @@ fn an_unnamed_write_is_the_agent_the_environment_shows() {
 #[test]
 fn a_typed_actor_and_an_agent_actor_already_named_are_left_alone() {
     let mut typed = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
         "query",
@@ -6801,8 +6804,8 @@ fn a_typed_actor_and_an_agent_actor_already_named_are_left_alone() {
         "a caller who says who acts is believed"
     );
 
-    // `HIVEMIND_ACTOR=agent:...` is the default actor, and already an agent: nothing to guess.
-    let mut named = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    // `LOOMTRACER_ACTOR=agent:...` is the default actor, and already an agent: nothing to guess.
+    let mut named = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     named.actor = "agent:codex:pinned".to_owned();
     named.adopt_ambient_agent(Some("agent:claude:crew-x".to_owned()));
     assert_eq!(named.actor, "agent:codex:pinned");
@@ -6810,7 +6813,7 @@ fn a_typed_actor_and_an_agent_actor_already_named_are_left_alone() {
 
 #[test]
 fn a_plain_terminal_keeps_the_human_default() {
-    let mut cli = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    let mut cli = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     cli.actor = "human:alice".to_owned();
 
     cli.adopt_ambient_agent(None);
@@ -6841,10 +6844,10 @@ fn actor_help_names_the_actor_an_untyped_write_is_recorded_as() {
         "{plain_help}"
     );
 
-    // A `HIVEMIND_ACTOR` that already names an agent is kept over the ambient one.
+    // A `LOOMTRACER_ACTOR` that already names an agent is kept over the ambient one.
     let pinned_help = actor_help("agent:codex:pinned", Some("agent:claude:crew-x".to_owned()));
     assert!(
-        pinned_help.contains(": agent:codex:pinned, named by HIVEMIND_ACTOR"),
+        pinned_help.contains(": agent:codex:pinned, named by LOOMTRACER_ACTOR"),
         "{pinned_help}"
     );
     assert!(!pinned_help.contains("crew-x"), "{pinned_help}");
@@ -6854,13 +6857,13 @@ fn actor_help_names_the_actor_an_untyped_write_is_recorded_as() {
 fn settings_stay_with_the_person_when_an_agent_takes_over_the_writes() {
     // The current-project setting a person made at their terminal is read under the key it
     // was written under, not under the agent that now records the writes.
-    let mut cli = Cli::parse_from(["hivemind", "query", "recent", "--since", "7d"]);
+    let mut cli = Cli::parse_from(["loomtracer", "query", "recent", "--since", "7d"]);
     cli.adopt_ambient_agent(Some("agent:claude:crew-x".to_owned()));
     assert_eq!(cli.actor, "agent:claude:crew-x");
     assert_eq!(cli.person(), crate::identity::default_actor());
 
     let typed = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "human:alice",
         "query",
@@ -6873,14 +6876,14 @@ fn settings_stay_with_the_person_when_an_agent_takes_over_the_writes() {
 
 #[test]
 fn ingest_slack_thread_creates_queryable_decision_with_slack_provenance() {
-    let hivemind_dir = unique_test_dir("ingest-slack-thread");
+    let loomtracer_dir = unique_test_dir("ingest-slack-thread");
     let fixture = workspace_fixture("tests/fixtures/slack/thread_with_mention.json");
 
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "ingest",
         "slack-thread",
         "--file",
@@ -6894,9 +6897,9 @@ fn ingest_slack_thread_creates_queryable_decision_with_slack_provenance() {
     let decision_id = output["value"].as_str().expect("decision id").to_owned();
     assert!(decision_id.starts_with("decision-"));
 
-    assert_decision_queryable(&hivemind_dir, &decision_id);
+    assert_decision_queryable(&loomtracer_dir, &decision_id);
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 100).expect("events read");
     let proposal = events
         .iter()
@@ -6941,19 +6944,19 @@ fn ingest_slack_thread_creates_queryable_decision_with_slack_provenance() {
         .count();
     assert_eq!(evidence_count, 1);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn ingest_slack_thread_is_idempotent_on_reimport() {
-    let hivemind_dir = unique_test_dir("ingest-slack-thread-reimport");
+    let loomtracer_dir = unique_test_dir("ingest-slack-thread-reimport");
     let fixture = workspace_fixture("tests/fixtures/slack/thread_with_mention.json");
 
     let args = [
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "ingest",
         "slack-thread",
         "--file",
@@ -6968,7 +6971,7 @@ fn ingest_slack_thread_is_idempotent_on_reimport() {
         .expect("first decision id")
         .to_owned();
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let first_event_count = ledger.read(0, 1024).expect("read events").len();
 
     let second: serde_json::Value =
@@ -6982,18 +6985,18 @@ fn ingest_slack_thread_is_idempotent_on_reimport() {
         "re-import must not append events"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn ingest_slack_thread_rejects_thread_without_mention() {
-    let hivemind_dir = unique_test_dir("ingest-slack-thread-no-mention");
+    let loomtracer_dir = unique_test_dir("ingest-slack-thread-no-mention");
     let fixture = workspace_fixture("tests/fixtures/slack/thread_without_mention.json");
 
     let error = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "ingest",
         "slack-thread",
         "--file",
@@ -7006,13 +7009,13 @@ fn ingest_slack_thread_rejects_thread_without_mention() {
         "error should mention gate: {error}"
     );
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     assert!(
         ledger.read(0, 10).expect("read events").is_empty(),
         "no events should have been written"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 fn workspace_fixture(relative: &str) -> PathBuf {
@@ -7022,13 +7025,13 @@ fn workspace_fixture(relative: &str) -> PathBuf {
 #[cfg(not(feature = "graph-kuzu"))]
 #[test]
 fn kuzu_backend_requires_feature() {
-    let hivemind_dir = unique_test_dir("kuzu-feature-required");
+    let loomtracer_dir = unique_test_dir("kuzu-feature-required");
     // A read of a folder with no ledger is refused before the backend is chosen (hivemind-i6ply).
-    crate::ledger::SqliteEventLedger::open(&hivemind_dir).expect("seed an empty ledger");
+    crate::ledger::SqliteEventLedger::open(&loomtracer_dir).expect("seed an empty ledger");
     let cli = Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "--graph-backend",
         "kuzu",
         "query",
@@ -7047,13 +7050,13 @@ fn kuzu_backend_requires_feature() {
 #[cfg(feature = "graph-kuzu")]
 #[test]
 fn kuzu_backend_queries_and_dumps_persistent_projection() {
-    let hivemind_dir = unique_test_dir("kuzu-query");
+    let loomtracer_dir = unique_test_dir("kuzu-query");
     let decision_id = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -7070,9 +7073,9 @@ fn kuzu_backend_queries_and_dumps_persistent_projection() {
     .expect("emit decision succeeds");
 
     let query_args = [
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "--graph-backend",
         "kuzu",
         "query",
@@ -7092,12 +7095,12 @@ fn kuzu_backend_queries_and_dumps_persistent_projection() {
     assert_eq!(first_json, second_json);
     assert_eq!(first_json["result_count"], serde_json::json!(1));
     assert_eq!(first_json["data"][0]["id"], serde_json::json!(decision_id));
-    assert!(hivemind_dir.join("graph.kuzu").exists());
+    assert!(loomtracer_dir.join("graph.kuzu").exists());
 
     let dot = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "--graph-backend",
         "kuzu",
         "dump",
@@ -7107,12 +7110,12 @@ fn kuzu_backend_queries_and_dumps_persistent_projection() {
     .expect("kuzu dump succeeds");
     assert!(dot.contains("Persist query graph"));
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn format_error_outputs_structured_json() {
-    let error = HivemindError::Command(CommandError::Validation("bad input".to_owned()));
+    let error = LoomtracerError::Command(CommandError::Validation("bad input".to_owned()));
     let output = format_error(true, &error);
     let output: serde_json::Value = serde_json::from_str(&output).expect("valid json error");
 
@@ -7130,16 +7133,16 @@ fn format_error_outputs_structured_json() {
 }
 
 fn unique_test_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-{name}-{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!("loomtracer-{name}-{}", uuid::Uuid::new_v4()))
 }
 
 /// Backend selector for a CLI test invocation. SQLite (the default) only needs
-/// `--hivemind-dir`, pointing at a fresh isolated temp directory per test.
+/// `--loomtracer-dir`, pointing at a fresh isolated temp directory per test.
 /// Postgres additionally needs `--database-url` and a per-test `--tenant` —
 /// unlike a temp SQLite dir, the configured Postgres database is shared, so
 /// tests must not collide with each other or with prior runs.
 struct TestBackend {
-    hivemind_dir: PathBuf,
+    loomtracer_dir: PathBuf,
     tenant: Option<String>,
     database_url: Option<String>,
 }
@@ -7147,20 +7150,20 @@ struct TestBackend {
 impl TestBackend {
     fn sqlite(name: &str) -> Self {
         Self {
-            hivemind_dir: unique_test_dir(name),
+            loomtracer_dir: unique_test_dir(name),
             tenant: None,
             database_url: None,
         }
     }
 
-    /// `None` when `HIVEMIND_TEST_POSTGRES_URL` is unset — callers skip the test.
+    /// `None` when `LOOMTRACER_TEST_POSTGRES_URL` is unset — callers skip the test.
     ///
     /// Provisions the per-test tenant before returning: since hivemind-rkbf.1,
     /// an unregistered tenant hard-errors at ledger-open time instead of
     /// silently opening a fresh scope, so every CLI-against-Postgres test
     /// needs a real `hm_tenants` row first.
     fn postgres(name: &str) -> Option<Self> {
-        let database_url = std::env::var("HIVEMIND_TEST_POSTGRES_URL")
+        let database_url = std::env::var("LOOMTRACER_TEST_POSTGRES_URL")
             .ok()
             .filter(|value| !value.trim().is_empty())?;
         let nanos = std::time::SystemTime::now()
@@ -7178,7 +7181,7 @@ impl TestBackend {
         }
 
         Some(Self {
-            hivemind_dir: unique_test_dir(name),
+            loomtracer_dir: unique_test_dir(name),
             tenant: Some(tenant),
             database_url: Some(database_url),
         })
@@ -7188,8 +7191,8 @@ impl TestBackend {
     /// after the binary name.
     fn global_args(&self) -> Vec<String> {
         let mut args = vec![
-            "--hivemind-dir".to_owned(),
-            self.hivemind_dir
+            "--loomtracer-dir".to_owned(),
+            self.loomtracer_dir
                 .to_str()
                 .expect("utf-8 temp path")
                 .to_owned(),
@@ -7208,7 +7211,7 @@ impl TestBackend {
 
 impl Drop for TestBackend {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.hivemind_dir);
+        let _ = std::fs::remove_dir_all(&self.loomtracer_dir);
     }
 }
 
@@ -7216,7 +7219,7 @@ impl Drop for TestBackend {
 /// backend's global flags, then `rest` (starting with per-command flags like
 /// `--actor` and the subcommand itself).
 fn cli_args(backend: &TestBackend, rest: &[&str]) -> Vec<String> {
-    let mut args = vec!["hivemind".to_owned()];
+    let mut args = vec!["loomtracer".to_owned()];
     args.extend(backend.global_args());
     args.extend(rest.iter().map(|value| (*value).to_owned()));
     args
@@ -7274,11 +7277,11 @@ fn envelope_value(output: &str) -> String {
         .to_owned()
 }
 
-fn assert_decision_queryable(hivemind_dir: &std::path::Path, decision_id: &str) {
+fn assert_decision_queryable(loomtracer_dir: &std::path::Path, decision_id: &str) {
     let query = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "get_decision",
         "--id",
@@ -7298,18 +7301,18 @@ fn classify_queue_list_reports_the_whole_depth_past_its_limit() {
     use crate::events::{EventProvenance, IngestTurn, TenantId};
     use crate::ledger::SqliteEventLedger;
 
-    let hivemind_dir = unique_test_dir("classify-queue-depth");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let loomtracer_dir = unique_test_dir("classify-queue-depth");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(TenantId::local(), EventProvenance::cli()),
     );
-    let dir_str = hivemind_dir.to_str().expect("utf-8");
+    let dir_str = loomtracer_dir.to_str().expect("utf-8");
     let list = |limit: &str| -> serde_json::Value {
         let output = run(&Cli::parse_from([
-            "hivemind",
+            "loomtracer",
             "--json",
-            "--hivemind-dir",
+            "--loomtracer-dir",
             dir_str,
             "classify-queue",
             "list",
@@ -7360,8 +7363,8 @@ fn classify_queue_list_and_submit_round_trip() {
     use crate::events::{EventProvenance, IngestTurn, TenantId};
     use crate::ledger::SqliteEventLedger;
 
-    let hivemind_dir = unique_test_dir("classify-queue");
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let loomtracer_dir = unique_test_dir("classify-queue");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(TenantId::local(), EventProvenance::cli()),
@@ -7384,13 +7387,13 @@ fn classify_queue_list_and_submit_round_trip() {
         )
         .expect("record batch");
 
-    let dir_str = hivemind_dir.to_str().expect("utf-8");
+    let dir_str = loomtracer_dir.to_str().expect("utf-8");
 
     // list sees the pending batch
     let list_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir_str,
         "classify-queue",
         "list",
@@ -7420,11 +7423,11 @@ fn classify_queue_list_and_submit_round_trip() {
     .to_string();
 
     let submit_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
         "--actor",
         "agent:claude-code:session-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir_str,
         "classify-queue",
         "submit",
@@ -7440,9 +7443,9 @@ fn classify_queue_list_and_submit_round_trip() {
 
     // list now returns empty (batch is classified)
     let list2_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir_str,
         "classify-queue",
         "list",
@@ -7463,8 +7466,8 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
     use crate::ledger::SqliteEventLedger;
     use chrono::TimeZone;
 
-    let hivemind_dir = unique_test_dir("draft-windows");
-    let ledger = SqliteEventLedger::open(&hivemind_dir)?;
+    let loomtracer_dir = unique_test_dir("draft-windows");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir)?;
     let commands = Commands::new_with_context(
         &ledger,
         CommandContext::new(TenantId::local(), EventProvenance::cli()),
@@ -7487,7 +7490,7 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
             ts: Some(said_at),
         }],
     )?;
-    let dir = hivemind_dir.to_str().ok_or("utf-8 temp path")?;
+    let dir = loomtracer_dir.to_str().ok_or("utf-8 temp path")?;
     let captures = serde_json::json!([{
         "kind": "decision",
         "title": "Job queue lives in Postgres, not Redis",
@@ -7500,11 +7503,11 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
     }])
     .to_string();
     run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
         "--actor",
         "agent:claude-code:session-1",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "classify-queue",
         "submit",
@@ -7516,7 +7519,7 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
 
     let ask =
         |args: &[&str]| -> std::result::Result<serde_json::Value, Box<dyn std::error::Error>> {
-            let mut argv = vec!["hivemind", "--json", "--hivemind-dir", dir];
+            let mut argv = vec!["loomtracer", "--json", "--loomtracer-dir", dir];
             argv.extend_from_slice(args);
             Ok(serde_json::from_str(&run(&Cli::parse_from(argv))?)?)
         };
@@ -7577,7 +7580,7 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
 
         let review_cli = Cli::parse_from(
             [
-                vec!["hivemind", "--json", "--hivemind-dir", dir, "review"],
+                vec!["loomtracer", "--json", "--loomtracer-dir", dir, "review"],
                 flags.clone(),
             ]
             .concat(),
@@ -7607,11 +7610,11 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
 
     // The review offers the draft for a verdict, and a verdict on it takes.
     let review_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
         "--actor",
         "human:alex",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         dir,
         "review",
         "--since",
@@ -7649,7 +7652,7 @@ fn a_classifier_draft_is_found_in_every_window_that_covers_the_day_it_was_said()
         "the approved draft is listed as accepted in its window",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -7876,7 +7879,7 @@ fn project_registry_register_link_anchor_list_show_round_trip() -> CliTestResult
 #[test]
 fn project_registry_register_link_anchor_list_show_round_trip_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("project-registry-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     project_registry_register_link_anchor_list_show_round_trip_body(&backend)
@@ -8178,7 +8181,7 @@ fn project_decisions_lists_shared_and_personal_projects_body(
     )?;
     ensure_eq(
         project_decisions_text(backend, &["billng"])?,
-        "no project called 'billng': run `hivemind project register billng` to register it"
+        "no project called 'billng': run `loomtracer project register billng` to register it"
             .to_owned(),
         "unknown handle text",
     )
@@ -8194,7 +8197,7 @@ fn project_decisions_lists_shared_and_personal_projects() -> CliTestResult {
 #[test]
 fn project_decisions_lists_shared_and_personal_projects_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("project-decisions-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     project_decisions_lists_shared_and_personal_projects_body(&backend)
@@ -8235,7 +8238,7 @@ fn project_use_and_show_current_round_trip_body(backend: &TestBackend) -> CliTes
     .expect_err("unregistered handle is refused");
     assert!(refusal
         .to_string()
-        .contains("hivemind project register nonexistent"));
+        .contains("loomtracer project register nonexistent"));
 
     let use_output = run(&Cli::parse_from(cli_args(
         backend,
@@ -8360,7 +8363,7 @@ fn project_use_and_show_current_round_trip() -> CliTestResult {
 #[test]
 fn project_use_and_show_current_round_trip_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("project-use-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     project_use_and_show_current_round_trip_body(&backend)
@@ -8377,7 +8380,7 @@ fn emit_ingest_batch_classified_plugin_path_round_trip() {
     // The server background classifier is not involved (no IngestBatchReceived event
     // exists for this batch_id, so classify-queue list stays empty).
 
-    let hivemind_dir = unique_test_dir("emit-ingest-batch-classified-plugin");
+    let loomtracer_dir = unique_test_dir("emit-ingest-batch-classified-plugin");
     let captures_file = unique_test_dir("emit-ingest-batch-classified-captures");
     let captures_path = captures_file.with_extension("json");
 
@@ -8408,10 +8411,10 @@ fn emit_ingest_batch_classified_plugin_path_round_trip() {
 
     // Submit via the new edge-capture command
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "ingest.batch_classified",
         "--captures",
@@ -8441,7 +8444,7 @@ fn emit_ingest_batch_classified_plugin_path_round_trip() {
     assert!(!batch_id.is_empty());
 
     // Verify the IngestBatchClassified event landed in the ledger
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 50).expect("events read");
 
     let classified_event = events
@@ -8475,10 +8478,10 @@ fn emit_ingest_batch_classified_plugin_path_round_trip() {
 
     // The captures project to a queryable decision in the graph
     let search_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "query",
         "search_decisions",
         "--limit",
@@ -8498,7 +8501,7 @@ fn emit_ingest_batch_classified_plugin_path_round_trip() {
     );
 
     let _ = std::fs::remove_file(&captures_path);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
@@ -8513,7 +8516,7 @@ fn emit_decision_scored_plugin_path_round_trip() {
     // `emit decision.scored` — no server API key needed, and no
     // caller-constructed `capture:{event_id}:{idx}` node id.
 
-    let hivemind_dir = unique_test_dir("emit-decision-scored-plugin");
+    let loomtracer_dir = unique_test_dir("emit-decision-scored-plugin");
     let captures_file = unique_test_dir("emit-decision-scored-captures");
     let captures_path = captures_file.with_extension("json");
 
@@ -8542,10 +8545,10 @@ fn emit_decision_scored_plugin_path_round_trip() {
     std::fs::write(&captures_path, captures_json.to_string()).expect("write captures file");
 
     let batch_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "ingest.batch_classified",
         "--captures",
@@ -8590,10 +8593,10 @@ fn emit_decision_scored_plugin_path_round_trip() {
     std::fs::write(&scores_path, scores_json.to_string()).expect("write scores file");
 
     let score_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.scored",
         "--batch-id",
@@ -8619,7 +8622,7 @@ fn emit_decision_scored_plugin_path_round_trip() {
         Some("event_id")
     );
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 50).expect("events read");
 
     let classified_event = events
@@ -8672,12 +8675,12 @@ fn emit_decision_scored_plugin_path_round_trip() {
 
     let _ = std::fs::remove_file(&captures_path);
     let _ = std::fs::remove_file(&scores_path);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn emit_decision_scored_rejects_non_decision_capture() {
-    let hivemind_dir = unique_test_dir("emit-decision-scored-non-decision");
+    let loomtracer_dir = unique_test_dir("emit-decision-scored-non-decision");
     let captures_file = unique_test_dir("emit-decision-scored-non-decision-captures");
     let captures_path = captures_file.with_extension("json");
 
@@ -8706,10 +8709,10 @@ fn emit_decision_scored_rejects_non_decision_capture() {
     std::fs::write(&captures_path, captures_json.to_string()).expect("write captures file");
 
     let batch_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "ingest.batch_classified",
         "--captures",
@@ -8746,10 +8749,10 @@ fn emit_decision_scored_rejects_non_decision_capture() {
     std::fs::write(&scores_path, scores_json.to_string()).expect("write scores file");
 
     let err = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.scored",
         "--batch-id",
@@ -8769,7 +8772,7 @@ fn emit_decision_scored_rejects_non_decision_capture() {
 
     let _ = std::fs::remove_file(&captures_path);
     let _ = std::fs::remove_file(&scores_path);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
@@ -8780,14 +8783,14 @@ fn emit_decision_scored_targets_a_directly_proposed_decision_by_id() {
     // hivemind-qo11.9: the keyless path can also assess a decision that was
     // captured directly (never extracted by a classifier), named by its own
     // decision_id rather than a batch-id/capture-index pair.
-    let hivemind_dir = unique_test_dir("emit-decision-scored-direct");
+    let loomtracer_dir = unique_test_dir("emit-decision-scored-direct");
 
     let decision_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "agent-1",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.proposed",
         "--title",
@@ -8827,10 +8830,10 @@ fn emit_decision_scored_targets_a_directly_proposed_decision_by_id() {
     std::fs::write(&scores_path, scores_json.to_string()).expect("write scores file");
 
     let score_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.scored",
         "--decision-id",
@@ -8854,7 +8857,7 @@ fn emit_decision_scored_targets_a_directly_proposed_decision_by_id() {
         Some("event_id")
     );
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 50).expect("events read");
     let scored_event = events
         .iter()
@@ -8873,12 +8876,12 @@ fn emit_decision_scored_targets_a_directly_proposed_decision_by_id() {
     );
 
     let _ = std::fs::remove_file(&scores_path);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn emit_decision_scored_requires_exactly_one_target() {
-    let hivemind_dir = unique_test_dir("emit-decision-scored-no-target");
+    let loomtracer_dir = unique_test_dir("emit-decision-scored-no-target");
     let scores_file = unique_test_dir("emit-decision-scored-no-target-scores");
     let scores_path = scores_file.with_extension("json");
     std::fs::write(
@@ -8888,10 +8891,10 @@ fn emit_decision_scored_requires_exactly_one_target() {
     .expect("write scores file");
 
     let err = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.scored",
         "--scores",
@@ -8906,10 +8909,10 @@ fn emit_decision_scored_requires_exactly_one_target() {
     );
 
     let err = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "emit",
         "decision.scored",
         "--decision-id",
@@ -8930,14 +8933,14 @@ fn emit_decision_scored_requires_exactly_one_target() {
     );
 
     let _ = std::fs::remove_file(&scores_path);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn import_documents_cli_prose_extraction_writes_candidates_as_unreviewed() {
     // Prose file with no Decision: blocks → extractor path → UNREVIEWED in ledger.
     let root = unique_test_dir("import-prose-extraction");
-    let hivemind_dir = root.join("hive");
+    let loomtracer_dir = root.join("hive");
     std::fs::create_dir_all(&root).expect("scratch dir");
 
     let prose = "Engineering memo\nThe team selected Rust as the implementation language for performance reasons. Options considered were Rust and Go. The assumption is that async Rust compile times remain acceptable.\n";
@@ -8976,12 +8979,12 @@ fn import_documents_cli_prose_extraction_writes_candidates_as_unreviewed() {
     .expect("write LLM response");
 
     let import_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:test",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 hivemind dir"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 loomtracer dir"),
         "import",
         "documents",
         "--file",
@@ -9021,7 +9024,7 @@ fn import_documents_cli_prose_extraction_writes_candidates_as_unreviewed() {
     assert!(!decision_id.is_empty(), "decision_id must be non-empty");
 
     // Verify the source_ref carries the extractor explanation.
-    let ledger = crate::ledger::SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+    let ledger = crate::ledger::SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
     let events = ledger.read(0, 100).expect("events read");
     let proposal = events
         .iter()
@@ -9056,12 +9059,12 @@ fn import_documents_cli_prose_extraction_writes_candidates_as_unreviewed() {
 
     // Must appear in review --unreviewed-only.
     let review_cli = Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "reviewer:human",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 hivemind dir"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 loomtracer dir"),
         "review",
         "--since",
         "2000-01-01",
@@ -9090,7 +9093,7 @@ fn import_documents_cli_prose_extraction_writes_candidates_as_unreviewed() {
 fn import_documents_cli_blocks_path_used_when_extractor_present() {
     // A file WITH Decision: blocks uses the deterministic path even when extractor args supplied.
     let root = unique_test_dir("import-blocks-with-extractor");
-    let hivemind_dir = root.join("hive");
+    let loomtracer_dir = root.join("hive");
     std::fs::create_dir_all(&root).expect("scratch dir");
 
     let doc_path = root.join("decision.md");
@@ -9109,12 +9112,12 @@ fn import_documents_cli_blocks_path_used_when_extractor_present() {
     .expect("write empty response");
 
     let import_output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--actor",
         "importer:test",
         "--json",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 hivemind dir"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 loomtracer dir"),
         "import",
         "documents",
         "--file",
@@ -9350,7 +9353,7 @@ fn export_writes_prunes_and_is_idempotent() -> CliTestResult {
 #[test]
 fn export_writes_prunes_and_is_idempotent_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("export-tree-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     export_writes_prunes_and_is_idempotent_body(&backend)
@@ -9544,7 +9547,7 @@ fn export_groups_per_project_and_filters_by_project() -> CliTestResult {
 #[test]
 fn export_groups_per_project_and_filters_by_project_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("export-per-project-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     export_per_project_body(&backend)
@@ -9552,17 +9555,17 @@ fn export_groups_per_project_and_filters_by_project_postgres() -> CliTestResult 
 
 #[test]
 fn export_out_pointing_at_file_fails_before_any_write() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("export-out-is-file-ledger");
+    let loomtracer_dir = unique_test_dir("export-out-is-file-ledger");
     let out_path = unique_test_dir("export-out-is-file");
     std::fs::write(&out_path, b"not a directory")?;
     // The ledger has to exist: an export of a folder with no ledger is refused first
     // (hivemind-i6ply), before --out is looked at.
-    crate::ledger::SqliteEventLedger::open(&hivemind_dir)?;
+    crate::ledger::SqliteEventLedger::open(&loomtracer_dir)?;
 
     let error = run(&Cli::parse_from([
-        "hivemind",
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "loomtracer",
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
         "export",
         "--format",
         "markdown",
@@ -9580,7 +9583,7 @@ fn export_out_pointing_at_file_fails_before_any_write() -> CliTestResult {
     )?;
 
     let _ = std::fs::remove_file(&out_path);
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -9815,7 +9818,7 @@ fn emit_capture_names_its_project_in_json() -> CliTestResult {
 #[test]
 fn emit_capture_names_its_project_in_json_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("emit-project-json-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     emit_capture_names_its_project_in_json_body(&backend)
@@ -9832,7 +9835,7 @@ fn emit_capture_text_keeps_stdout_bare_and_announces_the_project_body(
     )?;
     ensure(
         stdout.starts_with("decision-") && !stdout.contains(char::is_whitespace),
-        "text stdout stays the bare decision id, so `$(hivemind emit ...)` still works",
+        "text stdout stays the bare decision id, so `$(loomtracer emit ...)` still works",
     )?;
     ensure_eq(
         notices.as_str(),
@@ -9869,7 +9872,7 @@ fn emit_capture_text_keeps_stdout_bare_and_announces_the_project() -> CliTestRes
 #[test]
 fn emit_capture_text_keeps_stdout_bare_and_announces_the_project_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("emit-project-text-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     emit_capture_text_keeps_stdout_bare_and_announces_the_project_body(&backend)
@@ -9892,7 +9895,7 @@ fn emit_capture_refuses_an_unknown_project_with_the_register_hint() -> CliTestRe
             .contains("project not registered: not-registered")
             && error
                 .to_string()
-                .contains("hivemind project register not-registered"),
+                .contains("loomtracer project register not-registered"),
         "the refusal names the handle and the register command",
     )
 }
@@ -9944,7 +9947,7 @@ fn emit_capture_refused_for_its_project_writes_nothing() -> CliTestResult {
 #[test]
 fn emit_capture_refused_for_its_project_writes_nothing_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("emit-project-refused-writes-nothing-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     emit_capture_refused_for_its_project_writes_nothing_body(&backend)
@@ -9955,7 +9958,7 @@ fn emit_capture_project_source_needs_a_project_and_a_caller_claimable_value() ->
     let dir = unique_test_dir("emit-project-source-args");
     let dir = dir.to_str().expect("utf-8 temp path");
     let parse = |extra: &[&str]| {
-        let mut argv = vec!["hivemind", "--hivemind-dir", dir];
+        let mut argv = vec!["loomtracer", "--loomtracer-dir", dir];
         argv.extend(capture_args_for("Adopt async billing queue", extra));
         Cli::try_parse_from(argv)
     };
@@ -9971,7 +9974,7 @@ fn emit_capture_project_source_needs_a_project_and_a_caller_claimable_value() ->
     for reserved in ["personal_fallback", "moved", "inherited"] {
         ensure(
             parse(&["--project", "billing", "--project-source", reserved]).is_err(),
-            "HiveMind records personal_fallback, moved and inherited itself; a caller cannot claim them",
+            "Loomtracer records personal_fallback, moved and inherited itself; a caller cannot claim them",
         )?;
     }
     Ok(())
@@ -10143,7 +10146,7 @@ fn supersede_names_its_project() -> CliTestResult {
 #[test]
 fn supersede_names_its_project_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("supersede-project-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_names_its_project_body(&backend)
@@ -10154,17 +10157,17 @@ fn supersede_names_its_project_postgres() -> CliTestResult {
 // ---------------------------------------------------------------------------
 
 fn grounding_cli(
-    hivemind_dir: &std::path::Path,
+    loomtracer_dir: &std::path::Path,
     json: bool,
     args: &[&str],
 ) -> crate::Result<String> {
-    let mut argv = vec!["hivemind", "--actor", "agent:claude:grounding-test"];
+    let mut argv = vec!["loomtracer", "--actor", "agent:claude:grounding-test"];
     if json {
         argv.push("--json");
     }
     argv.extend([
-        "--hivemind-dir",
-        hivemind_dir.to_str().expect("utf-8 temp path"),
+        "--loomtracer-dir",
+        loomtracer_dir.to_str().expect("utf-8 temp path"),
     ]);
     argv.extend(args.iter().copied());
     run(&Cli::parse_from(argv))
@@ -10201,17 +10204,17 @@ fn grounded_capture_args_without_floor<'a>(title: &'a str, grounding: &[&'a str]
     args
 }
 
-fn ledger_event_count(hivemind_dir: &std::path::Path) -> usize {
-    SqliteEventLedger::open(hivemind_dir)
+fn ledger_event_count(loomtracer_dir: &std::path::Path) -> usize {
+    SqliteEventLedger::open(loomtracer_dir)
         .expect("ledger opens")
         .read(0, 500)
         .expect("read events")
         .len()
 }
 
-fn seed_decision(hivemind_dir: &std::path::Path, title: &str) -> String {
+fn seed_decision(loomtracer_dir: &std::path::Path, title: &str) -> String {
     grounding_cli(
-        hivemind_dir,
+        loomtracer_dir,
         false,
         &[
             "emit",
@@ -10231,15 +10234,15 @@ fn seed_decision(hivemind_dir: &std::path::Path, title: &str) -> String {
 
 #[test]
 fn query_get_relevant_decisions_refuses_a_topic_with_no_letter_or_digit_with_exit_2() {
-    let hivemind_dir = unique_test_dir("relevant-blank-topic");
-    seed_decision(&hivemind_dir, "Adopt the new queue");
+    let loomtracer_dir = unique_test_dir("relevant-blank-topic");
+    seed_decision(&loomtracer_dir, "Adopt the new queue");
 
     for topic in ["---", "!!!", "   "] {
         let topic_arg = format!("--topic={topic}");
         let error = run(&Cli::parse_from([
-            "hivemind",
-            "--hivemind-dir",
-            hivemind_dir.to_str().expect("utf-8 temp path"),
+            "loomtracer",
+            "--loomtracer-dir",
+            loomtracer_dir.to_str().expect("utf-8 temp path"),
             "query",
             "get_relevant_decisions",
             topic_arg.as_str(),
@@ -10258,10 +10261,10 @@ fn query_get_relevant_decisions_refuses_a_topic_with_no_letter_or_digit_with_exi
 
 #[test]
 fn decision_capture_without_grounding_is_refused_with_exit_2_and_writes_nothing() {
-    let hivemind_dir = unique_test_dir("capture-no-grounding");
+    let loomtracer_dir = unique_test_dir("capture-no-grounding");
 
     let error = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args("Adopt the new queue", &[]),
     )
@@ -10282,21 +10285,21 @@ fn decision_capture_without_grounding_is_refused_with_exit_2_and_writes_nothing(
         );
     }
     assert!(message.contains("nothing was written"), "{message}");
-    assert_eq!(ledger_event_count(&hivemind_dir), 0);
+    assert_eq!(ledger_event_count(&loomtracer_dir), 0);
 
     // Raw `emit decision.proposed` never asks the question.
-    seed_decision(&hivemind_dir, "A raw decision needs no grounding");
+    seed_decision(&loomtracer_dir, "A raw decision needs no grounding");
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_records_every_grounding_kind_and_replies_with_rests_on() {
-    let hivemind_dir = unique_test_dir("capture-grounded");
-    let goal_id = seed_decision(&hivemind_dir, "Keep the ledger append-only");
+    let loomtracer_dir = unique_test_dir("capture-grounded");
+    let goal_id = seed_decision(&loomtracer_dir, "Keep the ledger append-only");
 
     let reply = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         true,
         &grounded_capture_args(
             "Adopt the new queue",
@@ -10336,7 +10339,7 @@ fn decision_capture_records_every_grounding_kind_and_replies_with_rests_on() {
     assert_eq!(rests_on[3]["label"], "the vendor survives the year");
     assert_eq!(reply["premise_stale"], serde_json::json!([]));
 
-    let events = SqliteEventLedger::open(&hivemind_dir)
+    let events = SqliteEventLedger::open(&loomtracer_dir)
         .expect("ledger opens")
         .read(0, 500)
         .expect("read events");
@@ -10366,21 +10369,21 @@ fn decision_capture_records_every_grounding_kind_and_replies_with_rests_on() {
         .expect("check_by")
         .starts_with("2026-12-01"));
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_bet_without_a_statement_records_a_judgement_call() {
-    let hivemind_dir = unique_test_dir("capture-bare-bet");
+    let loomtracer_dir = unique_test_dir("capture-bare-bet");
 
     grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args("Ship the beta", &["--bet"]),
     )
     .expect("a bare bet is a declared grounding");
 
-    let events = SqliteEventLedger::open(&hivemind_dir)
+    let events = SqliteEventLedger::open(&loomtracer_dir)
         .expect("ledger opens")
         .read(0, 500)
         .expect("read events");
@@ -10391,7 +10394,7 @@ fn decision_capture_bet_without_a_statement_records_a_judgement_call() {
     assert_eq!(bet.payload["statement"], "Judgement call: Ship the beta");
     assert_eq!(bet.payload["kind"], "bet");
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
@@ -10400,7 +10403,7 @@ fn decision_capture_bet_modifiers_require_a_bet() {
     // while parsing (before anything runs), and with it they parse.
     for modifier in [["--would-change-if", "x"], ["--check-by", "2026-12-01"]] {
         let mut argv = vec![
-            "hivemind",
+            "loomtracer",
             "emit",
             "decision.capture",
             "--binds-nothing",
@@ -10425,10 +10428,10 @@ fn decision_capture_bet_modifiers_require_a_bet() {
 
 #[test]
 fn decision_capture_evidence_sources_are_index_aligned_with_evidence() {
-    let hivemind_dir = unique_test_dir("capture-evidence-alignment");
+    let loomtracer_dir = unique_test_dir("capture-evidence-alignment");
 
     let mismatched = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args(
             "Adopt the new queue",
@@ -10453,7 +10456,7 @@ fn decision_capture_evidence_sources_are_index_aligned_with_evidence() {
     );
 
     let orphan_source = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args(
             "Adopt the new queue",
@@ -10472,20 +10475,20 @@ fn decision_capture_evidence_sources_are_index_aligned_with_evidence() {
             .contains("--evidence-source needs a matching --rests-on-evidence"),
         "{orphan_source}"
     );
-    assert_eq!(ledger_event_count(&hivemind_dir), 0);
+    assert_eq!(ledger_event_count(&loomtracer_dir), 0);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_with_an_ambiguous_premise_writes_nothing_and_hash_n_resolves_it() {
-    let hivemind_dir = unique_test_dir("capture-ambiguous-premise");
-    let first_id = seed_decision(&hivemind_dir, "Adopt the queue");
-    let second_id = seed_decision(&hivemind_dir, "Adopt the queue");
-    let events_before = ledger_event_count(&hivemind_dir);
+    let loomtracer_dir = unique_test_dir("capture-ambiguous-premise");
+    let first_id = seed_decision(&loomtracer_dir, "Adopt the queue");
+    let second_id = seed_decision(&loomtracer_dir, "Adopt the queue");
+    let events_before = ledger_event_count(&loomtracer_dir);
 
     let ambiguous = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args(
             "Ship the queue",
@@ -10511,14 +10514,14 @@ fn decision_capture_with_an_ambiguous_premise_writes_nothing_and_hash_n_resolves
     );
     assert!(message.contains("--rests-on-decision '#N'"), "{message}");
     assert_eq!(
-        ledger_event_count(&hivemind_dir),
+        ledger_event_count(&loomtracer_dir),
         events_before,
         "an ambiguous premise must write nothing — not even the assumption named beside it"
     );
 
     // The candidate list is on disk: re-running with '#1' resolves the first candidate.
     let reply = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         true,
         &grounded_capture_args(
             "Ship the queue",
@@ -10540,18 +10543,18 @@ fn decision_capture_with_an_ambiguous_premise_writes_nothing_and_hash_n_resolves
         .expect("decision premise");
     assert!(premise["id"] == first_id.as_str() || premise["id"] == second_id.as_str());
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_with_an_unmatched_premise_writes_nothing() {
-    let hivemind_dir = unique_test_dir("capture-unmatched-premise");
-    seed_decision(&hivemind_dir, "Keep the ledger append-only");
-    let events_before = ledger_event_count(&hivemind_dir);
+    let loomtracer_dir = unique_test_dir("capture-unmatched-premise");
+    seed_decision(&loomtracer_dir, "Keep the ledger append-only");
+    let events_before = ledger_event_count(&loomtracer_dir);
 
     for premise in ["quantum flux capacitor", "decision-does-not-exist"] {
         let error = grounding_cli(
-            &hivemind_dir,
+            &loomtracer_dir,
             false,
             &grounded_capture_args(
                 "Adopt the new queue",
@@ -10572,19 +10575,19 @@ fn decision_capture_with_an_unmatched_premise_writes_nothing() {
             "{error}"
         );
     }
-    assert_eq!(ledger_event_count(&hivemind_dir), events_before);
+    assert_eq!(ledger_event_count(&loomtracer_dir), events_before);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_with_only_close_premise_candidates_says_what_they_lack_and_writes_nothing() {
-    let hivemind_dir = unique_test_dir("capture-close-premise");
-    let queue_id = seed_decision(&hivemind_dir, "Adopt async queue for billing");
-    let events_before = ledger_event_count(&hivemind_dir);
+    let loomtracer_dir = unique_test_dir("capture-close-premise");
+    let queue_id = seed_decision(&loomtracer_dir, "Adopt async queue for billing");
+    let events_before = ledger_event_count(&loomtracer_dir);
 
     let error = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args(
             "Ship the billing queue",
@@ -10605,18 +10608,18 @@ fn decision_capture_with_only_close_premise_candidates_says_what_they_lack_and_w
         "{message}"
     );
     assert!(message.contains("--rests-on-decision '#N'"), "{message}");
-    assert_eq!(ledger_event_count(&hivemind_dir), events_before);
+    assert_eq!(ledger_event_count(&loomtracer_dir), events_before);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn decision_capture_reports_a_stale_premise_in_json_and_text() {
-    let hivemind_dir = unique_test_dir("capture-stale-premise");
-    let old_id = seed_decision(&hivemind_dir, "Use the shared admin token");
-    let new_id = seed_decision(&hivemind_dir, "Use scoped service tokens");
+    let loomtracer_dir = unique_test_dir("capture-stale-premise");
+    let old_id = seed_decision(&loomtracer_dir, "Use the shared admin token");
+    let new_id = seed_decision(&loomtracer_dir, "Use scoped service tokens");
     grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &[
             "emit",
@@ -10630,7 +10633,7 @@ fn decision_capture_reports_a_stale_premise_in_json_and_text() {
     .expect("supersede the old decision");
 
     let reply = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         true,
         &grounded_capture_args("Rotate the admin token", &["--rests-on-decision", &old_id]),
     )
@@ -10639,7 +10642,7 @@ fn decision_capture_reports_a_stale_premise_in_json_and_text() {
     assert_eq!(reply["premise_stale"], serde_json::json!([old_id]));
 
     let text = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &grounded_capture_args(
             "Rotate the admin token again",
@@ -10657,7 +10660,7 @@ fn decision_capture_reports_a_stale_premise_in_json_and_text() {
         "{text}"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 fn grounded_supersede_args<'a>(old_id: &'a str, grounding: &[&'a str]) -> Vec<&'a str> {
@@ -10682,16 +10685,20 @@ fn grounded_supersede_args<'a>(old_id: &'a str, grounding: &[&'a str]) -> Vec<&'
 
 #[test]
 fn supersede_without_grounding_is_refused_and_with_grounding_records_it() {
-    let hivemind_dir = unique_test_dir("supersede-grounded");
-    let old_id = seed_decision(&hivemind_dir, "Use shared admin token");
-    let goal_id = seed_decision(&hivemind_dir, "Keep audit boundaries");
-    let events_before = ledger_event_count(&hivemind_dir);
+    let loomtracer_dir = unique_test_dir("supersede-grounded");
+    let old_id = seed_decision(&loomtracer_dir, "Use shared admin token");
+    let goal_id = seed_decision(&loomtracer_dir, "Keep audit boundaries");
+    let events_before = ledger_event_count(&loomtracer_dir);
 
-    let error = grounding_cli(&hivemind_dir, false, &grounded_supersede_args(&old_id, &[]))
-        .expect_err("a supersede that names nothing it rests on is refused");
+    let error = grounding_cli(
+        &loomtracer_dir,
+        false,
+        &grounded_supersede_args(&old_id, &[]),
+    )
+    .expect_err("a supersede that names nothing it rests on is refused");
     assert_eq!(exit_code_for_error(&error).code(), 2);
     assert!(error.to_string().contains("--rests-on-decision"), "{error}");
-    assert_eq!(ledger_event_count(&hivemind_dir), events_before);
+    assert_eq!(ledger_event_count(&loomtracer_dir), events_before);
 
     let grounded = grounded_supersede_args(
         &old_id,
@@ -10704,7 +10711,7 @@ fn supersede_without_grounding_is_refused_and_with_grounding_records_it() {
             "incident 7",
         ],
     );
-    let reply = grounding_cli(&hivemind_dir, true, &grounded).expect("grounded supersede");
+    let reply = grounding_cli(&loomtracer_dir, true, &grounded).expect("grounded supersede");
     let reply: serde_json::Value = serde_json::from_str(&reply).expect("json reply");
     assert_eq!(reply["old_decision_status"], "superseded");
     let kinds: Vec<&str> = reply["rests_on"]
@@ -10717,13 +10724,13 @@ fn supersede_without_grounding_is_refused_and_with_grounding_records_it() {
     assert_eq!(reply["rests_on"][0]["id"], goal_id);
 
     // An identical retry is still idempotent: same supersession, nothing appended.
-    let events_after_first = ledger_event_count(&hivemind_dir);
-    let retry = grounding_cli(&hivemind_dir, true, &grounded).expect("retry succeeds");
+    let events_after_first = ledger_event_count(&loomtracer_dir);
+    let retry = grounding_cli(&loomtracer_dir, true, &grounded).expect("retry succeeds");
     let retry: serde_json::Value = serde_json::from_str(&retry).expect("json reply");
     assert_eq!(retry["new_decision_id"], reply["new_decision_id"]);
-    assert_eq!(ledger_event_count(&hivemind_dir), events_after_first);
+    assert_eq!(ledger_event_count(&loomtracer_dir), events_after_first);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 /// Every answer names its project (hivemind-s15q.5): the JSON carries `project` and
@@ -10749,7 +10756,7 @@ fn every_query_answer_names_its_project() -> CliTestResult {
     )))?;
 
     let (billing_id, personal_id) = {
-        let ledger = SqliteEventLedger::open(&backend.hivemind_dir)?;
+        let ledger = SqliteEventLedger::open(&backend.loomtracer_dir)?;
         let commands = Commands::new_with_context(
             &ledger,
             CommandContext::new(TenantId::local(), EventProvenance::cli()),
@@ -10873,7 +10880,7 @@ fn every_query_answer_names_its_project() -> CliTestResult {
         &format!("a personal-project decision is labelled with the person: {personal}"),
     )?;
 
-    let _ = std::fs::remove_dir_all(&backend.hivemind_dir);
+    let _ = std::fs::remove_dir_all(&backend.loomtracer_dir);
     Ok(())
 }
 
@@ -11126,7 +11133,7 @@ fn situational_is_project_first() -> CliTestResult {
 #[test]
 fn situational_is_project_first_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("situational-project-first-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     situational_project_first_body(&backend)
@@ -11278,18 +11285,18 @@ fn recall_is_project_first() -> CliTestResult {
 #[test]
 fn recall_is_project_first_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("recall-project-first-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     recall_project_first_body(&backend)
 }
 
 // ---------------------------------------------------------------------------
-// `hivemind move` (hivemind-s15q.11): move a decision by describing it, through the same
+// `loomtracer move` (hivemind-s15q.11): move a decision by describing it, through the same
 // write ambiguity gate as `disagree` and `supersede`.
 // ---------------------------------------------------------------------------
 
-/// `hivemind --actor human:alice --json move <rest>`, parsed.
+/// `loomtracer --actor human:alice --json move <rest>`, parsed.
 fn move_json(
     backend: &TestBackend,
     rest: &[&str],
@@ -11406,7 +11413,7 @@ fn move_by_description_records_the_move_and_reverses() -> CliTestResult {
 #[test]
 fn move_by_description_records_the_move_and_reverses_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("move-by-desc-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     move_by_description_records_the_move_and_reverses_body(&backend)
@@ -11467,7 +11474,7 @@ fn move_refusals_and_misses_write_nothing() -> CliTestResult {
 #[test]
 fn move_refusals_and_misses_write_nothing_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("move-refused-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     move_refusals_and_misses_write_nothing_body(&backend)
@@ -11568,7 +11575,7 @@ fn retitle_by_description_records_the_retitle_and_reverses() -> CliTestResult {
 #[test]
 fn retitle_by_description_records_the_retitle_and_reverses_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("retitle-by-desc-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     retitle_by_description_records_the_retitle_and_reverses_body(&backend)
@@ -11635,7 +11642,7 @@ fn retitle_refusals_and_misses_write_nothing() -> CliTestResult {
 #[test]
 fn retitle_refusals_and_misses_write_nothing_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("retitle-refused-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     retitle_refusals_and_misses_write_nothing_body(&backend)
@@ -11758,7 +11765,7 @@ fn supersede_of_a_moved_decision_is_filed_where_it_was_moved() -> CliTestResult 
 #[test]
 fn supersede_of_a_moved_decision_is_filed_where_it_was_moved_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("supersede-moved-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_of_a_moved_decision_is_filed_where_it_was_moved_body(&backend)
@@ -11841,7 +11848,7 @@ fn move_ambiguous_description_lists_candidates_and_pick_resolves_it() -> CliTest
 #[test]
 fn move_ambiguous_description_lists_candidates_and_pick_resolves_it_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("move-pick-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     move_ambiguous_description_lists_candidates_and_pick_resolves_it_body(&backend)
@@ -11913,9 +11920,9 @@ impl ContextTree {
         ] {
             std::fs::create_dir_all(root.join(dir)).expect("create context tree dir");
         }
-        std::fs::write(root.join("repo/.hivemind-project"), "platform\n").expect("outer marker");
+        std::fs::write(root.join("repo/.loomtracer-project"), "platform\n").expect("outer marker");
         std::fs::write(
-            root.join("repo/services/billing/.hivemind-project"),
+            root.join("repo/services/billing/.loomtracer-project"),
             "billing\n",
         )
         .expect("nested marker");
@@ -11988,7 +11995,7 @@ fn capture_from_a_folder_with_a_marker_lands_in_that_project() -> CliTestResult 
 #[test]
 fn capture_from_a_folder_with_a_marker_lands_in_that_project_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("context-marker-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     capture_from_a_folder_with_a_marker_lands_in_that_project_body(&backend)
@@ -12118,7 +12125,7 @@ fn context_ladder_picks_the_nearest_rung_body(backend: &TestBackend) -> CliTestR
             "project": "personal:agent:claude",
             "project_source": "personal_fallback",
             "project_notice": crate::commands::PERSONAL_FALLBACK_NOTICE,
-            "project_reminder": "this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder",
+            "project_reminder": "this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder",
         }),
         "the personal fallback names the reminder",
     )?;
@@ -12152,7 +12159,7 @@ fn context_ladder_picks_the_nearest_rung() -> CliTestResult {
 #[test]
 fn context_ladder_picks_the_nearest_rung_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("context-ladder-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     context_ladder_picks_the_nearest_rung_body(&backend)
@@ -12180,7 +12187,7 @@ fn context_fallback_text_announces_the_project_then_the_reminder() -> CliTestRes
         format!(
             "project: personal:agent:claude (personal_fallback) — {}\n{}\n",
             crate::commands::PERSONAL_FALLBACK_NOTICE,
-            "this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder",
+            "this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder",
         )
         .as_str(),
         "the fallback line, then the reminder on its own line",
@@ -12193,7 +12200,7 @@ fn context_marker_naming_an_unregistered_project_is_refused_with_the_register_hi
     let backend = TestBackend::sqlite("context-marker-unregistered");
     let tree = ContextTree::new("context-marker-unregistered");
     std::fs::write(
-        tree.root.join("repo/services/auth/.hivemind-project"),
+        tree.root.join("repo/services/auth/.loomtracer-project"),
         "authn\n",
     )?;
 
@@ -12215,7 +12222,7 @@ fn context_marker_naming_an_unregistered_project_is_refused_with_the_register_hi
         error.to_string().contains("project not registered: authn")
             && error
                 .to_string()
-                .contains("hivemind project register authn"),
+                .contains("loomtracer project register authn"),
         "the refusal names the handle and the register command",
     )
 }
@@ -12300,7 +12307,7 @@ fn supersede_from_context_follows_the_folder_or_inherits_body(
     )?;
     ensure_eq(
         reply["project_reminder"].as_str(),
-        Some("this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder"),
+        Some("this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder"),
         "reminder",
     )
 }
@@ -12315,7 +12322,7 @@ fn supersede_from_context_follows_the_folder_or_inherits() -> CliTestResult {
 #[test]
 fn supersede_from_context_follows_the_folder_or_inherits_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("context-supersede-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_from_context_follows_the_folder_or_inherits_body(&backend)
@@ -12363,7 +12370,7 @@ impl SpanningTree {
         for (folder, handle) in Self::FOLDERS {
             let dir = tree.repo().join(folder);
             std::fs::create_dir_all(&dir).expect("create attached folder");
-            std::fs::write(dir.join(".hivemind-project"), format!("{handle}\n"))
+            std::fs::write(dir.join(".loomtracer-project"), format!("{handle}\n"))
                 .expect("write marker");
             std::fs::write(dir.join("code.rs"), "one\n").expect("write code");
         }
@@ -12463,7 +12470,7 @@ fn spanning_change_goes_to_the_common_parent_or_the_personal_project_body(
             "project": "personal:agent:claude",
             "project_source": "personal_fallback",
             "project_notice": crate::commands::PERSONAL_FALLBACK_NOTICE,
-            "project_reminder": "this change spans billing and ledger, which share no parent. Move it with hivemind move ..., or register a parent.",
+            "project_reminder": "this change spans billing and ledger, which share no parent. Move it with loomtracer move ..., or register a parent.",
         }),
         "a change spanning two projects with no parent",
     )
@@ -12479,7 +12486,7 @@ fn spanning_change_goes_to_the_common_parent_or_the_personal_project() -> CliTes
 #[test]
 fn spanning_change_goes_to_the_common_parent_or_the_personal_project_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("context-spanning-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     spanning_change_goes_to_the_common_parent_or_the_personal_project_body(&backend)
@@ -12521,7 +12528,7 @@ fn spanning_change_text_announces_the_project_then_says_how_it_was_worked_out() 
         format!(
             "project: personal:agent:claude (personal_fallback) — {}\n{}\n",
             crate::commands::PERSONAL_FALLBACK_NOTICE,
-            "this change spans billing and ledger, which share no parent. Move it with hivemind move ..., or register a parent.",
+            "this change spans billing and ledger, which share no parent. Move it with loomtracer move ..., or register a parent.",
         )
         .as_str(),
         "the fallback line, then which projects the change spans and how to move it",
@@ -12607,7 +12614,7 @@ fn project_from_context_parses_on_the_capture_verbs_and_mcp() -> CliTestResult {
     let dir = unique_test_dir("context-flag-parse");
     let dir = dir.to_str().expect("utf-8 temp path");
     let argv = |rest: &[&str]| {
-        let mut argv = vec!["hivemind", "--hivemind-dir", dir];
+        let mut argv = vec!["loomtracer", "--loomtracer-dir", dir];
         argv.extend_from_slice(rest);
         Cli::try_parse_from(argv)
     };
@@ -12786,7 +12793,7 @@ fn a_capture_says_so_when_it_declares_a_topic() -> CliTestResult {
 #[test]
 fn a_capture_says_so_when_it_declares_a_topic_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("declare-topic-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     a_capture_says_so_when_it_declares_a_topic_body(&backend)
@@ -12874,7 +12881,7 @@ fn project_declare_topic_declares_and_adopts() -> CliTestResult {
 #[test]
 fn project_declare_topic_declares_and_adopts_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("declare-topic-verb-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     project_declare_topic_declares_and_adopts_body(&backend)
@@ -12900,8 +12907,9 @@ fn a_capture_from_a_rig_the_ledger_has_no_project_for_is_refused_body(
         refusal.contains("rig `beadline`")
             && refusal.contains("wrong ledger")
             && refusal.contains("no project in tenant `")
-            && refusal
-                .contains("hivemind project anchor --handle <project> --kind rig --value beadline"),
+            && refusal.contains(
+                "loomtracer project anchor --handle <project> --kind rig --value beadline",
+            ),
         &format!("the refusal names the rig, the ledger and the way out: {refusal}"),
     )?;
     ensure_json_eq(
@@ -12965,7 +12973,7 @@ fn a_capture_from_a_rig_the_ledger_has_no_project_for_is_refused() -> CliTestRes
 #[test]
 fn a_capture_from_a_rig_the_ledger_has_no_project_for_is_refused_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("wrong-ledger-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     a_capture_from_a_rig_the_ledger_has_no_project_for_is_refused_body(&backend)
@@ -13032,7 +13040,7 @@ fn the_misfiled_report_carries_the_project_and_the_move_and_nothing_is_moved() -
         report.contains(&stray)
             && report.contains("project=personal:agent:claude")
             && report.contains(&format!(
-                "move=hivemind move --decision {stray} --to beadline"
+                "move=loomtracer move --decision {stray} --to beadline"
             )),
         &format!("the row names the project and hands over the move: {report}"),
     )?;
@@ -13063,7 +13071,10 @@ fn the_misfiled_report_carries_the_project_and_the_move_and_nothing_is_moved() -
     )))
     .expect_err("an unregistered project is refused, never an empty report")
     .to_string();
-    ensure(error.contains("hivemind project register beadlin"), &error)?;
+    ensure(
+        error.contains("loomtracer project register beadlin"),
+        &error,
+    )?;
 
     // Move it as the row said; the personal project's report is now clean.
     move_json(&backend, &["--decision", &stray, "--to", "beadline"])?;
@@ -13085,10 +13096,10 @@ fn the_misfiled_report_carries_the_project_and_the_move_and_nothing_is_moved() -
 /// copy recorded before that.
 #[test]
 fn a_restated_decision_is_one_decision_to_recall_and_why() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("restated-decision-one-answer");
-    let dir = hivemind_dir.to_str().expect("utf-8 temp path");
+    let loomtracer_dir = unique_test_dir("restated-decision-one-answer");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
     let cli = |args: &[&str]| -> crate::Result<String> {
-        let mut full = vec!["hivemind", "--hivemind-dir", dir];
+        let mut full = vec!["loomtracer", "--loomtracer-dir", dir];
         full.extend_from_slice(args);
         run(&Cli::parse_from(full))
     };
@@ -13282,7 +13293,7 @@ fn a_restated_decision_is_one_decision_to_recall_and_why() -> CliTestResult {
         "naming a pair already linked writes nothing",
     )?;
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -13293,7 +13304,7 @@ fn a_restated_decision_is_one_decision_to_recall_and_why() -> CliTestResult {
 
 #[test]
 fn decision_capture_without_both_floor_answers_is_refused_with_exit_2_and_writes_nothing() {
-    let hivemind_dir = unique_test_dir("capture-no-floor");
+    let loomtracer_dir = unique_test_dir("capture-no-floor");
     let assumption = ["--rests-on-assumption", "Nobody else depends on this"];
 
     for (what, floor) in [
@@ -13311,7 +13322,7 @@ fn decision_capture_without_both_floor_answers_is_refused_with_exit_2_and_writes
     ] {
         let mut args = grounded_capture_args_without_floor("Adopt the new queue", &assumption);
         args.extend_from_slice(floor);
-        let error = grounding_cli(&hivemind_dir, false, &args)
+        let error = grounding_cli(&loomtracer_dir, false, &args)
             .expect_err("a capture that leaves a floor answer out is refused");
 
         assert_eq!(exit_code_for_error(&error).code(), 2, "{what}");
@@ -13328,14 +13339,14 @@ fn decision_capture_without_both_floor_answers_is_refused_with_exit_2_and_writes
             );
         }
         assert!(message.contains("nothing was written"), "{what}: {message}");
-        assert_eq!(ledger_event_count(&hivemind_dir), 0, "{what}");
+        assert_eq!(ledger_event_count(&loomtracer_dir), 0, "{what}");
     }
 
     // The same refusal holds for `supersede`, before the old decision is even resolved.
-    let old = seed_decision(&hivemind_dir, "A decision to replace");
-    let events_before = ledger_event_count(&hivemind_dir);
+    let old = seed_decision(&loomtracer_dir, "A decision to replace");
+    let events_before = ledger_event_count(&loomtracer_dir);
     let error = grounding_cli(
-        &hivemind_dir,
+        &loomtracer_dir,
         false,
         &[
             "supersede",
@@ -13351,14 +13362,14 @@ fn decision_capture_without_both_floor_answers_is_refused_with_exit_2_and_writes
     .expect_err("a supersede without the floor answers is refused");
     assert_eq!(exit_code_for_error(&error).code(), 2);
     assert!(error.to_string().contains("--cheap-to-undo"), "{error}");
-    assert_eq!(ledger_event_count(&hivemind_dir), events_before);
+    assert_eq!(ledger_event_count(&loomtracer_dir), events_before);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn a_floor_sentence_must_not_be_blank_and_the_two_forms_of_one_answer_exclude_each_other() {
-    let hivemind_dir = unique_test_dir("capture-floor-blank");
+    let loomtracer_dir = unique_test_dir("capture-floor-blank");
     let assumption = ["--rests-on-assumption", "Nobody else depends on this"];
 
     for floor in [
@@ -13367,19 +13378,19 @@ fn a_floor_sentence_must_not_be_blank_and_the_two_forms_of_one_answer_exclude_ea
     ] {
         let mut args = grounded_capture_args_without_floor("Adopt the new queue", &assumption);
         args.extend_from_slice(&floor);
-        let error = grounding_cli(&hivemind_dir, false, &args)
+        let error = grounding_cli(&loomtracer_dir, false, &args)
             .expect_err("a blank sentence is not an answer");
         assert_eq!(exit_code_for_error(&error).code(), 2, "{floor:?}");
         assert!(error.to_string().contains("must not be empty"), "{error}");
     }
-    assert_eq!(ledger_event_count(&hivemind_dir), 0);
+    assert_eq!(ledger_event_count(&loomtracer_dir), 0);
 
     // clap refuses `--binds TEXT` together with `--binds-nothing` before anything runs.
     for (first, second) in [
         ("--binds", "--binds-nothing"),
         ("--undo-cost", "--cheap-to-undo"),
     ] {
-        let mut args = vec!["hivemind"];
+        let mut args = vec!["loomtracer"];
         args.extend(grounded_capture_args_without_floor(
             "Adopt the new queue",
             &assumption,
@@ -13394,7 +13405,7 @@ fn a_floor_sentence_must_not_be_blank_and_the_two_forms_of_one_answer_exclude_ea
         );
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 /// The proposals the backend's ledger holds, oldest first, as their payloads.
@@ -13561,7 +13572,7 @@ fn emit_capture_records_the_floor_answers_and_marks_a_below_floor_capture() -> C
 fn emit_capture_records_the_floor_answers_and_marks_a_below_floor_capture_postgres() -> CliTestResult
 {
     let Some(backend) = TestBackend::postgres("emit-floor-answers-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     capture_floor_answers_body(&backend)
@@ -13854,7 +13865,7 @@ fn supersede_warns_when_an_option_label_looks_like_a_slug_and_records_it_as_give
 fn supersede_warns_when_an_option_label_looks_like_a_slug_and_records_it_as_given_postgres(
 ) -> CliTestResult {
     let Some(backend) = TestBackend::postgres("supersede-slug-label-warning-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_slug_label_warning_body(&backend)
@@ -13868,7 +13879,7 @@ fn supersede_records_the_floor_answers_and_refuses_a_missing_one() -> CliTestRes
 #[test]
 fn supersede_records_the_floor_answers_and_refuses_a_missing_one_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("supersede-floor-answers-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     supersede_floor_answers_body(&backend)
@@ -13876,10 +13887,10 @@ fn supersede_records_the_floor_answers_and_refuses_a_missing_one_postgres() -> C
 
 #[test]
 fn raw_emit_decision_proposed_asks_nothing_and_records_no_floor_answer() -> CliTestResult {
-    let hivemind_dir = unique_test_dir("raw-emit-no-floor");
-    seed_decision(&hivemind_dir, "A raw proposal is never asked");
+    let loomtracer_dir = unique_test_dir("raw-emit-no-floor");
+    seed_decision(&loomtracer_dir, "A raw proposal is never asked");
 
-    let ledger = SqliteEventLedger::open(&hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(&loomtracer_dir)?;
     let proposals: Vec<_> = ledger
         .read(0, 100)?
         .into_iter()
@@ -13891,7 +13902,7 @@ fn raw_emit_decision_proposed_asks_nothing_and_records_no_floor_answer() -> CliT
             && proposals[0].payload.get("undo_cost").is_none(),
         "a raw emit records neither answer: it reads not asked",
     )?;
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
     Ok(())
 }
 
@@ -14284,7 +14295,7 @@ fn reads_show_what_a_decision_binds_and_what_undoing_it_costs() -> CliTestResult
 #[test]
 fn reads_show_what_a_decision_binds_and_what_undoing_it_costs_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("reads-floor-answers-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     reads_show_the_floor_answers_body(&backend)
@@ -14451,7 +14462,7 @@ fn list_rows_end_in_floor_below_body(backend: &TestBackend) -> CliTestResult {
             &format!("{verb} JSON: a decision recorded without the answers"),
         )?;
     }
-    let _ = std::fs::remove_dir_all(&backend.hivemind_dir);
+    let _ = std::fs::remove_dir_all(&backend.loomtracer_dir);
     Ok(())
 }
 
@@ -14463,7 +14474,7 @@ fn list_rows_end_a_below_floor_decision_in_floor_below() -> CliTestResult {
 #[test]
 fn list_rows_end_a_below_floor_decision_in_floor_below_postgres() -> CliTestResult {
     let Some(backend) = TestBackend::postgres("list-rows-floor-below-pg") else {
-        eprintln!("skipping; set HIVEMIND_TEST_POSTGRES_URL");
+        eprintln!("skipping; set LOOMTRACER_TEST_POSTGRES_URL");
         return Ok(());
     };
     list_rows_end_in_floor_below_body(&backend)

@@ -18,7 +18,7 @@
     "chosen_option_id": "opt-capital",
     "hypothesis_ids": [],
     "evidence_ids": [],
-    "project": "hivemind",
+    "project": "loomtracer",
     "project_source": "stated",
     "binds": { "level": "nothing" },
     "undo_cost": { "level": "cheap" }

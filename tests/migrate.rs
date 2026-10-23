@@ -1,17 +1,17 @@
-/// Integration tests for `hivemind migrate --to <postgres-url>` (SQLite → Postgres round-trip).
+/// Integration tests for `loomtracer migrate --to <postgres-url>` (SQLite → Postgres round-trip).
 ///
 /// Requires the `shared-backend-postgres` feature and a live Postgres instance.
-/// Set HIVEMIND_TEST_POSTGRES_URL to run; tests are skipped when unset. The same moves over
+/// Set LOOMTRACER_TEST_POSTGRES_URL to run; tests are skipped when unset. The same moves over
 /// HTTP (`--to-url`) are `tests/migrate_http.rs`.
 #[cfg(feature = "shared-backend-postgres")]
 mod migrate_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use hivemind::cli::{Cli, Command, MigrateArgs};
-    use hivemind::events::{Event, EventSource, EventType, TenantId};
-    use hivemind::ledger::{EventLedger, PostgresEventLedger, SqliteEventLedger};
+    use loomtracer::cli::{Cli, Command, MigrateArgs};
+    use loomtracer::events::{Event, EventSource, EventType, TenantId};
+    use loomtracer::ledger::{EventLedger, PostgresEventLedger, SqliteEventLedger};
 
-    const TEST_DATABASE_URL_ENV: &str = "HIVEMIND_TEST_POSTGRES_URL";
+    const TEST_DATABASE_URL_ENV: &str = "LOOMTRACER_TEST_POSTGRES_URL";
 
     fn skip_if_no_postgres() -> Option<String> {
         std::env::var(TEST_DATABASE_URL_ENV)
@@ -49,11 +49,11 @@ mod migrate_tests {
     fn test_cli(source_dir: std::path::PathBuf, pg_url: String, tenant: String) -> Cli {
         Cli {
             actor: "human:test".to_owned(),
-            actor_given: hivemind::cli::ActorGiven(true),
+            actor_given: loomtracer::cli::ActorGiven(true),
             tenant: "local".to_owned(),
             json: true,
             database_url: None,
-            hivemind_dir: source_dir,
+            loomtracer_dir: source_dir,
             graph_backend: None,
             verbose: 0,
             command: Command::Migrate(MigrateArgs {
@@ -89,7 +89,7 @@ mod migrate_tests {
 
         let tenant = unique_tenant("round-trip");
         let cli = test_cli(source_dir.path().to_owned(), pg_url, tenant.clone());
-        let output = hivemind::cli::run(&cli).expect("run migrate");
+        let output = loomtracer::cli::run(&cli).expect("run migrate");
 
         let report: serde_json::Value =
             serde_json::from_str(&output).expect("parse migrate JSON output");
@@ -130,11 +130,11 @@ mod migrate_tests {
 
         // First migration.
         let cli1 = test_cli(source_dir.path().to_owned(), pg_url.clone(), tenant.clone());
-        hivemind::cli::run(&cli1).expect("first run");
+        loomtracer::cli::run(&cli1).expect("first run");
 
         // Second migration of the same source: should succeed without duplicating events.
         let cli2 = test_cli(source_dir.path().to_owned(), pg_url.clone(), tenant.clone());
-        let output2 = hivemind::cli::run(&cli2).expect("second run");
+        let output2 = loomtracer::cli::run(&cli2).expect("second run");
         let report2: serde_json::Value =
             serde_json::from_str(&output2).expect("parse second run output");
 
@@ -175,11 +175,11 @@ mod migrate_tests {
 
         let cli = Cli {
             actor: "human:test".to_owned(),
-            actor_given: hivemind::cli::ActorGiven(true),
+            actor_given: loomtracer::cli::ActorGiven(true),
             tenant: "local".to_owned(),
             json: true,
             database_url: None,
-            hivemind_dir: source_dir.path().to_owned(),
+            loomtracer_dir: source_dir.path().to_owned(),
             graph_backend: None,
             verbose: 0,
             command: Command::Migrate(MigrateArgs {
@@ -192,7 +192,7 @@ mod migrate_tests {
             }),
         };
 
-        let output = hivemind::cli::run(&cli).expect("dry run migrate");
+        let output = loomtracer::cli::run(&cli).expect("dry run migrate");
         let report: serde_json::Value =
             serde_json::from_str(&output).expect("parse dry-run output");
 
@@ -226,11 +226,11 @@ mod migrate_tests {
         for source in [&missing, &empty] {
             let cli = Cli {
                 actor: "human:test".to_owned(),
-                actor_given: hivemind::cli::ActorGiven(true),
+                actor_given: loomtracer::cli::ActorGiven(true),
                 tenant: "local".to_owned(),
                 json: true,
                 database_url: None,
-                hivemind_dir: std::path::PathBuf::from("/nonexistent"),
+                loomtracer_dir: std::path::PathBuf::from("/nonexistent"),
                 graph_backend: None,
                 verbose: 0,
                 command: Command::Migrate(MigrateArgs {
@@ -243,9 +243,9 @@ mod migrate_tests {
                 }),
             };
 
-            let error = hivemind::cli::run(&cli).expect_err("a source with no ledger is refused");
+            let error = loomtracer::cli::run(&cli).expect_err("a source with no ledger is refused");
 
-            assert_eq!(hivemind::cli::exit_code_for_error(&error).code(), 2);
+            assert_eq!(loomtracer::cli::exit_code_for_error(&error).code(), 2);
             assert!(
                 error.to_string().contains(&source.display().to_string()),
                 "the refusal names the folder: {error}"
@@ -280,11 +280,11 @@ mod migrate_tests {
 
         let cli = Cli {
             actor: "human:test".to_owned(),
-            actor_given: hivemind::cli::ActorGiven(true),
+            actor_given: loomtracer::cli::ActorGiven(true),
             tenant: "local".to_owned(),
             json: true,
             database_url: None,
-            hivemind_dir: std::path::PathBuf::from("/nonexistent"),
+            loomtracer_dir: std::path::PathBuf::from("/nonexistent"),
             graph_backend: None,
             verbose: 0,
             command: Command::Migrate(MigrateArgs {
@@ -297,7 +297,7 @@ mod migrate_tests {
             }),
         };
 
-        let output = hivemind::cli::run(&cli).expect("migrate with --from");
+        let output = loomtracer::cli::run(&cli).expect("migrate with --from");
         let report: serde_json::Value = serde_json::from_str(&output).expect("parse output");
 
         assert_eq!(report["new_events"], 1);
@@ -331,7 +331,7 @@ mod migrate_tests {
         }
 
         let cli = test_cli(source_dir.path().to_owned(), pg_url.clone(), tenant.clone());
-        let output = hivemind::cli::run(&cli).expect("run migrate");
+        let output = loomtracer::cli::run(&cli).expect("run migrate");
         let report: serde_json::Value = serde_json::from_str(&output).expect("parse output");
         assert_eq!(report["new_events"], 3);
         assert_eq!(report["parity_check"]["ok"], true);
@@ -344,7 +344,7 @@ mod migrate_tests {
         assert_eq!(landed[0].event_id, Some(4), "numbered after the residents");
 
         // A re-run writes nothing.
-        let output = hivemind::cli::run(&cli).expect("re-run migrate");
+        let output = loomtracer::cli::run(&cli).expect("re-run migrate");
         let report: serde_json::Value = serde_json::from_str(&output).expect("parse output");
         assert_eq!(report["new_events"], 0);
         assert_eq!(report["already_present"], 3);

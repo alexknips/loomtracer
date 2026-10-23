@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -25,7 +25,8 @@ struct Scratch(PathBuf);
 
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
-        let path = std::env::temp_dir().join(format!("hivemind-actor-{label}-{}", Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("loomtracer-actor-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -46,11 +47,11 @@ fn events(dir: &Path) -> TestResult<Vec<Event>> {
 }
 
 /// Run one CLI call with no `--actor`, as the agent the environment would have named.
-fn run_as_agent(dir: &Path, args: &[&str]) -> hivemind::Result<String> {
+fn run_as_agent(dir: &Path, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
+        "loomtracer".to_owned(),
         "--json".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
     ];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
@@ -62,9 +63,9 @@ fn run_as_agent(dir: &Path, args: &[&str]) -> hivemind::Result<String> {
 /// Seed one decision as someone else, with an explicit `--actor`, and return its id.
 fn seed(dir: &Path, title: &str) -> TestResult<String> {
     let output = run(&Cli::parse_from([
-        "hivemind",
+        "loomtracer",
         "--json",
-        "--hivemind-dir",
+        "--loomtracer-dir",
         &dir.display().to_string(),
         "--actor",
         SEEDER,
@@ -207,21 +208,21 @@ fn follow_up_verbs_run_by_an_agent_with_no_actor_record_the_agent() -> TestResul
 
 /// The real binary, with the environment an agent session has (or does not have) and a git
 /// identity for the person who owns the machine.
-fn hivemind_bin(dir: &Path, home: &Path, agent_env: bool) -> Command {
+fn loomtracer_bin(dir: &Path, home: &Path, agent_env: bool) -> Command {
     let gitconfig = home.join("gitconfig");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
     command
         // Not a git checkout, so the repository's own user.email cannot answer.
         .current_dir(home)
         .env("GIT_CONFIG_GLOBAL", &gitconfig)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("HOME", home)
-        .env_remove("HIVEMIND_ACTOR")
-        .env_remove("HIVEMIND_AGENT_TOOL")
-        .env_remove("HIVEMIND_TOOL")
-        .env_remove("HIVEMIND_AGENT_SESSION")
-        .env_remove("HIVEMIND_CODEX_SESSION")
-        .env_remove("HIVEMIND_CLAUDE_SESSION")
+        .env_remove("LOOMTRACER_ACTOR")
+        .env_remove("LOOMTRACER_AGENT_TOOL")
+        .env_remove("LOOMTRACER_TOOL")
+        .env_remove("LOOMTRACER_AGENT_SESSION")
+        .env_remove("LOOMTRACER_CODEX_SESSION")
+        .env_remove("LOOMTRACER_CLAUDE_SESSION")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("CODEX_SESSION_ID")
@@ -229,11 +230,11 @@ fn hivemind_bin(dir: &Path, home: &Path, agent_env: bool) -> Command {
         .env_remove("GC_AGENT")
         .env_remove("GC_ALIAS")
         .env_remove("GC_RIG")
-        .args(["--json", "--hivemind-dir"])
+        .args(["--json", "--loomtracer-dir"])
         .arg(dir);
     if agent_env {
         command
-            .env("HIVEMIND_AGENT_TOOL", "claude")
+            .env("LOOMTRACER_AGENT_TOOL", "claude")
             .env("GC_AGENT", "crew-jglb7");
     }
     command
@@ -246,7 +247,7 @@ fn disagree_with_binary(
     decision_id: &str,
 ) -> TestResult<Event> {
     let before = events(dir)?.len();
-    let output = hivemind_bin(dir, home, agent_env)
+    let output = loomtracer_bin(dir, home, agent_env)
         .args([
             "disagree",
             "--decision",
@@ -295,7 +296,7 @@ fn the_binary_records_the_agent_in_an_agent_session_and_the_person_at_a_plain_te
     // An explicit --actor wins over what the environment shows.
     let third = seed(dir, "Checker summary is grouped by rig")?;
     let before = events(dir)?.len();
-    let output = hivemind_bin(dir, home.path(), true)
+    let output = loomtracer_bin(dir, home.path(), true)
         .args([
             "--actor",
             "human:alice",
@@ -316,10 +317,12 @@ fn the_binary_records_the_agent_in_an_agent_session_and_the_person_at_a_plain_te
     Ok(())
 }
 
-/// The `--actor` entry of `hivemind --help` as the binary prints it in this environment,
+/// The `--actor` entry of `loomtracer --help` as the binary prints it in this environment,
 /// whitespace folded.
 fn actor_help_entry(dir: &Path, home: &Path, agent_env: bool) -> TestResult<String> {
-    let output = hivemind_bin(dir, home, agent_env).arg("--help").output()?;
+    let output = loomtracer_bin(dir, home, agent_env)
+        .arg("--help")
+        .output()?;
     assert!(output.status.success(), "--help failed");
     let help = String::from_utf8(output.stdout)?;
     let start = help.find("--actor <ACTOR>").ok_or("--help lists --actor")?;
@@ -374,7 +377,7 @@ fn help_names_the_actor_an_untyped_write_is_recorded_as_in_that_environment() ->
     // The write verbs that name `--actor` say what an untyped one is, in either environment.
     for verb in ["ground", "disagree"] {
         for agent_env in [true, false] {
-            let output = hivemind_bin(dir, home.path(), agent_env)
+            let output = loomtracer_bin(dir, home.path(), agent_env)
                 .args([verb, "--help"])
                 .output()?;
             let help = String::from_utf8(output.stdout)?

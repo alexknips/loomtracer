@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::EventType;
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::EventType;
 use serde_json::json;
 
 #[path = "support/seed_data.rs"]
@@ -111,11 +111,11 @@ fn seed_dataset_covers_slice_one_demo_cases() {
 }
 
 #[test]
-#[ignore = "populates ./hivemind by default; run: cargo test --test seed -- --include-ignored"]
-fn populate_seed_hivemind_dir() -> TestResult<()> {
-    let seed_dir = std::env::var("HIVEMIND_SEED_DIR")
+#[ignore = "populates ./loomtracer by default; run: cargo test --test seed -- --include-ignored"]
+fn populate_seed_loomtracer_dir() -> TestResult<()> {
+    let seed_dir = std::env::var("LOOMTRACER_SEED_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("./hivemind"));
+        .unwrap_or_else(|_| PathBuf::from("./loomtracer"));
 
     reset_seed_dir(&seed_dir)?;
     seed_to_dir(&seed_dir)
@@ -171,7 +171,7 @@ fn capture_replay_query_outputs(seed_dir: &Path) -> TestResult<Vec<ReplayQueryOu
 
     let mut outputs = Vec::with_capacity(query_specs.len());
     for (name, args) in query_specs {
-        let mut argv = vec!["hivemind", "--hivemind-dir", seed_dir.as_str()];
+        let mut argv = vec!["loomtracer", "--loomtracer-dir", seed_dir.as_str()];
         argv.extend(args.iter().copied());
         let cli = Cli::parse_from(argv);
         outputs.push(ReplayQueryOutput {

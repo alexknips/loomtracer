@@ -781,7 +781,7 @@ pub(crate) struct Standing {
 }
 
 /// Which of `candidates` are put ahead of the ones that hold every word asked. A decision that
-/// holds every word only somewhere in a long rationale ("is the product still called HiveMind",
+/// holds every word only somewhere in a long rationale ("is the product still called Loomtracer",
 /// answered by a decision on a triage gate whose rationale says all three) is not the one the
 /// question is about when another decision carries more of those words in its title, topic keys
 /// and recorded question and lacks only one. The candidates that hold every term (of the right

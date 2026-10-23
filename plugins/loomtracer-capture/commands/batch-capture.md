@@ -1,0 +1,98 @@
+---
+name: batch-capture
+description: Classify recent conversation context and batch-capture durable decisions into Loomtracer (keyless — uses your Claude subscription, no server-side API key required)
+argument-hint: '[--limit N] [--min-confidence 0.7]'
+allowed-tools: Agent(model:haiku), Bash(loomtracer:*)
+---
+
+# Batch-capture Loomtracer decisions from recent context (keyless)
+
+Extract durable decision memory from the recent conversation and write it to the
+Loomtracer ledger. Classification runs as a Haiku subagent inside your own session —
+no `ANTHROPIC_API_KEY` is required on the server side.
+
+## Step 1 — Classify
+
+Spawn a Haiku subagent with the following prompt, substituting the recent
+conversation text for `<BATCH_CONTENT>`:
+
+```
+You are the Loomtracer capture classifier.
+
+Loomtracer stores organizational decision memory: durable decisions, evidence,
+hypotheses, blockers, and notifications with provenance. It does not store
+chat history, task tracking, private scratch notes, or raw tool logs.
+
+Read the batch of recent agent activity. Return ONLY a JSON array of capture
+objects. Most batches should return [].
+
+Capture a decision only when the text shows a chosen path among plausible
+alternatives, gives or implies a reason, and passes the decision test: the
+choice binds something beyond the edit in front of its author (other people,
+other code, a later choice), or undoing it would be costly. Choosing "apple"
+over "Apple" in one comment binds nothing and is cheap to undo, so it is not a
+decision. Merging tonight despite a failing check binds nothing later but is
+costly to undo, so it is. Text that asks for work to be done, or only asks
+someone to choose, is a request, not a decision: a request goes to your
+tracker, so capture nothing for it.
+
+Write "title" as one plain sentence a stranger understands, and keep
+"rationale" readable without the tracker. If a tracker or ticket id (a bead,
+Jira, GitHub issue) appears in the source text, leave it out of the title and
+rationale — it is not part of the captured content.
+
+Each capture object must have exactly these fields:
+{
+  "kind": "decision" | "evidence" | "hypothesis" | "blocker" | "notification",
+  "title": string,
+  "rationale": string,
+  "topic_keys": [string, ...],
+  "evidence_ids": [],
+  "options": [string, ...] | null,
+  "chosen_option": string | null,
+  "extraction_confidence": number (0.0-1.0),
+  "expressed_confidence": "low" | "medium" | "high" | null,
+  "supersedes_id": null,
+  "assumes_ids": [],
+  "supports_ids": [],
+  "refutes_ids": [],
+  "actor_id": null,
+  "accepted_by": null,
+  "rejected_by": null,
+  "blocked_actor_id": null,
+  "decision_id": null
+}
+
+Return only the JSON array, no other text.
+
+---BATCH---
+<BATCH_CONTENT>
+```
+
+## Step 2 — Submit
+
+Write the JSON array returned by the subagent to a temporary file, then submit:
+
+```bash
+LOOMTRACER_AGENT_SESSION="${LOOMTRACER_AGENT_SESSION:-${GC_AGENT:-${GC_ALIAS:-${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-${GC_SESSION_ID:-${GC_SESSION_NAME:-manual-session}}}}}}}"
+printf '%s\n' '<SUBAGENT_JSON_OUTPUT>' > /tmp/loomtracer-batch-captures.json
+loomtracer --loomtracer-dir "$LOOMTRACER_DIR" emit ingest.batch_classified \
+  --captures /tmp/loomtracer-batch-captures.json \
+  --agent-tool claude \
+  --agent-session "$LOOMTRACER_AGENT_SESSION" \
+  --classifier-model "claude-haiku-4-5-20251001"
+```
+
+If the subagent returned `[]` (no captures), skip submission and report
+"No durable decisions found in recent context."
+
+## Step 3 — Report
+
+Report the number of items captured and their titles. If `$ARGUMENTS` included
+`--min-confidence <N>`, filter out items below that threshold before submitting.
+
+---
+
+Use `/loomtracer-capture:capture` for single, immediately-known decisions.
+Use `/loomtracer-capture:batch-capture` for retrospective extraction over
+accumulated context where several decisions may have formed.

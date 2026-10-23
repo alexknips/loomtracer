@@ -1,4 +1,4 @@
-//! CLI side of `hivemind ask` (hivemind-bbnw.4): record that you are explicitly asking a
+//! CLI side of `loomtracer ask` (hivemind-bbnw.4): record that you are explicitly asking a
 //! question, before any decision answers it. Resolved and created exactly like a capture's
 //! `--question`: an existing `Question` node is reused, otherwise `question.recorded` creates
 //! one. Unlike answering, asking is never suppressed as a duplicate — the same question can be

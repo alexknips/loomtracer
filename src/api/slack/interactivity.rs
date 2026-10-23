@@ -165,7 +165,7 @@ async fn open_capture_modal(
 ) -> Response {
     if action.callback_id != CAPTURE_SHORTCUT_CALLBACK_ID {
         info!(
-            target: "hivemind::api::slack",
+            target: "loomtracer::api::slack",
             callback_id = %action.callback_id,
             "ignoring a message shortcut this app does not define"
         );
@@ -203,7 +203,7 @@ async fn open_capture_modal(
     {
         Ok(()) => StatusCode::OK.into_response(),
         Err(error) => ApiError::internal(format!(
-            "could not open the HiveMind capture modal: {error}"
+            "could not open the Loomtracer capture modal: {error}"
         ))
         .into_response(),
     }

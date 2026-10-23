@@ -54,7 +54,7 @@ def ship(
         _ship_impl(session_id, jsonl_path, api_url, api_key, agent_tool)
     except Exception as exc:
         import sys
-        print(f"hivemind-ingest: error for {session_id}: {exc}", file=sys.stderr)
+        print(f"loomtracer-ingest: error for {session_id}: {exc}", file=sys.stderr)
 
 
 def jsonl_path_for_session(session_id: str, project_dir: Optional[str] = None) -> str:
@@ -76,7 +76,7 @@ def jsonl_path_for_session(session_id: str, project_dir: Optional[str] = None) -
 
 def cursor_path_for_session(session_id: str) -> str:
     """Return the cursor state file path for a session."""
-    return os.path.expanduser(f"~/.hivemind/cursors/{session_id}.offset")
+    return os.path.expanduser(f"~/.loomtracer/cursors/{session_id}.offset")
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def _post(api_url: str, api_key: str, envelope: dict) -> None:
     body = json.dumps(envelope).encode()
     headers = {
         "Content-Type": "application/json",
-        "X-HiveMind-Actor": "agent:claude:hook",
+        "X-Loomtracer-Actor": "agent:claude:hook",
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

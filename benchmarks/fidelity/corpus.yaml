@@ -1,4 +1,4 @@
-# HiveMind capture-fidelity benchmark — Phase 1 (artificial corpus)
+# Loomtracer capture-fidelity benchmark — Phase 1 (artificial corpus)
 # ---------------------------------------------------------------------------
 # Goal: measure how well the system CAPTURES what was actually there, PER TYPE.
 # This is SYSTEM quality (fidelity), NOT thought quality and NOT recall-uplift.

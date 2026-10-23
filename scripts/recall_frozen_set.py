@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the frozen recall question set against a hivemind build and print counts per kind.
+"""Run the frozen recall question set against a loomtracer build and print counts per kind.
 
 The set is `tests/fixtures/recall_frozen/questions.tsv` (NEARBY and SYNONYM), `strays.tsv` (STRAY) and
 `shorts.tsv` (STRAY questions of two or three words, and SYNONYM rows that ask about the thing):
@@ -8,7 +8,7 @@ row watches for. Both are kept the same from build to build, so two runs of two 
 ledger copy say whether a build got better or worse. Rules for the set and the kinds are in the
 header of each file.
 
-    scripts/recall_frozen_set.py --bin target/debug/hivemind --ledger-dir /path/with/ledger.sqlite
+    scripts/recall_frozen_set.py --bin target/debug/loomtracer --ledger-dir /path/with/ledger.sqlite
     scripts/recall_frozen_set.py ... --out new.json --compare old.json    # rows that gained or lost
 
 `--ledger-dir` is only read: its ledger.sqlite is copied (sqlite backup) into a temporary folder and
@@ -128,10 +128,10 @@ def serve(binary, ledger_dir, port, workdir):
     events = target.execute("select count(*) from events").fetchone()[0]
     target.close()
     source.close()
-    env = {k: v for k, v in os.environ.items() if not k.startswith("HIVEMIND_")}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("LOOMTRACER_")}
     log = open(os.path.join(workdir, "serve.log"), "w")
     process = subprocess.Popen(
-        [binary, "--hivemind-dir", workdir, "serve", "--port", str(port)],
+        [binary, "--loomtracer-dir", workdir, "serve", "--port", str(port)],
         env=env, stdout=log, stderr=log,
     )
     return process, events
@@ -143,7 +143,7 @@ def version(binary):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--bin", required=True, help="the hivemind binary to measure")
+    parser.add_argument("--bin", required=True, help="the loomtracer binary to measure")
     parser.add_argument("--ledger-dir", required=True, help="folder holding ledger.sqlite (only read)")
     parser.add_argument("--questions", nargs="+", default=DEFAULT_QUESTIONS, help="the question files (default: the frozen set, its strays and its short questions)")
     parser.add_argument("--port", type=int, default=19311, help="loopback port for the temporary server")

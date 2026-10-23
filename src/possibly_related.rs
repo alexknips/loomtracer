@@ -43,7 +43,7 @@
 //! A decision recorded by hand (a `decision.proposed`) belongs to no capture session and has an
 //! event of its own, so its list rests on topic keys alone. A session is the `session_id` of the
 //! received batches a classification names, so a classification naming batches the ledger never
-//! received (a `hivemind emit` capture mints a fresh batch id) names none and is grouped by its
+//! received (a `loomtracer emit` capture mints a fresh batch id) names none and is grouped by its
 //! event alone.
 //!
 //! # Placement

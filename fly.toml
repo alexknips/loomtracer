@@ -1,4 +1,4 @@
-# HiveMind — Fly.io deployment config
+# Loomtracer — Fly.io deployment config
 #
 # Before first deploy:
 #   1. Create the app (already done — live as hivemind-tti3sa in lax):
@@ -7,17 +7,17 @@
 #   2. Database = Neon Postgres (free tier; SQLite is no longer used).
 #      Use the Neon DIRECT endpoint, NOT the -pooler one — PgBouncer txn-mode
 #      breaks rust-postgres prepared statements. Keep sslmode=require.
-#        fly secrets set HIVEMIND_DATABASE_URL='postgresql://USER:PW@ep-xxxx.REGION.aws.neon.tech/neondb?sslmode=require' --app hivemind-tti3sa
+#        fly secrets set LOOMTRACER_DATABASE_URL='postgresql://USER:PW@ep-xxxx.REGION.aws.neon.tech/neondb?sslmode=require' --app hivemind-tti3sa
 #
 #   3. Set the remaining secrets:
-#        fly secrets set HIVEMIND_API_KEY=<strong-random-secret> --app hivemind-tti3sa
+#        fly secrets set LOOMTRACER_API_KEY=<strong-random-secret> --app hivemind-tti3sa
 #      (An ANTHROPIC_API_KEY secret does nothing here: the server-side Layer-3
 #      classifier and scorer start only on the SQLite backend, and this app
 #      runs on Postgres.)
 #
 #   4. Deploy from a CLEAN clone of origin/master (the rig root may sit on a
 #      stale branch — do not deploy from it):
-#        git clone --depth 1 git@github.com:alexknips/hivemind /tmp/hmdeploy && cd /tmp/hmdeploy
+#        git clone --depth 1 git@github.com:alexknips/loomtracer /tmp/hmdeploy && cd /tmp/hmdeploy
 #        fly deploy --app hivemind-tti3sa --remote-only
 #      The image builds with --features shared-backend-postgres (Neon needs native-TLS).
 
@@ -29,8 +29,8 @@ dockerfile = "Dockerfile"
 
 # Runtime env — non-secret config only. Secrets go through `fly secrets set`.
 [env]
-HIVEMIND_PORT = "8080"
-# HIVEMIND_DATABASE_URL is a Fly secret (Neon direct endpoint) — do NOT put it here.
+LOOMTRACER_PORT = "8080"
+# LOOMTRACER_DATABASE_URL is a Fly secret (Neon direct endpoint) — do NOT put it here.
 
 [http_service]
 internal_port = 8080

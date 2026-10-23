@@ -1,13 +1,13 @@
-# HiveMind Architecture
+# Loomtracer Architecture
 
-HiveMind records organizational decision memory: what was decided, why, by
+Loomtracer records organizational decision memory: what was decided, why, by
 whom, what options were considered, and what evidence or hypotheses the decision
 depends on. It is not a chat archive, notes store, task tracker, or general
 knowledge graph.
 
 ## Layer Boundary
 
-HiveMind has three layers.
+Loomtracer has three layers.
 
 Layer 1 is write and ingest. The commands module validates invariants, appends
 events to the ledger, and projects explicit state. It must stay dumb and
@@ -37,9 +37,9 @@ validation, provenance, supersession rules, multi-tenant scoping (see
 accidentally bypass a rule.
 
 The choice of transport (CLI for humans at terminals, MCP for agents, HTTP/JSON
-for UIs and embedded clients) is independent of what HiveMind does. The choice
+for UIs and embedded clients) is independent of what Loomtracer does. The choice
 does not change the rules. The principles (`PRINCIPLES.md`) constrain what
-HiveMind does; this section names how surfaces relate to that.
+Loomtracer does; this section names how surfaces relate to that.
 
 Prose extraction is the local layer-3 surface of the CLI. `import documents`
 runs it only when asked (`--extractor-command` or `--llm-response`): the CLI
@@ -56,7 +56,7 @@ derived state.
 
 Flow:
 
-1. A caller invokes `hivemind emit ...`.
+1. A caller invokes `loomtracer emit ...`.
 2. The commands layer validates ids, topics, disagreement rules, and
    supersession rules.
 3. `SqliteEventLedger` appends the event to `ledger.sqlite`.
@@ -78,7 +78,7 @@ graph (plus any indexes, derived statuses, and search structures) is rebuildable
 from it.
 
 This state model is an architectural decision, not a principle. It is the path
-HiveMind takes today to satisfy auditability. The model may be revisited as the
+Loomtracer takes today to satisfy auditability. The model may be revisited as the
 project encounters features that are awkward or unavailable under a pure
 event-sourced design — for example, operations that benefit from the graph
 being directly mutable as a primary store. Any future state model must preserve
@@ -90,18 +90,18 @@ that depends on the current behavior.
 
 ## Storage Backend
 
-SQLite is the zero-service default: the ledger a plain `hivemind` run opens under
-`--hivemind-dir`, for onboarding, tests, and local agent workflows.
+SQLite is the zero-service default: the ledger a plain `loomtracer` run opens under
+`--loomtracer-dir`, for onboarding, tests, and local agent workflows.
 
-The shared backend ships: a HiveMind service (`hivemind serve`) backed by
+The shared backend ships: a Loomtracer service (`loomtracer serve`) backed by
 Postgres, run as the cell in [`docker-compose.yml`](../docker-compose.yml) and
 described in [`SELF_HOSTING.md`](SELF_HOSTING.md), per
 [`REMOTE_DB.md`](REMOTE_DB.md). Postgres is the canonical remote event ledger
 and also holds the first shared graph projection in tenant-scoped typed node
 and edge tables. For callers that reach it over HTTP (`/v1/*`, `POST /mcp`) the
 service owns command validation, auth, tenancy, ledger append, projection, and
-deterministic query APIs. The CLI and `hivemind mcp` can also open the same
-Postgres directly with `--database-url` or `HIVEMIND_DATABASE_URL`; that puts the
+deterministic query APIs. The CLI and `loomtracer mcp` can also open the same
+Postgres directly with `--database-url` or `LOOMTRACER_DATABASE_URL`; that puts the
 database credential, which reaches every tenant's data, on the caller (see
 [`SELF_HOSTING.md`](SELF_HOSTING.md), "CLI and MCP direct-Postgres mode").
 
@@ -123,7 +123,7 @@ changes replace only the backend/service layer.
 Kuzu is an optional persistent graph projection, not a primary store. The
 default query path is in-memory graph projection from the ledger; Kuzu is
 opt-in via the `graph-kuzu` feature flag and `--graph-backend kuzu` or
-`HIVEMIND_GRAPH_BACKEND=kuzu`.
+`LOOMTRACER_GRAPH_BACKEND=kuzu`.
 
 This is an architectural decision: the projection is *derived* state, not
 source-of-truth, regardless of whether it lives in memory or in Kuzu. If the
@@ -132,7 +132,7 @@ to change too.
 
 ## Agent Transport
 
-MCP is one transport HiveMind exposes for agents (and for any MCP-aware client).
+MCP is one transport Loomtracer exposes for agents (and for any MCP-aware client).
 It is not the only one. The CLI is equally valid for agents that prefer to
 shell out. The HTTP REST API (`/v1/*`) is the shared-service transport for
 multi-tenant deployments, and MCP itself ships natively in Rust over both
@@ -151,16 +151,16 @@ the CLI is mandatory.
 
 ## Current Storage Layout
 
-`./hivemind/ledger.sqlite` is the local SQLite event ledger. It is the default
+`./loomtracer/ledger.sqlite` is the local SQLite event ledger. It is the default
 source of truth for local CLI usage.
 
-The default query backend is in-memory. `hivemind query` and `hivemind dump`
+The default query backend is in-memory. `loomtracer query` and `loomtracer dump`
 replay SQLite events into an in-process graph view. This keeps default tests and
 onboarding fast and requires no native graph build.
 
-`./hivemind/graph.kuzu` is the local persistent Kuzu projection when the binary
+`./loomtracer/graph.kuzu` is the local persistent Kuzu projection when the binary
 is built with `--features graph-kuzu` and commands are run with
-`--graph-backend kuzu` or `HIVEMIND_GRAPH_BACKEND=kuzu`. In this mode, query and
+`--graph-backend kuzu` or `LOOMTRACER_GRAPH_BACKEND=kuzu`. In this mode, query and
 dump rebuild Kuzu from the SQLite ledger before reading it. The rebuild drops and
 recreates every table, so a `graph.kuzu` written by an older build needs no
 migration: its old columns are replaced on the next run.
@@ -172,9 +172,9 @@ separate product backend.
 
 Current default behavior:
 
-- `emit` writes to the ledger it opens: SQLite under `--hivemind-dir`, or the shared
-  Postgres when `--database-url` or `HIVEMIND_DATABASE_URL` is set. It never calls a
-  cell's HTTP API; `HIVEMIND_API_URL` is followed only by `classify-queue`.
+- `emit` writes to the ledger it opens: SQLite under `--loomtracer-dir`, or the shared
+  Postgres when `--database-url` or `LOOMTRACER_DATABASE_URL` is set. It never calls a
+  cell's HTTP API; `LOOMTRACER_API_URL` is followed only by `classify-queue`.
 - `query` and `dump` read that same ledger and use the in-memory graph unless
   explicitly told otherwise.
 - `--graph-backend kuzu` is explicit and returns a clear error unless the binary
@@ -184,7 +184,7 @@ Current default behavior:
 
 This matches the remote-store decision in `docs/REMOTE_DB.md`: SQLite and Kuzu
 are local prototype storage. Shared multi-user and multi-agent deployments run the
-HiveMind service on a Postgres canonical ledger and projection.
+Loomtracer service on a Postgres canonical ledger and projection.
 
 ## Kuzu Build Cost And Native Dependencies
 
@@ -194,7 +194,7 @@ only when changing the Kuzu adapter or explicit Kuzu CLI path. CI does not build
 Kuzu per change: the `Kuzu nightly` workflow builds and tests it on `master`
 (see [Quality Gates](QUALITY_GATES.md#kuzu-nightly)).
 
-`kuzu 0.11.3` depends on `cxx 1.0.138`, and HiveMind pins the optional
+`kuzu 0.11.3` depends on `cxx 1.0.138`, and Loomtracer pins the optional
 `cxx-build` dependency to the same version so Kuzu's generated bridge symbols
 match the runtime bridge crate. Do not loosen that pin without a green Kuzu
 build. Run the command below, or dispatch the nightly on the branch
@@ -214,7 +214,7 @@ each one when picked up.
 Resolved as of M2:
 - The HTTP REST API as the third transport is shipped (`src/api/`, `/v1/*`).
 - Multi-tenant Postgres backend with RLS isolation is shipped (bearer-auth
-  `hm_tk_…` tokens, `tenant_id`-scoped Postgres RLS, `/v1/tenants`
+  `lt_tk_…` tokens, `tenant_id`-scoped Postgres RLS, `/v1/tenants`
   provisioning endpoint).
 - MCP over the service API is shipped natively in Rust (`POST /mcp`,
   `src/api/mcp_http.rs`); the earlier TypeScript-gateway direction was

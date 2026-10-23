@@ -1,8 +1,8 @@
-use hivemind::events::EventType;
-use hivemind::ledger::{EventLedger, InMemoryEventLedger};
-use hivemind::projector::memory::MemoryGraph;
-use hivemind::projector::rebuild_graph;
-use hivemind::queries::{
+use loomtracer::events::EventType;
+use loomtracer::ledger::{EventLedger, InMemoryEventLedger};
+use loomtracer::projector::memory::MemoryGraph;
+use loomtracer::projector::rebuild_graph;
+use loomtracer::queries::{
     get_decision, get_relevant_decisions, get_supersession_chain, DecisionStatus, HypothesisStatus,
 };
 
@@ -264,7 +264,7 @@ fn has_event(scenario: &OrganizationalScenario, event_type: EventType) -> bool {
         .any(|event| event.event_type == event_type)
 }
 
-fn decision_has_options(event: &hivemind::events::Event) -> bool {
+fn decision_has_options(event: &loomtracer::events::Event) -> bool {
     event.event_type == EventType::DecisionProposed
         && event
             .payload

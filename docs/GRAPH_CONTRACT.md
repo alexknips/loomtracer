@@ -40,7 +40,7 @@ every kind on projected data, and the table below is checked against the code ro
 
 ## What readers get
 
-`GET /v1/graph` edges, the neighborhood edges (`hivemind query why`, MCP
+`GET /v1/graph` edges, the neighborhood edges (`loomtracer query why`, MCP
 `get_decision_neighborhood`, `GET /v1/decisions/why`), the CLI text summary, and the DOT
 exports (CLI `dump`, MCP `dump_graph`, the TUI) all draw the same arrow:
 
@@ -255,7 +255,7 @@ name a placeholder that a later event fills in:
   `question.recorded` after the proposal it is caused by, so the first answer to a question
   is older than its question; a later answer to the same question is newer, and its arrow
   runs as stored.
-- An ask names a question: `ASK_FOR`. `hivemind ask` always ensures the `Question` node
+- An ask names a question: `ASK_FOR`. `loomtracer ask` always ensures the `Question` node
   exists before the `Ask` node that names it (in the same call when the question is new), so
   in practice this arrow never reverses; it carries a real reversed label anyway because its
   target is not an `Actor`.

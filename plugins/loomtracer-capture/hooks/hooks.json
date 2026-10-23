@@ -1,0 +1,40 @@
+{
+  "description": "Tell the agent at session start to check the Loomtracer ledger before acting and record the decisions it settles; record an agent's AskUserQuestion as a Loomtracer ask, and the human's answer as a decision linked to it.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/session-start-hook.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ask-hook.sh\" pre",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/ask-hook.sh\" post",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -684,7 +684,7 @@ pub(super) fn warm_graph_cache(backend: &ApiBackend, cache: &GraphCache) {
     let tenants = match backend.known_tenant_ids() {
         Ok(tenants) => tenants,
         Err(e) => {
-            tracing::warn!(target: "hivemind::api", error = %e, "graph cache warm-up could not list tenants; the first read of each tenant builds its graph");
+            tracing::warn!(target: "loomtracer::api", error = %e, "graph cache warm-up could not list tenants; the first read of each tenant builds its graph");
             return;
         }
     };
@@ -696,12 +696,12 @@ pub(super) fn warm_graph_cache(backend: &ApiBackend, cache: &GraphCache) {
         match result {
             Ok(_) => warmed += 1,
             Err(e) => {
-                tracing::warn!(target: "hivemind::api", tenant = %tenant_id, error = %e, "graph cache warm-up failed for a tenant; its first read builds the graph");
+                tracing::warn!(target: "loomtracer::api", tenant = %tenant_id, error = %e, "graph cache warm-up failed for a tenant; its first read builds the graph");
             }
         }
     }
     tracing::info!(
-        target: "hivemind::api",
+        target: "loomtracer::api",
         tenants = tenants.len(),
         warmed,
         elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),

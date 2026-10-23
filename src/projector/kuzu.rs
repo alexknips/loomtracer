@@ -201,9 +201,9 @@ pub struct KuzuGraph {
 }
 
 impl KuzuGraph {
-    pub fn open(hivemind_dir: impl AsRef<Path>) -> Result<Self> {
-        fs::create_dir_all(hivemind_dir.as_ref()).map_err(projector_error)?;
-        let path = hivemind_dir.as_ref().join(GRAPH_DB_NAME);
+    pub fn open(loomtracer_dir: impl AsRef<Path>) -> Result<Self> {
+        fs::create_dir_all(loomtracer_dir.as_ref()).map_err(projector_error)?;
+        let path = loomtracer_dir.as_ref().join(GRAPH_DB_NAME);
         let database = Database::new(&path, SystemConfig::default()).map_err(projector_error)?;
         let graph = Self { path, database };
         graph.initialize_schema()?;

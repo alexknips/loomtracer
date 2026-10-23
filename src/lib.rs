@@ -1,4 +1,4 @@
-//! HiveMind library root: re-exports the public API surface and wires submodule visibility.
+//! Loomtracer library root: re-exports the public API surface and wires submodule visibility.
 
 pub(crate) mod anthropic;
 pub mod api;
@@ -37,15 +37,15 @@ pub mod tui;
 pub(crate) mod util;
 
 pub use error::{
-    CliError, CommandError, HivemindError, LedgerError, ProjectorError, QueryError, Result,
+    CliError, CommandError, LedgerError, LoomtracerError, ProjectorError, QueryError, Result,
 };
 
 /// Commit this binary was built from (short sha), embedded by `build.rs`.
 /// "unknown" only when built outside any git checkout with no
-/// `HIVEMIND_BUILD_SHA` override (e.g. a stray source tarball).
-pub const BUILD_SHA: &str = env!("HIVEMIND_BUILD_SHA");
+/// `LOOMTRACER_BUILD_SHA` override (e.g. a stray source tarball).
+pub const BUILD_SHA: &str = env!("LOOMTRACER_BUILD_SHA");
 
 /// `<cargo semver>+<build sha>` — what `--version` and `/v1/version` report.
 /// Cargo.toml's bare semver only moves on a tagged release; this suffix is
 /// what makes every build between releases distinguishable (hivemind-zdsh.7).
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("HIVEMIND_BUILD_SHA"));
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("LOOMTRACER_BUILD_SHA"));

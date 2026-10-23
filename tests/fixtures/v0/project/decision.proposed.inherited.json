@@ -18,7 +18,7 @@
     "chosen_option_id": "opt-sqlite",
     "hypothesis_ids": ["hyp-embedded-is-enough"],
     "evidence_ids": ["ev-sqlite-wal"],
-    "project": "hivemind",
+    "project": "loomtracer",
     "project_source": "inherited"
   },
   "ts": "2026-05-17T20:40:43Z"

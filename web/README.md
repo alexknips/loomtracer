@@ -1,35 +1,35 @@
 # Loomtracer web UI
 
-The front end for HiveMind: a Next.js app that reads a HiveMind server over its HTTP API. It
+The front end for Loomtracer: a Next.js app that reads a Loomtracer server over its HTTP API. It
 began as Jeff Miao's Loomtracer UI (`TheChairmanMiao/neurofilament`, imported with its history)
-and ran on Supabase. The HiveMind server is now its only backend.
+and ran on Supabase. The Loomtracer server is now its only backend.
 
-It reads. It does not write: the HiveMind HTTP API has no endpoint for several things the
+It reads. It does not write: the Loomtracer HTTP API has no endpoint for several things the
 original UI did (sign-in, teams, tokens, accepting or rejecting a decision). Those features are
-left out rather than shown dead. [`HIVEMIND_API_MAP.md`](HIVEMIND_API_MAP.md) lists each one and
+left out rather than shown dead. [`LOOMTRACER_API_MAP.md`](LOOMTRACER_API_MAP.md) lists each one and
 what the server would need.
 
 ## Run it
 
-You need Node 20.9 or later and a running HiveMind server.
+You need Node 20.9 or later and a running Loomtracer server.
 
 ```bash
-# 1. A HiveMind server. A scratch one is enough to look around:
-hivemind --hivemind-dir /tmp/scratch-ledger emit decision.capture \
+# 1. A Loomtracer server. A scratch one is enough to look around:
+loomtracer --loomtracer-dir /tmp/scratch-ledger emit decision.capture \
   --title "Price per seat" --rationale "A fixed seat count is easy to budget for" \
   --options "Per seat,Usage based" --chose "Per seat" \
   --rests-on-assumption "Teams prefer a bill they can predict" \
   --binds "The first pricing experiment" --cheap-to-undo --topic-keys pricing
-hivemind --hivemind-dir /tmp/scratch-ledger serve --port 18736
+loomtracer --loomtracer-dir /tmp/scratch-ledger serve --port 18736
 
 # 2. The UI, from the repository root:
 npm ci
-HIVEMIND_API_URL=http://127.0.0.1:18736 npm run dev --workspace=web
+LOOMTRACER_API_URL=http://127.0.0.1:18736 npm run dev --workspace=web
 ```
 
-Open <http://127.0.0.1:3000/graph>. Against a server that has a `HIVEMIND_API_KEY`, set the same
-value as `HIVEMIND_API_KEY` for the UI. `.env.example` lists every variable. The token is read
-on the server side only; a test (`lib/hivemind/boundary.test.ts`) fails if a client component
+Open <http://127.0.0.1:3000/graph>. Against a server that has a `LOOMTRACER_API_KEY`, set the same
+value as `LOOMTRACER_API_KEY` for the UI. `.env.example` lists every variable. The token is read
+on the server side only; a test (`lib/loomtracer/boundary.test.ts`) fails if a client component
 could reach it.
 
 **The UI has no login of its own.** Whoever can open it sees what its token can read. `npm run
@@ -49,10 +49,10 @@ the open internet with a token for a ledger you would not publish.
 | `/inspect` | none | Opens an exported reasoning bundle in the browser. Nothing is uploaded. |
 | `/`, `/demo` | none | Jeff's landing page and fictional demo. |
 
-## How `/graph` reads HiveMind
+## How `/graph` reads Loomtracer
 
 The history views read a *reasoning bundle*: records with their source text, and connections
-between them. `lib/hivemind/bundle.ts` renders one project of the HiveMind graph as such a bundle,
+between them. `lib/loomtracer/bundle.ts` renders one project of the Loomtracer graph as such a bundle,
 as a pure function of `GET /v1/graph?project=<ref>` (that project's newest decisions and what hangs
 off them; the server returns each edge once and bounds the page with `limit` and a cursor):
 
@@ -76,10 +76,10 @@ npm run lint --workspace=web
 npm run test:e2e --workspace=web
 ```
 
-The end-to-end tests start their own scratch `hivemind serve` on port 18736 (or
-`HIVEMIND_E2E_PORT`, which must be 18736 or higher), in a temporary directory, seeded with a
+The end-to-end tests start their own scratch `loomtracer serve` on port 18736 (or
+`LOOMTRACER_E2E_PORT`, which must be 18736 or higher), in a temporary directory, seeded with a
 fictional pricing study, and stop it by pidfile. They never touch another ledger, and they refuse
-`:8080` and `:18732`. They need `hivemind` on `PATH` (or `HIVEMIND_BIN`) and a Playwright
+`:8080` and `:18732`. They need `loomtracer` on `PATH` (or `LOOMTRACER_BIN`) and a Playwright
 Chromium (`npx playwright install chromium`). Set `LOOMTRACER_SCREENSHOTS=<dir>` to also write a
 screenshot of each page, and `LOOMTRACER_E2E_BUILT=1` to test the production build instead of
 `next dev`.
@@ -87,7 +87,7 @@ screenshot of each page, and `LOOMTRACER_E2E_BUILT=1` to test the production bui
 ## Layout
 
 - `app/`: pages and the two API routes (`/api/reasoning`, `/api/health`).
-- `lib/hivemind/`: the HiveMind client, the graph-to-bundle adapter, project and decision reads.
+- `lib/loomtracer/`: the Loomtracer client, the graph-to-bundle adapter, project and decision reads.
 - `components/reasoning/`: Jeff's history views.
 - `../packages/reasoning/`: `@loomtracer/reasoning`, the bundle format and its validation.
 - `e2e/`: Playwright tests and the scratch-server support code.

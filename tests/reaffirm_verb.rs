@@ -1,6 +1,6 @@
-//! `hivemind reaffirm` and `hivemind reexamine` (hivemind-ottw.4): say that a decision still
+//! `loomtracer reaffirm` and `loomtracer reexamine` (hivemind-ottw.4): say that a decision still
 //! holds after something it rests on changed, and list what is waiting for that. CLI behaviour,
-//! the refusals that must write nothing, and the hivemind-context plugin scripts that wrap the
+//! the refusals that must write nothing, and the loomtracer-context plugin scripts that wrap the
 //! verbs.
 
 use std::fs;
@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
-use hivemind::events::{Event, EventType};
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::cli::{run, Cli};
+use loomtracer::events::{Event, EventType};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(label: &str) -> TestResult<Self> {
         let path =
-            std::env::temp_dir().join(format!("hivemind-reaffirm-{label}-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("loomtracer-reaffirm-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self(path))
     }
@@ -43,10 +43,10 @@ impl Drop for Scratch {
     }
 }
 
-fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> hivemind::Result<String> {
+fn run_cli(dir: &Path, actor: &str, json: bool, args: &[&str]) -> loomtracer::Result<String> {
     let mut argv = vec![
-        "hivemind".to_owned(),
-        "--hivemind-dir".to_owned(),
+        "loomtracer".to_owned(),
+        "--loomtracer-dir".to_owned(),
         dir.display().to_string(),
         "--actor".to_owned(),
         actor.to_owned(),
@@ -123,7 +123,7 @@ fn contested_premise_with_a_dependent(dir: &Path) -> TestResult<(String, String)
     Ok((premise, dependent))
 }
 
-fn reaffirm(dir: &Path, args: &[&str]) -> hivemind::Result<String> {
+fn reaffirm(dir: &Path, args: &[&str]) -> loomtracer::Result<String> {
     let mut full = vec!["reaffirm"];
     full.extend_from_slice(args);
     run_cli(dir, REVIEWER, true, &full)
@@ -156,7 +156,7 @@ fn assert_refused_writing_nothing(
     dir: &Path,
     args: &[&str],
     expected: &str,
-) -> TestResult<hivemind::HivemindError> {
+) -> TestResult<loomtracer::LoomtracerError> {
     let before = events(dir)?.len();
     let error = reaffirm(dir, args).expect_err("the call must be refused");
     assert!(
@@ -605,10 +605,10 @@ fn reaffirm_and_reexamine_scripts_wrap_the_verbs() -> TestResult<()> {
 
     let run_script = |script: &str, args: &[&str]| -> TestResult<std::process::Output> {
         Ok(
-            Command::new(root.join(format!("plugins/hivemind-context/scripts/{script}.sh")))
+            Command::new(root.join(format!("plugins/loomtracer-context/scripts/{script}.sh")))
                 .current_dir(root)
-                .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-                .env("HIVEMIND_DIR", dir)
+                .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+                .env("LOOMTRACER_DIR", dir)
                 .env("CLAUDE_PROJECT_DIR", root)
                 .env("CLAUDE_SESSION_ID", "plugin-reaffirm-session")
                 .env_remove("GC_AGENT")

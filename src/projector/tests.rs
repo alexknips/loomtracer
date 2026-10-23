@@ -320,7 +320,7 @@ fn projects_registered_links_and_anchors_projects() -> Result<()> {
         event(
             EventType::ProjectAnchored,
             "actor:alice",
-            json!({"handle": "billing", "anchor_kind": "rig", "value": "hivemind"}),
+            json!({"handle": "billing", "anchor_kind": "rig", "value": "loomtracer"}),
         ),
     ] {
         ledger.append(event)?;
@@ -351,7 +351,7 @@ fn projects_registered_links_and_anchors_projects() -> Result<()> {
                 sorted,
                 vec![
                     "folder:services/billing".to_owned(),
-                    "rig:hivemind".to_owned(),
+                    "rig:loomtracer".to_owned(),
                 ]
             );
         }
@@ -409,7 +409,7 @@ fn projects_registered_links_and_anchors_projects() -> Result<()> {
         .expect("billing project node exists");
     assert_eq!(
         billing.get("anchors"),
-        Some(&GraphValue::StringList(vec!["rig:hivemind".to_owned()]))
+        Some(&GraphValue::StringList(vec!["rig:loomtracer".to_owned()]))
     );
 
     Ok(())
@@ -2012,7 +2012,11 @@ fn decision_assessed_fixture_events() -> Vec<Event> {
                 "actionability": 1.0, "actionability_explanation": "clear owner"
             });
         }
-        let mut scored = event(EventType::DecisionScored, "agent:hivemind:scorer", payload);
+        let mut scored = event(
+            EventType::DecisionScored,
+            "agent:loomtracer:scorer",
+            payload,
+        );
         scored.source = EventSource::Api;
         scored.source_ref = Some("scorer-session".to_owned());
         scored
@@ -2180,7 +2184,7 @@ fn a_model_assessment_of_a_decision_no_event_created_gets_a_placeholder_origin()
 pub(super) fn malformed_assessment_event() -> Event {
     event(
         EventType::DecisionScored,
-        "agent:hivemind:scorer",
+        "agent:loomtracer:scorer",
         json!({
             "schema_version": 2,
             "decision_id": "decision:first",
@@ -2219,7 +2223,7 @@ fn a_malformed_assessment_row_is_skipped_and_reported_never_a_failed_replay() ->
     assert!(!graph
         .nodes_and_edges()?
         .0
-        .contains_key(&(NodeKind::Actor, "agent:hivemind:scorer".to_owned())));
+        .contains_key(&(NodeKind::Actor, "agent:loomtracer:scorer".to_owned())));
 
     // A good assessment recorded after it still lands, and the bad row is still reported.
     ledger.append(good)?;
@@ -2982,7 +2986,7 @@ fn classified_batch_decision_projects_node_and_actor_edges() -> Result<()> {
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:1",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -3476,7 +3480,7 @@ fn an_extended_graph_reads_the_same_time_as_a_rebuilt_one() -> Result<()> {
     Ok(())
 }
 
-/// A classification of a batch the ledger never received (a `hivemind emit` capture names a
+/// A classification of a batch the ledger never received (a `loomtracer emit` capture names a
 /// fresh batch id) found by a replay that starts later reads at the classification time too, and
 /// is no error.
 #[test]
@@ -3577,7 +3581,7 @@ fn a_classified_evidence_node_carries_no_session() -> Result<()> {
     Ok(())
 }
 
-/// A classification of batches the ledger never received (a `hivemind emit` capture names a
+/// A classification of batches the ledger never received (a `loomtracer emit` capture names a
 /// fresh batch id) names no session: nothing is guessed, and it is no error.
 #[test]
 fn a_decision_classified_from_unreceived_batches_carries_no_session() -> Result<()> {
@@ -3698,7 +3702,7 @@ fn a_decision_from_an_agent_tokens_batch_names_that_agent_alone() -> Result<()> 
     Ok(())
 }
 
-/// A classification of batches the ledger never received (a `hivemind emit` capture names a
+/// A classification of batches the ledger never received (a `loomtracer emit` capture names a
 /// fresh batch id) names nobody: who was in a conversation is never guessed.
 #[test]
 fn a_decision_classified_from_unreceived_batches_names_nobody() -> Result<()> {
@@ -4334,7 +4338,7 @@ fn classified_batch_decision_projects_to_the_recorders_personal_project() -> Res
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:project",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4364,7 +4368,7 @@ fn classified_batch_decision_projects_to_the_recorders_personal_project() -> Res
         .expect("decision node from capture"); // ubs:ignore
     assert_eq!(
         properties.get("project"),
-        Some(&GraphValue::String("personal:agent:hivemind".to_owned())),
+        Some(&GraphValue::String("personal:agent:loomtracer".to_owned())),
         "a captured decision projects to the recording actor's personal project"
     );
     assert_eq!(
@@ -4386,7 +4390,7 @@ fn classified_batch_under_agent_token_credits_named_human_not_the_token() -> Res
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:agent-token",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4486,7 +4490,7 @@ fn classified_batch_decision_supersedes_edge() -> Result<()> {
     ))?;
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:2",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4549,7 +4553,7 @@ fn classified_batch_decision_restating_another_projects_a_same_as_edge_newer_to_
     ))?;
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:restates",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4599,7 +4603,7 @@ fn classified_batch_evidence_supports_and_refutes() -> Result<()> {
     ))?;
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:3",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4661,7 +4665,7 @@ fn classified_batch_blocker_actor_and_decision_edges() -> Result<()> {
     ))?;
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:4",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4727,7 +4731,7 @@ fn classified_batch_hypothesis_projects_node() -> Result<()> {
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:5",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -4782,7 +4786,7 @@ fn classified_batch_resolves_within_batch_title_references() -> Result<()> {
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:within",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -5090,7 +5094,7 @@ fn classified_batch_empty_captures_is_no_op() -> Result<()> {
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:empty",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -5120,7 +5124,7 @@ fn classified_batch_decision_request_plain_ask_uses_decision_requested_by() -> R
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:dr-plain",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -5188,7 +5192,7 @@ fn classified_batch_decision_request_contested_uses_request_proposed_by() -> Res
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:dr-contested",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -5265,7 +5269,7 @@ fn classified_batch_decision_request_multi_actor_accept_reject() -> Result<()> {
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:dr-multi",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -5325,7 +5329,7 @@ fn classified_batch_decision_multi_actor_accepted_by() -> Result<()> {
     let ledger = InMemoryEventLedger::new();
     ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:d-multi-accept",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -6123,7 +6127,7 @@ fn natural_order_scenario() -> Result<InMemoryEventLedger> {
         ),
         event(
             EventType::IngestBatchClassified,
-            "agent:hivemind:classifier",
+            "agent:loomtracer:classifier",
             json!({
                 "batch_id": "batch:direction-contract",
                 "classifier_model": "claude-haiku-4-5-20251001",
@@ -6239,7 +6243,7 @@ pub(super) fn every_event_scenario() -> Result<InMemoryEventLedger> {
         ),
         event(
             EventType::DecisionScored,
-            "agent:hivemind:scorer",
+            "agent:loomtracer:scorer",
             json!({
                 "capture_node_id": "decision:1",
                 "scorer_model": "claude-haiku-4-5-20251001",
@@ -6314,7 +6318,7 @@ pub(super) fn every_event_scenario() -> Result<InMemoryEventLedger> {
         ),
         event(
             EventType::IngestBatchClassified,
-            "agent:hivemind:classifier",
+            "agent:loomtracer:classifier",
             json!({
                 "batch_id": "batch:every-capture-kind",
                 "classifier_model": "claude-haiku-4-5-20251001",
@@ -7087,7 +7091,7 @@ fn arrow_orientation_does_not_change_when_a_node_is_annotated_later() -> Result<
     let notification = ledger.append(notification_event)?;
     let classified = ledger.append(event(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:annotated",
             "classifier_model": "claude-haiku-4-5-20251001",
@@ -7138,7 +7142,7 @@ fn arrow_orientation_does_not_change_when_a_node_is_annotated_later() -> Result<
     ))?;
     ledger.append(event(
         EventType::DecisionScored,
-        "agent:hivemind:scorer",
+        "agent:loomtracer:scorer",
         json!({
             "capture_node_id": format!("capture:{classified}:0"),
             "scorer_model": "claude-haiku-4-5-20251001",
@@ -7429,7 +7433,7 @@ fn a_supersession_and_a_refutation_carry_the_time_the_link_was_recorded_not_the_
     // classification ran, which is days after the turn it was said in.
     ledger.append(event_at(
         EventType::IngestBatchClassified,
-        "agent:hivemind:classifier",
+        "agent:loomtracer:classifier",
         json!({
             "batch_id": "batch:late",
             "classifier_model": "claude-haiku-4-5-20251001",

@@ -13,15 +13,15 @@ line in italics says so.
 
 ### Step 1: Tenant provisioning + per-tenant bearer keys ✅
 
-**Dev mode (SQLite):** Tenant scoping is header-driven (`x-hivemind-tenant`). Each
+**Dev mode (SQLite):** Tenant scoping is header-driven (`x-loomtracer-tenant`). Each
 tenant writes to and reads from an isolated ledger path. Verified by the
 `rls_cross_tenant_decision_not_visible` HTTP API test.
 
 **Production mode (Postgres):** `POST /v1/tenants` provisions a tenant and returns a
-`hm_tk_<64-hex>` bearer token whose SHA-256 hash is stored in `hm_tokens`. The
+`lt_tk_<64-hex>` bearer token whose SHA-256 hash is stored in `hm_tokens`. The
 `TenantStore::resolve_token` path looks up the tenant from the hash. Verified by
 `tenant_store_tests::provision_creates_tenant_and_resolves_token` (requires
-`HIVEMIND_TEST_POSTGRES_URL`; skipped without a real Postgres instance).
+`LOOMTRACER_TEST_POSTGRES_URL`; skipped without a real Postgres instance).
 
 ### Step 2: Ingest via POST /v1/ingest ✅
 
@@ -61,7 +61,7 @@ The migration tool was tracked in **uuq9.8** and was not yet implemented on the 
 report. Step 5 was explicitly out of scope for this verification. Acceptance of M2 was not
 blocked on it.
 
-*Since then `hivemind migrate` has shipped: `hivemind migrate --from <dir> --to-url <cell>
+*Since then `loomtracer migrate` has shipped: `loomtracer migrate --from <dir> --to-url <cell>
 --admin-key-file <file> --to-tenant <name>` sends a local ledger to a cell, and `--to
 <postgres-url>` writes straight to the database. The step was not re-verified for this report.*
 
@@ -72,7 +72,7 @@ Auth tests in `tests/api.rs`:
 - `auth_accepts_correct_token` — 200 with the correct bearer token.
 - `auth_rejects_wrong_token` — 401 with a well-formed but wrong token.
 
-Docker build produces a runnable `hivemind serve` image. The `/v1/health` endpoint
+Docker build produces a runnable `loomtracer serve` image. The `/v1/health` endpoint
 returns `{"status":"ok"}` when the database is reachable. The Docker healthcheck polls
 this endpoint. Verified via `docker build` completing without errors and the
 `health_returns_ok` API test.
@@ -95,10 +95,10 @@ this endpoint. Verified via `docker build` completing without errors and the
 ## Caveats
 
 1. **Step 5 (migration) deferred.** No migration CLI existed yet. Tracked in uuq9.8.
-   *`hivemind migrate` has since shipped (see Step 5).*
+   *`loomtracer migrate` has since shipped (see Step 5).*
 2. **Postgres RLS tests require a real database.** The `tenant_store_tests` under
    `#[cfg(feature = "shared-backend-postgres")]` are skipped unless
-   `HIVEMIND_TEST_POSTGRES_URL` is set. The SQLite-level multi_tenant tests provide equivalent
+   `LOOMTRACER_TEST_POSTGRES_URL` is set. The SQLite-level multi_tenant tests provide equivalent
    isolation coverage for the dev path.
 3. **Production bearer-token provisioning** is Postgres-only. SQLite dev mode uses
    header-based tenant scoping, which is intentionally simpler and not bearer-secured.

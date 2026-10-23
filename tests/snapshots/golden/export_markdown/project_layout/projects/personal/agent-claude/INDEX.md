@@ -1,6 +1,6 @@
 # Personal project: agent:claude
 
-Generated from HiveMind ledger offset 9 (last event 2026-01-02T00:00:09+00:00). Do not edit; regenerate with `hivemind export`.
+Generated from Loomtracer ledger offset 9 (last event 2026-01-02T00:00:09+00:00). Do not edit; regenerate with `loomtracer export`.
 
 Project: `personal:agent:claude` · [All projects](../../../INDEX.md)
 

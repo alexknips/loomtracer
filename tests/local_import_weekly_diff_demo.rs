@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use hivemind::cli::{run, Cli};
+use loomtracer::cli::{run, Cli};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -12,14 +12,14 @@ type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[test]
 fn local_import_plus_weekly_diff_demo_proves_decisions_added_window() -> TestResult<()> {
     let scratch = TempDir::new("local-import-weekly-diff-demo")?;
-    let hivemind_dir = scratch.path().join("hivemind");
+    let loomtracer_dir = scratch.path().join("loomtracer");
     let fixtures_root =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/m2_weekly_diff_demo");
     let last_week_dir = fixtures_root.join("last_week");
     let this_week_dir = fixtures_root.join("this_week");
 
     let first_import = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "--actor".to_owned(),
             "importer:last-week".to_owned(),
@@ -35,7 +35,7 @@ fn local_import_plus_weekly_diff_demo_proves_decisions_added_window() -> TestRes
     );
 
     let recent_after_first = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "query".to_owned(),
             "get_recent_activity".to_owned(),
@@ -48,7 +48,7 @@ fn local_import_plus_weekly_diff_demo_proves_decisions_added_window() -> TestRes
         .ok_or("recent activity should expose latest event_origin")?;
 
     let second_import = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "--actor".to_owned(),
             "importer:this-week".to_owned(),
@@ -68,7 +68,7 @@ fn local_import_plus_weekly_diff_demo_proves_decisions_added_window() -> TestRes
         .to_owned();
 
     let diff = run_cli_json(
-        &hivemind_dir,
+        &loomtracer_dir,
         vec![
             "query".to_owned(),
             "get_decisions_added_since".to_owned(),
@@ -172,12 +172,12 @@ fn local_import_plus_weekly_diff_demo_proves_decisions_added_window() -> TestRes
     Ok(())
 }
 
-fn run_cli_json(hivemind_dir: &Path, args: Vec<String>) -> TestResult<Value> {
+fn run_cli_json(loomtracer_dir: &Path, args: Vec<String>) -> TestResult<Value> {
     let mut argv = vec![
-        "hivemind".to_owned(),
+        "loomtracer".to_owned(),
         "--json".to_owned(),
-        "--hivemind-dir".to_owned(),
-        hivemind_dir.display().to_string(),
+        "--loomtracer-dir".to_owned(),
+        loomtracer_dir.display().to_string(),
     ];
     argv.extend(args);
 
@@ -192,7 +192,7 @@ struct TempDir {
 
 impl TempDir {
     fn new(label: &str) -> TestResult<Self> {
-        let path = std::env::temp_dir().join(format!("hivemind-{label}-{}", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("loomtracer-{label}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path)?;
         Ok(Self { path })
     }

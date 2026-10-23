@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hivemind.local/schemas/v0/notification.acknowledged.json",
+  "$id": "https://loomtracer.local/schemas/v0/notification.acknowledged.json",
   "title": "notification.acknowledged event",
   "type": "object",
   "additionalProperties": false,

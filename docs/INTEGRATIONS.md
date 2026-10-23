@@ -1,6 +1,6 @@
-# HiveMind Integration Paths
+# Loomtracer Integration Paths
 
-Purpose: choose the smallest reliable capture paths for a shared remote HiveMind
+Purpose: choose the smallest reliable capture paths for a shared remote Loomtracer
 service. All integrations call the hosted commands/query API; none write local
 files or bypass the commands module.
 
@@ -9,7 +9,7 @@ files or bypass the commands module.
 | Path | Reliability | Latency/perf | Cost | Ops overhead | Install fit | Security/privacy | UX fit |
 |---|---|---:|---|---|---|---|---|
 | Slack slash command + message shortcut | High when user-initiated; survives app restarts if requests are acked and retried | Fast if endpoint acks within Slack's 3s interaction window and does work async | Low hosting + Slack app maintenance; no model call required | Moderate: Slack app, OAuth install, signing verification, queue, logs | Good for team Slack; one workspace can install from manifest | Start with `commands`; add `chat:write` only for channel confirmations; avoid history scopes in phase 1 | Best human capture: explicit intent, modal review, clear provenance |
-| Slack marked-thread event listener | Medium for suggestions; not reliable enough for critical capture | Near-real-time but retries/backoff can delay work | Higher if summarizing threads with a model | Higher: event subscriptions, channel membership, retry handling, dead letters, scope drift | Harder: bot must be invited/scoped to channels | History scopes expose more workspace data; private channels need broader permissions | Good for drafts from `:hivemind:`/mention, poor as the only capture path |
+| Slack marked-thread event listener | Medium for suggestions; not reliable enough for critical capture | Near-real-time but retries/backoff can delay work | Higher if summarizing threads with a model | Higher: event subscriptions, channel membership, retry handling, dead letters, scope drift | Harder: bot must be invited/scoped to channels | History scopes expose more workspace data; private channels need broader permissions | Good for drafts from `:loomtracer:`/mention, poor as the only capture path |
 | MCP server | High when the agent client consistently invokes tools; variable across clients | Low overhead for stdio; HTTP adds auth round trips | Low server cost; client install/support cost | Moderate: tool schemas, client configs, auth for hosted HTTP | Good in MCP-aware tools; uneven elsewhere | HTTP MCP needs OAuth/audience checks; stdio should read credentials from env | Best portable agent-tool surface for propose/query once installed |
 | Skill/instruction pack | Medium; depends on model following instructions | No runtime overhead until it calls CLI/API | Very low | Low, but must be kept current per agent product | Easy for Claude/Codex/Gemini-style agents | Secrets must not live in instructions; use env/config | Good onboarding and prompts, not a reliable transport by itself |
 | Git/tool hook or shell wrapper | Medium to low; easy to skip, bypass, or break in non-git flows | Usually fast; can slow commits/builds if synchronous | Low | Medium: per-repo install, failure policy, cross-shell support | Good for one developer repo; poor for hosted customers/non-code work | Local tokens and logs need care; repo hooks are not tenant boundaries | Useful safety net for coding workflows, not human Slack capture |
@@ -19,7 +19,7 @@ files or bypass the commands module.
 
 Build two explicit capture channels against the shared remote service:
 
-1. Human Slack capture: a Slack app with one slash command (`/hivemind`) and one
+1. Human Slack capture: a Slack app with one slash command (`/loomtracer`) and one
    message shortcut (`Capture decision`). Both open/submit a small modal:
    title, rationale, status intent (`proposed` or `accepted`), topic keys,
    optional option/evidence links, and source permalink. The Slack endpoint
@@ -55,7 +55,7 @@ must be an explicit Slack action or a deterministic API/CLI/MCP tool call.
 - Query responses remain bounded and honest: propagate `truncated`, status, and
   stale/refuted assumptions instead of hiding partial context.
 - Tenant isolation belongs at the hosted service boundary: Slack team/workspace,
-  actor token, and organization id must map to a single HiveMind tenant.
+  actor token, and organization id must map to a single Loomtracer tenant.
 
 ## References
 

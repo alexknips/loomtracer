@@ -4,9 +4,9 @@
   "correlation_id": null,
   "causation_event_id": 2,
   "type": "decision.scored",
-  "actor_id": "agent:hivemind:scorer",
+  "actor_id": "agent:loomtracer:scorer",
   "source": "agent",
-  "source_ref": "agent:hivemind:scorer",
+  "source_ref": "agent:loomtracer:scorer",
   "payload": {
     "capture_node_id": "capture:2:0",
     "scorer_model": "claude-haiku-4-5-20251001",

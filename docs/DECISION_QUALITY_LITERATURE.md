@@ -1,12 +1,12 @@
 # Decision Quality & Value — Literature Reference
 
-*Captured 2026-06-15. Reference for HiveMind's decision-quality / decision-importance scoring
+*Captured 2026-06-15. Reference for Loomtracer's decision-quality / decision-importance scoring
 (the basis for **confidence** and **reputation**). Written to preserve the research
 context behind the design — read alongside the confidence+reputation design doc.*
 
 ## Why this document exists
 
-HiveMind scores decisions on two axes — **Quality** (how well a decision was made) and
+Loomtracer scores decisions on two axes — **Quality** (how well a decision was made) and
 **Importance** (how much it matters) — assessed **ex ante** (only from what was knowable at
 decision time, never the outcome). This file records the prior art we drew on, **how well
 each is actually validated**, and how it maps to our model, so the reasoning isn't lost if
@@ -78,7 +78,7 @@ https://www.di.univr.it/documenti/OccorrenzaIns/matdid/matdid125734.pdf
 - We borrow A-DMC's **validated bias constructs** and lean on **Lovallo/Sibony** as the
   evidentiary foundation that process quality predicts outcomes.
 
-## How it maps to HiveMind's model (summary; full spec in the design doc)
+## How it maps to Loomtracer's model (summary; full spec in the design doc)
 
 **Two axes, assessed ex ante, server-computed (Layer 3), stored as append-only annotations:**
 
@@ -107,5 +107,5 @@ https://www.di.univr.it/documenti/OccorrenzaIns/matdid/matdid125734.pdf
   is where this scoring lives).
 - `docs/SEARCH_DESIGN.md` — "rank is an ordinal, not a confidence score."
 - `docs/SCALE_TARGETS.md` — scale envelope (single-node Postgres, per-tenant).
-- Competitor analyses (stigmem, Wasteland, cmem.ai/Dreaming): in the `hivemind-benchmarks`
+- Competitor analyses (stigmem, Wasteland, cmem.ai/Dreaming): in the `loomtracer-benchmarks`
   repo, `comparative-analysis/`.

@@ -110,7 +110,7 @@ pub(crate) fn project_scope(ledger: &impl EventLedger, project: &str) -> Result<
     let registry = collect_project_registry(ledger)?;
     if !registry.is_registered(project) {
         return Err(query_error(format!(
-            "project not registered: {project} -- register it first with `hivemind project register {project}`"
+            "project not registered: {project} -- register it first with `loomtracer project register {project}`"
         ))
         .into());
     }

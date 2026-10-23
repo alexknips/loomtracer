@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * The workspace has no login of its own: it shows whatever the HiveMind server behind
- * HIVEMIND_API_URL lets its bearer token read. Run it on a loopback address or behind your own
+ * The workspace has no login of its own: it shows whatever the Loomtracer server behind
+ * LOOMTRACER_API_URL lets its bearer token read. Run it on a loopback address or behind your own
  * access control. A separate public deployment (NEUROFILAMENT_PUBLIC_ONLY=true) serves only the
  * landing page, the demo and their assets, and answers 404 to everything else.
  */

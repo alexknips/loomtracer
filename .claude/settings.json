@@ -1,25 +1,25 @@
 {
   "env": {
-    "HIVEMIND_DIR": "./hivemind/",
-    "HIVEMIND_CAPTURE_SCRIPT": ".claude/scripts/capture-decision.sh"
+    "LOOMTRACER_DIR": "./loomtracer/",
+    "LOOMTRACER_CAPTURE_SCRIPT": ".claude/scripts/capture-decision.sh"
   },
   "permissions": {
     "allow": [
       "Bash(.claude/scripts/capture-decision.sh:*)",
       "Bash(git config user.email)",
       "Bash(git config user.name)",
-      "Bash(mkdir -p ./hivemind)"
+      "Bash(mkdir -p ./loomtracer)"
     ]
   },
   "extraKnownMarketplaces": {
-    "hivemind": {
+    "loomtracer": {
       "source": {
         "source": "github",
-        "repo": "alexknips/hivemind"
+        "repo": "alexknips/loomtracer"
       }
     }
   },
   "enabledPlugins": {
-    "hivemind-capture@hivemind": true
+    "loomtracer-capture@loomtracer": true
   }
 }

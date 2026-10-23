@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
-    dir.push(format!("hivemind-mcp-{label}-{}", uuid::Uuid::new_v4()));
+    dir.push(format!("loomtracer-mcp-{label}-{}", uuid::Uuid::new_v4()));
     dir
 }
 
@@ -165,7 +165,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
         "recall_decisions",
         "recent_decisions",
         "dump_graph",
-        "hivemind_compact_view",
+        "loomtracer_compact_view",
         "summarize_decisions",
     ] {
         assert!(names.contains(&expected), "missing tool {expected}"); // ubs:ignore: test-only assertion
@@ -653,7 +653,7 @@ fn capture_decision_with_decided_by_advances_to_accepted_with_correct_authorship
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
-                "actor_id": "agent:claude:hivemind-crew",
+                "actor_id": "agent:claude:loomtracer-crew",
                 "title": "Ledger must distinguish who decided from who recorded",
                 "rationale": "If the human delegates small decisions to agents, we track that; when the agent asks the human to choose and the human does, the human made the decision.",
                 "topic_keys": ["governance"],
@@ -712,7 +712,7 @@ fn capture_decision_with_decided_by_advances_to_accepted_with_correct_authorship
     );
     assert_eq!(
         data["proposer_id"].as_str(),
-        Some("agent:claude:hivemind-crew")
+        Some("agent:claude:loomtracer-crew")
     );
     assert_eq!(data["review"].as_str(), Some("peer_reviewed"));
     assert_eq!(data["accepted_count"].as_i64(), Some(1));
@@ -735,7 +735,7 @@ fn capture_decision_decided_by_without_chosen_option_is_rejected() {
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
-                "actor_id": "agent:claude:hivemind-crew",
+                "actor_id": "agent:claude:loomtracer-crew",
                 "title": "Decided by without a choice",
                 "rationale": "decided_by with no chosen option should be rejected",
                 "topic_keys": ["governance"],
@@ -768,7 +768,7 @@ fn capture_decision_quote_without_question_is_rejected() {
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
-                "actor_id": "agent:claude:hivemind-crew",
+                "actor_id": "agent:claude:loomtracer-crew",
                 "title": "Quote with no stated question",
                 "rationale": "a quote with no question should be rejected",
                 "topic_keys": ["governance"],
@@ -801,7 +801,7 @@ fn capture_decision_stores_paired_quote_and_question() {
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
-                "actor_id": "agent:claude:hivemind-crew",
+                "actor_id": "agent:claude:loomtracer-crew",
                 "title": "Personal projects are visible tenant-wide",
                 "rationale": "Spelled out: a personal project is visible to the whole tenant.",
                 "topic_keys": ["projects"],
@@ -825,7 +825,7 @@ fn capture_with_question_request(id: u64, title: &str, question: Option<&str>) -
         "binds": {"level": "something", "statement": "Later work builds on it"},
         "undo_cost": {"level": "cheap"},
         "grounding": [{"kind": "bet"}],
-        "actor_id": "agent:claude:hivemind-crew",
+        "actor_id": "agent:claude:loomtracer-crew",
         "title": title,
         "rationale": "Spelled out: the reasons are written here in full sentences.",
         "topic_keys": ["storage"],
@@ -902,7 +902,7 @@ fn capture_decision_warns_about_a_slug_option_label_and_records_it_as_given() {
                     "binds": {"level": "something", "statement": "Later work builds on it"},
                     "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
-                    "actor_id": "agent:claude:hivemind-crew",
+                    "actor_id": "agent:claude:loomtracer-crew",
                     "title": title,
                     "rationale": "Spelled out in full sentences so the capture reads well",
                     "topic_keys": ["onboarding"],
@@ -974,7 +974,7 @@ fn supersede_decision_warns_about_a_slug_option_label_and_records_it_as_given() 
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
-                "actor_id": "agent:claude:hivemind-crew",
+                "actor_id": "agent:claude:loomtracer-crew",
                 "title": "Pick the entry point",
                 "rationale": "Spelled out in full sentences so the capture reads well",
                 "topic_keys": ["onboarding"],
@@ -1000,7 +1000,7 @@ fn supersede_decision_warns_about_a_slug_option_label_and_records_it_as_given() 
                     "binds": {"level": "something", "statement": "Later work builds on it"},
                     "undo_cost": {"level": "cheap"},
                     "grounding": [{"kind": "bet"}],
-                    "actor_id": "agent:claude:hivemind-crew",
+                    "actor_id": "agent:claude:loomtracer-crew",
                     "old_decision_id": old_decision_id,
                     "title": title,
                     "rationale": "Spelled out in full sentences so the replacement reads well",
@@ -1070,7 +1070,7 @@ fn capture_with_rationale_note(id: u64, title: &str, note: &str, grounding: Valu
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": grounding,
-                "actor_id": "agent:claude:hivemind-crew",
+                "actor_id": "agent:claude:loomtracer-crew",
                 "title": title,
                 "rationale": format!("Spelled out in full sentences: {note}"),
                 "topic_keys": ["storage"],
@@ -1684,11 +1684,11 @@ fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede
         "{text}"
     );
     assert!(
-        text.contains(&format!("hivemind supersede --old {decision_id} --title")),
+        text.contains(&format!("loomtracer supersede --old {decision_id} --title")),
         "{text}"
     );
     assert!(
-        text.contains("hivemind retitle") && text.contains("hivemind move"),
+        text.contains("loomtracer retitle") && text.contains("loomtracer move"),
         "{text}"
     );
     assert!(!text.contains("cannot accept and reject"), "{text}");
@@ -2071,7 +2071,7 @@ mod transport_parity {
 
     fn http_app(dir: &std::path::Path) -> axum::Router {
         let config = crate::api::ApiConfig {
-            hivemind_dir: dir.to_path_buf(),
+            loomtracer_dir: dir.to_path_buf(),
             bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             port: 0,
             allow_unauthenticated_remote: false,
@@ -2397,7 +2397,7 @@ mod transport_parity {
                 correlation_id: None,
                 causation_event_id: None,
                 event_type: crate::events::EventType::DecisionScored,
-                actor_id: "agent:hivemind:scorer".to_owned(),
+                actor_id: "agent:loomtracer:scorer".to_owned(),
                 source: crate::events::EventSource::Agent,
                 source_ref: Some("scorer-session".to_owned()),
                 payload: json!({
@@ -2715,12 +2715,12 @@ mod transport_parity {
         }
     }
 
-    /// `hivemind query <args>` against `dir`, as the JSON it prints.
+    /// `loomtracer query <args>` against `dir`, as the JSON it prints.
     fn cli_query(dir: &std::path::Path, args: &[&str]) -> Value {
         use clap::Parser as _;
         let mut argv = vec![
-            "hivemind",
-            "--hivemind-dir",
+            "loomtracer",
+            "--loomtracer-dir",
             dir.to_str().expect("utf-8 dir"), // ubs:ignore: test-only; panicking is correct in tests
             "--json",
             "query",
@@ -3200,8 +3200,8 @@ mod transport_parity {
         let _open = capture_on(&dir, "Cache in memory", json!([{"kind": "bet"}]));
         let scan = |extra: &[&str]| -> String {
             let mut argv = vec![
-                "hivemind",
-                "--hivemind-dir",
+                "loomtracer",
+                "--loomtracer-dir",
                 dir.to_str().expect("utf-8 dir"), // ubs:ignore: test-only; panicking is correct in tests
                 "quality-scan",
                 "--dry-run",
@@ -3225,7 +3225,7 @@ mod transport_parity {
             .is_some_and(|id| id.starts_with("finding-")));
         assert_eq!(
             issue["title"],
-            "[HiveMind] bet_past_check_date: Use SQLite for the ledger"
+            "[Loomtracer] bet_past_check_date: Use SQLite for the ledger"
         );
         let description = issue["description"].as_str().expect("a description"); // ubs:ignore: test-only; panicking is correct in tests
         assert!(description.contains(&overdue), "{description}");
@@ -3287,8 +3287,8 @@ mod transport_parity {
         let overdue = capture_on(&dir, "Use SQLite for the ledger", overdue_bet());
         let scan = || -> String {
             let argv = [
-                "hivemind",
-                "--hivemind-dir",
+                "loomtracer",
+                "--loomtracer-dir",
                 dir.to_str().expect("utf-8 dir"), // ubs:ignore: test-only; panicking is correct in tests
                 "quality-scan",
                 "--dry-run",
@@ -3545,7 +3545,7 @@ mod transport_parity {
     // link_supersession (hivemind-4p0xd)
     // -----------------------------------------------------------------------
 
-    const LINKER: &str = "agent:claude:hivemind-crew";
+    const LINKER: &str = "agent:claude:loomtracer-crew";
     const ALEX: &str = "human:alex.knips@gmail.com";
 
     /// A decision the crew captured on its own (`decided_by` absent) or one a person decided
@@ -4749,7 +4749,7 @@ mod transport_parity {
 
     /// Like `run_seeded`, but captures the seeded decisions and returns each
     /// transport's own `decision_id`s alongside the tool's response —
-    /// `hivemind_compact_view`'s by-id case needs a real id per transport,
+    /// `loomtracer_compact_view`'s by-id case needs a real id per transport,
     /// since stdio and http each get a fresh, independently-assigned ledger.
     async fn run_seeded_with_ids(
         titles: &[&str],
@@ -4768,7 +4768,7 @@ mod transport_parity {
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
                 "title": title,
-                "rationale": "seed for hivemind_compact_view parity test",
+                "rationale": "seed for loomtracer_compact_view parity test",
                 "topic_keys": ["parity"],
                 "options": [{"label": "only"}],
             });
@@ -4798,7 +4798,7 @@ mod transport_parity {
     async fn compact_view_resolves_by_id() {
         let (stdio, http) = run_seeded_with_ids(
             &["Adopt async billing queue"],
-            "hivemind_compact_view",
+            "loomtracer_compact_view",
             "compact-view-by-id",
             |id| json!({ "decision_id": id }),
         )
@@ -4816,7 +4816,7 @@ mod transport_parity {
     #[tokio::test]
     async fn compact_view_resolves_unique_description() {
         let (stdio, http) = run_seeded(
-            "hivemind_compact_view",
+            "loomtracer_compact_view",
             "compact-view-resolved",
             &["Adopt async billing queue"],
             json!({ "description": "adopt async billing queue" }),
@@ -4835,7 +4835,7 @@ mod transport_parity {
     #[tokio::test]
     async fn compact_view_ambiguous_description_returns_candidates_not_error() {
         let (stdio, http) = run_seeded(
-            "hivemind_compact_view",
+            "loomtracer_compact_view",
             "compact-view-ambiguous",
             &[
                 "Adopt async queue for billing",
@@ -4866,7 +4866,7 @@ mod transport_parity {
     #[tokio::test]
     async fn compact_view_not_found_description_returns_envelope_not_error() {
         let (stdio, http) = run_seeded(
-            "hivemind_compact_view",
+            "loomtracer_compact_view",
             "compact-view-not-found",
             &["Adopt async billing queue"],
             json!({ "description": "totally unrelated widget factory zzz" }),
@@ -5859,7 +5859,7 @@ mod transport_parity {
             let text = error_text(result);
             assert!(
                 text.contains("project not registered: not-registered")
-                    && text.contains("hivemind project register not-registered"),
+                    && text.contains("loomtracer project register not-registered"),
                 "{name}: refusal names the handle and the register command: {text}"
             ); // ubs:ignore: test-only assertion
                // The capture names a bet: it must not be stranded as an unattached hypothesis
@@ -7323,13 +7323,13 @@ mod transport_parity {
     // (hivemind-s15q.12): opt-in via `--project-from-context`, stdio only.
     // -----------------------------------------------------------------------
 
-    /// A folder tree for the context tests: `repo` carries a `.hivemind-project` naming
+    /// A folder tree for the context tests: `repo` carries a `.loomtracer-project` naming
     /// `billing`, `elsewhere` has no marker anywhere above it.
     fn context_tree(label: &str) -> std::path::PathBuf {
         let root = unique_dir(&format!("context-{label}"));
         std::fs::create_dir_all(root.join("repo/src")).expect("create repo dir"); // ubs:ignore: test-only; panicking is correct in tests
         std::fs::create_dir_all(root.join("elsewhere")).expect("create elsewhere dir"); // ubs:ignore: test-only; panicking is correct in tests
-        std::fs::write(root.join("repo/.hivemind-project"), "billing\n").expect("write marker"); // ubs:ignore: test-only; panicking is correct in tests
+        std::fs::write(root.join("repo/.loomtracer-project"), "billing\n").expect("write marker"); // ubs:ignore: test-only; panicking is correct in tests
         root
     }
 
@@ -7466,7 +7466,7 @@ mod transport_parity {
             text.contains("rig `beadline`")
                 && text.contains("wrong ledger")
                 && text.contains(
-                    "hivemind project anchor --handle <project> --kind rig --value beadline"
+                    "loomtracer project anchor --handle <project> --kind rig --value beadline"
                 ),
             "{text}"
         ); // ubs:ignore: test-only assertion
@@ -7531,7 +7531,7 @@ mod transport_parity {
         ); // ubs:ignore: test-only assertion
         assert_eq!(
             reply["project_reminder"],
-            "this folder is not attached to a project yet; register the project (hivemind project register <handle>) and commit a .hivemind-project file holding the handle in this folder"
+            "this folder is not attached to a project yet; register the project (loomtracer project register <handle>) and commit a .loomtracer-project file holding the handle in this folder"
         ); // ubs:ignore: test-only assertion
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -7557,7 +7557,7 @@ mod transport_parity {
         for folder in ["billing", "payments"] {
             std::fs::create_dir_all(repo.join(folder)).expect("create folder"); // ubs:ignore: test-only; panicking is correct in tests
             std::fs::write(
-                repo.join(folder).join(".hivemind-project"),
+                repo.join(folder).join(".loomtracer-project"),
                 format!("{folder}\n"),
             )
             .expect("write marker"); // ubs:ignore: test-only; panicking is correct in tests
@@ -7592,7 +7592,7 @@ mod transport_parity {
         assert_eq!(reply["project_source"], "personal_fallback"); // ubs:ignore: test-only assertion
         assert_eq!(
             reply["project_reminder"],
-            "this change spans billing and payments, which share no parent. Move it with hivemind move ..., or register a parent."
+            "this change spans billing and payments, which share no parent. Move it with loomtracer move ..., or register a parent."
         ); // ubs:ignore: test-only assertion
 
         // Once one is part of the other, the change is recorded for the parent -- a shared
@@ -7651,7 +7651,8 @@ mod transport_parity {
     fn stdio_capture_from_context_refuses_a_marker_naming_an_unregistered_project() {
         let dir = context_ledger("capture-marker-unregistered");
         let tree = context_tree("capture-marker-unregistered");
-        std::fs::write(tree.join("elsewhere/.hivemind-project"), "billng\n").expect("write marker"); // ubs:ignore: test-only; panicking is correct in tests
+        std::fs::write(tree.join("elsewhere/.loomtracer-project"), "billng\n")
+            .expect("write marker"); // ubs:ignore: test-only; panicking is correct in tests
 
         let response = stdio_call_from(
             &dir,
@@ -7664,7 +7665,7 @@ mod transport_parity {
         let text = error_text(&response["result"]);
         assert!(
             text.contains("project not registered: billng")
-                && text.contains("hivemind project register billng"),
+                && text.contains("loomtracer project register billng"),
             "{text}"
         ); // ubs:ignore: test-only assertion
         assert!(
@@ -8798,7 +8799,7 @@ mod transport_parity {
 fn floor_capture(id: u64, title: &str, floor: Value) -> String {
     let mut arguments = json!({
         "grounding": [{"kind": "bet"}],
-        "actor_id": "agent:claude:hivemind-crew",
+        "actor_id": "agent:claude:loomtracer-crew",
         "title": title,
         "rationale": "Spelled out: the reasons are written here in full sentences.",
         "topic_keys": ["storage"],
@@ -8949,7 +8950,7 @@ fn supersede_decision_takes_the_floor_answers_and_refuses_without_them() {
         .to_owned();
     let supersede = |id: u64, floor: Value| {
         let mut arguments = json!({
-            "actor_id": "agent:claude:hivemind-crew",
+            "actor_id": "agent:claude:loomtracer-crew",
             "old_decision_id": old_id,
             "title": "Use two queues",
             "rationale": "Spelled out: the reasons are written here in full sentences.",

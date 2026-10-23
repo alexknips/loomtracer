@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { HiveMindProblem } from "@/components/hivemind-problem";
+import { LoomtracerProblem } from "@/components/loomtracer-problem";
 import { StatusBadge } from "@/components/status-badge";
-import { hivemind } from "@/lib/hivemind/client";
-import { load } from "@/lib/hivemind/load";
-import { STATUSES, summarizeProjects } from "@/lib/hivemind/projects";
+import { loomtracer } from "@/lib/loomtracer/client";
+import { load } from "@/lib/loomtracer/load";
+import { STATUSES, summarizeProjects } from "@/lib/loomtracer/projects";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Projects · Loomtracer" };
 
 export default async function ProjectsPage() {
-  const result = await load(() => hivemind().projects());
-  if (!result.ok) return <AppShell active="Projects"><HiveMindProblem error={result.error} /></AppShell>;
+  const result = await load(() => loomtracer().projects());
+  if (!result.ok) return <AppShell active="Projects"><LoomtracerProblem error={result.error} /></AppShell>;
   const projects = summarizeProjects(result.value.items);
   const unfiled = result.value.unfiled_decisions;
   const byRef = new Map(projects.map(project => [project.ref, project]));
@@ -25,8 +25,8 @@ export default async function ProjectsPage() {
         <p>{project.ref} · {project.counts.total} {project.counts.total === 1 ? "decision" : "decisions"}{project.parent ? <> · part of {byRef.get(project.parent)?.name}</> : null}</p>
       </div>
       <div className="hm-counts">{STATUSES.filter(status => project.counts[status] > 0).map(status => <span key={status}><StatusBadge status={status} /> {project.counts[status]}</span>)}</div>
-    </article>)}</div> : <p className="hm-empty">This ledger holds no projects and no decisions yet. Capture one with <code>hivemind emit decision.capture</code>.</p>}
+    </article>)}</div> : <p className="hm-empty">This ledger holds no projects and no decisions yet. Capture one with <code>loomtracer emit decision.capture</code>.</p>}
     {unfiled > 0 && <p className="hm-note" data-testid="unfiled-decisions">{unfiled} {unfiled === 1 ? "decision is" : "decisions are"} filed under no project. {unfiled === 1 ? "It appears" : "They appear"} in search, not under a project here.</p>}
-    <p className="hm-note">Projects are registered and linked with <code>hivemind project</code>. The HiveMind HTTP API lists them and does not create, move or link one, so this page only lists them.</p>
+    <p className="hm-note">Projects are registered and linked with <code>loomtracer project</code>. The Loomtracer HTTP API lists them and does not create, move or link one, so this page only lists them.</p>
   </section></AppShell>;
 }

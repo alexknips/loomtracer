@@ -1,43 +1,46 @@
+# The compose service, the `hivemind-data` volume and the Postgres database and role keep the
+# name `hivemind`: they name stored data, and a cell that renamed them would start on an empty
+# database and volume. Everything a user types is Loomtracer; these follow with a migration.
 services:
   hivemind:
     # Pre-built server image from ghcr; `docker compose pull` fetches it.
     # To build from source instead: docker compose up --build
-    # HIVEMIND_IMAGE overrides this — scripts/cell-update.sh sets it to a
+    # LOOMTRACER_IMAGE overrides this — scripts/cell-update.sh sets it to a
     # locally-built, commit-sha-tagged image so an update never depends on
     # a tagged release existing (hivemind-zdsh.7), and pins it in .env so a
     # later `docker compose up -d` keeps it (hivemind-2mgj).
-    image: ${HIVEMIND_IMAGE:-ghcr.io/alexknips/hivemind:latest}
+    image: ${LOOMTRACER_IMAGE:-ghcr.io/alexknips/loomtracer:latest}
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        GIT_SHA: ${HIVEMIND_BUILD_SHA:-unknown}
+        GIT_SHA: ${LOOMTRACER_BUILD_SHA:-unknown}
     ports:
       # Published on loopback by default: the cell is reachable only from this
-      # host until you choose otherwise. Set HIVEMIND_PUBLISH_ADDR to a
+      # host until you choose otherwise. Set LOOMTRACER_PUBLISH_ADDR to a
       # specific interface address (e.g. a tailnet IP) to expose it, or keep
       # loopback and put a TLS reverse proxy in front — see
       # docs/SELF_HOSTING.md, "Exposing the cell deliberately".
-      - "${HIVEMIND_PUBLISH_ADDR:-127.0.0.1}:${HIVEMIND_PORT:-8080}:8080"
+      - "${LOOMTRACER_PUBLISH_ADDR:-127.0.0.1}:${LOOMTRACER_PORT:-8080}:8080"
     environment:
-      HIVEMIND_DIR: /data
-      HIVEMIND_PORT: "8080"
+      LOOMTRACER_DIR: /data
+      LOOMTRACER_PORT: "8080"
       # Postgres backend — resolves to the companion postgres service.
       # Remove to fall back to SQLite stored in the hivemind-data volume.
-      HIVEMIND_DATABASE_URL: "postgres://hivemind:${POSTGRES_PASSWORD:-hivemind}@postgres:5432/hivemind"
+      LOOMTRACER_DATABASE_URL: "postgres://hivemind:${POSTGRES_PASSWORD:-hivemind}@postgres:5432/hivemind"
       # Per-tenant bearer tokens are issued via POST /v1/tenants (admin-gated).
-      # Set HIVEMIND_ADMIN_KEY before provisioning your first tenant.
-      HIVEMIND_ADMIN_KEY: "${HIVEMIND_ADMIN_KEY:-}"
-      # Static bearer token for SQLite mode (no HIVEMIND_DATABASE_URL). An
+      # Set LOOMTRACER_ADMIN_KEY before provisioning your first tenant.
+      LOOMTRACER_ADMIN_KEY: "${LOOMTRACER_ADMIN_KEY:-}"
+      # Static bearer token for SQLite mode (no LOOMTRACER_DATABASE_URL). An
       # empty value counts as unset; SQLite mode without it refuses to start.
-      HIVEMIND_API_KEY: "${HIVEMIND_API_KEY:-}"
+      LOOMTRACER_API_KEY: "${LOOMTRACER_API_KEY:-}"
       # Optional, SQLite mode only: enable the server-side Layer-3 classifier and
-      # scorer (Claude Haiku). With HIVEMIND_DATABASE_URL set, as above, the key is
+      # scorer (Claude Haiku). With LOOMTRACER_DATABASE_URL set, as above, the key is
       # ignored and the server logs a warning; classify keylessly with
-      # /hivemind-capture:classify-queue (docs/KEYLESS_CAPTURE.md).
+      # /loomtracer-capture:classify-queue (docs/KEYLESS_CAPTURE.md).
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       # Optional: comma-separated CORS origins for browser SPA access.
-      HIVEMIND_CORS_ORIGINS: "${HIVEMIND_CORS_ORIGINS:-}"
+      LOOMTRACER_CORS_ORIGINS: "${LOOMTRACER_CORS_ORIGINS:-}"
     volumes:
       - hivemind-data:/data
     depends_on:

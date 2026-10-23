@@ -1,6 +1,6 @@
 # WorkOS AuthKit Setup Runbook
 
-**Purpose:** Provision WorkOS for the HiveMind MCP OAuth on-ramp (bead iwz9).
+**Purpose:** Provision WorkOS for the Loomtracer MCP OAuth on-ramp (bead iwz9).
 Our Rust server is a thin **resource server** — WorkOS AuthKit is the OAuth authorization
 server (handles DCR, GitHub/Google login, token issuance). This runbook tells you exactly
 what is dashboard-only versus scriptable via `workos-cli` / the Management API.
@@ -10,7 +10,7 @@ what is dashboard-only versus scriptable via `workos-cli` / the Management API.
 > Management** issuer (`https://api.workos.com/user_management/<client_id>`) — valid for
 > sealed-session validation but **incorrect for MCP OAuth tokens**. After completing Step 5
 > below, update those three vars to the `authkit.app` domain values. `WORKOS_AUDIENCE` and
-> `HIVEMIND_DATABASE_URL` still need to be filled in.
+> `LOOMTRACER_DATABASE_URL` still need to be filled in.
 
 ---
 
@@ -23,7 +23,7 @@ MCP Client (Claude Code, Codex, Cursor)
   │  3. OAuth PKCE flow → https://<authkit_domain>/oauth2/authorize → GitHub/Google login
   │  4. Token: POST https://<authkit_domain>/oauth2/token
   ↓
-HiveMind Rust server  (resource server)
+Loomtracer Rust server  (resource server)
   │  Validates Bearer JWT: JWKS from https://<authkit_domain>/oauth2/jwks
   │  Checks iss == https://<authkit_domain>
   │  Maps WorkOS user sub → tenant (Postgres multi-tenant model)
@@ -117,7 +117,7 @@ Create a GitHub OAuth App (OAuth App is simpler; GitHub App gives refresh tokens
 
 1. GitHub → **Settings → Developer settings → OAuth Apps → New OAuth App**
 2. Fill in:
-   - Homepage URL: `https://your-hivemind-host.com`
+   - Homepage URL: `https://your-loomtracer-host.com`
    - Authorization callback URL: the **Redirect URI** from WorkOS (get it first — see step 3 pattern)
 3. **Generate a new client secret** — copy immediately
 4. WorkOS Dashboard: **Authentication → OAuth providers → GitHub → Manage**
@@ -177,7 +177,7 @@ curl https://<authkit_domain>/.well-known/oauth-authorization-server | jq .regis
 1. Dashboard → **Connect → Configuration → Resource Indicators**
 2. Add your MCP server URL, e.g.:
    - Local: `http://localhost:8080/mcp`
-   - Production: `https://hivemind.fly.dev/mcp`
+   - Production: `https://loomtracer.fly.dev/mcp`
 
 This causes the issued access token's `aud` claim to match the resource URL,
 enabling strict audience validation on the resource server side.
@@ -244,7 +244,7 @@ the `authkit_domain` discovery confirmation in Step 5).
 | `WORKOS_CLIENT_ID` | Dashboard home or API Keys page | `client_01XXXXXXXXXXXXXXXXXXXXXXXXX` |
 | `WORKOS_AUDIENCE` | Your MCP server URL (Step 7) or `WORKOS_CLIENT_ID` | Leave blank to skip aud check during testing |
 | `WORKOS_API_KEY` | Dashboard → API Keys | `sk_live_XXX` (prod) / `sk_test_XXX` (staging) |
-| `HIVEMIND_DATABASE_URL` | Neon dashboard | `postgres://user:pass@host/db?sslmode=require` |
+| `LOOMTRACER_DATABASE_URL` | Neon dashboard | `postgres://user:pass@host/db?sslmode=require` |
 
 **Shell snippet to derive JWKS from domain after setting WORKOS_DOMAIN:**
 ```bash

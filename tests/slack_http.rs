@@ -9,7 +9,7 @@
 //! (`views.open`, `conversations.history`) are pointed, through
 //! `ApiConfig::slack_api_base_url`, at a stand-in Slack served on a loopback
 //! port that records what it was sent. Workspace installs and tenant
-//! registration are done through the CLI against the same `--hivemind-dir`
+//! registration are done through the CLI against the same `--loomtracer-dir`
 //! the HTTP router reads, proving the two transports agree — same pattern
 //! `tests/slack_app.rs` uses for the CLI-only surface.
 
@@ -22,8 +22,8 @@ use axum::extract::State;
 use axum::http::{HeaderMap, Request, StatusCode, Uri};
 use axum::Json;
 use clap::Parser;
-use hivemind::cli::{run, Cli};
 use http_body_util::BodyExt as _;
+use loomtracer::cli::{run, Cli};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tower::ServiceExt as _;
@@ -32,23 +32,23 @@ use uuid::Uuid;
 const APP_SIGNING_SECRET: &str = "app-level-test-secret";
 
 fn test_ledger_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("hivemind-slack-http-test-{}", Uuid::new_v4()))
+    std::env::temp_dir().join(format!("loomtracer-slack-http-test-{}", Uuid::new_v4()))
 }
 
-fn app(hivemind_dir: PathBuf) -> axum::Router {
-    hivemind::api::create_router(&test_config(hivemind_dir))
+fn app(loomtracer_dir: PathBuf) -> axum::Router {
+    loomtracer::api::create_router(&test_config(loomtracer_dir))
 }
 
 /// The front door with its outbound Slack Web API calls pointed at `mock`.
-fn app_with_slack_api(hivemind_dir: PathBuf, mock: &MockSlack) -> axum::Router {
-    let mut config = test_config(hivemind_dir);
+fn app_with_slack_api(loomtracer_dir: PathBuf, mock: &MockSlack) -> axum::Router {
+    let mut config = test_config(loomtracer_dir);
     config.slack_api_base_url = Some(mock.base_url.clone());
-    hivemind::api::create_router(&config)
+    loomtracer::api::create_router(&config)
 }
 
-fn test_config(hivemind_dir: PathBuf) -> hivemind::api::ApiConfig {
-    hivemind::api::ApiConfig {
-        hivemind_dir,
+fn test_config(loomtracer_dir: PathBuf) -> loomtracer::api::ApiConfig {
+    loomtracer::api::ApiConfig {
+        loomtracer_dir,
         bind: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port: 0,
         allow_unauthenticated_remote: false,
@@ -69,7 +69,7 @@ fn test_config(hivemind_dir: PathBuf) -> hivemind::api::ApiConfig {
 }
 
 /// Independent HMAC-SHA256 (RFC 2104) — deliberately NOT calling into
-/// `hivemind::api`'s (private) implementation, so a passing test proves the
+/// `loomtracer::api`'s (private) implementation, so a passing test proves the
 /// server computes the same signature an independent Slack client would.
 fn sign(secret: &str, timestamp: &str, body: &[u8]) -> String {
     let mut base = format!("v0:{timestamp}:").into_bytes();
@@ -160,12 +160,12 @@ async fn call_json(app: axum::Router, req: Request<Body>) -> (StatusCode, Value)
     (status, body)
 }
 
-fn run_cli_json(hivemind_dir: &Path, args: Vec<String>) -> Value {
+fn run_cli_json(loomtracer_dir: &Path, args: Vec<String>) -> Value {
     let mut argv = vec![
-        "hivemind".to_owned(),
+        "loomtracer".to_owned(),
         "--json".to_owned(),
-        "--hivemind-dir".to_owned(),
-        hivemind_dir.display().to_string(),
+        "--loomtracer-dir".to_owned(),
+        loomtracer_dir.display().to_string(),
     ];
     argv.extend(args);
     let cli = Cli::parse_from(argv);
@@ -173,9 +173,9 @@ fn run_cli_json(hivemind_dir: &Path, args: Vec<String>) -> Value {
     serde_json::from_str(&output).expect("cli output is JSON")
 }
 
-fn install_workspace(hivemind_dir: &Path, team_id: &str, signing_secret: &str) {
+fn install_workspace(loomtracer_dir: &Path, team_id: &str, signing_secret: &str) {
     install_workspace_with_bot_token(
-        hivemind_dir,
+        loomtracer_dir,
         team_id,
         signing_secret,
         &format!("bot-{}", Uuid::new_v4()),
@@ -183,28 +183,28 @@ fn install_workspace(hivemind_dir: &Path, team_id: &str, signing_secret: &str) {
 }
 
 fn install_workspace_with_bot_token(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     team_id: &str,
     signing_secret: &str,
     bot_token: &str,
 ) {
     run_cli_json(
-        hivemind_dir,
+        loomtracer_dir,
         vec!["tenant".to_owned(), "create".to_owned(), team_id.to_owned()],
     );
-    install_workspace_without_tenant(hivemind_dir, team_id, signing_secret, bot_token);
+    install_workspace_without_tenant(loomtracer_dir, team_id, signing_secret, bot_token);
 }
 
-/// A hand `slack-app install` and nothing else: the `hivemind tenant create
+/// A hand `slack-app install` and nothing else: the `loomtracer tenant create
 /// <team_id>` step docs/SLACK_APP.md says it needs is the one left out.
 fn install_workspace_without_tenant(
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     team_id: &str,
     signing_secret: &str,
     bot_token: &str,
 ) {
     run_cli_json(
-        hivemind_dir,
+        loomtracer_dir,
         vec![
             "slack-app".to_owned(),
             "install".to_owned(),
@@ -216,10 +216,10 @@ fn install_workspace_without_tenant(
             bot_token.to_owned(),
             "--signing-secret".to_owned(),
             signing_secret.to_owned(),
-            "--hivemind-url".to_owned(),
+            "--loomtracer-url".to_owned(),
             "http://127.0.0.1:8787".to_owned(),
             "--reaction-emoji".to_owned(),
-            "hivemind".to_owned(),
+            "loomtracer".to_owned(),
         ],
     );
 }
@@ -334,21 +334,21 @@ async fn app_mention_marker_capture_enqueues_and_drains_into_the_ledger() {
     assert_eq!(drain["processed_count"], 1);
     assert_eq!(drain["queued_after"], 0);
 
-    let ledger = hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
-    use hivemind::ledger::EventLedger as _;
-    let tenant_id = hivemind::events::TenantId::new(team_id).unwrap();
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
+    use loomtracer::ledger::EventLedger as _;
+    let tenant_id = loomtracer::events::TenantId::new(team_id).unwrap();
     let events = ledger
         .read_for_tenant(&tenant_id, 0, 100)
         .expect("events read");
     let proposal = events
         .iter()
-        .find(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+        .find(|event| event.event_type == loomtracer::events::EventType::DecisionProposed)
         .expect("decision proposed event exists");
     assert_eq!(proposal.actor_id, format!("slack:{team_id}:U1"));
     // The mentioning user wrote the markers, so they are recorder and decider at once.
     let acceptors: Vec<&str> = events
         .iter()
-        .filter(|event| event.event_type == hivemind::events::EventType::DecisionAccepted)
+        .filter(|event| event.event_type == loomtracer::events::EventType::DecisionAccepted)
         .map(|event| event.actor_id.as_str())
         .collect();
     assert_eq!(acceptors, vec![proposal.actor_id.as_str()]);
@@ -406,7 +406,7 @@ async fn slash_command_query_round_trips_over_http() {
     assert!(body["text"]
         .as_str()
         .unwrap()
-        .contains("No HiveMind decisions matched"));
+        .contains("No Loomtracer decisions matched"));
 }
 
 #[tokio::test]
@@ -430,7 +430,10 @@ async fn slash_command_bare_capture_does_not_claim_a_modal_will_open() {
     assert!(body.get("modal").is_none());
     let text = body["text"].as_str().expect("text reply");
     assert!(text.contains("Capture this thread as a decision"));
-    assert!(text.contains(":hivemind:"), "names the install's own emoji");
+    assert!(
+        text.contains(":loomtracer:"),
+        "names the install's own emoji"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -571,8 +574,8 @@ fn ok_reply() -> Value {
     json!({"ok": true})
 }
 
-fn queued_captures(hivemind_dir: &Path) -> Vec<Value> {
-    let Ok(queued) = std::fs::read_to_string(hivemind_dir.join("slack-app").join("queue.jsonl"))
+fn queued_captures(loomtracer_dir: &Path) -> Vec<Value> {
+    let Ok(queued) = std::fs::read_to_string(loomtracer_dir.join("slack-app").join("queue.jsonl"))
     else {
         return Vec::new();
     };
@@ -594,29 +597,29 @@ struct DrainedDecision {
 
 /// Drains the workspace's queue through the CLI and returns who recorded and
 /// who accepted the one decision it wrote into the workspace's own tenant.
-fn drain_one_decision(hivemind_dir: &Path, team_id: &str) -> DrainedDecision {
+fn drain_one_decision(loomtracer_dir: &Path, team_id: &str) -> DrainedDecision {
     let drain = run_cli_json(
-        hivemind_dir,
+        loomtracer_dir,
         vec!["slack-app".to_owned(), "drain".to_owned()],
     );
     assert_eq!(drain["processed_count"], 1);
     assert_eq!(drain["queued_after"], 0);
 
-    use hivemind::ledger::EventLedger as _;
-    let ledger = hivemind::ledger::SqliteEventLedger::open(hivemind_dir).expect("ledger opens");
-    let tenant_id = hivemind::events::TenantId::new(team_id).expect("tenant id");
+    use loomtracer::ledger::EventLedger as _;
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(loomtracer_dir).expect("ledger opens");
+    let tenant_id = loomtracer::events::TenantId::new(team_id).expect("tenant id");
     let events = ledger
         .read_for_tenant(&tenant_id, 0, 100)
         .expect("events read");
     let proposal = events
         .iter()
-        .find(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+        .find(|event| event.event_type == loomtracer::events::EventType::DecisionProposed)
         .expect("decision proposed event exists");
     DrainedDecision {
         recorder: proposal.actor_id.clone(),
         accepted_by: events
             .iter()
-            .filter(|event| event.event_type == hivemind::events::EventType::DecisionAccepted)
+            .filter(|event| event.event_type == loomtracer::events::EventType::DecisionAccepted)
             .map(|event| event.actor_id.clone())
             .collect(),
         source_ref: proposal.source_ref.clone(),
@@ -676,7 +679,7 @@ fn view_submission_payload(
         "user": {"id": user_id, "name": "grace"},
         "view": {
             "id": "V1",
-            "callback_id": "hivemind_capture_decision",
+            "callback_id": "loomtracer_capture_decision",
             "private_metadata": private_metadata,
             "state": {"values": values}
         }
@@ -695,7 +698,7 @@ async fn open_modal_and_take_private_metadata(
         router,
         mock,
         signing_secret,
-        &message_action_payload(team_id, "hivemind_capture_thread"),
+        &message_action_payload(team_id, "loomtracer_capture_thread"),
     )
     .await
 }
@@ -741,7 +744,7 @@ async fn message_shortcut_opens_the_capture_modal_with_the_messages_context() {
     let body: Value = serde_json::from_str(&opened[0].body).expect("views.open body is JSON");
     assert_eq!(body["trigger_id"], "trigger-123.456");
     assert_eq!(body["view"]["type"], "modal");
-    assert_eq!(body["view"]["callback_id"], "hivemind_capture_decision");
+    assert_eq!(body["view"]["callback_id"], "loomtracer_capture_decision");
 
     let context: Value = serde_json::from_str(&private_metadata).expect("metadata is JSON");
     assert_eq!(context["channel_id"], "C1");
@@ -826,7 +829,7 @@ async fn a_shortcut_on_an_app_message_names_no_other_decider_so_the_submitter_de
     let mock = mock_slack(vec![("/views.open", StatusCode::OK, ok_reply())]).await;
     let router = app_with_slack_api(dir.clone(), &mock);
     // Slack omits `user` on a message an app posted.
-    let mut shortcut = message_action_payload(team_id, "hivemind_capture_thread");
+    let mut shortcut = message_action_payload(team_id, "loomtracer_capture_thread");
     shortcut["message"]
         .as_object_mut()
         .expect("message is an object")
@@ -915,7 +918,7 @@ async fn a_failed_views_open_is_reported_to_slack_instead_of_swallowed() {
 
     let req = signed_interactivity_request(
         signing_secret,
-        &message_action_payload(team_id, "hivemind_capture_thread"),
+        &message_action_payload(team_id, "loomtracer_capture_thread"),
     );
     let (status, body) = call_json(app_with_slack_api(dir, &mock), req).await;
 
@@ -935,7 +938,7 @@ async fn interactivity_verifies_the_signature_before_calling_slack_or_queueing()
     let router = app_with_slack_api(dir.clone(), &mock);
 
     // Workspace B's team id, signed with workspace A's secret.
-    let forged = message_action_payload("T-B", "hivemind_capture_thread");
+    let forged = message_action_payload("T-B", "loomtracer_capture_thread");
     let (status, _) = call(
         router.clone(),
         signed_interactivity_request("secret-a", &forged),
@@ -944,7 +947,7 @@ async fn interactivity_verifies_the_signature_before_calling_slack_or_queueing()
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
     // A team that never installed the app.
-    let unknown = message_action_payload("T-UNKNOWN", "hivemind_capture_thread");
+    let unknown = message_action_payload("T-UNKNOWN", "loomtracer_capture_thread");
     let (status, _) = call(
         router.clone(),
         signed_interactivity_request("secret-a", &unknown),
@@ -1088,7 +1091,7 @@ async fn reaction_added_fetches_the_message_and_records_it_under_the_reactor_dec
     let event = reaction_event(
         team_id,
         "U-REACTOR",
-        "hivemind",
+        "loomtracer",
         &message_item("1715970800.000100"),
     );
     let (status, _) = call(
@@ -1124,7 +1127,7 @@ async fn reaction_added_fetches_the_message_and_records_it_under_the_reactor_dec
     assert_eq!(queued.len(), 1);
     let capture = &queued[0]["capture"];
     assert_eq!(capture["surface"], "reaction");
-    assert_eq!(capture["reaction_emoji"], "hivemind");
+    assert_eq!(capture["reaction_emoji"], "loomtracer");
     assert_eq!(capture["user_id"], "U-REACTOR", "the reactor records");
     assert_eq!(
         capture["decided_by_user_id"], "U-AUTHOR",
@@ -1178,7 +1181,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
         ),
         (
             "a reaction on a file",
-            "hivemind",
+            "loomtracer",
             json!({"type": "file", "file": "F1"}),
             StatusCode::OK,
             no_markers.clone(),
@@ -1186,7 +1189,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
         ),
         (
             "a message without markers",
-            "hivemind",
+            "loomtracer",
             message_item(ts),
             StatusCode::OK,
             no_markers,
@@ -1194,7 +1197,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
         ),
         (
             "a thread reply Slack cannot return by ts",
-            "hivemind",
+            "loomtracer",
             message_item(ts),
             StatusCode::OK,
             a_different_message,
@@ -1202,7 +1205,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
         ),
         (
             "a message posted by an app",
-            "hivemind",
+            "loomtracer",
             message_item(ts),
             StatusCode::OK,
             posted_by_an_app,
@@ -1210,7 +1213,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
         ),
         (
             "the bot not being in the channel",
-            "hivemind",
+            "loomtracer",
             message_item(ts),
             StatusCode::OK,
             history_error,
@@ -1218,7 +1221,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
         ),
         (
             "Slack rate-limiting the app",
-            "hivemind",
+            "loomtracer",
             message_item(ts),
             StatusCode::TOO_MANY_REQUESTS,
             rate_limited,
@@ -1260,7 +1263,7 @@ async fn a_reaction_that_cannot_become_a_capture_is_acknowledged_and_captures_no
 // A workspace installed by hand without its tenant
 // ---------------------------------------------------------------------------
 
-/// docs/SLACK_APP.md: a hand `slack-app install` needs `hivemind tenant create
+/// docs/SLACK_APP.md: a hand `slack-app install` needs `loomtracer tenant create
 /// <team_id>` first, and without it the routes refuse (404) up front. Before,
 /// the shortcut opened its modal, the submission and the reaction were
 /// accepted and queued, and the drain then failed on every one of them
@@ -1292,7 +1295,7 @@ async fn a_hand_installed_workspace_without_its_tenant_is_refused_before_anythin
         router.clone(),
         signed_interactivity_request(
             signing_secret,
-            &message_action_payload(team_id, "hivemind_capture_thread"),
+            &message_action_payload(team_id, "loomtracer_capture_thread"),
         ),
     )
     .await;
@@ -1321,7 +1324,7 @@ async fn a_hand_installed_workspace_without_its_tenant_is_refused_before_anythin
     let reaction = reaction_event(
         team_id,
         "U-REACTOR",
-        "hivemind",
+        "loomtracer",
         &message_item("1715970800.000100"),
     );
     let (status, _) = call(
@@ -1332,7 +1335,7 @@ async fn a_hand_installed_workspace_without_its_tenant_is_refused_before_anythin
     assert_eq!(status, StatusCode::NOT_FOUND, "reaction");
 
     // A mention and a plain message that carry the markers.
-    let mention_text = format!("@hivemind\n{DECISION_TEXT}");
+    let mention_text = format!("@loomtracer\n{DECISION_TEXT}");
     for (event_type, text) in [
         ("app_mention", DECISION_TEXT),
         ("message", mention_text.as_str()),
@@ -1447,14 +1450,14 @@ fn the_cli_drain_writes_a_teams_captures_into_that_teams_tenant_not_the_global_o
     );
     assert_eq!(drain["processed_count"], 1);
 
-    use hivemind::ledger::EventLedger as _;
-    let ledger = hivemind::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
+    use loomtracer::ledger::EventLedger as _;
+    let ledger = loomtracer::ledger::SqliteEventLedger::open(&dir).expect("ledger opens");
     let written_in = |tenant: &str| {
         ledger
-            .read_for_tenant(&hivemind::events::TenantId::new(tenant).unwrap(), 0, 100)
+            .read_for_tenant(&loomtracer::events::TenantId::new(tenant).unwrap(), 0, 100)
             .expect("events read")
             .iter()
-            .filter(|event| event.event_type == hivemind::events::EventType::DecisionProposed)
+            .filter(|event| event.event_type == loomtracer::events::EventType::DecisionProposed)
             .count()
     };
     assert_eq!(written_in(team_id), 1, "the team's own tenant");
@@ -1481,7 +1484,7 @@ fn the_cli_drain_writes_a_teams_captures_into_that_teams_tenant_not_the_global_o
         answer["text"]
             .as_str()
             .expect("answer text")
-            .contains("HiveMind found 1 decision"),
+            .contains("Loomtracer found 1 decision"),
         "{answer}"
     );
 }
@@ -1532,7 +1535,7 @@ fn the_cli_drain_keeps_a_capture_queued_when_its_workspace_has_no_tenant() {
         drain["failed"][0]["error"]
             .as_str()
             .expect("error text")
-            .contains(&format!("hivemind tenant create {team_id}")),
+            .contains(&format!("loomtracer tenant create {team_id}")),
         "the failure names the fix: {drain}"
     );
     assert_eq!(queued_captures(&dir).len(), 1, "the capture stays queued");

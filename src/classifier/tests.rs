@@ -341,7 +341,7 @@ fn one_line(text: &str) -> String {
 
 #[test]
 fn both_classify_workers_carry_the_same_rule_for_who_decided() {
-    let command = include_str!("../../plugins/hivemind-capture/commands/classify-queue.md");
+    let command = include_str!("../../plugins/loomtracer-capture/commands/classify-queue.md");
     for (worker, text) in [
         ("the server-side prompt", one_line(CLASSIFIER_PROMPT)),
         ("the classify-queue command", one_line(command)),
@@ -374,7 +374,7 @@ fn cut_by_the_e2e_sentinels(skill: &str) -> String {
     let mut cut = Vec::new();
     let mut inside = false;
     for line in skill.lines() {
-        if line.ends_with("You are the HiveMind capture classifier.") {
+        if line.ends_with("You are the Loomtracer capture classifier.") {
             inside = true;
         }
         if inside {
@@ -389,12 +389,12 @@ fn cut_by_the_e2e_sentinels(skill: &str) -> String {
 
 #[test]
 fn the_decision_test_reads_the_same_in_every_copy_of_the_prompt() {
-    let skill = include_str!("../../plugins/hivemind-capture/skills/hivemind-capture/SKILL.md");
-    let batch_capture = include_str!("../../plugins/hivemind-capture/commands/batch-capture.md");
+    let skill = include_str!("../../plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md");
+    let batch_capture = include_str!("../../plugins/loomtracer-capture/commands/batch-capture.md");
     let doc = include_str!("../../docs/CAPTURE_CLASSIFIER.md");
     let e2e = include_str!("../../scripts/e2e_smoke.sh");
     assert!(
-        e2e.contains("You are the HiveMind capture classifier\\.$")
+        e2e.contains("You are the Loomtracer capture classifier\\.$")
             && e2e.contains("Return only the JSON array, no other text\\.$"),
         "scripts/e2e_smoke.sh cuts the prompt out of SKILL.md by these two sentinels"
     );
@@ -445,19 +445,19 @@ fn the_classifier_no_longer_produces_a_decision_request() {
     for (copy, text) in [
         (
             "SKILL.md",
-            include_str!("../../plugins/hivemind-capture/skills/hivemind-capture/SKILL.md"),
+            include_str!("../../plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md"),
         ),
         (
             "batch-capture.md",
-            include_str!("../../plugins/hivemind-capture/commands/batch-capture.md"),
+            include_str!("../../plugins/loomtracer-capture/commands/batch-capture.md"),
         ),
         (
             "classify-queue.md",
-            include_str!("../../plugins/hivemind-capture/commands/classify-queue.md"),
+            include_str!("../../plugins/loomtracer-capture/commands/classify-queue.md"),
         ),
         (
             "capture.sh",
-            include_str!("../../plugins/hivemind-capture/scripts/capture.sh"),
+            include_str!("../../plugins/loomtracer-capture/scripts/capture.sh"),
         ),
     ] {
         assert!(

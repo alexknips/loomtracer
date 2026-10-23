@@ -19,7 +19,7 @@
 //! renamed: see [`embedded_event_ids`].
 //!
 //! The same code runs behind `POST /v1/ledger/replay` (the cell appends what a client sends) and
-//! behind `hivemind migrate --to <postgres-url>` (the CLI appends straight to the database), so
+//! behind `loomtracer migrate --to <postgres-url>` (the CLI appends straight to the database), so
 //! both renumber and check parity the same way.
 
 use std::collections::{HashMap, HashSet};
@@ -200,7 +200,7 @@ pub fn replay_events(
                 },
             )?;
             ids.insert(event_uuid, event_id);
-            Ok::<(), crate::HivemindError>(())
+            Ok::<(), crate::LoomtracerError>(())
         })?;
     Ok(counts)
 }
@@ -361,7 +361,7 @@ fn embedded_event_ids(event: &ReplayEvent) -> Option<(&'static str, &'static str
     }
 }
 
-fn unresolved_cause(event: &ReplayEvent, cause: Uuid) -> crate::HivemindError {
+fn unresolved_cause(event: &ReplayEvent, cause: Uuid) -> crate::LoomtracerError {
     CommandError::Validation(format!(
         "event {} names event {cause} as its cause, which is neither in the destination nor earlier in this batch. Nothing was written",
         event.event_uuid
@@ -369,14 +369,14 @@ fn unresolved_cause(event: &ReplayEvent, cause: Uuid) -> crate::HivemindError {
     .into()
 }
 
-fn unresolved_draft_batch(event_uuid: Uuid, batch: Uuid) -> crate::HivemindError {
+fn unresolved_draft_batch(event_uuid: Uuid, batch: Uuid) -> crate::LoomtracerError {
     CommandError::Validation(format!(
         "event {event_uuid} names a draft of event {batch}, which is neither in the destination nor earlier in this batch. Nothing was written"
     ))
     .into()
 }
 
-fn draft_by_offset(event_uuid: Uuid, draft: &DraftId<'_>) -> crate::HivemindError {
+fn draft_by_offset(event_uuid: Uuid, draft: &DraftId<'_>) -> crate::LoomtracerError {
     CommandError::Validation(format!(
         "event {event_uuid} names the draft {} by the offset of its batch; the destination numbers its events itself, so that offset would name another batch. Send it as capture:<uuid of the batch event>:<index>. Nothing was written",
         draft.text

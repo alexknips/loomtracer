@@ -92,7 +92,7 @@ fn brief_says_nothing_declared_for_a_decision_nobody_asked_about() -> Result<()>
 
     assert!(
         text.contains(
-            "  rests on: nothing declared (never asked; add with hivemind ground \"Pick a logo\" --rests-on-decision \"...\")\n"
+            "  rests on: nothing declared (never asked; add with loomtracer ground \"Pick a logo\" --rests-on-decision \"...\")\n"
         ),
         "{text}"
     );
@@ -550,7 +550,7 @@ fn compact_view_summary_says_nothing_declared_for_a_decision_nobody_asked_about(
     let text = render_compact_view_summary(&view);
 
     assert!(
-        text.contains("  rests on: nothing declared (never asked; add with hivemind ground"),
+        text.contains("  rests on: nothing declared (never asked; add with loomtracer ground"),
         "{text}"
     );
     Ok(())

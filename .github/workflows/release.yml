@@ -27,12 +27,12 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: hivemind-linux-x86_64
+            artifact: loomtracer-linux-x86_64
             linker: ""
             stripper: strip
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            artifact: hivemind-linux-arm64
+            artifact: loomtracer-linux-arm64
             linker: aarch64-linux-gnu-gcc
             stripper: aarch64-linux-gnu-strip
           # x86_64-apple-darwin (Intel Mac) is intentionally not built: the
@@ -43,7 +43,7 @@ jobs:
           # publish guard's expected-artifact list below in the same commit.
           - os: macos-14
             target: aarch64-apple-darwin
-            artifact: hivemind-macos-arm64
+            artifact: loomtracer-macos-arm64
             linker: ""
             stripper: strip
 
@@ -83,14 +83,14 @@ jobs:
           set -euo pipefail
           archive="${{ matrix.artifact }}.tar.gz"
           mkdir -p dist package
-          cp "target/${{ matrix.target }}/release/hivemind" package/hivemind
+          cp "target/${{ matrix.target }}/release/loomtracer" package/loomtracer
           stripper="${{ matrix.stripper }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            strip -x package/hivemind
+            strip -x package/loomtracer
           elif [ -n "${stripper}" ]; then
-            "${stripper}" package/hivemind
+            "${stripper}" package/loomtracer
           fi
-          tar -C package -czf "dist/${archive}" hivemind
+          tar -C package -czf "dist/${archive}" loomtracer
           if command -v sha256sum >/dev/null 2>&1; then
             (cd dist && sha256sum "${archive}" > "${archive}.sha256")
           else
@@ -116,7 +116,7 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: hivemind-*
+          pattern: loomtracer-*
           path: dist
           merge-multiple: true
 
@@ -129,11 +129,11 @@ jobs:
         run: |
           set -euo pipefail
           # Keep this list in lockstep with the build matrix above. Intel
-          # macOS (hivemind-macos-x86_64) is intentionally not built.
+          # macOS (loomtracer-macos-x86_64) is intentionally not built.
           expected=(
-            hivemind-linux-x86_64.tar.gz
-            hivemind-linux-arm64.tar.gz
-            hivemind-macos-arm64.tar.gz
+            loomtracer-linux-x86_64.tar.gz
+            loomtracer-linux-arm64.tar.gz
+            loomtracer-macos-arm64.tar.gz
           )
           missing=()
           for artifact in "${expected[@]}"; do

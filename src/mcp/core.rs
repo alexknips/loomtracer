@@ -36,7 +36,7 @@ use crate::commands::{
     insert_warnings_into, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
     DeterminedProject, FloorInput, Grounding, SupersedeInput,
 };
-use crate::error::{CliError, CommandError, HivemindError};
+use crate::error::{CliError, CommandError, LoomtracerError};
 use crate::events::{AckAction, CaptureItem, EventProvenance, ProjectSource, TenantId};
 use crate::floor::FloorAnswers;
 use crate::grounding::{
@@ -128,11 +128,11 @@ impl std::fmt::Display for CoreError {
     }
 }
 
-impl From<HivemindError> for CoreError {
-    fn from(error: HivemindError) -> Self {
+impl From<LoomtracerError> for CoreError {
+    fn from(error: LoomtracerError) -> Self {
         match &error {
-            HivemindError::Command(CommandError::Validation(_))
-            | HivemindError::Cli(CliError::InvalidInput(_)) => {
+            LoomtracerError::Command(CommandError::Validation(_))
+            | LoomtracerError::Cli(CliError::InvalidInput(_)) => {
                 CoreError::InvalidArgument(error.to_string())
             }
             _ => CoreError::Internal(error.to_string()),
@@ -276,7 +276,7 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("recall_decisions", ToolKind::ReadDecisions),
     ("recent_decisions", ToolKind::ReadDecisions),
     ("dump_graph", ToolKind::ReadDecisions),
-    ("hivemind_compact_view", ToolKind::ReadDecisions),
+    ("loomtracer_compact_view", ToolKind::ReadDecisions),
     ("summarize_decisions", ToolKind::ReadDecisions),
 ];
 
@@ -371,7 +371,7 @@ pub fn write_tool_names() -> Vec<&'static str> {
 // ---------------------------------------------------------------------------
 
 /// Parse the `project` / `project_source` pair the two write tools share. The handle is
-/// whatever the caller determined; HiveMind only validates it (registered, not a reserved
+/// whatever the caller determined; Loomtracer only validates it (registered, not a reserved
 /// personal address), never infers one. `project_source` needs a `project` to describe.
 fn project_args(
     args: &Map<String, Value>,
@@ -1055,7 +1055,7 @@ pub(crate) fn get_situational_decisions<P: LedgerProvider>(
 
 /// The migrated core for the `get_decision_neighborhood` MCP tool (the CLI's
 /// `why`): one implementation consumed by both transports. Payload is
-/// identical to `hivemind query why --json` — the same `QueryResponse`
+/// identical to `loomtracer query why --json` — the same `QueryResponse`
 /// envelope around [`crate::queries::NeighborhoodView`] with the decision's
 /// quality profile on the root (`data.root.quality`), always at the
 /// CLI default (depth 1, all relations, non-compact); this bead does not
@@ -1223,10 +1223,10 @@ pub(crate) fn get_changed_decisions<P: LedgerProvider>(
 }
 
 // ---------------------------------------------------------------------------
-// hivemind_compact_view (the CLI's `compact-view`)
+// loomtracer_compact_view (the CLI's `compact-view`)
 // ---------------------------------------------------------------------------
 
-/// Parsed, validated arguments for the `hivemind_compact_view` tool.
+/// Parsed, validated arguments for the `loomtracer_compact_view` tool.
 pub(crate) struct CompactViewArgs {
     pub(crate) decision_id: Option<String>,
     pub(crate) description: Option<String>,
@@ -1243,9 +1243,9 @@ impl CompactViewArgs {
     }
 }
 
-/// The migrated core for the `hivemind_compact_view` MCP tool: one
+/// The migrated core for the `loomtracer_compact_view` MCP tool: one
 /// implementation consumed by both transports. Payload is identical to
-/// `hivemind query compact-view --json` — the same `QueryResponse` envelope
+/// `loomtracer query compact-view --json` — the same `QueryResponse` envelope
 /// around `Option<CompactView>` from [`crate::queries::get_compact_view`].
 /// `data: null` there means the resolved `decision_id` itself doesn't exist
 /// (the id escape hatch bypasses resolution, so an unvalidated id can still
@@ -1434,7 +1434,7 @@ impl GetDecisionOutcomeArgs {
 /// The migrated core for the `get_decision_outcome` MCP tool (the CLI's
 /// `verify`): one implementation consumed by both transports. Payload is
 /// `DecisionBrief` plus the decision's quality profile as `data.quality` — the
-/// same envelope `hivemind query verify --json` (`get_decision_brief`,
+/// same envelope `loomtracer query verify --json` (`get_decision_brief`,
 /// composing `get_decision` + `get_decision_context` + `get_decision_outcome`)
 /// returns, not the narrower outcome-signal-only payload this tool returned
 /// before this migration — see hivemind-ot72.8 ("match the CLI").
@@ -1702,7 +1702,7 @@ impl MoveDecisionArgs {
 /// transports. Resolves its target via [`resolve_target`] first; on `Ambiguous` or `NotFound`
 /// the resolver's envelope is returned as-is and no event is appended — the same write gate
 /// `disagree_decision` and `supersede_decision` apply, so a move never acts on a guess. The
-/// reply is [`crate::commands::DecisionMoveOutcome`], the shape `hivemind move --json` prints.
+/// reply is [`crate::commands::DecisionMoveOutcome`], the shape `loomtracer move --json` prints.
 pub(crate) fn move_decision<P: LedgerProvider>(
     provider: &P,
     args: MoveDecisionArgs,
@@ -1779,7 +1779,7 @@ impl RetitleDecisionArgs {
 /// transports. Resolves its target via [`resolve_target`] first; on `Ambiguous` or `NotFound`
 /// the resolver's envelope is returned as-is and no event is appended — the same write gate
 /// `move_decision` and `disagree_decision` apply, so a retitle never acts on a guess. The reply
-/// is [`crate::commands::DecisionRetitleOutcome`], the shape `hivemind retitle --json` prints.
+/// is [`crate::commands::DecisionRetitleOutcome`], the shape `loomtracer retitle --json` prints.
 pub(crate) fn retitle_decision<P: LedgerProvider>(
     provider: &P,
     args: RetitleDecisionArgs,
@@ -1884,7 +1884,7 @@ pub(crate) fn link_supersession<P: LedgerProvider>(
 // ---------------------------------------------------------------------------
 
 /// The channel an acknowledgement made through MCP is recorded as surfaced over when the caller
-/// names none. A label the consumer owns; HiveMind attaches no meaning to it.
+/// names none. A label the consumer owns; Loomtracer attaches no meaning to it.
 pub(crate) const DEFAULT_ACK_CHANNEL: &str = "mcp";
 
 /// Parsed, validated arguments for the `acknowledge_suggestion` tool. `finding_id` and
@@ -1978,7 +1978,7 @@ impl GetSupersessionChainArgs {
 
 /// The migrated core for the `get_supersession_chain` MCP tool (the CLI's
 /// `chain`): one implementation consumed by both transports. Payload is
-/// identical to `hivemind query chain --json`, resolving `decision_id` or a
+/// identical to `loomtracer query chain --json`, resolving `decision_id` or a
 /// free-text `description` through the same [`resolve_target`] every other
 /// fluent tool uses — ambiguous and not-found are both success envelopes,
 /// never errors.

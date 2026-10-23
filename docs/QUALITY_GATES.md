@@ -1,6 +1,6 @@
 # Quality Gates
 
-Quality gates are part of every HiveMind bead's definition of done. They are
+Quality gates are part of every Loomtracer bead's definition of done. They are
 not a retrospective cleanup step, and they are not optional when a change is
 small. A branch is merge-ready only when the gate set matching its diff scope
 (below) has passed on the exact state being submitted.
@@ -40,28 +40,28 @@ sync check runs now.
 ## Reference Docs (Live in the Site Repo)
 
 The site, the CLI and MCP reference pages, the MCP setup guide and the
-homepage's tool count live in `alexknips/hivemind-site` (under its
+homepage's tool count live in `alexknips/loomtracer-site` (under its
 `website/`), not in this repo. The generator stays here because it reads this
 repo's clap definitions and `tool_definitions()`. It reads and writes
 `website/...` relative to the directory it runs from, so run it from the root
 of a site checkout, pointing cargo at this repo:
 
 ```bash
-# cwd = root of alexknips/hivemind-site; this repo checked out at ../hivemind
-cargo run --locked --manifest-path ../hivemind/Cargo.toml --bin generate-reference            # rewrite
-cargo run --locked --manifest-path ../hivemind/Cargo.toml --bin generate-reference -- --check # verify
+# cwd = root of alexknips/loomtracer-site; this repo checked out at ../loomtracer
+cargo run --locked --manifest-path ../loomtracer/Cargo.toml --bin generate-reference            # rewrite
+cargo run --locked --manifest-path ../loomtracer/Cargo.toml --bin generate-reference -- --check # verify
 ```
 
 The site repo's `Reference docs in sync` workflow runs that check against
-hivemind `master` on every push, pull request, and daily. It is not a merge
+loomtracer `master` on every push, pull request, and daily. It is not a merge
 gate of this repo: a change here that leaves the reference stale turns the
 site's workflow red, not this repo's CI. A bead that adds or changes a CLI
 subcommand, a flag, or an MCP tool therefore also opens a matching pull
 request on the site repo that regenerates the reference — merge the
-hivemind change first, because the site's check reads hivemind `master`.
+loomtracer change first, because the site's check reads loomtracer `master`.
 
 Two rules keep the check from agreeing with itself. The generator sorts MCP tools
-into "Write tools" and "Read tools" with `hivemind::mcp::write_tool_names()`,
+into "Write tools" and "Read tools" with `loomtracer::mcp::write_tool_names()`,
 which is the `Write` rows of the server's own `TOOL_KINDS` table; it keeps no
 tool list of its own. And `cli.md` must have a heading with a code span opening
 with each top-level verb (``### `review` ``), plus each `emit` and `query`
@@ -180,7 +180,7 @@ gate builds it: not the polecat, not the refinery, and not the pull-request CI,
 whose `rust` legs run default features, `tui`, and
 `shared-backend-postgres` only. The evidence for the Kuzu backend is
 `.github/workflows/kuzu-nightly.yml`. Every night on `master`, and on demand, it
-builds `hivemind` with `--features graph-kuzu` and runs the library tests with
+builds `loomtracer` with `--features graph-kuzu` and runs the library tests with
 the feature on. Those include the Kuzu adapter's parity tests against the other
 backends and the `--graph-backend kuzu` CLI path. The Kuzu build is cached
 between runs.
@@ -241,7 +241,7 @@ the `graph-kuzu` paths in `src/cli/`, or the `kuzu` / `cxx-build` lines in
 `Cargo.toml`); omit the line otherwise. Do not build Kuzu to fill it in. The
 run that carries the evidence is the first nightly (or dispatch) after the
 merge, so until it exists link the workflow's run list,
-`https://github.com/alexknips/hivemind/actions/workflows/kuzu-nightly.yml`.
+`https://github.com/alexknips/loomtracer/actions/workflows/kuzu-nightly.yml`.
 
 If the `ubs` job's critical count is nonzero but entirely explained by
 category-14 (dependency hygiene) findings that `.cargo/audit.toml` already

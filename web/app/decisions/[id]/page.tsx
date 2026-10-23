@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { HiveMindProblem } from "@/components/hivemind-problem";
+import { LoomtracerProblem } from "@/components/loomtracer-problem";
 import { StatusBadge } from "@/components/status-badge";
-import { hivemind } from "@/lib/hivemind/client";
-import { decisionIdFromSegment, readDecision } from "@/lib/hivemind/decision";
-import { load } from "@/lib/hivemind/load";
+import { loomtracer } from "@/lib/loomtracer/client";
+import { decisionIdFromSegment, readDecision } from "@/lib/loomtracer/decision";
+import { load } from "@/lib/loomtracer/load";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Decision · Loomtracer" };
@@ -18,10 +18,10 @@ const EVENT_WORDS: Record<string, string> = { recorded: "Recorded", accepted: "A
 export default async function DecisionPage({ params }: { params: Promise<{ id: string }> }) {
   const id = decisionIdFromSegment((await params).id);
   if (id === null) notFound();
-  const client = hivemind();
+  const client = loomtracer();
   const result = await load(() => readDecision(client, id));
   if (!result.ok && result.error.code === "not_found") notFound();
-  if (!result.ok) return <AppShell active="Search"><HiveMindProblem error={result.error} /></AppShell>;
+  if (!result.ok) return <AppShell active="Search"><LoomtracerProblem error={result.error} /></AppShell>;
   const d = result.value;
   return <AppShell active="Search"><article className="content-page" data-testid="decision-detail">
     <header className="page-heading"><div><span className="eyebrow">Decision{d.project ? <> · <Link className="hm-link" href={`/graph?${new URLSearchParams({ project: d.project.ref })}`}>{d.project.label}</Link></> : null}</span><h1>{d.title}</h1></div><p><StatusBadge status={d.status} /></p></header>

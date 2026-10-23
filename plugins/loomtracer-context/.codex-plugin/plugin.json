@@ -1,0 +1,38 @@
+{
+  "name": "loomtracer-context",
+  "version": "0.1.1",
+  "description": "Consult, verify, and contest Loomtracer decisions from Codex by description, never by id, through the deterministic local CLI.",
+  "author": {
+    "name": "Loomtracer contributors",
+    "url": "https://github.com/alexknips/loomtracer"
+  },
+  "homepage": "https://github.com/alexknips/loomtracer/blob/master/docs/AGENT_DECISION_CONTEXT.md",
+  "repository": "https://github.com/alexknips/loomtracer",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "loomtracer",
+    "decision-memory",
+    "codex",
+    "fluent-query",
+    "provenance"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Loomtracer Context",
+    "shortDescription": "Consult past decisions before you change something.",
+    "longDescription": "Installs the loomtracer-context skill and CLI-only command scripts. The skill teaches Codex when to check Loomtracer for standing decisions before touching a module, verify whether an old decision still holds, push back (disagree), move on (supersede) — asking first whether the disagreement is with the decision or with a premise it rests on — say what a decision rests on (ground), or say it still holds after something it rests on changed (reaffirm) by description — never by guessing an id.",
+    "developerName": "Loomtracer contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Skills",
+      "Local CLI"
+    ],
+    "websiteURL": "https://github.com/alexknips/loomtracer",
+    "defaultPrompt": [
+      "What should I know before I touch this file?",
+      "What did we decide about X?",
+      "Did that decision hold up?"
+    ],
+    "brandColor": "#2563EB"
+  }
+}

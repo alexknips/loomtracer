@@ -1,15 +1,15 @@
 {
-  "name": "hivemind",
+  "name": "loomtracer",
   "owner": {
-    "name": "HiveMind contributors"
+    "name": "Loomtracer contributors"
   },
-  "description": "Claude Code plugins for HiveMind organizational decision memory.",
+  "description": "Claude Code plugins for Loomtracer organizational decision memory.",
   "plugins": [
     {
-      "name": "hivemind-capture",
-      "displayName": "HiveMind Capture",
-      "description": "Capture HiveMind decisions from Claude Code with explicit actor provenance.",
-      "source": "./plugins/hivemind-capture",
+      "name": "loomtracer-capture",
+      "displayName": "Loomtracer Capture",
+      "description": "Capture Loomtracer decisions from Claude Code with explicit actor provenance.",
+      "source": "./plugins/loomtracer-capture",
       "category": "Productivity",
       "tags": [
         "decision-memory",
@@ -18,10 +18,10 @@
       ]
     },
     {
-      "name": "hivemind-context",
-      "displayName": "HiveMind Context",
-      "description": "Consult, verify, and contest HiveMind decisions from Claude Code by description, never by id, through the deterministic local CLI.",
-      "source": "./plugins/hivemind-context",
+      "name": "loomtracer-context",
+      "displayName": "Loomtracer Context",
+      "description": "Consult, verify, and contest Loomtracer decisions from Claude Code by description, never by id, through the deterministic local CLI.",
+      "source": "./plugins/loomtracer-context",
       "category": "Productivity",
       "tags": [
         "decision-memory",

@@ -1,7 +1,7 @@
-use hivemind::events::{Event, EventSource, EventType, RelationKind as EventRelationKind};
-use hivemind::projector::memory::MemoryGraph;
-use hivemind::projector::{project_event, GraphParams, GraphValue, GraphView, RelationKind};
-use hivemind::queries::{
+use loomtracer::events::{Event, EventSource, EventType, RelationKind as EventRelationKind};
+use loomtracer::projector::memory::MemoryGraph;
+use loomtracer::projector::{project_event, GraphParams, GraphValue, GraphView, RelationKind};
+use loomtracer::queries::{
     derive_hypothesis_status, get_decision, get_decision_neighborhood, get_supersession_chain,
     DecisionStatus, DecisionView, HypothesisStatus, NeighborhoodRequest, NeighborhoodView,
 };

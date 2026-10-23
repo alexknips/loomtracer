@@ -1,9 +1,9 @@
-//! Every `hivemind ...` command the README, docs and plugin files show still parses (hivemind-gq7dm).
+//! Every `loomtracer ...` command the README, docs and plugin files show still parses (hivemind-gq7dm).
 //!
 //! Doc drift is the commonest bug class here: a flag is renamed or a verb retired, and the example
 //! that taught it keeps teaching it until a reader hits exit 2. This test reads each Markdown file
-//! that teaches the CLI, pulls out every command that starts with `hivemind`, and gives it to the
-//! real parser, `hivemind::cli::Cli::try_parse_from`. Nothing is run and no ledger is touched.
+//! that teaches the CLI, pulls out every command that starts with `loomtracer`, and gives it to the
+//! real parser, `loomtracer::cli::Cli::try_parse_from`. Nothing is run and no ledger is touched.
 //!
 //! Two bars:
 //! - A fenced shell example is a whole invocation and must parse.
@@ -24,8 +24,8 @@ use std::path::{Path, PathBuf};
 
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::Parser;
-use hivemind::cli::Cli;
-use hivemind::mcp::tool_definitions;
+use loomtracer::cli::Cli;
+use loomtracer::mcp::tool_definitions;
 
 /// A command shown in a doc that the CLI does not accept, and why that is allowed for now.
 /// `command` is a prefix of the example as it reads in the file, whitespace collapsed.
@@ -39,24 +39,24 @@ const ALLOWED: &[Allowed] = &[
     // Design records. They name what was proposed at the time; the shipped names differ.
     Allowed {
         file: "docs/AGENT_FLUENT_QUERYING.md",
-        command: "hivemind query context",
+        command: "loomtracer query context",
         why: "the old working name of `query situational`, named as such beside it",
     },
     Allowed {
         file: "docs/AGENT_FLUENT_QUERYING.md",
-        command: "hivemind query review",
+        command: "loomtracer query review",
         why: "the proposed alias of get_decision_outcome; it shipped as `verify`",
     },
     // A design doc's sketch, labelled there as planned (hivemind-t97qx).
     Allowed {
         file: "docs/AUTH_MODEL.md",
-        command: "hivemind --remote",
+        command: "loomtracer --remote",
         why: "hivemind-t97qx: the doc labels it a planned sketch; --remote and --token-env are not built",
     },
 ];
 
 /// Info strings of fenced blocks that hold shell commands. Other blocks (json, yaml, rust, ...)
-/// are not commands even when a line starts with `hivemind`.
+/// are not commands even when a line starts with `loomtracer`.
 const SHELL_FENCES: &[&str] = &["", "bash", "sh", "shell", "zsh", "console", "shell-session"];
 
 /// Release history names flags and verbs as they were when each version shipped.
@@ -184,7 +184,7 @@ fn examples_in(file: &str, text: &str) -> Vec<Example> {
     found
 }
 
-/// The commands in a shell block: each line that starts with `hivemind`, its `\` continuations
+/// The commands in a shell block: each line that starts with `loomtracer`, its `\` continuations
 /// joined on. A leading `$ ` prompt is dropped.
 fn fenced_commands(lines: &[(usize, String)]) -> Vec<(usize, String)> {
     let mut commands = Vec::new();
@@ -193,7 +193,7 @@ fn fenced_commands(lines: &[(usize, String)]) -> Vec<(usize, String)> {
         let (line, text) = &lines[at];
         let mut command = text.strip_prefix("$ ").unwrap_or(text).to_string();
         at += 1;
-        if !starts_with_hivemind(&command) {
+        if !starts_with_loomtracer(&command) {
             continue;
         }
         while command.ends_with('\\') && at < lines.len() {
@@ -209,7 +209,7 @@ fn fenced_commands(lines: &[(usize, String)]) -> Vec<(usize, String)> {
 
 fn push_inline(file: &str, paragraph: &mut Vec<(usize, &str)>, found: &mut Vec<Example>) {
     for (line, span) in code_spans(paragraph) {
-        if starts_with_hivemind(&span) {
+        if starts_with_loomtracer(&span) {
             found.push(Example {
                 file: file.to_string(),
                 line,
@@ -270,8 +270,8 @@ fn code_spans(paragraph: &[(usize, &str)]) -> Vec<(usize, String)> {
     spans
 }
 
-fn starts_with_hivemind(text: &str) -> bool {
-    text.strip_prefix("hivemind")
+fn starts_with_loomtracer(text: &str) -> bool {
+    text.strip_prefix("loomtracer")
         .is_some_and(|rest| rest.starts_with(char::is_whitespace))
 }
 
@@ -420,7 +420,7 @@ fn expansion(text: &str) -> Expansion {
     }
 }
 
-/// The arguments after `hivemind`, with the shell and synopsis notation resolved, and whether the
+/// The arguments after `loomtracer`, with the shell and synopsis notation resolved, and whether the
 /// command elided some of itself (`...`, `[--optional]`, `${FLAG:+--maybe}`).
 fn arguments(words: Vec<Word>) -> (Vec<Arg>, bool) {
     let mut args = Vec::new();
@@ -541,7 +541,7 @@ fn rejection(command: &str, fenced: bool) -> Option<String> {
         Err(problem) => return Some(format!("the command has {problem}")),
     };
     let (mut args, elided) = arguments(words);
-    // `hivemind 0.7.0` and `hivemind Up (healthy)` are output a block shows, not commands.
+    // `loomtracer 0.7.0` and `loomtracer Up (healthy)` are output a block shows, not commands.
     let first = args.first()?;
     if first
         .text
@@ -551,7 +551,7 @@ fn rejection(command: &str, fenced: bool) -> Option<String> {
     }
     let lenient = !fenced || elided;
     for _ in 0..MAX_PLACEHOLDER_RETRIES {
-        let argv = std::iter::once("hivemind")
+        let argv = std::iter::once("loomtracer")
             .chain(args.iter().map(|arg| arg.text.as_str()))
             .map(str::to_string)
             .collect::<Vec<_>>();
@@ -581,7 +581,7 @@ fn rejection(command: &str, fenced: bool) -> Option<String> {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn hivemind_commands_in_the_docs_parse() {
+fn loomtracer_commands_in_the_docs_parse() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut checked = 0;
     let mut broken = Vec::new();
@@ -602,7 +602,7 @@ fn hivemind_commands_in_the_docs_parse() {
     // The extraction finding nothing would pass vacuously.
     assert!(
         checked > 150,
-        "found only {checked} hivemind commands in the docs: did the extraction break?"
+        "found only {checked} loomtracer commands in the docs: did the extraction break?"
     );
 
     let mut used = BTreeSet::new();
@@ -630,7 +630,7 @@ fn hivemind_commands_in_the_docs_parse() {
 
     assert!(
         unexplained.is_empty(),
-        "{} of {checked} hivemind commands in the docs do not parse. Fix the example, or, if it \
+        "{} of {checked} loomtracer commands in the docs do not parse. Fix the example, or, if it \
          shows on purpose what the CLI does not do, add it to ALLOWED with the reason:\n{}",
         unexplained.len(),
         unexplained.join("\n")
@@ -685,87 +685,95 @@ fn readme_lists_every_mcp_tool() {
 
 #[test]
 fn a_whole_example_must_parse_but_a_sketch_may_leave_arguments_out() {
-    assert!(rejection("hivemind --actor human:alice quickstart", true).is_none());
-    assert!(rejection("hivemind query get_decision --id decision-001", true).is_none());
+    assert!(rejection("loomtracer --actor human:alice quickstart", true).is_none());
+    assert!(rejection("loomtracer query get_decision --id decision-001", true).is_none());
     // `--id` is required: a whole example without it is wrong, a prose mention of the verb is not.
-    assert!(rejection("hivemind query get_decision", true).is_some());
-    assert!(rejection("hivemind query get_decision", false).is_none());
-    assert!(rejection("hivemind emit decision.proposed ...", true).is_none());
-    assert!(rejection("hivemind query score_decision --id", false).is_none());
-    assert!(rejection("hivemind query score_decision --id", true).is_some());
+    assert!(rejection("loomtracer query get_decision", true).is_some());
+    assert!(rejection("loomtracer query get_decision", false).is_none());
+    assert!(rejection("loomtracer emit decision.proposed ...", true).is_none());
+    assert!(rejection("loomtracer query score_decision --id", false).is_none());
+    assert!(rejection("loomtracer query score_decision --id", true).is_some());
 }
 
 #[test]
 fn a_retired_verb_or_flag_is_refused_even_in_a_sketch() {
-    assert!(rejection("hivemind suggest document-candidates", true).is_some());
-    assert!(rejection("hivemind why", false).is_some());
-    assert!(rejection("hivemind query neighborhood --compact", false).is_some());
-    assert!(rejection("hivemind query get_decision --no-such-flag 1", false).is_some());
-    // `--actor` is a flag of `hivemind` itself, not of the subcommand it precedes.
-    assert!(rejection("hivemind import documents ./notes --actor alice", true).is_some());
-    assert!(rejection("hivemind dump --format svg", true).is_some());
+    assert!(rejection("loomtracer suggest document-candidates", true).is_some());
+    assert!(rejection("loomtracer why", false).is_some());
+    assert!(rejection("loomtracer query neighborhood --compact", false).is_some());
+    assert!(rejection("loomtracer query get_decision --no-such-flag 1", false).is_some());
+    // `--actor` is a flag of `loomtracer` itself, not of the subcommand it precedes.
+    assert!(rejection("loomtracer import documents ./notes --actor alice", true).is_some());
+    assert!(rejection("loomtracer dump --format svg", true).is_some());
 }
 
 #[test]
 fn a_placeholder_stands_in_for_a_value_the_reader_supplies() {
-    assert!(rejection("hivemind query get_decision --id <decision id>", true).is_none());
+    assert!(rejection("loomtracer query get_decision --id <decision id>", true).is_none());
     assert!(rejection(
-        "hivemind query recent_decisions --since 1h --limit <n>",
+        "loomtracer query recent_decisions --since 1h --limit <n>",
         true
     )
     .is_none());
-    assert!(rejection("hivemind query recent_decisions --since 1h --limit N", true).is_none());
     assert!(rejection(
-        "hivemind project link --from A --to B --kind part_of|depends_on",
+        "loomtracer query recent_decisions --since 1h --limit N",
+        true
+    )
+    .is_none());
+    assert!(rejection(
+        "loomtracer project link --from A --to B --kind part_of|depends_on",
         false
     )
     .is_none());
-    assert!(rejection("hivemind query <tool> --id x", true).is_none());
-    assert!(rejection("hivemind query get_decision --id $ID", true).is_none());
+    assert!(rejection("loomtracer query <tool> --id x", true).is_none());
+    assert!(rejection("loomtracer query get_decision --id $ID", true).is_none());
     // A placeholder does not excuse the flags around it.
-    assert!(rejection("hivemind query get_decision --id <id> --no-such-flag", true).is_some());
+    assert!(rejection(
+        "loomtracer query get_decision --id <id> --no-such-flag",
+        true
+    )
+    .is_some());
 }
 
 #[test]
 fn shell_syntax_around_a_command_is_read_the_way_a_shell_would() {
-    assert!(rejection("hivemind dump --format dot > graph.dot", true).is_none());
+    assert!(rejection("loomtracer dump --format dot > graph.dot", true).is_none());
     assert!(rejection(
-        "hivemind classify-queue list --json --limit 1 | jq .pending_total",
+        "loomtracer classify-queue list --json --limit 1 | jq .pending_total",
         true
     )
     .is_none());
     assert!(rejection(
-        "hivemind classify-queue list --json --limit ${LIMIT:-20} ${SESSION:+--session-id $SESSION}",
+        "loomtracer classify-queue list --json --limit ${LIMIT:-20} ${SESSION:+--session-id $SESSION}",
         true
     )
     .is_none());
     assert!(rejection(
-        "hivemind query recall \"what is <x>?\" --limit 5 # why",
+        "loomtracer query recall \"what is <x>?\" --limit 5 # why",
         true
     )
     .is_none());
-    assert!(rejection("hivemind query recall 'oops", true).is_some());
+    assert!(rejection("loomtracer query recall 'oops", true).is_some());
     // Output a block shows, not a command.
-    assert!(rejection("hivemind 0.7.0", true).is_none());
-    assert!(rejection("hivemind Up (healthy) 127.0.0.1:8080", true).is_none());
+    assert!(rejection("loomtracer 0.7.0", true).is_none());
+    assert!(rejection("loomtracer Up (healthy) 127.0.0.1:8080", true).is_none());
 }
 
 #[test]
 fn examples_are_found_in_shell_blocks_and_code_spans_only() {
     let doc = "\
-Run `hivemind query get_decision --id x`, or a span that runs over
-a line: `hivemind export --format
-markdown --out ./out`. Not a command: `cargo run`, hivemind newer than 0.7.
+Run `loomtracer query get_decision --id x`, or a span that runs over
+a line: `loomtracer export --format
+markdown --out ./out`. Not a command: `cargo run`, loomtracer newer than 0.7.
 
 ```bash
-$ hivemind --actor alice emit decision.proposed \\
+$ loomtracer --actor alice emit decision.proposed \\
     --title \"T\"
-hivemind --version
+loomtracer --version
 ```
 
 ```json
-{ \"command\": \"hivemind nonsense\" }
-hivemind nonsense
+{ \"command\": \"loomtracer nonsense\" }
+loomtracer nonsense
 ```
 ";
     let found: Vec<(usize, bool, String)> = examples_in("doc.md", doc)
@@ -775,18 +783,18 @@ hivemind nonsense
     assert_eq!(
         found,
         vec![
-            (1, false, "hivemind query get_decision --id x".to_string()),
+            (1, false, "loomtracer query get_decision --id x".to_string()),
             (
                 2,
                 false,
-                "hivemind export --format markdown --out ./out".to_string()
+                "loomtracer export --format markdown --out ./out".to_string()
             ),
             (
                 6,
                 true,
-                "hivemind --actor alice emit decision.proposed --title \"T\"".to_string()
+                "loomtracer --actor alice emit decision.proposed --title \"T\"".to_string()
             ),
-            (8, true, "hivemind --version".to_string()),
+            (8, true, "loomtracer --version".to_string()),
         ]
     );
 }

@@ -419,9 +419,9 @@ pub struct GoogleTokenStore {
 }
 
 impl GoogleTokenStore {
-    pub fn new(hivemind_dir: &Path) -> Self {
+    pub fn new(loomtracer_dir: &Path) -> Self {
         Self {
-            path: hivemind_dir.join("connector-tokens.json"),
+            path: loomtracer_dir.join("connector-tokens.json"),
         }
     }
 
@@ -454,7 +454,7 @@ impl GoogleTokenStore {
         let mut store = self.load_file()?;
         store.google = Some(entry);
         let json = serde_json::to_string_pretty(&store).map_err(|e| {
-            crate::HivemindError::from(CommandError::Invariant(format!(
+            crate::LoomtracerError::from(CommandError::Invariant(format!(
                 "failed to serialize token store: {e}" // ubs:ignore: impl-block false positive
             )))
         })?;
@@ -489,7 +489,7 @@ impl GoogleTokenStore {
             None => {
                 return Err(CliError::InvalidInput(
                     "Google access token expired and no refresh token stored; \
-                     re-run 'hivemind connector auth gdocs'"
+                     re-run 'loomtracer connector auth gdocs'"
                         .to_owned(),
                 )
                 .into())
@@ -566,17 +566,17 @@ pub struct GoogleDocsConnector {
 }
 
 impl GoogleDocsConnector {
-    pub fn new(hivemind_dir: &Path) -> Result<Option<Self>> {
-        let client_id = match std::env::var("HIVEMIND_GOOGLE_CLIENT_ID") {
+    pub fn new(loomtracer_dir: &Path) -> Result<Option<Self>> {
+        let client_id = match std::env::var("LOOMTRACER_GOOGLE_CLIENT_ID") {
             Ok(v) => v,
             Err(_) => return Ok(None),
         };
-        let client_secret = match std::env::var("HIVEMIND_GOOGLE_CLIENT_SECRET") {
+        let client_secret = match std::env::var("LOOMTRACER_GOOGLE_CLIENT_SECRET") {
             Ok(v) => v,
             Err(_) => return Ok(None),
         };
         Ok(Some(Self {
-            token_store: GoogleTokenStore::new(hivemind_dir),
+            token_store: GoogleTokenStore::new(loomtracer_dir),
             client_id,
             client_secret,
         }))
@@ -630,7 +630,7 @@ impl Connector for GoogleDocsConnector {
             .get_valid_access_token(&self.client_id, &self.client_secret)?
             .ok_or_else(|| {
                 CliError::InvalidInput(
-                    "Google Docs connector: no token found; run 'hivemind connector auth gdocs'"
+                    "Google Docs connector: no token found; run 'loomtracer connector auth gdocs'"
                         .to_owned(), // ubs:ignore: false positive; not a loop allocation; error message string
                 )
             })?;
@@ -738,7 +738,7 @@ impl Connector for GoogleDocsConnector {
             .get_valid_access_token(&self.client_id, &self.client_secret)?
             .ok_or_else(|| {
                 CliError::InvalidInput(
-                    "Google Docs connector: no token found; run 'hivemind connector auth gdocs'"
+                    "Google Docs connector: no token found; run 'loomtracer connector auth gdocs'"
                         .to_owned(), // ubs:ignore: false positive; not a loop allocation; error message string
                 )
             })?;
@@ -1815,7 +1815,7 @@ fn emit_decision_proposed<L: EventLedger>(
     .timestamp(Some(occurred_at))
     .build()
     .map_err(|e| {
-        crate::HivemindError::from(CommandError::Invariant(format!(
+        crate::LoomtracerError::from(CommandError::Invariant(format!(
             "failed to build decision.proposed event: {e}"
         )))
     })?;
@@ -1838,7 +1838,7 @@ fn emit_decision_proposed<L: EventLedger>(
     .causation_event_id(Some(proposal_event_id))
     .build()
     .map_err(|e| {
-        crate::HivemindError::from(CommandError::Invariant(format!(
+        crate::LoomtracerError::from(CommandError::Invariant(format!(
             "failed to build has_option relation event: {e}"
         )))
     })?;
@@ -1873,7 +1873,7 @@ fn emit_evidence_recorded<L: EventLedger>(
     .timestamp(Some(occurred_at))
     .build()
     .map_err(|e| {
-        crate::HivemindError::from(CommandError::Invariant(format!(
+        crate::LoomtracerError::from(CommandError::Invariant(format!(
             "failed to build evidence.recorded event: {e}"
         )))
     })?;
@@ -1905,7 +1905,7 @@ fn emit_decision_superseded<L: EventLedger>(
     .timestamp(Some(occurred_at))
     .build()
     .map_err(|e| {
-        crate::HivemindError::from(CommandError::Invariant(format!(
+        crate::LoomtracerError::from(CommandError::Invariant(format!(
             "failed to build decision.superseded event: {e}"
         )))
     })?;
@@ -2074,7 +2074,7 @@ fn make_source_ref(
         original_actor_id: original_actor_id.map(ToOwned::to_owned),
     };
     serde_json::to_string(&source_ref).map_err(|e| {
-        crate::HivemindError::from(CommandError::Invariant(format!(
+        crate::LoomtracerError::from(CommandError::Invariant(format!(
             "failed to serialize ConnectorSourceRef: {e}"
         )))
     })
@@ -2260,7 +2260,7 @@ pub fn confirm_same_as<L: EventLedger>(
         .provenance(EventProvenance::cli())
         .build()
         .map_err(|e| {
-            crate::HivemindError::from(CommandError::Invariant(format!(
+            crate::LoomtracerError::from(CommandError::Invariant(format!(
                 "failed to build same-as confirm event: {e}"
             )))
         })?;
@@ -2300,7 +2300,7 @@ pub fn retract_same_as<L: EventLedger>(
         .provenance(EventProvenance::cli())
         .build()
         .map_err(|e| {
-            crate::HivemindError::from(CommandError::Invariant(format!(
+            crate::LoomtracerError::from(CommandError::Invariant(format!(
                 "failed to build same-as retract event: {e}"
             )))
         })?;

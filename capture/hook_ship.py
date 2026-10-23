@@ -15,9 +15,9 @@ carries no payload (e.g. a manual invocation) or is missing a field.
 Configuration via environment variables:
   CLAUDE_CODE_SESSION_ID  Fallback session id when stdin has none
   CLAUDE_PROJECT_DIR      Fallback project directory for path reconstruction
-  HIVEMIND_API_URL        Base URL of the HiveMind server (default: http://localhost:8080)
-  HIVEMIND_API_KEY        Bearer token for /v1/ingest (optional in dev mode)
-  HIVEMIND_AGENT_TOOL     Overrides agent_tool field (default: claude)
+  LOOMTRACER_API_URL        Base URL of the Loomtracer server (default: http://localhost:8080)
+  LOOMTRACER_API_KEY        Bearer token for /v1/ingest (optional in dev mode)
+  LOOMTRACER_AGENT_TOOL     Overrides agent_tool field (default: claude)
 
 Example .claude/settings.json hook configuration:
   {
@@ -86,9 +86,9 @@ def main() -> None:
     if not session_id:
         return
 
-    api_url = os.environ.get("HIVEMIND_API_URL", "http://localhost:8080")
-    api_key = os.environ.get("HIVEMIND_API_KEY", "")
-    agent_tool = os.environ.get("HIVEMIND_AGENT_TOOL", "claude")
+    api_url = os.environ.get("LOOMTRACER_API_URL", "http://localhost:8080")
+    api_key = os.environ.get("LOOMTRACER_API_KEY", "")
+    agent_tool = os.environ.get("LOOMTRACER_AGENT_TOOL", "claude")
 
     transcript_path = str(payload.get("transcript_path") or "").strip()
     if transcript_path:

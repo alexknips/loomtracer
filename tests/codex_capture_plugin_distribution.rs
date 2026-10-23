@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
-use hivemind::ledger::{EventLedger, SqliteEventLedger};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger};
 use serde_json::Value;
 
 type TestResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -14,24 +14,27 @@ fn codex_capture_plugin_bundle_is_installable_and_points_at_cli_capture() -> Tes
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     let marketplace = read_json(root.join(".agents/plugins/marketplace.json"))?;
-    assert_eq!(marketplace["name"], "hivemind-plugins");
-    assert_eq!(marketplace["interface"]["displayName"], "HiveMind Plugins");
+    assert_eq!(marketplace["name"], "loomtracer-plugins");
+    assert_eq!(
+        marketplace["interface"]["displayName"],
+        "Loomtracer Plugins"
+    );
 
     let plugin = marketplace["plugins"]
         .as_array()
         .and_then(|plugins| {
             plugins
                 .iter()
-                .find(|plugin| plugin["name"] == "hivemind-capture")
+                .find(|plugin| plugin["name"] == "loomtracer-capture")
         })
-        .expect("hivemind-capture appears in marketplace");
+        .expect("loomtracer-capture appears in marketplace");
     assert_eq!(plugin["source"]["source"], "local");
-    assert_eq!(plugin["source"]["path"], "./plugins/hivemind-capture");
+    assert_eq!(plugin["source"]["path"], "./plugins/loomtracer-capture");
     assert_eq!(plugin["policy"]["installation"], "AVAILABLE");
     assert_eq!(plugin["policy"]["authentication"], "ON_INSTALL");
 
-    let manifest = read_json(root.join("plugins/hivemind-capture/.codex-plugin/plugin.json"))?;
-    assert_eq!(manifest["name"], "hivemind-capture");
+    let manifest = read_json(root.join("plugins/loomtracer-capture/.codex-plugin/plugin.json"))?;
+    assert_eq!(manifest["name"], "loomtracer-capture");
     assert_eq!(manifest["skills"], "./skills/");
     // hivemind-cxqd: the bundle starts its own server config, which names codex. Sharing the
     // Claude plugin's `.mcp.json` filed every Codex MCP capture as agent:claude.
@@ -43,7 +46,7 @@ fn codex_capture_plugin_bundle_is_installable_and_points_at_cli_capture() -> Tes
         .any(|capability| capability == "MCP"));
     assert_no_todos("plugin manifest", &manifest.to_string());
 
-    let mcp = read_json(root.join("plugins/hivemind-capture/.codex-plugin/mcp.json"))?;
+    let mcp = read_json(root.join("plugins/loomtracer-capture/.codex-plugin/mcp.json"))?;
     assert_mcp_pins_shared_ledger(&mcp);
     let codex_server = mcp_command_line(&mcp);
     assert!(
@@ -53,13 +56,14 @@ fn codex_capture_plugin_bundle_is_installable_and_points_at_cli_capture() -> Tes
     );
     assert_mcp_probes_project_flag(&codex_server);
 
-    let skill =
-        fs::read_to_string(root.join("plugins/hivemind-capture/skills/hivemind-capture/SKILL.md"))?;
+    let skill = fs::read_to_string(
+        root.join("plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md"),
+    )?;
     assert_no_todos("skill", &skill);
     assert!(skill.contains("decision.capture"));
     // hivemind-cxqd: the skill is shared by Claude Code and Codex, so its direct CLI form names
     // whichever tool is running instead of hard-coding one.
-    assert!(skill.contains(r#"--agent-tool "$HIVEMIND_AGENT_TOOL""#));
+    assert!(skill.contains(r#"--agent-tool "$LOOMTRACER_AGENT_TOOL""#));
     assert!(skill.contains("echo codex || echo claude"));
     assert!(skill.contains("unexpected argument '--project-from-context'"));
     // hivemind-zdsh.9: the skill now documents actor construction generically
@@ -69,12 +73,12 @@ fn codex_capture_plugin_bundle_is_installable_and_points_at_cli_capture() -> Tes
     assert!(skill.contains("Automatic Capture Triggers"));
     assert!(skill.contains("CODEX_THREAD_ID"));
     assert!(skill.contains("Capture immediately after the decision is made"));
-    assert!(skill.contains("HIVEMIND_DIR"));
+    assert!(skill.contains("LOOMTRACER_DIR"));
     // hivemind-s15q.15: decision captures work their project out from where the agent runs, and
     // the skill tells the agent what it will see and to relay the reminder.
     assert!(skill.contains("--project-from-context"));
     assert!(skill.contains("Which Project A Capture Lands In"));
-    assert!(skill.contains(".hivemind-project"));
+    assert!(skill.contains(".loomtracer-project"));
     assert!(skill.contains("saved to your personal project"));
     Ok(())
 }
@@ -84,17 +88,17 @@ fn claude_code_capture_command_writes_human_decision() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
     let settings = read_json(root.join(".claude/settings.json"))?;
-    assert_eq!(settings["env"]["HIVEMIND_DIR"], "./hivemind/");
+    assert_eq!(settings["env"]["LOOMTRACER_DIR"], "./loomtracer/");
     assert_eq!(
-        settings["extraKnownMarketplaces"]["hivemind"]["source"]["source"],
+        settings["extraKnownMarketplaces"]["loomtracer"]["source"]["source"],
         "github"
     );
     assert_eq!(
-        settings["extraKnownMarketplaces"]["hivemind"]["source"]["repo"],
-        "alexknips/hivemind"
+        settings["extraKnownMarketplaces"]["loomtracer"]["source"]["repo"],
+        "alexknips/loomtracer"
     );
     assert_eq!(
-        settings["enabledPlugins"]["hivemind-capture@hivemind"],
+        settings["enabledPlugins"]["loomtracer-capture@loomtracer"],
         true
     );
     assert!(settings["permissions"]["allow"]
@@ -110,12 +114,12 @@ fn claude_code_capture_command_writes_human_decision() -> TestResult<()> {
 
     let script = root.join(".claude/scripts/capture-decision.sh");
     let unique = uuid::Uuid::new_v4().to_string();
-    let hivemind_dir = std::env::temp_dir().join(format!("hivemind-claude-capture-{unique}"));
+    let loomtracer_dir = std::env::temp_dir().join(format!("loomtracer-claude-capture-{unique}"));
 
     let output = Command::new(&script)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .args([
             "--source",
             "human",
@@ -142,9 +146,9 @@ fn claude_code_capture_command_writes_human_decision() -> TestResult<()> {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let query = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+    let query = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .args([
             "query",
             "search_decisions",
@@ -170,7 +174,7 @@ fn claude_code_capture_command_writes_human_decision() -> TestResult<()> {
         "human:test-user"
     );
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -182,37 +186,37 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
     assert_mcp_pins_shared_ledger(&repo_mcp);
 
     let marketplace = read_json(root.join(".claude-plugin/marketplace.json"))?;
-    assert_eq!(marketplace["name"], "hivemind");
-    assert_eq!(marketplace["owner"]["name"], "HiveMind contributors");
+    assert_eq!(marketplace["name"], "loomtracer");
+    assert_eq!(marketplace["owner"]["name"], "Loomtracer contributors");
 
     let plugin = marketplace["plugins"]
         .as_array()
         .and_then(|plugins| {
             plugins
                 .iter()
-                .find(|plugin| plugin["name"] == "hivemind-capture")
+                .find(|plugin| plugin["name"] == "loomtracer-capture")
         })
-        .expect("hivemind-capture appears in Claude marketplace");
-    assert_eq!(plugin["source"], "./plugins/hivemind-capture");
-    assert_eq!(plugin["displayName"], "HiveMind Capture");
+        .expect("loomtracer-capture appears in Claude marketplace");
+    assert_eq!(plugin["source"], "./plugins/loomtracer-capture");
+    assert_eq!(plugin["displayName"], "Loomtracer Capture");
     assert!(plugin["tags"]
         .as_array()
         .expect("tags")
         .iter()
         .any(|tag| tag == "mcp"));
 
-    let manifest = read_json(root.join("plugins/hivemind-capture/.claude-plugin/plugin.json"))?;
-    assert_eq!(manifest["name"], "hivemind-capture");
+    let manifest = read_json(root.join("plugins/loomtracer-capture/.claude-plugin/plugin.json"))?;
+    assert_eq!(manifest["name"], "loomtracer-capture");
     assert_eq!(manifest["commands"], "./commands/");
     assert_eq!(manifest["skills"], "./skills/");
     assert_eq!(manifest["mcpServers"], "./.mcp.json");
     assert_eq!(
-        manifest["userConfig"]["hivemind_dir"]["default"],
-        "./hivemind/"
+        manifest["userConfig"]["loomtracer_dir"]["default"],
+        "./loomtracer/"
     );
     assert_no_todos("Claude plugin manifest", &manifest.to_string());
 
-    let mcp = read_json(root.join("plugins/hivemind-capture/.mcp.json"))?;
+    let mcp = read_json(root.join("plugins/loomtracer-capture/.mcp.json"))?;
     let claude_server = mcp_command_line(&mcp);
     assert!(
         claude_server.contains("--agent-tool claude")
@@ -225,13 +229,13 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
     // latest release binary.
     assert_mcp_probes_project_flag(&claude_server);
     assert_eq!(
-        mcp["mcpServers"]["hivemind"]["env"]["HIVEMIND_DIR"],
-        "./hivemind/"
+        mcp["mcpServers"]["loomtracer"]["env"]["LOOMTRACER_DIR"],
+        "./loomtracer/"
     );
     assert_mcp_pins_shared_ledger(&mcp);
 
     let capture_command =
-        fs::read_to_string(root.join("plugins/hivemind-capture/commands/capture.md"))?;
+        fs::read_to_string(root.join("plugins/loomtracer-capture/commands/capture.md"))?;
     assert_no_todos("Claude unified capture command", &capture_command);
     require_contains(
         &capture_command,
@@ -244,12 +248,12 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
         "unified capture command documents evidence kind",
     )?;
     // With --kind omitted capture.sh classifies the text itself (see run_classifier); no
-    // hivemind-classifier subagent ships, so the command must name what runs, not that.
+    // loomtracer-classifier subagent ships, so the command must name what runs, not that.
     for needle in [
-        "HIVEMIND_CAPTURE_CLASSIFIER_JSON",
-        "HIVEMIND_CAPTURE_CLASSIFIER_CMD",
+        "LOOMTRACER_CAPTURE_CLASSIFIER_JSON",
+        "LOOMTRACER_CAPTURE_CLASSIFIER_CMD",
         "claude --print",
-        "No HiveMind capture emitted: --kind was omitted",
+        "No Loomtracer capture emitted: --kind was omitted",
     ] {
         require_contains(
             &capture_command,
@@ -257,8 +261,8 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
             "unified capture command documents the classifier capture.sh runs",
         )?;
     }
-    if capture_command.contains("`hivemind-classifier` subagent if") {
-        return Err("unified capture command claims a hivemind-classifier subagent ships".into());
+    if capture_command.contains("`loomtracer-classifier` subagent if") {
+        return Err("unified capture command claims a loomtracer-classifier subagent ships".into());
     }
     // capture.sh refuses blocker and notification (exit 2, nothing recorded), so the
     // hint must not offer a kind that records nothing.
@@ -276,16 +280,16 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
     }
 
     let capture_decision_command =
-        fs::read_to_string(root.join("plugins/hivemind-capture/commands/capture-decision.md"))?;
+        fs::read_to_string(root.join("plugins/loomtracer-capture/commands/capture-decision.md"))?;
     assert_no_todos("Claude capture decision command", &capture_decision_command);
     require_contains(
         &capture_decision_command,
-        "/hivemind-capture:capture",
+        "/loomtracer-capture:capture",
         "decision command points to primary capture command",
     )?;
     require_contains(
         &capture_decision_command,
-        "/hivemind-capture:query-decisions",
+        "/loomtracer-capture:query-decisions",
         "decision command prints query follow-up",
     )?;
     require_contains(
@@ -300,23 +304,23 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
     )?;
 
     let query_command =
-        fs::read_to_string(root.join("plugins/hivemind-capture/commands/query-decisions.md"))?;
+        fs::read_to_string(root.join("plugins/loomtracer-capture/commands/query-decisions.md"))?;
     assert_no_todos("Claude query command", &query_command);
     assert!(query_command.contains("query recall"));
     assert!(query_command.contains("truncated"));
 
-    let readme = fs::read_to_string(root.join("plugins/hivemind-capture/README.md"))?;
+    let readme = fs::read_to_string(root.join("plugins/loomtracer-capture/README.md"))?;
     assert_no_todos("Claude plugin README", &readme);
-    assert!(readme.contains("/plugin install hivemind-capture@hivemind"));
-    assert!(readme.contains("/plugin uninstall hivemind-capture@hivemind"));
+    assert!(readme.contains("/plugin install loomtracer-capture@loomtracer"));
+    assert!(readme.contains("/plugin uninstall loomtracer-capture@loomtracer"));
     require_contains(
         &readme,
-        "/hivemind-capture:capture",
+        "/loomtracer-capture:capture",
         "README documents primary capture command",
     )?;
     require_contains(
         &readme,
-        "/hivemind-capture:capture-decision",
+        "/loomtracer-capture:capture-decision",
         "README documents compatibility decision command",
     )?;
     require_contains(
@@ -326,7 +330,7 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
     )?;
 
     let active_skill = fs::read_to_string(
-        root.join("plugins/hivemind-capture/.claude-plugin/skills/active-capture.md"),
+        root.join("plugins/loomtracer-capture/.claude-plugin/skills/active-capture.md"),
     )?;
     verify_active_capture_skill("Claude active capture skill", &active_skill)?;
 
@@ -335,11 +339,11 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
         return Err("rig-local active capture skill differs from plugin source".into());
     }
 
-    assert_executable(root.join("plugins/hivemind-capture/scripts/capture.sh"))?;
-    assert_executable(root.join("plugins/hivemind-capture/scripts/capture-decision.sh"))?;
-    assert_executable(root.join("plugins/hivemind-capture/scripts/query-decisions.sh"))?;
+    assert_executable(root.join("plugins/loomtracer-capture/scripts/capture.sh"))?;
+    assert_executable(root.join("plugins/loomtracer-capture/scripts/capture-decision.sh"))?;
+    assert_executable(root.join("plugins/loomtracer-capture/scripts/query-decisions.sh"))?;
     assert_executable(
-        root.join("plugins/hivemind-capture/scripts/install-active-capture-skill.sh"),
+        root.join("plugins/loomtracer-capture/scripts/install-active-capture-skill.sh"),
     )?;
     Ok(())
 }
@@ -347,8 +351,8 @@ fn claude_code_plugin_bundle_is_installable_and_wires_cli_mcp() -> TestResult<()
 #[test]
 fn claude_active_capture_skill_installer_copies_to_project_skills() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let project_dir = unique_temp_dir("hivemind-active-capture-project")?;
-    let installer = root.join("plugins/hivemind-capture/scripts/install-active-capture-skill.sh");
+    let project_dir = unique_temp_dir("loomtracer-active-capture-project")?;
+    let installer = root.join("plugins/loomtracer-capture/scripts/install-active-capture-skill.sh");
 
     let output = Command::new(&installer)
         .current_dir(root)
@@ -364,7 +368,7 @@ fn claude_active_capture_skill_installer_copies_to_project_skills() -> TestResul
     }
 
     let source = fs::read_to_string(
-        root.join("plugins/hivemind-capture/.claude-plugin/skills/active-capture.md"),
+        root.join("plugins/loomtracer-capture/.claude-plugin/skills/active-capture.md"),
     )?;
     let installed = fs::read_to_string(project_dir.join(".claude/skills/active-capture.md"))?;
     if installed != source {
@@ -380,14 +384,14 @@ fn claude_active_capture_skill_installer_copies_to_project_skills() -> TestResul
 fn claude_code_plugin_capture_and_query_scripts_write_agent_decision() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let unique = uuid::Uuid::new_v4().to_string();
-    let hivemind_dir = std::env::temp_dir().join(format!("hivemind-claude-plugin-{unique}"));
+    let loomtracer_dir = std::env::temp_dir().join(format!("loomtracer-claude-plugin-{unique}"));
     let actor_id = "agent:claude:plugin-test-session";
 
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture-decision.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture-decision.sh");
     let output = Command::new(&capture_script)
         .current_dir(markerless_cwd())
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "plugin-test-session")
         // A Gas City-hosted test run (or this very repo's own dev polecats) may have
@@ -419,15 +423,15 @@ fn claude_code_plugin_capture_and_query_scripts_write_agent_decision() -> TestRe
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Captured HiveMind decision decision-"));
-    assert!(stdout.contains("/hivemind-capture:query-decisions"));
+    assert!(stdout.contains("Captured Loomtracer decision decision-"));
+    assert!(stdout.contains("/loomtracer-capture:query-decisions"));
     assert!(stdout.contains(actor_id));
 
-    let query_script = root.join("plugins/hivemind-capture/scripts/query-decisions.sh");
+    let query_script = root.join("plugins/loomtracer-capture/scripts/query-decisions.sh");
     let query = Command::new(&query_script)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "plugin-test-session")
         .args(["--q", "plugin decisions", "--limit", "5"])
@@ -444,7 +448,7 @@ fn claude_code_plugin_capture_and_query_scripts_write_agent_decision() -> TestRe
         actor_id
     );
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -459,14 +463,15 @@ fn query_decisions_script_finds_decisions_captured_by_a_different_session() -> T
     // (see claude_code_plugin_capture_and_query_scripts_write_agent_decision).
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let unique = uuid::Uuid::new_v4().to_string();
-    let hivemind_dir = std::env::temp_dir().join(format!("hivemind-cross-session-query-{unique}"));
+    let loomtracer_dir =
+        std::env::temp_dir().join(format!("loomtracer-cross-session-query-{unique}"));
     let capturer_actor_id = "agent:claude:capturer-session";
 
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture-decision.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture-decision.sh");
     let output = Command::new(&capture_script)
         .current_dir(markerless_cwd())
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "capturer-session")
         .env_remove("GC_AGENT")
@@ -494,11 +499,11 @@ fn query_decisions_script_finds_decisions_captured_by_a_different_session() -> T
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let query_script = root.join("plugins/hivemind-capture/scripts/query-decisions.sh");
+    let query_script = root.join("plugins/loomtracer-capture/scripts/query-decisions.sh");
     let query = Command::new(&query_script)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "querier-session")
         .args(["--q", "recall smoke test fixture", "--limit", "5"])
@@ -518,17 +523,17 @@ fn query_decisions_script_finds_decisions_captured_by_a_different_session() -> T
         capturer_actor_id
     );
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
 /// Captures one decision through the plugin's own capture script so the
 /// free-text query tests below have exactly one thing to find.
-fn capture_joined_query_fixture(root: &Path, hivemind_dir: &Path) -> TestResult<()> {
-    let output = Command::new(root.join("plugins/hivemind-capture/scripts/capture-decision.sh"))
+fn capture_joined_query_fixture(root: &Path, loomtracer_dir: &Path) -> TestResult<()> {
+    let output = Command::new(root.join("plugins/loomtracer-capture/scripts/capture-decision.sh"))
         .current_dir(markerless_cwd())
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "join-fixture-session")
         .env_remove("GC_AGENT")
@@ -579,10 +584,10 @@ fn query_decisions_script_joins_unquoted_free_text_into_one_query() -> TestResul
     // "unexpected argument 'smoke' found". The script now joins the leading
     // non-flag words itself; a query already quoted into one word is unchanged.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let hivemind_dir = unique_temp_dir("hivemind-query-join")?;
-    capture_joined_query_fixture(root, &hivemind_dir)?;
+    let loomtracer_dir = unique_temp_dir("loomtracer-query-join")?;
+    capture_joined_query_fixture(root, &loomtracer_dir)?;
 
-    let query_script = root.join("plugins/hivemind-capture/scripts/query-decisions.sh");
+    let query_script = root.join("plugins/loomtracer-capture/scripts/query-decisions.sh");
     let typed_forms: [&[&str]; 4] = [
         &["recall smoke test fixture", "--limit", "5"],
         &["recall", "smoke", "test", "fixture", "--limit", "5"],
@@ -592,15 +597,15 @@ fn query_decisions_script_joins_unquoted_free_text_into_one_query() -> TestResul
     for args in typed_forms {
         let output = Command::new(&query_script)
             .current_dir(root)
-            .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-            .env("HIVEMIND_DIR", &hivemind_dir)
+            .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+            .env("LOOMTRACER_DIR", &loomtracer_dir)
             .env("CLAUDE_PROJECT_DIR", root)
             .args(args)
             .output()?;
         require_one_recall_hit(&output, &format!("query-decisions.sh {args:?}"))?;
     }
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -611,7 +616,7 @@ fn query_decisions_command_runs_both_typed_forms_of_its_own_argument_hint() -> T
     // and split into two words. Run the very line the markdown hands the model,
     // with the typed arguments substituted the way Claude Code does.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let plugin_root = root.join("plugins/hivemind-capture");
+    let plugin_root = root.join("plugins/loomtracer-capture");
     let command_md = fs::read_to_string(plugin_root.join("commands/query-decisions.md"))?;
     let invocation = command_md
         .lines()
@@ -623,8 +628,8 @@ fn query_decisions_command_runs_both_typed_forms_of_its_own_argument_hint() -> T
         "the helper takes the typed arguments bare, never wrapped in more quotes",
     )?;
 
-    let hivemind_dir = unique_temp_dir("hivemind-query-command")?;
-    capture_joined_query_fixture(root, &hivemind_dir)?;
+    let loomtracer_dir = unique_temp_dir("loomtracer-query-command")?;
+    capture_joined_query_fixture(root, &loomtracer_dir)?;
 
     for typed in [
         r#""recall smoke test fixture" --limit 5"#,
@@ -637,17 +642,17 @@ fn query_decisions_command_runs_both_typed_forms_of_its_own_argument_hint() -> T
         let output = Command::new("bash")
             .args(["-c", &line])
             .current_dir(root)
-            .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-            .env("HIVEMIND_DIR", &hivemind_dir)
+            .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+            .env("LOOMTRACER_DIR", &loomtracer_dir)
             .env("CLAUDE_PROJECT_DIR", root)
             .output()?;
         require_one_recall_hit(
             &output,
-            &format!("/hivemind-capture:query-decisions {typed}"),
+            &format!("/loomtracer-capture:query-decisions {typed}"),
         )?;
     }
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -666,10 +671,11 @@ fn context_verbs_print_usage_when_called_with_no_arguments() -> TestResult<()> {
         "supersede",
         "reaffirm",
     ] {
-        let output = Command::new(root.join(format!("plugins/hivemind-context/scripts/{verb}.sh")))
-            .current_dir(root)
-            .env("HIVEMIND_CAPTURE_BIN", "/nonexistent/hivemind")
-            .output()?;
+        let output =
+            Command::new(root.join(format!("plugins/loomtracer-context/scripts/{verb}.sh")))
+                .current_dir(root)
+                .env("LOOMTRACER_CAPTURE_BIN", "/nonexistent/loomtracer")
+                .output()?;
         require_eq(
             output.status.code(),
             Some(2),
@@ -686,14 +692,14 @@ fn context_verbs_print_usage_when_called_with_no_arguments() -> TestResult<()> {
 
 #[test]
 fn codex_capture_defaults_actor_from_session_environment() -> TestResult<()> {
-    let hivemind_dir = unique_temp_dir("hivemind-codex-default-capture")?;
+    let loomtracer_dir = unique_temp_dir("loomtracer-codex-default-capture")?;
 
-    let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .env_remove("HIVEMIND_ACTOR")
-        .env_remove("HIVEMIND_AGENT_TOOL")
-        .env_remove("HIVEMIND_AGENT_SESSION")
-        .env_remove("HIVEMIND_CODEX_SESSION")
-        .env_remove("HIVEMIND_CLAUDE_SESSION")
+    let output = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .env_remove("LOOMTRACER_ACTOR")
+        .env_remove("LOOMTRACER_AGENT_TOOL")
+        .env_remove("LOOMTRACER_AGENT_SESSION")
+        .env_remove("LOOMTRACER_CODEX_SESSION")
+        .env_remove("LOOMTRACER_CLAUDE_SESSION")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env_remove("GC_AGENT")
@@ -701,8 +707,8 @@ fn codex_capture_defaults_actor_from_session_environment() -> TestResult<()> {
         .env_remove("GC_RIG")
         .env("CODEX_SESSION_ID", "plugin-test-session")
         .arg("--json")
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
+        .arg("--loomtracer-dir")
+        .arg(&loomtracer_dir)
         .args([
             "emit",
             "decision.capture",
@@ -728,7 +734,7 @@ fn codex_capture_defaults_actor_from_session_environment() -> TestResult<()> {
     );
     let output: Value = serde_json::from_slice(&output.stdout)?;
     let event = proposal_event(
-        &hivemind_dir,
+        &loomtracer_dir,
         output["value"].as_str().expect("decision id"),
     )?;
     assert_eq!(event.actor_id, "agent:codex:plugin-test-session");
@@ -737,7 +743,7 @@ fn codex_capture_defaults_actor_from_session_environment() -> TestResult<()> {
     // ambient derivation with no --agent-session/--actor-id pin (hivemind-zdsh.9).
     assert_eq!(event.source_ref.as_deref(), Some("plugin-test-session"));
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -745,14 +751,14 @@ fn codex_capture_defaults_actor_from_session_environment() -> TestResult<()> {
 fn capture_plugin_scripts_derive_codex_session_context() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let unique = uuid::Uuid::new_v4().to_string();
-    let hivemind_dir = std::env::temp_dir().join(format!("hivemind-codex-plugin-{unique}"));
+    let loomtracer_dir = std::env::temp_dir().join(format!("loomtracer-codex-plugin-{unique}"));
     let actor_id = "agent:codex:codex-thread-test";
 
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture-decision.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture-decision.sh");
     let output = Command::new(&capture_script)
         .current_dir(markerless_cwd())
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CODEX_THREAD_ID", "codex-thread-test")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_SESSION_ID")
@@ -782,14 +788,14 @@ fn capture_plugin_scripts_derive_codex_session_context() -> TestResult<()> {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Captured HiveMind decision decision-"));
+    assert!(stdout.contains("Captured Loomtracer decision decision-"));
     assert!(stdout.contains(actor_id));
 
-    let query_script = root.join("plugins/hivemind-capture/scripts/query-decisions.sh");
+    let query_script = root.join("plugins/loomtracer-capture/scripts/query-decisions.sh");
     let query = Command::new(&query_script)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CODEX_THREAD_ID", "codex-thread-test")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_SESSION_ID")
@@ -808,14 +814,14 @@ fn capture_plugin_scripts_derive_codex_session_context() -> TestResult<()> {
         actor_id
     );
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
 #[test]
 fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = unique_temp_dir("hivemind-plugin-linked-worktree")?;
+    let scratch = unique_temp_dir("loomtracer-plugin-linked-worktree")?;
     let rig = scratch.join("rig");
     let worktree = scratch.join("worktree");
     fs::create_dir_all(&rig)?;
@@ -837,13 +843,13 @@ fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()
     let worktree_arg = worktree.to_str().ok_or("worktree path should be UTF-8")?;
     run_git(&rig, ["worktree", "add", "--detach", worktree_arg])?;
 
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture-decision.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture-decision.sh");
     let output = Command::new(&capture_script)
         .current_dir(&worktree)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
         .env("CODEX_THREAD_ID", "linked-worktree-test")
-        .env_remove("HIVEMIND_DIR")
-        .env_remove("CLAUDE_PLUGIN_OPTION_HIVEMIND_DIR")
+        .env_remove("LOOMTRACER_DIR")
+        .env_remove("CLAUDE_PLUGIN_OPTION_LOOMTRACER_DIR")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -875,30 +881,30 @@ fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()
         ),
     )?;
 
-    let rig_hivemind_dir = rig.join("hivemind");
-    let worktree_hivemind_dir = worktree.join("hivemind");
+    let rig_loomtracer_dir = rig.join("loomtracer");
+    let worktree_loomtracer_dir = worktree.join("loomtracer");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let rig_hivemind_dir_text = rig_hivemind_dir.to_string_lossy();
+    let rig_loomtracer_dir_text = rig_loomtracer_dir.to_string_lossy();
     let rig_text = rig.to_string_lossy();
     let worktree_text = worktree.to_string_lossy();
-    require_contains(&stderr, "hivemind-dir resolved to", "capture stderr")?;
-    require_contains(&stderr, rig_hivemind_dir_text.as_ref(), "capture stderr")?;
+    require_contains(&stderr, "loomtracer-dir resolved to", "capture stderr")?;
+    require_contains(&stderr, rig_loomtracer_dir_text.as_ref(), "capture stderr")?;
     require_contains(&stderr, rig_text.as_ref(), "capture stderr")?;
     require_contains(&stderr, worktree_text.as_ref(), "capture stderr")?;
     require(
-        !worktree_hivemind_dir.join("ledger.sqlite").exists(),
+        !worktree_loomtracer_dir.join("ledger.sqlite").exists(),
         format!(
             "capture should not create a worktree-local ledger at {}",
-            worktree_hivemind_dir.display()
+            worktree_loomtracer_dir.display()
         ),
     )?;
 
-    let ledger = SqliteEventLedger::open(&rig_hivemind_dir)?;
+    let ledger = SqliteEventLedger::open(&rig_loomtracer_dir)?;
     let events = ledger.read(0, 100)?;
     let captured_event = events
         .iter()
         .find(|event| {
-            event.event_type == hivemind::events::EventType::DecisionProposed
+            event.event_type == loomtracer::events::EventType::DecisionProposed
                 && event.payload.get("title").and_then(Value::as_str)
                     == Some("Capture from linked worktree to rig ledger")
         })
@@ -909,13 +915,13 @@ fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()
         "rig ledger actor",
     )?;
 
-    let query_script = root.join("plugins/hivemind-capture/scripts/query-decisions.sh");
+    let query_script = root.join("plugins/loomtracer-capture/scripts/query-decisions.sh");
     let query = Command::new(&query_script)
         .current_dir(&worktree)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
         .env("CODEX_THREAD_ID", "linked-worktree-test")
-        .env_remove("HIVEMIND_DIR")
-        .env_remove("CLAUDE_PLUGIN_OPTION_HIVEMIND_DIR")
+        .env_remove("LOOMTRACER_DIR")
+        .env_remove("CLAUDE_PLUGIN_OPTION_LOOMTRACER_DIR")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -930,10 +936,10 @@ fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()
         ),
     )?;
     let query_stderr = String::from_utf8_lossy(&query.stderr);
-    require_contains(&query_stderr, "hivemind-dir resolved to", "query stderr")?;
+    require_contains(&query_stderr, "loomtracer-dir resolved to", "query stderr")?;
     require_contains(
         &query_stderr,
-        rig_hivemind_dir_text.as_ref(),
+        rig_loomtracer_dir_text.as_ref(),
         "query stderr",
     )?;
     let query: Value = serde_json::from_slice(&query.stdout)?;
@@ -971,14 +977,14 @@ fn capture_plugin_defaults_to_rig_ledger_from_linked_worktree() -> TestResult<()
 fn unified_capture_script_records_evidence_with_agent_provenance() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let unique = uuid::Uuid::new_v4().to_string();
-    let hivemind_dir = std::env::temp_dir().join(format!("hivemind-evidence-capture-{unique}"));
+    let loomtracer_dir = std::env::temp_dir().join(format!("loomtracer-evidence-capture-{unique}"));
     let actor_id = "agent:claude:evidence-test-session";
 
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture.sh");
     let output = Command::new(&capture_script)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "evidence-test-session")
         .env_remove("GC_AGENT")
@@ -1000,7 +1006,7 @@ fn unified_capture_script_records_evidence_with_agent_provenance() -> TestResult
     let stdout = String::from_utf8_lossy(&output.stdout);
     require_contains(
         stdout.as_ref(),
-        "Captured HiveMind evidence evidence-",
+        "Captured Loomtracer evidence evidence-",
         "unified evidence capture prints evidence id",
     )?;
     require_contains(
@@ -1009,7 +1015,10 @@ fn unified_capture_script_records_evidence_with_agent_provenance() -> TestResult
         "unified evidence capture prints actor id",
     )?;
 
-    let event = event_with_type(&hivemind_dir, hivemind::events::EventType::EvidenceRecorded)?;
+    let event = event_with_type(
+        &loomtracer_dir,
+        loomtracer::events::EventType::EvidenceRecorded,
+    )?;
     require_eq(event.actor_id.as_str(), actor_id, "evidence actor id")?;
     require_eq(event.source.as_str(), "agent", "evidence source")?;
     // source_ref carries the raw session id (provenance), not a repeat of actor_id --
@@ -1025,7 +1034,7 @@ fn unified_capture_script_records_evidence_with_agent_provenance() -> TestResult
         "evidence content",
     )?;
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -1033,15 +1042,19 @@ fn unified_capture_script_records_evidence_with_agent_provenance() -> TestResult
 fn unified_capture_script_uses_classifier_when_kind_is_omitted() -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let unique = uuid::Uuid::new_v4().to_string();
-    let hivemind_dir = std::env::temp_dir().join(format!("hivemind-classified-capture-{unique}"));
+    let loomtracer_dir =
+        std::env::temp_dir().join(format!("loomtracer-classified-capture-{unique}"));
 
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture.sh");
     let output = Command::new(&capture_script)
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CODEX_THREAD_ID", "classifier-thread-test")
-        .env("HIVEMIND_CAPTURE_CLASSIFIER_JSON", r#"{"kind":"evidence"}"#)
+        .env(
+            "LOOMTRACER_CAPTURE_CLASSIFIER_JSON",
+            r#"{"kind":"evidence"}"#,
+        )
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -1060,11 +1073,14 @@ fn unified_capture_script_uses_classifier_when_kind_is_omitted() -> TestResult<(
     let stdout = String::from_utf8_lossy(&output.stdout);
     require_contains(
         stdout.as_ref(),
-        "Captured HiveMind evidence evidence-",
+        "Captured Loomtracer evidence evidence-",
         "classified capture prints evidence id",
     )?;
 
-    let event = event_with_type(&hivemind_dir, hivemind::events::EventType::EvidenceRecorded)?;
+    let event = event_with_type(
+        &loomtracer_dir,
+        loomtracer::events::EventType::EvidenceRecorded,
+    )?;
     require_eq(
         event.actor_id.as_str(),
         "agent:codex:classifier-thread-test",
@@ -1077,29 +1093,29 @@ fn unified_capture_script_uses_classifier_when_kind_is_omitted() -> TestResult<(
         "classified content",
     )?;
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
-/// `capture.sh` with the agent/classifier environment cleared, writing to `hivemind_dir`.
-fn capture_script_command(hivemind_dir: &Path) -> Command {
+/// `capture.sh` with the agent/classifier environment cleared, writing to `loomtracer_dir`.
+fn capture_script_command(loomtracer_dir: &Path) -> Command {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut command = Command::new(root.join("plugins/hivemind-capture/scripts/capture.sh"));
+    let mut command = Command::new(root.join("plugins/loomtracer-capture/scripts/capture.sh"));
     command
         .current_dir(root)
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", loomtracer_dir)
         .env("CODEX_THREAD_ID", "classifier-refusal-test")
         .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("CLAUDE_PLUGIN_ROOT")
-        .env_remove("HIVEMIND_CAPTURE_CLASSIFIER_JSON")
-        .env_remove("HIVEMIND_CAPTURE_CLASSIFIER_CMD");
+        .env_remove("LOOMTRACER_CAPTURE_CLASSIFIER_JSON")
+        .env_remove("LOOMTRACER_CAPTURE_CLASSIFIER_CMD");
     without_agent_env(&mut command);
     command
 }
 
-fn require_empty_ledger(hivemind_dir: &Path, message: &str) -> TestResult<()> {
-    let events = SqliteEventLedger::open(hivemind_dir)?.read(0, 100)?;
+fn require_empty_ledger(loomtracer_dir: &Path, message: &str) -> TestResult<()> {
+    let events = SqliteEventLedger::open(loomtracer_dir)?.read(0, 100)?;
     require(events.is_empty(), format!("{message}: {events:?}"))
 }
 
@@ -1111,11 +1127,11 @@ fn capture_script_without_a_kind_records_nothing_when_the_classifier_picks_one_i
     // capture path") for a kind the caller never chose. A kind capture.sh cannot record, from
     // whatever the classifier answers, now ends as "no capture emitted" (exit 0, nothing written).
     for kind in ["blocker", "notification", "request"] {
-        let scratch = unique_temp_dir("hivemind-classifier-unrecordable")?;
-        let hivemind_dir = scratch.join("ledger");
-        let output = capture_script_command(&hivemind_dir)
+        let scratch = unique_temp_dir("loomtracer-classifier-unrecordable")?;
+        let loomtracer_dir = scratch.join("ledger");
+        let output = capture_script_command(&loomtracer_dir)
             .env(
-                "HIVEMIND_CAPTURE_CLASSIFIER_JSON",
+                "LOOMTRACER_CAPTURE_CLASSIFIER_JSON",
                 format!(r#"{{"kind":"{kind}"}}"#),
             )
             .arg("Merge is blocked until the schema review lands")
@@ -1128,7 +1144,7 @@ fn capture_script_without_a_kind_records_nothing_when_the_classifier_picks_one_i
         )?;
         require_contains(
             stdout.as_ref(),
-            &format!("No HiveMind capture emitted: classifier returned kind={kind}"),
+            &format!("No Loomtracer capture emitted: classifier returned kind={kind}"),
             "the line says what the classifier answered",
         )?;
         require(
@@ -1136,7 +1152,7 @@ fn capture_script_without_a_kind_records_nothing_when_the_classifier_picks_one_i
             format!("classifier kind {kind} hit the explicit-kind refusal: {stderr}"),
         )?;
         require_empty_ledger(
-            &hivemind_dir,
+            &loomtracer_dir,
             "an unrecordable classifier kind wrote events",
         )?;
         let _ = fs::remove_dir_all(scratch);
@@ -1149,8 +1165,8 @@ fn capture_script_offers_its_classifier_only_the_kinds_it_can_record() -> TestRe
     // hivemind-uwslm: the schema and the prompt handed to the classifier name decision,
     // evidence, hypothesis and none, and no kind capture.sh refuses. A stand-in `claude` on PATH
     // records its arguments and answers blocker, so the reply path runs end to end as well.
-    let scratch = unique_temp_dir("hivemind-classifier-offered-kinds")?;
-    let hivemind_dir = scratch.join("ledger");
+    let scratch = unique_temp_dir("loomtracer-classifier-offered-kinds")?;
+    let loomtracer_dir = scratch.join("ledger");
     let bin_dir = scratch.join("bin");
     let args_file = scratch.join("claude-args");
     fs::create_dir_all(&bin_dir)?;
@@ -1161,7 +1177,7 @@ fn capture_script_offers_its_classifier_only_the_kinds_it_can_record() -> TestRe
     )?;
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755))?;
 
-    let output = capture_script_command(&hivemind_dir)
+    let output = capture_script_command(&loomtracer_dir)
         .env(
             "PATH",
             format!("{}:{}", bin_dir.display(), std::env::var("PATH")?),
@@ -1179,7 +1195,7 @@ fn capture_script_offers_its_classifier_only_the_kinds_it_can_record() -> TestRe
     )?;
     require_contains(
         String::from_utf8_lossy(&output.stdout).as_ref(),
-        "No HiveMind capture emitted: classifier returned kind=blocker",
+        "No Loomtracer capture emitted: classifier returned kind=blocker",
         "the stand-in classifier's blocker reply",
     )?;
 
@@ -1203,7 +1219,7 @@ fn capture_script_offers_its_classifier_only_the_kinds_it_can_record() -> TestRe
     )?;
     let prompt = args
         .iter()
-        .find(|arg| arg.starts_with("Classify this HiveMind capture text"))
+        .find(|arg| arg.starts_with("Classify this Loomtracer capture text"))
         .ok_or("the classifier is handed the capture prompt")?
         .to_lowercase();
     for refused in ["blocker", "notification"] {
@@ -1212,7 +1228,7 @@ fn capture_script_offers_its_classifier_only_the_kinds_it_can_record() -> TestRe
             format!("the classifier prompt offers {refused}, which capture.sh cannot record"),
         )?;
     }
-    require_empty_ledger(&hivemind_dir, "a blocker reply wrote events")?;
+    require_empty_ledger(&loomtracer_dir, "a blocker reply wrote events")?;
     let _ = fs::remove_dir_all(scratch);
     Ok(())
 }
@@ -1222,9 +1238,9 @@ fn capture_script_explicit_blocker_and_notification_kinds_still_refuse() -> Test
     // hivemind-uwslm leaves what hivemind-udvza taught alone: a caller who names the kind is told
     // it has no capture path (exit 2), nothing recorded. Only the classifier's pick is softened.
     for kind in ["blocker", "notification"] {
-        let scratch = unique_temp_dir("hivemind-explicit-unrecordable-kind")?;
-        let hivemind_dir = scratch.join("ledger");
-        let output = capture_script_command(&hivemind_dir)
+        let scratch = unique_temp_dir("loomtracer-explicit-unrecordable-kind")?;
+        let loomtracer_dir = scratch.join("ledger");
+        let output = capture_script_command(&loomtracer_dir)
             .args([
                 "--kind",
                 kind,
@@ -1237,7 +1253,7 @@ fn capture_script_explicit_blocker_and_notification_kinds_still_refuse() -> Test
             &format!("kind {kind} is known but does not yet have a canonical CLI capture path"),
             "explicit kind refusal",
         )?;
-        require_empty_ledger(&hivemind_dir, "an explicit refused kind wrote events")?;
+        require_empty_ledger(&loomtracer_dir, "an explicit refused kind wrote events")?;
         let _ = fs::remove_dir_all(scratch);
     }
     Ok(())
@@ -1245,9 +1261,9 @@ fn capture_script_explicit_blocker_and_notification_kinds_still_refuse() -> Test
 
 #[test]
 fn human_cli_emit_defaults_actor_and_source_from_git_email() -> TestResult<()> {
-    let scratch = unique_temp_dir("hivemind-human-cli-default")?;
+    let scratch = unique_temp_dir("loomtracer-human-cli-default")?;
     let repo = scratch.join("repo");
-    let hivemind_dir = scratch.join("ledger");
+    let loomtracer_dir = scratch.join("ledger");
     fs::create_dir_all(&repo)?;
     run_git(&repo, ["init"])?;
     run_git(
@@ -1255,25 +1271,26 @@ fn human_cli_emit_defaults_actor_and_source_from_git_email() -> TestResult<()> {
         ["config", "user.email", "Ada.Example+Decisions@Example.COM"],
     )?;
 
-    let output = without_agent_env(Command::new(env!("CARGO_BIN_EXE_hivemind")).current_dir(&repo))
-        .arg("--json")
-        .arg("--hivemind-dir")
-        .arg(&hivemind_dir)
-        .args([
-            "emit",
-            "decision.proposed",
-            "--title",
-            "Use git identity for human CLI writes",
-            "--rationale",
-            "Bare terminal writes should still carry human provenance",
-            "--topic-keys",
-            "cli,provenance",
-            "--options",
-            "git-email,manual-actor",
-            "--chose",
-            "git-email",
-        ])
-        .output()?;
+    let output =
+        without_agent_env(Command::new(env!("CARGO_BIN_EXE_loomtracer")).current_dir(&repo))
+            .arg("--json")
+            .arg("--loomtracer-dir")
+            .arg(&loomtracer_dir)
+            .args([
+                "emit",
+                "decision.proposed",
+                "--title",
+                "Use git identity for human CLI writes",
+                "--rationale",
+                "Bare terminal writes should still carry human provenance",
+                "--topic-keys",
+                "cli,provenance",
+                "--options",
+                "git-email,manual-actor",
+                "--chose",
+                "git-email",
+            ])
+            .output()?;
     assert!(
         output.status.success(),
         "human CLI emit failed: {}",
@@ -1281,7 +1298,7 @@ fn human_cli_emit_defaults_actor_and_source_from_git_email() -> TestResult<()> {
     );
     let output: Value = serde_json::from_slice(&output.stdout)?;
     let event = proposal_event(
-        &hivemind_dir,
+        &loomtracer_dir,
         output["value"].as_str().expect("decision id"),
     )?;
     assert_eq!(event.actor_id, "human:ada.example-decisions@example.com");
@@ -1295,10 +1312,10 @@ fn human_cli_emit_defaults_actor_and_source_from_git_email() -> TestResult<()> {
     Ok(())
 }
 
-/// The server's command and arguments as one line: a plain `hivemind ... mcp` entry or a
+/// The server's command and arguments as one line: a plain `loomtracer ... mcp` entry or a
 /// `sh -c "<script>"` entry that starts it, whichever the config uses.
 fn mcp_command_line(mcp: &Value) -> String {
-    let server = &mcp["mcpServers"]["hivemind"];
+    let server = &mcp["mcpServers"]["loomtracer"];
     let command = server["command"].as_str().expect("mcp command");
     let args = server["args"].as_array().expect("mcp args");
     std::iter::once(command)
@@ -1308,13 +1325,13 @@ fn mcp_command_line(mcp: &Value) -> String {
 }
 
 fn assert_mcp_pins_shared_ledger(mcp: &Value) {
-    let server = &mcp["mcpServers"]["hivemind"];
-    assert_eq!(server["env"]["HIVEMIND_DIR"], "./hivemind/");
+    let server = &mcp["mcpServers"]["loomtracer"];
+    assert_eq!(server["env"]["LOOMTRACER_DIR"], "./loomtracer/");
 
     let line = mcp_command_line(mcp);
     assert!(
-        line.contains("--hivemind-dir ./hivemind/"),
-        "mcp command should pin --hivemind-dir ./hivemind/: {line}"
+        line.contains("--loomtracer-dir ./loomtracer/"),
+        "mcp command should pin --loomtracer-dir ./loomtracer/: {line}"
     );
     assert!(
         line.split_whitespace().any(|word| word == "mcp"),
@@ -1326,11 +1343,13 @@ fn assert_mcp_pins_shared_ledger(mcp: &Value) {
 /// lacks: `--project-from-context` goes on the server only when `mcp --help` lists it.
 fn assert_mcp_probes_project_flag(line: &str) {
     assert!(
-        line.contains("hivemind mcp --help") && line.contains("grep -q -e --project-from-context"),
+        line.contains("loomtracer mcp --help")
+            && line.contains("grep -q -e --project-from-context"),
         "the MCP server asks the CLI whether it has --project-from-context: {line}"
     );
     assert!(
-        line.contains("exec hivemind --hivemind-dir ./hivemind/ mcp") && line.ends_with("$flag"),
+        line.contains("exec loomtracer --loomtracer-dir ./loomtracer/ mcp")
+            && line.ends_with("$flag"),
         "the flag reaches the server only through the probe: {line}"
     );
 }
@@ -1359,8 +1378,8 @@ fn capture_script_forwards_grounding_flags_and_refuses_an_ungrounded_capture() -
     // `emit decision.capture`, and a capture that names nothing must fail loudly (exit 2) with
     // nothing written.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let hivemind_dir = unique_temp_dir("hivemind-capture-script-grounding")?;
-    let script = root.join("plugins/hivemind-capture/scripts/capture-decision.sh");
+    let loomtracer_dir = unique_temp_dir("loomtracer-capture-script-grounding")?;
+    let script = root.join("plugins/loomtracer-capture/scripts/capture-decision.sh");
     let base = [
         "--title",
         "Adopt the grounded capture script",
@@ -1376,8 +1395,8 @@ fn capture_script_forwards_grounding_flags_and_refuses_an_ungrounded_capture() -
     let run_script = |extra: &[&str]| -> TestResult<std::process::Output> {
         Ok(Command::new(&script)
             .current_dir(markerless_cwd())
-            .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-            .env("HIVEMIND_DIR", &hivemind_dir)
+            .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+            .env("LOOMTRACER_DIR", &loomtracer_dir)
             .env("CLAUDE_PROJECT_DIR", root)
             .env("CLAUDE_SESSION_ID", "grounding-script-session")
             .env_remove("GC_AGENT")
@@ -1397,7 +1416,9 @@ fn capture_script_forwards_grounding_flags_and_refuses_an_ungrounded_capture() -
     );
     assert!(String::from_utf8_lossy(&refused.stderr).contains("must say what it rests on"));
     assert_eq!(
-        SqliteEventLedger::open(&hivemind_dir)?.read(0, 100)?.len(),
+        SqliteEventLedger::open(&loomtracer_dir)?
+            .read(0, 100)?
+            .len(),
         0,
         "a refused capture writes nothing"
     );
@@ -1427,17 +1448,20 @@ fn capture_script_forwards_grounding_flags_and_refuses_an_ungrounded_capture() -
     );
     let stdout = String::from_utf8_lossy(&captured.stdout);
     assert!(
-        stdout.contains("Captured HiveMind decision decision-"),
+        stdout.contains("Captured Loomtracer decision decision-"),
         "{stdout}"
     );
 
-    let evidence = event_with_type(&hivemind_dir, hivemind::events::EventType::EvidenceRecorded)?;
+    let evidence = event_with_type(
+        &loomtracer_dir,
+        loomtracer::events::EventType::EvidenceRecorded,
+    )?;
     assert_eq!(evidence.payload["source"], "ci run 9");
-    let bet = SqliteEventLedger::open(&hivemind_dir)?
+    let bet = SqliteEventLedger::open(&loomtracer_dir)?
         .read(0, 100)?
         .into_iter()
         .find(|event| {
-            event.event_type == hivemind::events::EventType::HypothesisRecorded
+            event.event_type == loomtracer::events::EventType::HypothesisRecorded
                 && event.payload.get("kind").and_then(Value::as_str) == Some("bet")
         })
         .ok_or("the bet should have been recorded")?;
@@ -1446,10 +1470,13 @@ fn capture_script_forwards_grounding_flags_and_refuses_an_ungrounded_capture() -
         "The CLI keeps its grounding flag names"
     );
     assert_eq!(bet.payload["would_change_if"], "the CLI renames a flag");
-    let proposal = event_with_type(&hivemind_dir, hivemind::events::EventType::DecisionProposed)?;
+    let proposal = event_with_type(
+        &loomtracer_dir,
+        loomtracer::events::EventType::DecisionProposed,
+    )?;
     assert_eq!(proposal.payload["expressed_confidence"], "high");
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -1461,18 +1488,18 @@ fn capture_script_answers_a_question_that_was_asked_and_the_request_stops_waitin
     // onto the capture text: the CLI refused ("a value is required"), nothing was written and the
     // request stayed waiting. The plugin has to answer an ask the way the CLI does.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let hivemind_dir = unique_temp_dir("hivemind-capture-script-answers")?;
-    let script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let loomtracer_dir = unique_temp_dir("loomtracer-capture-script-answers")?;
+    let script = root.join("plugins/loomtracer-capture/scripts/capture.sh");
     let cli = |args: &[&str]| -> TestResult<Value> {
-        let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .args(["--json", "--actor", "human:checker", "--hivemind-dir"])
-            .arg(&hivemind_dir)
+        let output = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .args(["--json", "--actor", "human:checker", "--loomtracer-dir"])
+            .arg(&loomtracer_dir)
             .args(args)
             .output()?;
         require(
             output.status.success(),
             format!(
-                "hivemind {args:?} failed: {}",
+                "loomtracer {args:?} failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             ),
         )?;
@@ -1493,8 +1520,8 @@ fn capture_script_answers_a_question_that_was_asked_and_the_request_stops_waitin
 
     let captured = Command::new(&script)
         .current_dir(markerless_cwd())
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "answers-script-session")
         .env_remove("GC_AGENT")
@@ -1536,7 +1563,10 @@ fn capture_script_answers_a_question_that_was_asked_and_the_request_stops_waitin
         Some(0),
         "the answered request leaves the waiting list",
     )?;
-    let proposal = event_with_type(&hivemind_dir, hivemind::events::EventType::DecisionProposed)?;
+    let proposal = event_with_type(
+        &loomtracer_dir,
+        loomtracer::events::EventType::DecisionProposed,
+    )?;
     let decision_id = proposal.payload["decision_id"]
         .as_str()
         .ok_or("the proposal names its decision")?;
@@ -1550,7 +1580,7 @@ fn capture_script_answers_a_question_that_was_asked_and_the_request_stops_waitin
         format!("why shows when the answered question was asked: {why}"),
     )?;
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -1561,14 +1591,14 @@ fn capture_script_keeps_an_option_label_with_a_comma_whole() -> TestResult<()> {
     // generic unknown-flag branch, which forwarded it alone and glued its value onto the capture
     // text, so through the plugin a label with a comma could not be recorded at all.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let hivemind_dir = unique_temp_dir("hivemind-capture-script-option")?;
-    let script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let loomtracer_dir = unique_temp_dir("loomtracer-capture-script-option")?;
+    let script = root.join("plugins/loomtracer-capture/scripts/capture.sh");
     let label = "Rename after the comparison, before the first listing";
 
     let captured = Command::new(&script)
         .current_dir(markerless_cwd())
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", &hivemind_dir)
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", &loomtracer_dir)
         .env("CLAUDE_PROJECT_DIR", root)
         .env("CLAUDE_SESSION_ID", "option-script-session")
         .env_remove("GC_AGENT")
@@ -1604,7 +1634,10 @@ fn capture_script_keeps_an_option_label_with_a_comma_whole() -> TestResult<()> {
         ),
     )?;
 
-    let proposal = event_with_type(&hivemind_dir, hivemind::events::EventType::DecisionProposed)?;
+    let proposal = event_with_type(
+        &loomtracer_dir,
+        loomtracer::events::EventType::DecisionProposed,
+    )?;
     let strings = |field: &str| -> TestResult<Vec<String>> {
         Ok(proposal.payload[field]
             .as_array()
@@ -1630,7 +1663,7 @@ fn capture_script_keeps_an_option_label_with_a_comma_whole() -> TestResult<()> {
         "--chose picked the label that holds the comma",
     )?;
 
-    let _ = fs::remove_dir_all(hivemind_dir);
+    let _ = fs::remove_dir_all(loomtracer_dir);
     Ok(())
 }
 
@@ -1642,9 +1675,9 @@ fn capture_script_refuses_option_on_a_cli_without_it_and_writes_nothing() -> Tes
     // script says what is true, exits 2 and never reaches a write. A stand-in binary whose
     // `--help` lists only `--options` plays the release.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = unique_temp_dir("hivemind-capture-script-old-cli")?;
+    let scratch = unique_temp_dir("loomtracer-capture-script-old-cli")?;
     let wrote = scratch.join("wrote");
-    let old_cli = scratch.join("old-hivemind");
+    let old_cli = scratch.join("old-loomtracer");
     fs::write(
         &old_cli,
         format!(
@@ -1658,12 +1691,12 @@ fn capture_script_refuses_option_on_a_cli_without_it_and_writes_nothing() -> Tes
         ),
     )?;
     fs::set_permissions(&old_cli, fs::Permissions::from_mode(0o755))?;
-    let script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let script = root.join("plugins/loomtracer-capture/scripts/capture.sh");
     let run = |option_flags: &[&str]| -> TestResult<std::process::Output> {
         Ok(Command::new(&script)
             .current_dir(markerless_cwd())
-            .env("HIVEMIND_CAPTURE_BIN", &old_cli)
-            .env("HIVEMIND_DIR", scratch.join("ledger"))
+            .env("LOOMTRACER_CAPTURE_BIN", &old_cli)
+            .env("LOOMTRACER_DIR", scratch.join("ledger"))
             .env("CLAUDE_PROJECT_DIR", root)
             .env("CLAUDE_SESSION_ID", "old-cli-session")
             .env_remove("GC_AGENT")
@@ -1728,7 +1761,7 @@ fn capture_script_leaves_the_answers_out_on_a_cli_without_them_and_says_so() -> 
     // script sends the capture without the four answers and says so on stderr; a CLI that lists
     // them gets them as given. Stand-ins whose `--help` lists the flags (or not) record their argv.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = unique_temp_dir("hivemind-capture-script-answers-old-cli")?;
+    let scratch = unique_temp_dir("loomtracer-capture-script-answers-old-cli")?;
     let argv_file = scratch.join("argv");
     let stand_in = |name: &str, help: &str| -> TestResult<std::path::PathBuf> {
         let path = scratch.join(name);
@@ -1748,20 +1781,20 @@ fn capture_script_leaves_the_answers_out_on_a_cli_without_them_and_says_so() -> 
         Ok(path)
     };
     let old_cli = stand_in(
-        "old-hivemind",
+        "old-loomtracer",
         "      --options <LABELS>  Comma-separated labels",
     )?;
     let new_cli = stand_in(
-        "new-hivemind",
+        "new-loomtracer",
         "      --binds <WHAT>  What it binds\n      --undo-cost <WHAT>  What undoing it costs",
     )?;
-    let script = root.join("plugins/hivemind-capture/scripts/capture.sh");
+    let script = root.join("plugins/loomtracer-capture/scripts/capture.sh");
     let run = |cli: &Path, answers: &[&str]| -> TestResult<(std::process::Output, Vec<String>)> {
         let _ = fs::remove_file(&argv_file);
         let output = Command::new(&script)
             .current_dir(markerless_cwd())
-            .env("HIVEMIND_CAPTURE_BIN", cli)
-            .env("HIVEMIND_DIR", scratch.join("ledger"))
+            .env("LOOMTRACER_CAPTURE_BIN", cli)
+            .env("LOOMTRACER_DIR", scratch.join("ledger"))
             .env("CLAUDE_PROJECT_DIR", root)
             .env("CLAUDE_SESSION_ID", "answers-old-cli-session")
             .env_remove("GC_AGENT")
@@ -1848,7 +1881,7 @@ fn capture_script_leaves_the_answers_out_on_a_cli_without_them_and_says_so() -> 
 }
 
 /// hivemind-s15q.15: the capture scripts ask the CLI to work a decision's project out from the
-/// folder they run in (the nearest `.hivemind-project` walking up). Tests that are not about
+/// folder they run in (the nearest `.loomtracer-project` walking up). Tests that are not about
 /// projects run from here instead of the repository root, where this rig's own marker sits: the
 /// fresh test ledger has never registered that project, so a capture from the root would be
 /// refused.
@@ -1862,18 +1895,18 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
     // CLI the same "work the project out from where this runs" switch the capture script does. It
     // is a flag of the `supersede` subcommand: it must land after the subcommand name.
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = unique_temp_dir("hivemind-supersede-project")?;
-    let hivemind_dir = scratch.join("hivemind");
-    let hivemind = |args: &[&str]| -> TestResult<std::process::Output> {
-        Ok(Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .arg("--hivemind-dir")
-            .arg(&hivemind_dir)
+    let scratch = unique_temp_dir("loomtracer-supersede-project")?;
+    let loomtracer_dir = scratch.join("loomtracer");
+    let loomtracer = |args: &[&str]| -> TestResult<std::process::Output> {
+        Ok(Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .arg("--loomtracer-dir")
+            .arg(&loomtracer_dir)
             .args(["--actor", "human:test-registrar"])
             .args(args)
             .output()?)
     };
     for handle in ["billing", "payments"] {
-        let registered = hivemind(&["project", "register", handle])?;
+        let registered = loomtracer(&["project", "register", handle])?;
         require(
             registered.status.success(),
             format!(
@@ -1883,7 +1916,7 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
         )?;
         // A registered project's topic keys are declared (hivemind-zywz): declare the ones the
         // fixture captures below use.
-        let declared = hivemind(&["project", "declare-topic", handle, "billing", "cadence"])?;
+        let declared = loomtracer(&["project", "declare-topic", handle, "billing", "cadence"])?;
         require(
             declared.status.success(),
             format!(
@@ -1895,15 +1928,15 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
 
     let script_env = |command: &mut Command| {
         command
-            .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-            .env("HIVEMIND_DIR", &hivemind_dir)
+            .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+            .env("LOOMTRACER_DIR", &loomtracer_dir)
             .env("CLAUDE_SESSION_ID", "supersede-project-session")
             .env_remove("CLAUDE_PROJECT_DIR")
             .env_remove("GC_AGENT")
             .env_remove("GC_ALIAS")
             .env_remove("GC_RIG");
     };
-    let capture_script = root.join("plugins/hivemind-capture/scripts/capture-decision.sh");
+    let capture_script = root.join("plugins/loomtracer-capture/scripts/capture-decision.sh");
     for title in ["Ship invoices weekly", "Ship refunds daily"] {
         let mut capture = Command::new(&capture_script);
         script_env(&mut capture);
@@ -1936,7 +1969,7 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
         )?;
     }
 
-    let supersede_script = root.join("plugins/hivemind-context/scripts/supersede.sh");
+    let supersede_script = root.join("plugins/loomtracer-context/scripts/supersede.sh");
     let supersede = |old: &str, title: &str, cwd: &Path| -> TestResult<String> {
         let mut command = Command::new(&supersede_script);
         script_env(&mut command);
@@ -1973,7 +2006,7 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
     // From a folder attached to another project, the replacement goes there.
     let attached = scratch.join("attached");
     fs::create_dir_all(&attached)?;
-    fs::write(attached.join(".hivemind-project"), "payments\n")?;
+    fs::write(attached.join(".loomtracer-project"), "payments\n")?;
     let marked = supersede("Ship invoices weekly", "Ship invoices monthly", &attached)?;
     require_contains(
         &marked,
@@ -2002,12 +2035,12 @@ fn supersede_script_works_out_the_project_from_the_folder_it_runs_in() -> TestRe
 /// accepting it.
 fn capture_through_binary(
     repo: &Path,
-    hivemind_dir: &Path,
+    loomtracer_dir: &Path,
     actor_flag: Option<&str>,
     extra_env: &[(&str, &str)],
     title: &str,
-) -> TestResult<(hivemind::events::Event, hivemind::events::Event)> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
+) -> TestResult<(loomtracer::events::Event, loomtracer::events::Event)> {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
     command
         .current_dir(repo)
         .env_clear()
@@ -2019,8 +2052,8 @@ fn capture_through_binary(
     }
     let output = command
         .arg("--json")
-        .arg("--hivemind-dir")
-        .arg(hivemind_dir)
+        .arg("--loomtracer-dir")
+        .arg(loomtracer_dir)
         .args([
             "emit",
             "decision.capture",
@@ -2047,12 +2080,12 @@ fn capture_through_binary(
     );
     let output: Value = serde_json::from_slice(&output.stdout)?;
     let decision_id = output["value"].as_str().expect("decision id").to_owned();
-    let proposal = proposal_event(hivemind_dir, &decision_id)?;
-    let acceptance = SqliteEventLedger::open(hivemind_dir)?
+    let proposal = proposal_event(loomtracer_dir, &decision_id)?;
+    let acceptance = SqliteEventLedger::open(loomtracer_dir)?
         .read(0, 100)?
         .into_iter()
         .find(|event| {
-            event.event_type == hivemind::events::EventType::DecisionAccepted
+            event.event_type == loomtracer::events::EventType::DecisionAccepted
                 && event.payload.get("decision_id").and_then(Value::as_str)
                     == Some(decision_id.as_str())
         })
@@ -2064,9 +2097,9 @@ fn capture_through_binary(
 fn human_cli_capture_is_recorded_as_the_human_and_an_agent_stays_an_agent() -> TestResult<()> {
     // hivemind-6ait: `--actor human:alice emit decision.capture` recorded the person's
     // decision as agent:codex:manual-session (or agent:claude:<alias> under Claude Code).
-    let scratch = unique_temp_dir("hivemind-human-cli-capture")?;
+    let scratch = unique_temp_dir("loomtracer-human-cli-capture")?;
     let repo = scratch.join("repo");
-    let hivemind_dir = scratch.join("ledger");
+    let loomtracer_dir = scratch.join("ledger");
     fs::create_dir_all(&repo)?;
     run_git(&repo, ["init"])?;
     run_git(&repo, ["config", "user.email", "Ada.Example@Example.COM"])?;
@@ -2111,7 +2144,7 @@ fn human_cli_capture_is_recorded_as_the_human_and_an_agent_stays_an_agent() -> T
     for (index, case) in cases.iter().enumerate() {
         let title = format!("Use nightly builds for testers ({index})");
         let (proposal, acceptance) =
-            capture_through_binary(&repo, &hivemind_dir, case.actor_flag, case.env, &title)?;
+            capture_through_binary(&repo, &loomtracer_dir, case.actor_flag, case.env, &title)?;
         for (what, event) in [("proposal", &proposal), ("acceptance", &acceptance)] {
             require_eq(
                 event.actor_id.as_str(),
@@ -2161,7 +2194,7 @@ fn without_ambient_agent_session(command: &mut Command) -> &mut Command {
     command
 }
 
-/// Runs one capture path with `HIVEMIND_AGENT_SESSION` pinned to `alice-laptop` and the client's
+/// Runs one capture path with `LOOMTRACER_AGENT_SESSION` pinned to `alice-laptop` and the client's
 /// own per-run session variable set to `session_id`, and returns the proposal it recorded.
 #[cfg(unix)]
 fn capture_pinned(
@@ -2170,7 +2203,7 @@ fn capture_pinned(
     bin_dir: &Path,
     ledger: &Path,
     (session_var, session_id): (&str, &str),
-) -> TestResult<hivemind::events::Event> {
+) -> TestResult<loomtracer::events::Event> {
     without_ambient_agent_session(&mut command);
     let output = command
         .current_dir(markerless_cwd())
@@ -2178,9 +2211,9 @@ fn capture_pinned(
             "PATH",
             format!("{}:{}", bin_dir.display(), std::env::var("PATH")?),
         )
-        .env("HIVEMIND_CAPTURE_BIN", env!("CARGO_BIN_EXE_hivemind"))
-        .env("HIVEMIND_DIR", ledger)
-        .env("HIVEMIND_AGENT_SESSION", "alice-laptop")
+        .env("LOOMTRACER_CAPTURE_BIN", env!("CARGO_BIN_EXE_loomtracer"))
+        .env("LOOMTRACER_DIR", ledger)
+        .env("LOOMTRACER_AGENT_SESSION", "alice-laptop")
         .env(session_var, session_id)
         .output()?;
     require(
@@ -2190,10 +2223,10 @@ fn capture_pinned(
             String::from_utf8_lossy(&output.stderr)
         ),
     )?;
-    event_with_type(ledger, hivemind::events::EventType::DecisionProposed)
+    event_with_type(ledger, loomtracer::events::EventType::DecisionProposed)
 }
 
-/// hivemind-9v7vu: the docs tell a person outside Gas City to set `HIVEMIND_AGENT_SESSION` to
+/// hivemind-9v7vu: the docs tell a person outside Gas City to set `LOOMTRACER_AGENT_SESSION` to
 /// keep one actor, and the MCP server and bare `emit` honour it. The plugin helper, the
 /// repo-local helper and the skill's direct form each named the session from their own list of
 /// variables and never looked at it, so every session still landed under a new actor. Each path
@@ -2203,20 +2236,20 @@ fn capture_pinned(
 fn a_pinned_agent_session_keeps_one_actor_through_the_helpers_and_the_skills_direct_form(
 ) -> TestResult<()> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scratch = unique_temp_dir("hivemind-pinned-session")?;
-    // The skill's direct form calls `hivemind` off `PATH`.
+    let scratch = unique_temp_dir("loomtracer-pinned-session")?;
+    // The skill's direct form calls `loomtracer` off `PATH`.
     let bin_dir = scratch.join("bin");
     fs::create_dir_all(&bin_dir)?;
-    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_hivemind"), bin_dir.join("hivemind"))?;
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_loomtracer"), bin_dir.join("loomtracer"))?;
     let skill_block = skill_direct_capture_block(&fs::read_to_string(
-        root.join("plugins/hivemind-capture/skills/hivemind-capture/SKILL.md"),
+        root.join("plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md"),
     )?)?;
 
     let capture_args = [
         "--title",
         "Keep one actor through the pinned session",
         "--rationale",
-        "A pinned HIVEMIND_AGENT_SESSION must name the actor whichever helper records the capture",
+        "A pinned LOOMTRACER_AGENT_SESSION must name the actor whichever helper records the capture",
         "--topic-keys",
         "identity,capture",
         "--options",
@@ -2230,7 +2263,7 @@ fn a_pinned_agent_session_keeps_one_actor_through_the_helpers_and_the_skills_dir
     ];
     let plugin_helper = || {
         let mut command =
-            Command::new(root.join("plugins/hivemind-capture/scripts/capture-decision.sh"));
+            Command::new(root.join("plugins/loomtracer-capture/scripts/capture-decision.sh"));
         command.args(capture_args);
         command
     };
@@ -2302,7 +2335,7 @@ fn a_pinned_agent_session_keeps_one_actor_through_the_helpers_and_the_skills_dir
     // The context plugin's write verbs (`disagree`, `supersede`, `ground`, `reaffirm`) pass
     // `--actor agent:<tool>:<name>` and name the session the same way the capture helper does, so
     // a pinned person is one actor across a capture and the verbs that follow it.
-    let context_lib = root.join("plugins/hivemind-context/scripts/lib.sh");
+    let context_lib = root.join("plugins/loomtracer-context/scripts/lib.sh");
     for (tool, session_var) in [("claude", CLAUDE), ("codex", CODEX)] {
         let mut command = Command::new("bash");
         command.args([
@@ -2313,13 +2346,13 @@ fn a_pinned_agent_session_keeps_one_actor_through_the_helpers_and_the_skills_dir
             ),
         ]);
         let output = without_ambient_agent_session(&mut command)
-            .env("HIVEMIND_AGENT_SESSION", "alice-laptop")
+            .env("LOOMTRACER_AGENT_SESSION", "alice-laptop")
             .env(session_var, "88888888-bbbb")
             .output()?;
         require_eq(
             String::from_utf8_lossy(&output.stdout).trim(),
             "alice-laptop",
-            &format!("hivemind-context under {tool}"),
+            &format!("loomtracer-context under {tool}"),
         )?;
     }
 
@@ -2332,12 +2365,12 @@ fn a_pinned_agent_session_keeps_one_actor_through_the_helpers_and_the_skills_dir
 /// inside a Claude Code, Codex or Gas City session too (hivemind-2qg60).
 fn without_agent_env(command: &mut Command) -> &mut Command {
     for key in [
-        "HIVEMIND_ACTOR",
-        "HIVEMIND_AGENT_TOOL",
-        "HIVEMIND_TOOL",
-        "HIVEMIND_AGENT_SESSION",
-        "HIVEMIND_CODEX_SESSION",
-        "HIVEMIND_CLAUDE_SESSION",
+        "LOOMTRACER_ACTOR",
+        "LOOMTRACER_AGENT_TOOL",
+        "LOOMTRACER_TOOL",
+        "LOOMTRACER_AGENT_SESSION",
+        "LOOMTRACER_CODEX_SESSION",
+        "LOOMTRACER_CLAUDE_SESSION",
         "CLAUDE_SESSION_ID",
         "CLAUDE_CODE_SESSION_ID",
         "CODEX_SESSION_ID",
@@ -2368,23 +2401,26 @@ fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) -> TestResult<()> {
     Ok(())
 }
 
-fn proposal_event(hivemind_dir: &Path, decision_id: &str) -> TestResult<hivemind::events::Event> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+fn proposal_event(
+    loomtracer_dir: &Path,
+    decision_id: &str,
+) -> TestResult<loomtracer::events::Event> {
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let events = ledger.read(0, 100)?;
     events
         .into_iter()
         .find(|event| {
-            event.event_type == hivemind::events::EventType::DecisionProposed
+            event.event_type == loomtracer::events::EventType::DecisionProposed
                 && event.payload.get("decision_id").and_then(Value::as_str) == Some(decision_id)
         })
         .ok_or_else(|| format!("proposal event for {decision_id} should exist").into())
 }
 
 fn event_with_type(
-    hivemind_dir: &Path,
-    event_type: hivemind::events::EventType,
-) -> TestResult<hivemind::events::Event> {
-    let ledger = SqliteEventLedger::open(hivemind_dir)?;
+    loomtracer_dir: &Path,
+    event_type: loomtracer::events::EventType,
+) -> TestResult<loomtracer::events::Event> {
+    let ledger = SqliteEventLedger::open(loomtracer_dir)?;
     let events = ledger.read(0, 100)?;
     events
         .into_iter()

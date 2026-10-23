@@ -2,7 +2,7 @@
 
 Status: research recommendation for `hivemind-decision-event-granularity-study-1llpf`.
 
-Question: should HiveMind clients emit options, evidence, hypotheses, rationale,
+Question: should Loomtracer clients emit options, evidence, hypotheses, rationale,
 and decisions as separate low-level events, as one compound decision command, or
 both?
 
@@ -87,14 +87,14 @@ Chat, agent, and LLM workflow sources:
 
 ## Combination Matrix
 
-| Combination | Human examples | Agent examples | Observed emission shape | HiveMind implication |
+| Combination | Human examples | Agent examples | Observed emission shape | Loomtracer implication |
 | --- | --- | --- | --- | --- |
 | Evidence or hypothesis before decision | H2, H5, H6, H7 | A1, A7, A8, A10 | Motivation, context, prior art, experience reports, or memory facts appear before the proposal/decision. Agents similarly load project memory, query memory, or recall graph memories before action. | Keep independent `Evidence` and `Hypothesis` emits. Compound decision capture may create them inline, but the API must also let actors record them before the decision exists. |
 | Options or alternatives before decision | H2, H5, H6, H9, H10 | A10, A13, A14 | MADR/ADR/RFC/KEP artifacts enumerate considered options before the outcome. Agent workflows ask for options, conflicts, stakeholder positions, and decision readiness before implementation. | Add canonical `option.recorded` instead of treating options as plain strings forever. Inline options should be decomposed to nodes in one transaction. |
 | Decision plus selected option and alternatives bundled together | H2, H3, H9, H10 | A11, A13, A14 | ADR-style records put context, options, selected option, and outcome in one artifact. codesight extracts decision records from docs; skills produce a structured decision/requirements artifact. | Offer `decision.capture` for human ergonomics. The service should fan out to `Option` nodes, `HAS_OPTION`, `CHOSE`, and `decision.proposed`. |
 | Decision, rationale, evidence, and consequences bundled together | H1, H3, H4, H5, H8, H9 | A5, A10, A11, A12 | ADR/RFC/OTEP/KEP records keep rationale and consequences with the decision. Agent instruction and memory systems store rules, decisions, rationale, accomplishments, and consequences as reusable context. | The compound command should accept `rationale`, `evidence[]`, `consequences[]`, and source refs, but projected graph state must keep evidence addressable and consequences queryable. |
 | Hypotheses/options revised, rejected, or superseded separately | H3, H4, H7, H8 | A2, A7, A8, A10 | ADR states include proposed/accepted/superseded; AWS says accepted ADRs are immutable and later insights create a superseding ADR; PEPs record rejected ideas; OTEPs preserve rejected/withdrawn PRs. Agent systems emit hook/session/memory events that can update, compact, or supersede context independently. | Treat disagreement and supersession as additive events. Add `option.rejected` or represent it with `relation.added` from actor to option; add first-class revision/supersession paths for hypotheses/options if product queries need them. |
-| Follow-up tasks, consequences, or implementation events after decision | H4, H6, H8, H9 | A2, A6, A10, A12 | AWS ADR review creates action points; KEPs track implementation history and release checklist; OTEPs create implementation issues after approval. Agents emit lifecycle hooks, MCP event streams, memory relationships, ratings, and learning loops after work. | Keep follow-ups out of decision status. Model them as consequences/evidence/tasks in adjacent systems, or later add `CONSEQUENCE_OF`/`REALIZES` edges without turning HiveMind into a task tracker. |
+| Follow-up tasks, consequences, or implementation events after decision | H4, H6, H8, H9 | A2, A6, A10, A12 | AWS ADR review creates action points; KEPs track implementation history and release checklist; OTEPs create implementation issues after approval. Agents emit lifecycle hooks, MCP event streams, memory relationships, ratings, and learning loops after work. | Keep follow-ups out of decision status. Model them as consequences/evidence/tasks in adjacent systems, or later add `CONSEQUENCE_OF`/`REALIZES` edges without turning Loomtracer into a task tracker. |
 | Actor/source/provenance as node property vs envelope metadata | H4, H6, H7, H9, H10 | A2, A3, A4, A5, A10 | Human processes put authors/reviewers/stakeholders in headers or metadata. Agent frameworks put session id, transcript path, cwd, agent id, run state, tool call, or source file in envelopes. | Store actor, org, event uuid, correlation, causation, timestamp, and source refs in the event envelope. Project actor/source nodes and `event_origin` into the graph for queryability. Do not bury provenance only inside payload text. |
 | Knowledge-map extraction from existing artifacts | H1, H2, H10 | A1, A10, A11 | Existing docs are scanned later to recover decisions and context. Agent tools generate compact knowledge maps from ADRs, meeting notes, retros, and markdown memory. | Provide importers that decompose legacy docs into canonical events with source refs. Mark imported events as imported/provisional if the original actor/time cannot be proven. |
 
@@ -102,7 +102,7 @@ No material search gap remained after expanding "chat/agent examples" to include
 public workflow docs, memory systems, prompts, and tool docs, which the bead
 explicitly permits.
 
-## Worked HiveMind Example
+## Worked Loomtracer Example
 
 Input scenario:
 

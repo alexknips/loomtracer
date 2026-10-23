@@ -1,5 +1,5 @@
-/** The words for what a bundle says: HiveMind's relations read as the graph contract's arrow labels (docs/GRAPH_CONTRACT.md). */
-const HIVEMIND_WORDS: Record<string, string> = {
+/** The words for what a bundle says: Loomtracer's relations read as the graph contract's arrow labels (docs/GRAPH_CONTRACT.md). */
+const LOOMTRACER_WORDS: Record<string, string> = {
   'legacy:has_option': 'weighs', 'legacy:chose': 'chose', 'legacy:based_on': 'based on',
   'legacy:premised_on': 'rests on', 'legacy:premised_on_direct': 'rests on',
   'legacy:supports': 'supports', 'legacy:refutes': 'refutes', 'legacy:supersedes': 'supersedes',
@@ -7,7 +7,7 @@ const HIVEMIND_WORDS: Record<string, string> = {
 };
 
 export function relationLabel(relation: string): string {
-  return HIVEMIND_WORDS[relation] ?? relation
+  return LOOMTRACER_WORDS[relation] ?? relation
     .replace(/^legacy-type:/, 'Legacy ').replace(/^legacy-status:/, 'Stored status: ').replace(/^legacy:/, 'Legacy: ')
     .replace(/^status:/, 'Status: ').replaceAll('_', ' ');
 }

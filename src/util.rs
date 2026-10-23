@@ -27,7 +27,7 @@ pub(crate) fn require_non_empty(field: &'static str, value: &str) -> Result<()> 
     }
 }
 
-/// Every `actor_id` in HiveMind is a typed, human-readable id (`human:<name>`,
+/// Every `actor_id` in Loomtracer is a typed, human-readable id (`human:<name>`,
 /// `agent:<tool>:<name>`, `slack:<team>:<user>`, ...) -- never a bare UUID. A bare
 /// UUID reaching an actor field means a raw session/message id leaked in where a
 /// stable name belongs (hivemind-zdsh.9): reject it here, at the write layer,

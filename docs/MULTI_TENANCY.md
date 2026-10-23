@@ -3,13 +3,13 @@
 Status: research recommendation for
 `hivemind-investigate-multi-tenancy-model-pe6c`.
 
-Question: when HiveMind serves multiple repos, organizations, teams, and users
+Question: when Loomtracer serves multiple repos, organizations, teams, and users
 from the same MCP or API endpoint, how is decision memory scoped, isolated, and
 authorized?
 
 ## Recommendation
 
-Use an explicit `tenant_id` as HiveMind's top-level isolation boundary. A tenant
+Use an explicit `tenant_id` as Loomtracer's top-level isolation boundary. A tenant
 is the decision-memory workspace that owns a ledger, graph projection, actor
 membership, auth policy, and backup/restore boundary. In most product
 deployments this maps to an organization or workspace. It is not a repo, user,
@@ -18,7 +18,7 @@ agent session, team, or deployment process.
 Repos, teams, Slack workspaces, source documents, and agent sessions are
 context within a tenant. They can appear as topic keys, source refs, external
 installation mappings, or later narrower access policy, but they do not replace
-the tenant boundary. The one grouping HiveMind records for them is the
+the tenant boundary. The one grouping Loomtracer records for them is the
 decision's project ([Projects Inside A Tenant](#projects-inside-a-tenant)): a
 named home for decisions inside one tenant. A project organizes decisions; it
 does not isolate them or gate who may read them.
@@ -39,7 +39,7 @@ without `tenant_id` fields is interpreted as one implicit tenant.
 
 ## Tenant, Actor, And Principal
 
-HiveMind should keep three identities separate:
+Loomtracer should keep three identities separate:
 
 | Concept | Meaning | Examples |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ Every query receives a tenant scope before it reaches graph reads. The default
 tenant is the caller's active tenant, resolved from auth or local config. Query
 functions must not return unscoped rows and rely on callers to filter them.
 
-Cross-tenant visibility is not part of ordinary reads. If HiveMind later needs
+Cross-tenant visibility is not part of ordinary reads. If Loomtracer later needs
 federated decision sharing, it should use one of these explicit shapes:
 
 - an admin-only audit query that returns results partitioned by tenant and
@@ -122,7 +122,7 @@ another tenant's edges.
 Use one service database with tenant-scoped rows for the first shared backend.
 This matches the Postgres service direction in `docs/REMOTE_DB.md` and avoids
 per-tenant migration, connection-pool, backup, and operational overhead while
-HiveMind is still proving the shared service contract.
+Loomtracer is still proving the shared service contract.
 
 Recommended remote tables:
 
@@ -189,9 +189,9 @@ Authentication by surface:
 | Surface | Auth shape | Tenant resolution |
 | --- | --- | --- |
 | Local CLI | No service auth; filesystem access to the local ledger. | Implicit local tenant. |
-| Remote CLI | Scoped opaque bearer token for agents/services or OIDC-backed login session for humans. | Token/session default, `HIVEMIND_TENANT`, or `--tenant` only when the principal has more than one tenant. |
+| Remote CLI | Scoped opaque bearer token for agents/services or OIDC-backed login session for humans. | Token/session default, `LOOMTRACER_TENANT`, or `--tenant` only when the principal has more than one tenant. |
 | MCP stdio | Scoped bearer token and server config supplied when the MCP server starts. | Session-bound tenant; tools should not accept arbitrary per-call tenant ids. |
-| HTTP/API | OIDC/session for humans; scoped opaque bearer tokens for agents/services; Ed25519 signatures for remote multi-org writes. | Tenant claim or `X-HiveMind-Tenant` header validated against principal membership. |
+| HTTP/API | OIDC/session for humans; scoped opaque bearer tokens for agents/services; Ed25519 signatures for remote multi-org writes. | Tenant claim or `X-Loomtracer-Tenant` header validated against principal membership. |
 | Slack app | Slack workspace/team install mapped to one tenant. | Install record resolves tenant before queue drain calls commands. |
 
 Authorization checks are deterministic commands-layer inputs. A caller may write
@@ -340,13 +340,13 @@ backend. CLI and MCP only assemble context; commands and queries consume it.
 Local CLI should keep the current onboarding path:
 
 ```bash
-hivemind --actor alice emit decision.proposed ...
+loomtracer --actor alice emit decision.proposed ...
 ```
 
 No `--tenant` flag is required in local mode. The local filesystem path already
 selects one ledger and therefore one implicit tenant.
 
-Remote CLI can add `--tenant` and `HIVEMIND_TENANT`, but only as tenant
+Remote CLI can add `--tenant` and `LOOMTRACER_TENANT`, but only as tenant
 selection among memberships already present in the caller's credential. It must
 not be a free-form override that lets a user ask for another tenant's data.
 
@@ -357,7 +357,7 @@ payload. The MCP server should resolve `CommandContext` and `QueryContext`, then
 call the same internal functions as CLI and HTTP.
 
 HTTP should expose tenant in a conventional authenticated shape, such as a token
-claim plus optional `X-HiveMind-Tenant` header when a principal has multiple
+claim plus optional `X-Loomtracer-Tenant` header when a principal has multiple
 memberships. The service validates the selected tenant before calling commands
 or queries.
 
@@ -377,7 +377,7 @@ what is not built.
   both remain filters.
 - Nothing crosses a tenant. Projects, links, and moves live in one tenant's
   ledger, and a link cannot point at another tenant's project.
-- HiveMind never infers a project. The write layer checks that a stated handle
+- Loomtracer never infers a project. The write layer checks that a stated handle
   is registered and records it with how the caller determined it; working it out
   is the client's job (see [Where the project comes from](#where-the-project-comes-from)).
 
@@ -385,18 +385,18 @@ what is not built.
 
 | Address | Made | A wrong one |
 | --- | --- | --- |
-| Tenant (`acme`) | On purpose: `hivemind tenant create <id>` on SQLite; `POST /v1/tenants` with the admin key on Postgres. | Refused. Every ledger open (CLI, stdio MCP, HTTP server) checks the tenant on both backends and errors on an unknown one instead of opening an empty scope. |
-| Shared project (`billing`) | On purpose, by anyone: `hivemind project register billing`. | Refused: ``project not registered: nosuch -- register it first with `hivemind project register nosuch` ``. No decision is recorded. |
+| Tenant (`acme`) | On purpose: `loomtracer tenant create <id>` on SQLite; `POST /v1/tenants` with the admin key on Postgres. | Refused. Every ledger open (CLI, stdio MCP, HTTP server) checks the tenant on both backends and errors on an unknown one instead of opening an empty scope. |
+| Shared project (`billing`) | On purpose, by anyone: `loomtracer project register billing`. | Refused: ``project not registered: nosuch -- register it first with `loomtracer project register nosuch` ``. No decision is recorded. |
 | Personal project (`personal:human:alex`, `personal:agent:claude`) | Comes with the identity. There is nothing to register. | Cannot be a typo: it is derived from the actor, and a capture may not state one (`project must not use the reserved "personal:" prefix -- personal projects are derived from the actor, never stated: <handle>`). |
 
-A tenant is chosen by where you connect (`--tenant`, `HIVEMIND_TENANT`, or the
+A tenant is chosen by where you connect (`--tenant`, `LOOMTRACER_TENANT`, or the
 token). A project is part of the decision itself, so it travels with every
 capture and comes back with every answer.
 
 **Personal projects.** The address is the actor id with any session removed:
 `human:alex` becomes `personal:human:alex`, and `agent:claude:crew-1` becomes
 `personal:agent:claude`, one per agent tool and never one per session. The
-session stays on each decision as provenance, and `hivemind project decisions
+session stays on each decision as provenance, and `loomtracer project decisions
 personal:agent:claude` prints it on every row. An actor id of any other shape is
 prefixed as it is. Personal projects are visible to the whole tenant and
 labelled with their owner ("alex's personal project", "claude agents' personal
@@ -441,13 +441,13 @@ project; there is no admin step.
 
 | Verb | What it does |
 | --- | --- |
-| `hivemind project register <handle> [--display-name N] [--purpose P]` | Register a shared project. |
-| `hivemind project link --from A --to B --kind part_of\|depends_on` and `project unlink` (same flags) | Record or retract a link. |
-| `hivemind project anchor --handle H --kind folder\|rig\|jira\|linear\|github\|channel --value V` | Record an anchor. |
-| `hivemind project declare-topic <handle> <key>...` or `--in-use` | Add topic keys to a project's vocabulary (see [Topic vocabulary](#topic-vocabulary)). |
-| `hivemind project list` / `project show <handle>` | Read the registry (paged). An unknown handle is a successful reply with `outcome=not_found`; a `personal:` address always resolves. |
-| `hivemind project decisions <handle-or-personal-address>` | The decisions in one project, oldest first, paged. On a personal address it is the review list: what is still in a personal project and not yet shared. |
-| `hivemind project use <handle>` / `--clear` | Set the current project (see below). |
+| `loomtracer project register <handle> [--display-name N] [--purpose P]` | Register a shared project. |
+| `loomtracer project link --from A --to B --kind part_of\|depends_on` and `project unlink` (same flags) | Record or retract a link. |
+| `loomtracer project anchor --handle H --kind folder\|rig\|jira\|linear\|github\|channel --value V` | Record an anchor. |
+| `loomtracer project declare-topic <handle> <key>...` or `--in-use` | Add topic keys to a project's vocabulary (see [Topic vocabulary](#topic-vocabulary)). |
+| `loomtracer project list` / `project show <handle>` | Read the registry (paged). An unknown handle is a successful reply with `outcome=not_found`; a `personal:` address always resolves. |
+| `loomtracer project decisions <handle-or-personal-address>` | The decisions in one project, oldest first, paged. On a personal address it is the review list: what is still in a personal project and not yet shared. |
+| `loomtracer project use <handle>` / `--clear` | Set the current project (see below). |
 
 The registry verbs are not on MCP or REST. Only the move verb and the project
 arguments described below are.
@@ -458,7 +458,7 @@ A topic says what a decision is about (`pricing`); a project says where it belon
 (`billing`). Left free, every capture invents its own keys and recall by topic
 becomes a lottery, so a registered project has a **topic vocabulary**: the keys
 declared for it, each declaration a `project.topic_declared` fact with its actor
-and time. The vocabulary is what replaying them yields, and `hivemind project show
+and time. The vocabulary is what replaying them yields, and `loomtracer project show
 <handle>` lists it.
 
 - Keys are normalised to lowercase kebab before anything else.
@@ -466,11 +466,11 @@ and time. The vocabulary is what replaying them yields, and `hivemind project sh
   that uses another is refused before anything is written, naming the keys, what the
   project has, and how to declare.
 - A vocabulary grows only when someone says so: a capture's `--declare-topic` (MCP
-  `declare_topics`) for a key it uses, or `hivemind project declare-topic <handle>
+  `declare_topics`) for a key it uses, or `loomtracer project declare-topic <handle>
   <key>...`. The reply lists what a capture declared. A key already declared is not
   declared twice, a new project starts empty, and nothing removes a key.
 - A project that had decisions before it had a vocabulary adopts what they use with
-  `hivemind project declare-topic <handle> --in-use`: one recorded declaration per
+  `loomtracer project declare-topic <handle> --in-use`: one recorded declaration per
   key the project's decisions now carry.
 - A personal project and a capture with no project have no vocabulary: any key is
   accepted, and declaring one is refused.
@@ -509,10 +509,10 @@ An anchor is a place in the world that says "decisions recorded from here belong
 to this project". Six kinds can be recorded (`folder`, `rig`, `jira`, `linear`,
 `github`, `channel`). Two ways of attaching a place to a project work today:
 
-- **Folder marker.** A one-line file named `.hivemind-project` holding one
+- **Folder marker.** A one-line file named `.loomtracer-project` holding one
   handle, checked in with the code. It covers its folder and everything below
   it until a nearer marker; the nearest one wins. It is a file, not a registry
-  entry: `hivemind project anchor --kind folder` records a fact about the
+  entry: `loomtracer project anchor --kind folder` records a fact about the
   project and does not create the file, and nothing reads a folder anchor back
   when resolving a capture. Overlap is not checked centrally: a folder has one
   marker file, and no shared table has to be edited to attach it.
@@ -531,11 +531,11 @@ The client works out the project, in this order, first match wins, and records
 how (`project_source`):
 
 1. the project the caller stated (`stated`);
-2. the `.hivemind-project` markers of the files the uncommitted change touches,
+2. the `.loomtracer-project` markers of the files the uncommitted change touches,
    else the nearest marker above the working directory (`folder_marker`);
 3. the project anchored to the rig in `GC_RIG` (`rig`);
-4. the current project, set once with `hivemind project use`
-   (`current_project`), a per-machine setting kept in the CLI's `--hivemind-dir`,
+4. the current project, set once with `loomtracer project use`
+   (`current_project`), a per-machine setting kept in the CLI's `--loomtracer-dir`,
    keyed by tenant and by the CLI's `--actor`, and never a ledger fact;
 5. none of these: the recorder's personal project (`personal_fallback`), unless
    the session runs in a rig no project in this ledger is anchored to. That is a
@@ -554,7 +554,7 @@ exact replies.
 
 This ladder lives once, in the client, and only runs when the caller asks for it
 (`--project-from-context` on the CLI capture verbs and on the stdio
-`hivemind mcp`). It is not set in stone: it is one small module behind one
+`loomtracer mcp`). It is not set in stone: it is one small module behind one
 function, so it can move into a plugin or server-side without touching the
 write or query layers.
 
@@ -574,7 +574,7 @@ decision log): `project` (the address) and `project_label` (what a person calls
 it). A decision that no proposal ever
 recorded, only named by a request or a blocker, has `project: null` and the
 label "no project recorded", so an unassigned decision is visible and never
-guessed. `hivemind export --format markdown` writes the decision record grouped
+guessed. `loomtracer export --format markdown` writes the decision record grouped
 per project: an `INDEX.md` with one section per project, and for each project a
 `projects/<handle>/INDEX.md` plus one file per decision under
 `projects/<handle>/decisions/`, personal projects under
@@ -585,7 +585,7 @@ per project: an `INDEX.md` with one section per project, and for each project a
 A move is a `decision.moved` event: decision, from, to, an optional reason, the
 actor, the time. The write layer requires that the decision exists, that `to` is
 a registered project or the acting actor's own personal address (never someone
-else's), and that `from` is where the decision is now. `hivemind move
+else's), and that `from` is where the decision is now. `loomtracer move
 "<description>" --to <handle>` and MCP `move_decision` (both transports) name
 only the target; where the decision is now is read from the ledger, never typed.
 The description goes through the same ambiguity gate as `supersede` and
@@ -606,13 +606,13 @@ personal project its proposal first landed in. A decision in a personal project 
 that address belongs to one actor, so its replacement is saved to the recording
 actor's own personal project.
 
-Finding what to move is a report, not a rule: `hivemind query scan_misfiled_decisions
+Finding what to move is a report, not a rule: `loomtracer query scan_misfiled_decisions
 --foreign-topic <key>` (MCP `scan_misfiled_decisions`) flags decisions carrying a
 topic key the caller names as foreign to where they are filed. Each row says which
 project the decision is filed under now; `--project` limits the report to decisions
 filed exactly under one project (an unregistered handle is refused, never an empty
 report), and `--move-to <project>` names where the flagged ones belong, leaving out
-decisions already there and giving each row the `hivemind move --decision <id> --to
+decisions already there and giving each row the `loomtracer move --decision <id> --to
 <project>` that puts it there. The report moves nothing; whoever confirmed the list
 runs the moves, and a second run of the scoped report is clean.
 

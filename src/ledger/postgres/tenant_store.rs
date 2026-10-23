@@ -15,13 +15,13 @@ use super::super::backend_error::{storage_error, unknown_tenant_error};
 
 type PgPool = Pool<PostgresConnectionManager<MakeTlsConnector>>;
 
-pub(crate) const TOKEN_PREFIX: &str = "hm_tk_";
+pub(crate) const TOKEN_PREFIX: &str = "lt_tk_";
 
 /// Result of provisioning a new tenant.
 pub struct ProvisionedTenant {
     pub tenant_id: String,
     pub token_id: Uuid,
-    /// Full bearer secret — `hm_tk_<64-hex>`. Returned ONCE, never stored.
+    /// Full bearer secret — `lt_tk_<64-hex>`. Returned ONCE, never stored.
     pub token_secret: String,
 }
 
@@ -37,7 +37,7 @@ pub struct ResolvedToken {
 pub struct ProvisionedAgentToken {
     pub token_id: Uuid,
     pub actor_id: String,
-    /// Full bearer secret — `hm_tk_<64-hex>`. Returned ONCE, never stored.
+    /// Full bearer secret — `lt_tk_<64-hex>`. Returned ONCE, never stored.
     pub token_secret: String,
 }
 
@@ -99,7 +99,7 @@ impl TenantStore {
     ///
     /// The whole sequence (table creation, column migrations, RLS
     /// enablement, policy creation) runs inside one transaction, opened
-    /// with `pg_advisory_xact_lock(hashtext('hivemind_schema_init'))` as
+    /// with `pg_advisory_xact_lock(hashtext('loomtracer_schema_init'))` as
     /// its first statement — the SAME key `PostgresEventLedger::
     /// initialize_schema` locks on before creating `events`. Two
     /// invariants depend on this:
@@ -128,7 +128,7 @@ impl TenantStore {
         let mut client = self.pool.get().map_err(storage_error)?;
         let mut tx = client.transaction().map_err(storage_error)?;
 
-        tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('hivemind_schema_init'));")
+        tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('loomtracer_schema_init'));")
             .map_err(storage_error)?;
 
         tx.batch_execute(

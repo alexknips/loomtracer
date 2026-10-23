@@ -1875,7 +1875,7 @@ fn a_decision_whose_title_says_the_question_in_other_words_leads_one_with_a_gene
             4,
             "d:demo-copy",
             "Public demo data: commit a byte-exact copy of the generator export, checked by recorded SHA-256",
-            "The demo build must work without a hivemind checkout (CI, the site rebuild), so the generator's graph and briefs files are committed rather than read from hivemind at build time. A sync script copies them byte for byte and records the source commit and each file's hash; a test fails if a copy no longer matches.",
+            "The demo build must work without a loomtracer checkout (CI, the site rebuild), so the generator's graph and briefs files are committed rather than read from loomtracer at build time. A sync script copies them byte for byte and records the source commit and each file's hash; a test fails if a copy no longer matches.",
             &["ui", "public-demo", "example-data"],
         ),
         decision_proposed_because(

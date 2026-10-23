@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 
 use crate::projector::{GraphParams, GraphValue, GraphView, RelationKind};
-use crate::{HivemindError, Result};
+use crate::{LoomtracerError, Result};
 
 use super::follows_from::decision_path;
 use super::shared::{query_error, query_timer_start, required_string};
@@ -175,7 +175,7 @@ fn walk_side(
 
 /// The error for a walk that reached a decision it had already visited: `from` is the decision
 /// the walk stood on, `to` the one it stepped to.
-fn cycle_error(side: SupersessionSide, from: &str, to: &str) -> HivemindError {
+fn cycle_error(side: SupersessionSide, from: &str, to: &str) -> LoomtracerError {
     let edge = match side {
         SupersessionSide::Older => format!("{from} -> {to}"),
         SupersessionSide::Newer => format!("{to} -> {from}"),

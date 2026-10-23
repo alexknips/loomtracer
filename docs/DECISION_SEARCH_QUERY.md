@@ -2,7 +2,7 @@
 
 This document specifies a read-layer search API for decision exploration:
 `search_decisions_fts(SearchDecisionRequest)` and the CLI command
-`hivemind query search`. The legacy `hivemind query search_decisions` command
+`loomtracer query search`. The legacy `loomtracer query search_decisions` command
 is retained as a compatibility alias over the same surface.
 
 CLI filters use `--topic`, `--status`, `--actor-id`, `--source`, `--limit`,

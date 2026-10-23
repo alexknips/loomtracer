@@ -316,7 +316,7 @@ fn malformed_assessment_event(sequence: u64) -> Event {
     event(
         sequence,
         EventType::DecisionScored,
-        "agent:hivemind:scorer",
+        "agent:loomtracer:scorer",
         json!({
             "schema_version": 2,
             "decision_id": "decision-a",

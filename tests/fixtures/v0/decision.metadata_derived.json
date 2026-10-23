@@ -4,9 +4,9 @@
   "correlation_id": null,
   "causation_event_id": null,
   "type": "decision.metadata_derived",
-  "actor_id": "agent:hivemind:derivation",
+  "actor_id": "agent:loomtracer:derivation",
   "source": "agent",
-  "source_ref": "agent:hivemind:derivation",
+  "source_ref": "agent:loomtracer:derivation",
   "payload": {
     "decision_id": "decision:d-cache-idkey",
     "derivation_model": "stub",

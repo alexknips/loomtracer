@@ -84,7 +84,7 @@ impl SharedGraph {
     }
 }
 
-fn shared_graph_is_read_only() -> crate::error::HivemindError {
+fn shared_graph_is_read_only() -> crate::error::LoomtracerError {
     ProjectorError::Projection(
         "the shared graph is read-only: replay the ledger into a graph of your own to write one"
             .to_owned(),

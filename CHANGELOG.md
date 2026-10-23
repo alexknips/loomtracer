@@ -1,12 +1,71 @@
 # Changelog
 
-All notable changes to HiveMind are documented here.
+All notable changes to Loomtracer (named HiveMind before 0.8.0) are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
 ### Breaking changes
 
+- **HiveMind is now Loomtracer, everywhere a user or agent sees it (0.8.0).** Every old name
+  stops working and nothing is aliased: the new binary does not look for the old folder, read
+  the old variables or accept the old token prefix.
+  - Binary, crate and release: `hivemind` is `loomtracer`; release assets are
+    `loomtracer-<platform>.tar.gz`; the image is `ghcr.io/alexknips/loomtracer` (and
+    `scripts/cell-update.sh` builds `loomtracer:<sha>`); the install scripts, the Dockerfile
+    entrypoint and `make install` put `loomtracer` on the path.
+  - Settings: every `HIVEMIND_*` variable is `LOOMTRACER_*` (`HIVEMIND_DIR` is `LOOMTRACER_DIR`,
+    `HIVEMIND_API_URL` is `LOOMTRACER_API_URL`, and so on for the rest); the flags
+    `--hivemind-dir`, `--hivemind-url` and `--hivemind-base-url` are `--loomtracer-dir`,
+    `--loomtracer-url` and `--loomtracer-base-url`.
+  - Files: the default ledger folder is `./loomtracer/` (was `./hivemind/`); the project marker is
+    `.loomtracer-project`; the capture shipper keeps its cursors in `~/.loomtracer/cursors`; the
+    ask hook keeps its state in `~/.local/state/loomtracer-ask-hook`; a prepared document marks
+    its pages with `# loomtracer-source-ref:` lines.
+  - Wire names: bearer tokens start `lt_tk_` (was `hm_tk_`); the headers are `x-loomtracer-tenant`
+    and `x-loomtracer-actor`; the MCP server is `loomtracer` and its one branded tool is
+    `loomtracer_compact_view`; the classifier and the scorer author new events as
+    `agent:loomtracer:classifier` and `agent:loomtracer:scorer` (events already in a ledger keep
+    the actor they were written with); the Slack command is `/loomtracer`, the default reaction
+    emoji is `loomtracer` and the app manifest says "Loomtracer"; the JSON schema ids are
+    `https://loomtracer.local/schemas/v0/...`.
+  - Plugins: `loomtracer-capture` and `loomtracer-context` (their slash commands are
+    `/loomtracer-capture:...` and `/loomtracer-context:...`), the marketplace is `loomtracer`, the
+    plugin setting is `loomtracer_dir`, and MCP tools appear as `mcp__loomtracer__...`. The
+    `SessionStart` hook now adds this to a session's context:
+
+    > Loomtracer ledger: before you act, call the `loomtracer` MCP tool `recall_decisions` (q =
+    > three or four key words about the task) and follow the earlier decisions that still
+    > hold. Call `capture_decision` (title, rationale = the why, options, grounding, binds,
+    > undo_cost) for: a rule learned from something that failed or cost you (save it the
+    > first time); a design or interface choice later work must follow; a reversal of an
+    > earlier decision (use `supersede_decision`). Not for routine status, session
+    > summaries, plans that hold only for this session, or a choice binding nothing and
+    > cheap to undo.
+
+  - Unchanged on purpose: stored names. The `hm_*` tables, the Postgres database and role
+    `hivemind`, the docker volume `hivemind-data` and the compose service `hivemind` keep their
+    names, because renaming them without a migration would start a cell on empty tables and
+    orphan its users and tokens. Events already written, and this repository's project handle in
+    `.loomtracer-project`, are history and keep their text.
+
+  An existing install takes three steps:
+
+  1. **Move the ledger folder:** rename `hivemind` to `loomtracer` in each project (or pass
+     `--loomtracer-dir` the old folder), and rename `~/.hivemind` to `~/.loomtracer` so a capture
+     session does not ship its transcript again from the start. Without the move a read exits 2
+     (there is no `./loomtracer/` ledger) and a new capture starts an empty ledger beside the old
+     one.
+  2. **Re-prefix the tokens:** change `hm_tk_` to `lt_tk_` at the start of each issued token. The
+     server stores a hash of the part after the prefix only, so the same secret keeps working and
+     nothing is minted again. A token still starting `hm_tk_` is refused.
+  3. **Reinstall and rename your own settings:** install the new binary and the two plugins
+     (`/plugin marketplace add alexknips/loomtracer`), then rename the `HIVEMIND_*` variables and
+     the `--hivemind-*` flags in your shell, service units, compose `.env` and MCP config
+     (`claude mcp add loomtracer ...`). Remove the old `hivemind` binary from your path: it
+     keeps running without an error and reads none of the new names.
+
+  (hivemind-rfr5h)
 - **An MCP tool call that sends an argument the tool does not take is refused.** A tool used to
   read the keys it knew and skip the rest, so `recall_decisions` with `query` (it takes `q`) ran
   unfiltered and `link_supersession` with `decided_by` succeeded without carrying it, while

@@ -880,7 +880,7 @@ fn the_misfiled_report_is_scoped_to_a_project_names_the_move_and_is_clean_after_
         .expect_err("an unregistered handle is refused")
         .to_string();
     assert!(
-        refusal.contains("hivemind project register beadlin"),
+        refusal.contains("loomtracer project register beadlin"),
         "{refusal}"
     );
 

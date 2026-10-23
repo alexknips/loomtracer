@@ -1,9 +1,9 @@
 //! Regression test for hivemind-i6ply: a read verb aimed at a folder that holds no ledger must
 //! refuse, not make an empty ledger on the spot and answer "No decision found" with exit 0. That
 //! answer is indistinguishable from a real ledger that has no match, and a mistyped
-//! `--hivemind-dir` produced it. The same family as hivemind-rmdi1, 3wism, nrk9f and wp0n7
+//! `--loomtracer-dir` produced it. The same family as hivemind-rmdi1, 3wism, nrk9f and wp0n7
 //! (tests/query_beside_a_cell.rs, tests/verbs_beside_a_cell.rs), which refused the case where
-//! `HIVEMIND_API_URL` is set; this is the case where it is not. Reads against a ledger that
+//! `LOOMTRACER_API_URL` is set; this is the case where it is not. Reads against a ledger that
 //! exists, even an empty one, answer as before, and writes keep making the ledger on their first
 //! run.
 //! This spawns the real binary, as the person does.
@@ -14,25 +14,25 @@ use std::process::{Command, Output};
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
     dir.push(format!(
-        "hivemind-reads-without-ledger-{label}-{}",
+        "loomtracer-reads-without-ledger-{label}-{}",
         uuid::Uuid::new_v4()
     ));
     dir
 }
 
-/// `hivemind --hivemind-dir <dir> <args>` with no cell URL, no shared database and no
-/// `HIVEMIND_DIR` in the environment.
-fn hivemind(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_hivemind"))
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_DIR")
-        .arg("--hivemind-dir")
+/// `loomtracer --loomtracer-dir <dir> <args>` with no cell URL, no shared database and no
+/// `LOOMTRACER_DIR` in the environment.
+fn loomtracer(dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_DIR")
+        .arg("--loomtracer-dir")
         .arg(dir)
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()
-        .expect("run hivemind") // ubs:ignore: test-only; panicking is correct in tests
+        .expect("run loomtracer") // ubs:ignore: test-only; panicking is correct in tests
 }
 
 fn stdout(output: &Output) -> String {
@@ -45,7 +45,7 @@ fn stderr(output: &Output) -> String {
 
 /// A ledger under `dir` that holds no decision, made the way a person starts one.
 fn make_empty_ledger(dir: &Path) {
-    let made = hivemind(dir, &["emit", "evidence.recorded", "--content", "seed"]);
+    let made = loomtracer(dir, &["emit", "evidence.recorded", "--content", "seed"]);
     assert!(made.status.success(), "{}", stderr(&made));
     assert!(dir.join("ledger.sqlite").is_file());
 }
@@ -112,7 +112,7 @@ fn assert_refused(read: &Read, dir: &Path, output: &Output) {
     );
     let message = stderr(output);
     assert!(
-        message.contains(&format!("`hivemind {}`", read.name)),
+        message.contains(&format!("`loomtracer {}`", read.name)),
         "`{label}` names the verb: {message}"
     );
     assert!(
@@ -124,7 +124,7 @@ fn assert_refused(read: &Read, dir: &Path, output: &Output) {
         "`{label}` says it made no ledger: {message}"
     );
     assert!(
-        !message.contains("HIVEMIND_API_URL"),
+        !message.contains("LOOMTRACER_API_URL"),
         "`{label}` mentions a cell nobody set: {message}"
     );
     assert!(
@@ -140,7 +140,7 @@ fn a_read_aimed_at_a_folder_that_does_not_exist_refuses_and_creates_nothing() {
     for read in reads(&out) {
         let dir = unique_dir("missing");
 
-        let output = hivemind(&dir, &as_strs(&read.args));
+        let output = loomtracer(&dir, &as_strs(&read.args));
 
         assert_refused(&read, &dir, &output);
         assert!(
@@ -160,7 +160,7 @@ fn a_read_aimed_at_a_folder_with_no_ledger_in_it_refuses_and_adds_nothing_to_it(
         let dir = unique_dir("empty-folder");
         std::fs::create_dir_all(&dir).expect("create the empty folder"); // ubs:ignore: test-only; panicking is correct in tests
 
-        let output = hivemind(&dir, &as_strs(&read.args));
+        let output = loomtracer(&dir, &as_strs(&read.args));
 
         assert_refused(&read, &dir, &output);
         let left: Vec<_> = std::fs::read_dir(&dir)
@@ -188,7 +188,7 @@ fn the_bead_repro_a_mistyped_folder_is_not_an_answer_of_no_decision_found() {
             .unwrap_or("x")
     ));
 
-    let output = hivemind(&typo, &["query", "recall", "retry budget"]);
+    let output = loomtracer(&typo, &["query", "recall", "retry budget"]);
 
     assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
     assert!(stdout(&output).is_empty(), "{}", stdout(&output));
@@ -207,7 +207,7 @@ fn a_read_of_an_existing_ledger_that_holds_no_decision_still_answers() {
     let out = unique_dir("existing-empty-out");
 
     for read in reads(&out) {
-        let output = hivemind(&dir, &as_strs(&read.args));
+        let output = loomtracer(&dir, &as_strs(&read.args));
 
         assert!(
             output.status.success(),
@@ -230,7 +230,7 @@ fn a_write_keeps_making_the_ledger_on_its_first_run() {
     let dir = unique_dir("first-write");
     assert!(!dir.exists());
 
-    let output = hivemind(&dir, &["emit", "evidence.recorded", "--content", "first"]);
+    let output = loomtracer(&dir, &["emit", "evidence.recorded", "--content", "first"]);
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(dir.join("ledger.sqlite").is_file());
@@ -247,18 +247,18 @@ fn a_shared_database_names_no_folder_so_a_read_is_not_refused_for_one() {
         vec!["query", "recall", "retry budget"],
         vec!["classify-queue", "list"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .env_remove("HIVEMIND_API_URL")
+        let output = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .env_remove("LOOMTRACER_API_URL")
             .env(
-                "HIVEMIND_DATABASE_URL",
+                "LOOMTRACER_DATABASE_URL",
                 "postgres://nobody@127.0.0.1:9/none",
             )
-            .arg("--hivemind-dir")
+            .arg("--loomtracer-dir")
             .arg(&dir)
             .args(&args)
             .stdin(std::process::Stdio::null())
             .output()
-            .expect("run hivemind"); // ubs:ignore: test-only; panicking is correct in tests
+            .expect("run loomtracer"); // ubs:ignore: test-only; panicking is correct in tests
 
         assert!(
             !stderr(&output).contains("none was created"),

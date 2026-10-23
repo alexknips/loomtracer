@@ -4,9 +4,9 @@
   "correlation_id": null,
   "causation_event_id": 1,
   "type": "decision.scored",
-  "actor_id": "agent:hivemind:scorer",
+  "actor_id": "agent:loomtracer:scorer",
   "source": "agent",
-  "source_ref": "agent:hivemind:scorer",
+  "source_ref": "agent:loomtracer:scorer",
   "payload": {
     "schema_version": 2,
     "decision_id": "dec-1",

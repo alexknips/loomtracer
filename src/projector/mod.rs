@@ -594,7 +594,7 @@ fn project_replay(
     report.last_event_id = Some(through);
     if !report.unreadable_annotations.is_empty() {
         tracing::warn!(
-            target: "hivemind::projector",
+            target: "loomtracer::projector",
             "{}",
             crate::read_notice::unreadable_annotations_notice(&report.unreadable_annotations)
         );
@@ -729,7 +729,7 @@ fn resolve_local_reference(
 
 /// Resolve same-batch cross-references in a slice of captures.
 ///
-/// Real HiveMind node ids are assigned post-hoc (ledger offset + array
+/// Real Loomtracer node ids are assigned post-hoc (ledger offset + array
 /// index for the production path, or a caller-chosen id for the in-memory
 /// eval path) — the classifier can never know a sibling capture's real id
 /// before generating output. So the classifier prompt allows a relational-id
@@ -754,7 +754,7 @@ fn resolve_batch_local_references(
         match title_index.entry(title) {
             Entry::Occupied(existing) => {
                 tracing::warn!(
-                    target: "hivemind::projector",
+                    target: "loomtracer::projector",
                     title,
                     first_node_id = *existing.get(),
                     duplicate_node_id = *node_id,
@@ -803,7 +803,7 @@ fn resolve_batch_local_references(
 
     if stats.resolved > 0 || stats.unresolved > 0 {
         tracing::debug!(
-            target: "hivemind::projector",
+            target: "loomtracer::projector",
             resolved = stats.resolved,
             unresolved = stats.unresolved,
             "within-batch title reference resolution stats"
@@ -1044,7 +1044,7 @@ fn classified_batch_time(event: &Event, received_batches: &ReceivedBatches) -> G
 
 /// The conversation the batches a classification covers were shipped from, as the received
 /// batches state it: their capture sessions (`session_id`), who submitted the first and who took
-/// part. Empty when it covers none the replay has received, as for a `hivemind emit` capture,
+/// part. Empty when it covers none the replay has received, as for a `loomtracer emit` capture,
 /// which names a fresh batch id.
 fn classified_session(event: &Event, received_batches: &ReceivedBatches) -> ClassifiedSession {
     received_batches.session(&classified_batch_ids(&event.payload))
@@ -2355,7 +2355,7 @@ fn project_capture(
         "notification" => project_capture_notification(graph, capture, node_id, origin_properties),
         kind => {
             tracing::debug!(
-                target: "hivemind::projector",
+                target: "loomtracer::projector",
                 "skipping capture with unrecognised kind: {kind}"
             );
             Ok(())

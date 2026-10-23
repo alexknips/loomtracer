@@ -74,7 +74,7 @@ pub enum EventType {
     /// An explicit ask: someone named a question before any decision answered it. Distinct from
     /// `question.recorded`, which a capture or `ground --answers` also writes implicitly whenever
     /// it names a question nobody has recorded yet — `question.asked` only ever comes from
-    /// `hivemind ask` / MCP `request_decision`, so a `Question` node can exist with no explicit
+    /// `loomtracer ask` / MCP `request_decision`, so a `Question` node can exist with no explicit
     /// ask, and a question can be asked more than once (hivemind-bbnw.4).
     #[serde(rename = "question.asked")]
     QuestionAsked,
@@ -396,7 +396,7 @@ pub struct BlockerResolvedPayload {
 
 /// `suggestion.surfaced` (hivemind-m306.4.2). `finding_id` is the stable id a finding carries
 /// (a hash of its kind, node ids and basis time), `decision_id` the decision it is about and
-/// `channel` a label the consumer chose: HiveMind does not know what any channel means. The
+/// `channel` a label the consumer chose: Loomtracer does not know what any channel means. The
 /// event's own uuid is the notification id a later `notification.acknowledged` names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -566,7 +566,7 @@ pub struct IngestTurn {
     pub text: String,
     pub truncated: bool,
     /// This turn's own time in the source transcript (Claude Code and Codex JSONL logs carry
-    /// one per turn), not when hivemind received or classified the batch. `#[serde(default)]`
+    /// one per turn), not when loomtracer received or classified the batch. `#[serde(default)]`
     /// so a caller that does not supply one — and every batch received before this field
     /// existed — still parses; classification then has no per-turn source time to prefer over
     /// the batch's own received/classified time, never a fabricated one.

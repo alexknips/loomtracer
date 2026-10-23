@@ -18,7 +18,7 @@
     "chosen_option_id": "opt-rename",
     "hypothesis_ids": [],
     "evidence_ids": [],
-    "project": "hivemind",
+    "project": "loomtracer",
     "project_source": "stated",
     "binds": { "level": "something", "statement": "Users and scripts that call the old name" },
     "undo_cost": { "level": "costly", "statement": "Renaming back breaks every script already moved to the new name" }

@@ -23,7 +23,7 @@ use crate::summarize::DIGEST_MAX_DECISIONS;
 
 #[derive(Debug, Clone, Parser)]
 #[command(
-    name = "hivemind",
+    name = "loomtracer",
     about = "Organizational decision-memory ledger and query CLI",
     version = crate::VERSION,
     subcommand_required = true,
@@ -42,7 +42,12 @@ pub struct Cli {
     #[arg(long, default_value_t = default_actor(), hide_default_value = true, help = actor_help_here())]
     pub actor: String,
 
-    #[arg(long, global = true, env = "HIVEMIND_TENANT", default_value = "local")]
+    #[arg(
+        long,
+        global = true,
+        env = "LOOMTRACER_TENANT",
+        default_value = "local"
+    )]
     pub tenant: String,
 
     #[arg(long, global = true)]
@@ -51,16 +56,16 @@ pub struct Cli {
     #[arg(
         long,
         global = true,
-        env = "HIVEMIND_DIR",
-        default_value = "./hivemind/"
+        env = "LOOMTRACER_DIR",
+        default_value = "./loomtracer/"
     )]
-    pub hivemind_dir: PathBuf,
+    pub loomtracer_dir: PathBuf,
 
     /// Shared Postgres backend connection URL. Unset or empty selects the local
-    /// SQLite ledger under --hivemind-dir. A flag value beats the environment
+    /// SQLite ledger under --loomtracer-dir. A flag value beats the environment
     /// variable; an empty flag value is treated as unset, same as
-    /// HIVEMIND_DATABASE_URL. Requires the shared-backend-postgres feature.
-    #[arg(long, global = true, env = "HIVEMIND_DATABASE_URL")]
+    /// LOOMTRACER_DATABASE_URL. Requires the shared-backend-postgres feature.
+    #[arg(long, global = true, env = "LOOMTRACER_DATABASE_URL")]
     pub database_url: Option<String>,
 
     #[arg(long, global = true, value_enum)]
@@ -78,7 +83,7 @@ impl Cli {
     /// actor. The default actor is a guess about who is at the keyboard, and with an agent in
     /// the environment the guess is wrong: the git user never ran an agent's `ground`,
     /// `retitle`, `disagree`, `supersede` or `move`. A typed `--actor` is believed, and so is a
-    /// `HIVEMIND_ACTOR` that already names an agent; `None` (no agent around) keeps the human
+    /// `LOOMTRACER_ACTOR` that already names an agent; `None` (no agent around) keeps the human
     /// default (hivemind-jglb7).
     pub fn adopt_ambient_agent(&mut self, ambient_agent: Option<String>) {
         if self.actor_given.0 {
@@ -101,7 +106,7 @@ impl Cli {
 }
 
 /// Whether `--actor` was typed on the command line, as opposed to left to fall back to
-/// `HIVEMIND_ACTOR` or the git identity. The fallback is a guess about who is at the keyboard;
+/// `LOOMTRACER_ACTOR` or the git identity. The fallback is a guess about who is at the keyboard;
 /// only a typed `--actor` is a claim about who is acting, and `emit decision.capture` believes
 /// the one and not the other (hivemind-6ait). Adds no argument of its own: it reads how clap
 /// resolved `--actor`.
@@ -138,12 +143,12 @@ pub enum GraphBackend {
 }
 
 impl LedgerConfig {
-    /// Builds a `LedgerConfig` from global CLI flags: `--hivemind-dir` and
-    /// `--database-url` (flag beats `HIVEMIND_DATABASE_URL`; an empty value
+    /// Builds a `LedgerConfig` from global CLI flags: `--loomtracer-dir` and
+    /// `--database-url` (flag beats `LOOMTRACER_DATABASE_URL`; an empty value
     /// means unset, same rule as `ApiConfig::new`).
     pub fn from_cli(cli: &Cli) -> Self {
         Self {
-            hivemind_dir: cli.hivemind_dir.clone(),
+            loomtracer_dir: cli.loomtracer_dir.clone(),
             database_url: cli.database_url.clone().filter(|url| !url.is_empty()),
         }
     }
@@ -159,9 +164,9 @@ pub enum Command {
     /// The low-level write path. `emit decision.capture` is the everyday capture; the other
     /// events are the single steps that `disagree`, `supersede`, `ground` and `review` compose.
     ///
-    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
-    /// server in HIVEMIND_API_URL; only `classify-queue` does. With that variable set it refuses,
-    /// exit 2 and nothing recorded, when --hivemind-dir holds no ledger, and otherwise says on
+    /// Writes to the ledger under --loomtracer-dir (or --database-url) and never contacts the
+    /// server in LOOMTRACER_API_URL; only `classify-queue` does. With that variable set it refuses,
+    /// exit 2 and nothing recorded, when --loomtracer-dir holds no ledger, and otherwise says on
     /// stderr (a `notice` key under --json) that the event went to that local ledger.
     Emit(Box<EmitArgs>),
     /// Record that you disagree with a decision, found by describing it, and why. Your rejection
@@ -169,7 +174,7 @@ pub enum Command {
     /// accepted and another rejected reads `contested`.
     ///
     /// Writes a `decision.rejected` event with `--reason` from `--actor` (untyped, the agent in an
-    /// agent session and the git user at a plain terminal; `hivemind --help` names it). A
+    /// agent session and the git user at a plain terminal; `loomtracer --help` names it). A
     /// description that matches more than one decision lists the candidates and writes nothing;
     /// pick one with --pick N, or name the decision with --decision.
     ///
@@ -179,9 +184,9 @@ pub enum Command {
     /// `raise_upstream`). It is a hint: the disagreement is recorded either way, and nothing is
     /// written for the premise unless you run `disagree` or `supersede` on it too.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as a decision that is
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Disagree(DisagreeArgs),
@@ -207,9 +212,9 @@ pub enum Command {
     /// so: one `warning:` line on stderr per label with the words to write instead
     /// (`Direct CLI`); `--json` lists them under `warnings`. Nothing is refused.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as a decision that is
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Supersede(Box<SupersedeArgs>),
@@ -218,9 +223,9 @@ pub enum Command {
     /// --pick N. One that matches nothing is a successful `not_found` answer. Recorded with
     /// who, when, from, to and why; reversed by moving it back.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as a decision that is
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Move(MoveArgs),
@@ -229,9 +234,9 @@ pub enum Command {
     /// is kept on the node (`former_title`) and in the untouched `decision.proposed` event;
     /// nothing is lost. Recorded with who, when, from, to and why; reversed by retitling it back.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as a decision that is
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Retitle(RetitleArgs),
@@ -243,9 +248,9 @@ pub enum Command {
     /// the same ambiguity gate as `supersede`; nothing is written when the description is
     /// ambiguous, a premise cannot be pinned to one decision, or a premise would close a loop.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as a decision that is
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Ground(GroundArgs),
@@ -262,9 +267,9 @@ pub enum Command {
     /// why and, for an item already closed, who closed it and with which event. Nothing is
     /// written on a refusal, an ambiguity or an unmatched description. There is no `--all`.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as a decision that is
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as a decision that is
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Reaffirm(ReaffirmArgs),
@@ -278,8 +283,8 @@ pub enum Command {
     /// part of and the projects it depends on are named, the rest are counted). A long list is
     /// cut at `--limit` and says so (`truncated`, with the cursor to continue from).
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when --loomtracer-dir holds no
     /// ledger, so a mistyped folder is not read as "no decisions". With that variable set it
     /// otherwise adds a `notice` saying the answer is that local ledger's.
     Reexamine(ReexamineArgs),
@@ -290,9 +295,9 @@ pub enum Command {
     /// never suppressed as a duplicate — the same question can be asked more than once, each its
     /// own outstanding request.
     ///
-    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
-    /// server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// Writes to the ledger under --loomtracer-dir (or --database-url) and never contacts the
+    /// server in LOOMTRACER_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --loomtracer-dir holds no ledger, and otherwise says in its output (a
     /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Ask(AskArgs),
     /// Go through recent decisions one at a time in the terminal and accept, disagree with or
@@ -300,16 +305,16 @@ pub enum Command {
     ///
     /// Candidates come from the same deterministic path as `query recent`. Each verdict is
     /// written as an ordinary accept, reject or supersede event from the reviewer: the global
-    /// `--actor`, which goes before `review` (`hivemind --actor human:me review ...`), so
+    /// `--actor`, which goes before `review` (`loomtracer --actor human:me review ...`), so
     /// reviewed state is derived from the ledger, never stored separately. `--unreviewed-only`
     /// skips the decisions that reviewer already accepted, rejected or superseded, not ones
     /// someone else ruled on. `review --actor` is a different flag: a glob filter on the actors
     /// who made the decisions, for example `review --actor 'agent:*'`; it does not name the
     /// reviewer.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as "no decisions to
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as "no decisions to
     /// review". With that variable set it otherwise says in its output that it used that local
     /// ledger.
     Review(ReviewArgs),
@@ -317,28 +322,28 @@ pub enum Command {
     /// (or prose, through an extractor), prepared PDF/OCR text, or the version history of a
     /// Google Doc or git-tracked file.
     ///
-    /// Imported decisions land as proposed, not accepted, and flow into `hivemind review
+    /// Imported decisions land as proposed, not accepted, and flow into `loomtracer review
     /// --unreviewed-only`. Re-importing identical input is a no-op; conflicts with existing
     /// decisions are reported unless `--on-conflict` says how to resolve them.
     ///
-    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
-    /// server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// Writes to the ledger under --loomtracer-dir (or --database-url) and never contacts the
+    /// server in LOOMTRACER_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --loomtracer-dir holds no ledger, and otherwise says in its output (a
     /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     /// `import prepare-documents` opens no ledger and is not affected.
     Import(ImportArgs),
     /// Run deterministic read queries. JSON is the default; pass --summary for compact text.
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when --loomtracer-dir holds no
     /// ledger, so a mistyped folder is not read as "no decisions". With that variable set it
     /// otherwise adds a `notice` saying the answer is that local ledger's.
     Query(Box<QueryArgs>),
     /// Print the whole projected decision graph as Graphviz DOT: decisions, actors, options,
     /// evidence and hypotheses with the edges between them, ready for `dot -Tsvg`.
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when --loomtracer-dir holds no
     /// ledger, so a mistyped folder is not read as an empty graph. With that variable set it
     /// otherwise says on stderr, keeping stdout a plain DOT graph, that it read that local ledger.
     Dump(DumpArgs),
@@ -347,32 +352,32 @@ pub enum Command {
     ///
     /// Needs a terminal (`--json` is refused) and a build with the `tui` feature.
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when --loomtracer-dir holds no
     /// ledger (before the terminal UI starts). With that variable set it otherwise says on
     /// stderr, once the UI has exited, that it browsed that local ledger.
     Tui(TuiArgs),
     /// Turn an exported Slack thread into a proposed decision: reads the thread from `--file`
     /// and records the decision its messages spell out. Nothing is summarized or inferred.
     ///
-    /// The thread must mention the bot (`--mention`, default @hivemind). A thread already
+    /// The thread must mention the bot (`--mention`, default @loomtracer). A thread already
     /// ingested returns the existing decision id. The live Slack integration is `slack-app`.
     ///
-    /// Writes to the ledger under --hivemind-dir (or --database-url) and never contacts the
-    /// server in HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing
-    /// recorded, when --hivemind-dir holds no ledger, and otherwise says in its output (a
+    /// Writes to the ledger under --loomtracer-dir (or --database-url) and never contacts the
+    /// server in LOOMTRACER_API_URL. With that variable set it refuses, exit 2 and nothing
+    /// recorded, when --loomtracer-dir holds no ledger, and otherwise says in its output (a
     /// `notice` key under --json) that it used that local ledger, so the cell has no record of it.
     Ingest(IngestArgs),
     /// Run the Slack integration's pieces by hand: print the app manifest, build the OAuth
     /// install URL, store a workspace install, queue and drain thread captures, and answer
-    /// `/hivemind` slash commands.
+    /// `/loomtracer` slash commands.
     #[command(name = "slack-app")]
     SlackApp(SlackAppArgs),
     /// Run an MCP (Model Context Protocol) stdio server that exposes
-    /// HiveMind's capture/query surface to MCP-aware clients.
+    /// Loomtracer's capture/query surface to MCP-aware clients.
     Mcp(McpArgs),
     /// Start the HTTP REST API server. Binds 127.0.0.1 by default (see
-    /// --bind). Auth token is read from HIVEMIND_API_KEY; when unset the
+    /// --bind). Auth token is read from LOOMTRACER_API_KEY; when unset the
     /// server starts in development mode with no authentication, which is
     /// refused on a non-loopback --bind unless --allow-unauthenticated-remote
     /// is passed.
@@ -389,8 +394,8 @@ pub enum Command {
     /// structural (supersession) similarity. Outputs JSON unless --summary is
     /// passed.
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when --loomtracer-dir holds no
     /// ledger, so a mistyped folder is not read as an empty map. With that variable set it
     /// otherwise says that the map is that local ledger's: a `notice` key, or a `notice:` line
     /// under --summary, or on stderr when several --alpha make stdout a JSON array.
@@ -399,8 +404,8 @@ pub enum Command {
     /// Answers "what did the team decide this week and why?" using graph data.
     /// Outputs structured JSON by default; pass --summary for readable prose.
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when --hivemind-dir holds no
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when --loomtracer-dir holds no
     /// ledger, so a mistyped folder is not read as "no decisions this week". With that variable
     /// set it otherwise adds a `notice` saying the digest is that local ledger's.
     Digest(Box<DigestArgs>),
@@ -408,7 +413,7 @@ pub enum Command {
     /// Use `classify-queue list` to see pending batches; use `classify-queue submit`
     /// to write structured captures produced by the agent on its subscription seat.
     ///
-    /// With HIVEMIND_API_URL set, both ask the server and send --tenant (or HIVEMIND_TENANT) and
+    /// With LOOMTRACER_API_URL set, both ask the server and send --tenant (or LOOMTRACER_TENANT) and
     /// --actor with every call. A server that takes tenant and actor from the caller (SQLite,
     /// with a static key or none) uses them; a server that knows the caller by token (every
     /// Postgres cell, or a per-user or agent token) takes both from the token and ignores them.
@@ -419,26 +424,26 @@ pub enum Command {
     /// them look alike; `restatements apply` records the links you approve. A link is never a
     /// merge: both records stay as recorded, and `recall` and `why` show them as one decision.
     ///
-    /// Reads (`propose`) and writes (`apply`) the ledger under --hivemind-dir (or --database-url)
-    /// and never contacts the server in HIVEMIND_API_URL. Both refuse, exit 2 and creating
-    /// nothing, when --hivemind-dir holds no ledger, so a mistyped folder is not read as "no
+    /// Reads (`propose`) and writes (`apply`) the ledger under --loomtracer-dir (or --database-url)
+    /// and never contacts the server in LOOMTRACER_API_URL. Both refuse, exit 2 and creating
+    /// nothing, when --loomtracer-dir holds no ledger, so a mistyped folder is not read as "no
     /// restatements" and nothing is applied to a ledger that is not there. With that variable
     /// set they otherwise say in their output (a `notice` key under --json, on stderr for
     /// `apply --json`, which prints an array) that they used that local ledger.
     Restatements(RestatementsArgs),
     /// Manage connector authentication (e.g., Google Docs OAuth).
-    /// Set HIVEMIND_GOOGLE_CLIENT_ID and HIVEMIND_GOOGLE_CLIENT_SECRET before running.
+    /// Set LOOMTRACER_GOOGLE_CLIENT_ID and LOOMTRACER_GOOGLE_CLIENT_SECRET before running.
     Connector(ConnectorArgs),
     /// File a Linear ticket for each decision that needs a look (an attention finding: a bet
     /// past its check date, a premise that changed, evidence nobody re-checked) for human review.
     /// Only findings nobody has acknowledged are filed, and each one filed is acknowledged
     /// (action acted, channel linear, by --actor), so running it again files only what is new.
-    /// Set HIVEMIND_LINEAR_API_KEY and HIVEMIND_LINEAR_TEAM_ID before running.
+    /// Set LOOMTRACER_LINEAR_API_KEY and LOOMTRACER_LINEAR_TEAM_ID before running.
     /// Pass --dry-run to preview what would be filed without calling Linear or acknowledging.
     ///
-    /// Reads and writes the ledger under --hivemind-dir (or --database-url) and never contacts
-    /// the server in HIVEMIND_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as "no findings". With
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as "no findings". With
     /// that variable set it otherwise says in its output (a `notice` key) that the findings are
     /// that local ledger's.
     #[command(name = "quality-scan")]
@@ -451,18 +456,18 @@ pub enum Command {
     /// subcommand: query subcommands print one envelope, this one writes a
     /// directory tree.
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url) and never contacts the server in
-    /// HIVEMIND_API_URL. It refuses, exit 2 and creating nothing (nor anything under --out), when
-    /// --hivemind-dir holds no ledger, so a mistyped folder is not read as an empty log. With
+    /// Reads the ledger under --loomtracer-dir (or --database-url) and never contacts the server in
+    /// LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing (nor anything under --out), when
+    /// --loomtracer-dir holds no ledger, so a mistyped folder is not read as an empty log. With
     /// that variable set it otherwise adds a `notice` saying the export is that local ledger's.
     Export(ExportArgs),
     /// Manage the local tenant registry. Every ledger open (CLI, stdio-MCP,
     /// and the HTTP API server) errors on an unrecognized --tenant/
-    /// X-HiveMind-Tenant rather than silently opening a fresh, empty scope.
+    /// X-Loomtracer-Tenant rather than silently opening a fresh, empty scope.
     ///
-    /// Writes to the ledger under --hivemind-dir and never contacts the server in
-    /// HIVEMIND_API_URL. With that variable set it refuses, exit 2 and nothing recorded, when
-    /// --hivemind-dir holds no ledger (a tenant made in a ledger the cell never sees is no tenant
+    /// Writes to the ledger under --loomtracer-dir and never contacts the server in
+    /// LOOMTRACER_API_URL. With that variable set it refuses, exit 2 and nothing recorded, when
+    /// --loomtracer-dir holds no ledger (a tenant made in a ledger the cell never sees is no tenant
     /// of the cell's), and otherwise says in its output (a `notice` key under --json) that the
     /// tenant went into that local ledger.
     Tenant(TenantArgs),
@@ -470,9 +475,9 @@ pub enum Command {
     /// and anchors. A personal project (`personal:<actor>`) is derived from the
     /// actor and never registered — `project show` resolves it directly.
     ///
-    /// The registry lives in the ledger under --hivemind-dir (or --database-url); no `project`
-    /// subcommand contacts the server in HIVEMIND_API_URL. `project list`, `show` and `decisions`
-    /// refuse, exit 2 and creating nothing, when --hivemind-dir holds no ledger, so a mistyped
+    /// The registry lives in the ledger under --loomtracer-dir (or --database-url); no `project`
+    /// subcommand contacts the server in LOOMTRACER_API_URL. `project list`, `show` and `decisions`
+    /// refuse, exit 2 and creating nothing, when --loomtracer-dir holds no ledger, so a mistyped
     /// folder is not read as "no projects"; so do `link`, `unlink`, `anchor`, `declare-topic` and
     /// `use <handle>`, which act on a project the registry holds and have none to act on.
     /// `register` makes the ledger on its first run. With that variable set, each subcommand that
@@ -549,7 +554,7 @@ pub enum ProjectCommand {
     /// Set or clear the actor's current project: a one-time, per-machine
     /// setting consulted (below any folder marker or rig anchor) for
     /// captures with no repo context, such as chat. Local to this
-    /// `--hivemind-dir` and actor — never a ledger fact. Setting an
+    /// `--loomtracer-dir` and actor — never a ledger fact. Setting an
     /// unregistered handle is refused with a register hint.
     Use(ProjectUseArgs),
 }
@@ -595,7 +600,7 @@ impl ProjectLinkKindArg {
 }
 
 /// How a capture's `--project` was determined, as a caller may claim it. `personal_fallback`
-/// (recorded by HiveMind when no project is given), `moved` (recorded by a move) and `inherited`
+/// (recorded by Loomtracer when no project is given), `moved` (recorded by a move) and `inherited`
 /// (recorded by a replacement that names no project) are not choices here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "snake_case")]
@@ -748,14 +753,14 @@ pub struct QualityScanArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Linear team ID to file tickets under. Overrides HIVEMIND_LINEAR_TEAM_ID.
-    #[arg(long, env = "HIVEMIND_LINEAR_TEAM_ID")]
+    /// Linear team ID to file tickets under. Overrides LOOMTRACER_LINEAR_TEAM_ID.
+    #[arg(long, env = "LOOMTRACER_LINEAR_TEAM_ID")]
     pub linear_team_id: Option<String>,
 
-    /// Public base URL of this HiveMind instance, included in ticket descriptions.
-    /// E.g. https://hivemind.example.com. Overrides HIVEMIND_PUBLIC_URL.
-    #[arg(long, env = "HIVEMIND_PUBLIC_URL")]
-    pub hivemind_base_url: Option<String>,
+    /// Public base URL of this Loomtracer instance, included in ticket descriptions.
+    /// E.g. https://loomtracer.example.com. Overrides LOOMTRACER_PUBLIC_URL.
+    #[arg(long, env = "LOOMTRACER_PUBLIC_URL")]
+    pub loomtracer_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -802,16 +807,16 @@ pub struct ServeArgs {
     /// Address to bind. Defaults to loopback, so the server is reachable only
     /// from this host; pass 0.0.0.0 (or a specific interface address) to
     /// accept connections from other hosts.
-    #[arg(long, env = "HIVEMIND_BIND", default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
+    #[arg(long, env = "LOOMTRACER_BIND", default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST))]
     pub bind: IpAddr,
 
     /// Port to listen on.
-    #[arg(long, short = 'p', env = "HIVEMIND_PORT", default_value_t = 8080)]
+    #[arg(long, short = 'p', env = "LOOMTRACER_PORT", default_value_t = 8080)]
     pub port: u16,
 
     /// Allow serving WITHOUT authentication on a non-loopback --bind address.
-    /// Without this flag, development mode (no HIVEMIND_API_KEY and no
-    /// HIVEMIND_DATABASE_URL) refuses to start on anything but loopback.
+    /// Without this flag, development mode (no LOOMTRACER_API_KEY and no
+    /// LOOMTRACER_DATABASE_URL) refuses to start on anything but loopback.
     #[arg(long)]
     pub allow_unauthenticated_remote: bool,
 }
@@ -820,7 +825,7 @@ pub struct ServeArgs {
 #[command(group(clap::ArgGroup::new("destination").required(true).args(["to", "to_url"])))]
 pub struct MigrateArgs {
     /// Source SQLite directory (strips `sqlite://` prefix if present).
-    /// Defaults to `--hivemind-dir` when omitted.
+    /// Defaults to `--loomtracer-dir` when omitted.
     #[arg(long)]
     pub from: Option<String>,
 
@@ -836,7 +841,7 @@ pub struct MigrateArgs {
     #[arg(long = "to-url", requires = "admin_key_file")]
     pub to_url: Option<String>,
 
-    /// File holding the cell's `HIVEMIND_ADMIN_KEY` (read at run time, never passed on the
+    /// File holding the cell's `LOOMTRACER_ADMIN_KEY` (read at run time, never passed on the
     /// command line). Required with `--to-url`.
     #[arg(long = "admin-key-file")]
     pub admin_key_file: Option<std::path::PathBuf>,
@@ -947,23 +952,23 @@ pub struct ClassifyQueueArgs {
 pub enum ClassifyQueueCommand {
     /// List batches pending classification (received but not yet classified).
     ///
-    /// Reads the ledger under --hivemind-dir (or --database-url), or asks the server in
-    /// HIVEMIND_API_URL when that is set. On a local ledger it refuses, exit 2 and creating
-    /// nothing, when --hivemind-dir holds no ledger, so a folder nothing was recorded in is not
+    /// Reads the ledger under --loomtracer-dir (or --database-url), or asks the server in
+    /// LOOMTRACER_API_URL when that is set. On a local ledger it refuses, exit 2 and creating
+    /// nothing, when --loomtracer-dir holds no ledger, so a folder nothing was recorded in is not
     /// given an empty one (a session hook can run this in every project). A tenant that is not
-    /// registered (--tenant, or the one the HIVEMIND_API_KEY token maps to on a server) is refused,
+    /// registered (--tenant, or the one the LOOMTRACER_API_KEY token maps to on a server) is refused,
     /// exit 4, naming it: the same on every call, not a batch id to skip. Through
-    /// HIVEMIND_API_URL, --tenant and --actor go to the server, which ignores them when a token
+    /// LOOMTRACER_API_URL, --tenant and --actor go to the server, which ignores them when a token
     /// decides both.
     List(ClassifyQueueListArgs),
     /// Submit agent-produced captures for a batch, appending an IngestBatchClassified event.
     ///
     /// Refuses a batch id that was never received, exit 3, naming it, with nothing recorded, on a
-    /// local ledger and through HIVEMIND_API_URL alike: take the ids from `classify-queue list`. A batch that is already classified is accepted
-    /// again. Like `list`, it asks the server in HIVEMIND_API_URL when that is set, and on a
-    /// local ledger it refuses, exit 2 and creating nothing, when --hivemind-dir holds no ledger.
+    /// local ledger and through LOOMTRACER_API_URL alike: take the ids from `classify-queue list`. A batch that is already classified is accepted
+    /// again. Like `list`, it asks the server in LOOMTRACER_API_URL when that is set, and on a
+    /// local ledger it refuses, exit 2 and creating nothing, when --loomtracer-dir holds no ledger.
     /// An unregistered tenant is refused first, exit 4, as for `list`: exit 3 is only ever a batch
-    /// id. The event is recorded in --tenant by --actor, through HIVEMIND_API_URL too, unless a
+    /// id. The event is recorded in --tenant by --actor, through LOOMTRACER_API_URL too, unless a
     /// token decides both on the server.
     Submit(ClassifyQueueSubmitArgs),
 }
@@ -1005,7 +1010,7 @@ pub struct ClassifyQueueSubmitArgs {
 #[derive(Debug, Clone, Args)]
 pub struct McpArgs {
     /// The session name (the `<name>` of `agent:<tool>:<name>`) embedded in event provenance for
-    /// captures coming through this server. Without it, the first of `HIVEMIND_AGENT_SESSION`,
+    /// captures coming through this server. Without it, the first of `LOOMTRACER_AGENT_SESSION`,
     /// Gas City's `GC_AGENT`/`GC_ALIAS`, then the client's own session variable
     /// (`CLAUDE_CODE_SESSION_ID` under Claude Code), and a fresh generated `mcp-<uuid>` only
     /// when none names one.
@@ -1020,11 +1025,11 @@ pub struct McpArgs {
     pub agent_tool: Option<String>,
 
     /// When a `capture_decision` or `supersede_decision` call names no `project`, work it
-    /// out from where this server runs: the `.hivemind-project` files of the folders the
+    /// out from where this server runs: the `.loomtracer-project` files of the folders the
     /// uncommitted change touches (several projects are recorded for the nearest project
     /// they are all part of, or saved to the personal project when they share none), else
     /// the nearest one walking up from its working directory, then the project anchored to
-    /// the city rig (`GC_RIG`), then this actor's `hivemind project use` setting. A call
+    /// the city rig (`GC_RIG`), then this actor's `loomtracer project use` setting. A call
     /// that names a `project` still wins. Off by default, so a bare server files unnamed
     /// captures under the personal project.
     #[arg(long = "project-from-context")]
@@ -1170,9 +1175,9 @@ pub struct SupersedeArgs {
     pub project_source: Option<ProjectSourceArg>,
 
     /// When `--project` is absent, work the project out from where this runs: the
-    /// `.hivemind-project` files of the folders the uncommitted change touches, else the
+    /// `.loomtracer-project` files of the folders the uncommitted change touches, else the
     /// nearest one walking up from the working directory, then the project anchored to the
-    /// city rig (`GC_RIG`), then this actor's `hivemind project use` setting. Each records
+    /// city rig (`GC_RIG`), then this actor's `loomtracer project use` setting. Each records
     /// how it was determined. A change touching several projects is recorded for the nearest
     /// project they are all part of. When none applies, or they share no parent, the new
     /// decision still inherits the project the old decision is filed in now, as without this
@@ -1194,7 +1199,7 @@ pub struct SupersedeArgs {
     pub floor: FloorArgs,
 }
 
-/// `hivemind ground`: give an existing decision what it rests on. Takes the grounding flags of
+/// `loomtracer ground`: give an existing decision what it rests on. Takes the grounding flags of
 /// `emit decision.capture` (`--rests-on-decision`, `--rests-on-evidence` with `--evidence-source`,
 /// `--rests-on-assumption`, `--bet`) except `--confidence`, which is the decider's own words at
 /// capture and cannot be added afterwards. `--answers` names the question the decision answers.
@@ -1234,7 +1239,7 @@ pub struct GroundArgs {
     pub grounding: GroundingArgs,
 }
 
-/// `hivemind reaffirm "<decision>" --because "<reason>"` (hivemind-ottw.4).
+/// `loomtracer reaffirm "<decision>" --because "<reason>"` (hivemind-ottw.4).
 #[derive(Debug, Clone, Args)]
 pub struct ReaffirmArgs {
     /// Free-text description to resolve to the decision that still holds (fluent alternative to
@@ -1262,7 +1267,7 @@ pub struct ReaffirmArgs {
     pub because: String,
 }
 
-/// `hivemind reexamine` (hivemind-ottw.4).
+/// `loomtracer reexamine` (hivemind-ottw.4).
 #[derive(Debug, Clone, Args)]
 pub struct ReexamineArgs {
     /// Only the items on the decision this describes (resolved with the ambiguity gate; a bare
@@ -1296,7 +1301,7 @@ pub struct ReexamineArgs {
     pub cursor: Option<String>,
 }
 
-/// `hivemind ask <question text>` (hivemind-bbnw.4).
+/// `loomtracer ask <question text>` (hivemind-bbnw.4).
 #[derive(Debug, Clone, Args)]
 pub struct AskArgs {
     /// The question, in your own words: one line.
@@ -1370,17 +1375,17 @@ pub enum SlackAppCommand {
     #[command(name = "oauth-url")]
     OauthUrl(SlackOauthUrlArgs),
     /// Store a workspace installation (team, bot token, signing secret, capture emoji, actor
-    /// map) under the hivemind directory.
+    /// map) under the loomtracer directory.
     Install(SlackInstallArgs),
     /// Queue a decision capture from a Slack message, thread shortcut or reaction, for `drain`
     /// to write.
     #[command(name = "enqueue-capture")]
     EnqueueCapture(SlackEnqueueCaptureArgs),
     /// Write queued Slack captures to the ledger, each into its own workspace's tenant (the
-    /// team id; `hivemind tenant create <team_id>` first), not the global --tenant. Failed items
+    /// team id; `loomtracer tenant create <team_id>` first), not the global --tenant. Failed items
     /// stay queued with their attempt count and last error.
     Drain(SlackDrainArgs),
-    /// Answer a `/hivemind` slash command (`capture`, `query <topic>`, `show <id>`) for a team
+    /// Answer a `/loomtracer` slash command (`capture`, `query <topic>`, `show <id>`) for a team
     /// and user, printing the Slack response. Reads the team's own tenant, not the global
     /// --tenant.
     Command(SlackCommandArgs),
@@ -1429,10 +1434,10 @@ pub struct SlackInstallArgs {
     #[arg(long = "signing-secret")]
     pub signing_secret: String,
 
-    #[arg(long = "hivemind-url", default_value = "http://127.0.0.1:8787")]
-    pub hivemind_url: String,
+    #[arg(long = "loomtracer-url", default_value = "http://127.0.0.1:8787")]
+    pub loomtracer_url: String,
 
-    #[arg(long = "reaction-emoji", default_value = "hivemind")]
+    #[arg(long = "reaction-emoji", default_value = "loomtracer")]
     pub reaction_emoji: String,
 
     #[arg(long = "actor-map")]
@@ -1609,7 +1614,7 @@ pub struct EmitDecisionCaptureArgs {
     #[command(flatten)]
     pub floor: FloorArgs,
 
-    /// The id of an existing `hivemind ask` request this decision answers: resolves to that
+    /// The id of an existing `loomtracer ask` request this decision answers: resolves to that
     /// request's question and links this decision to it, exactly as `--question <text>` would,
     /// without repeating the words. Refused when the request does not exist, or together with
     /// `--question`. Distinct from `ground --answers`, which takes the question's own text, not
@@ -1855,7 +1860,7 @@ pub struct EmitDecisionProposedArgs {
 
     /// Registered project handle to file this decision under. An unknown handle is refused
     /// with the register command. Without it the decision is saved to the recorder's
-    /// personal project and the reply says so. HiveMind checks the handle; it never works
+    /// personal project and the reply says so. Loomtracer checks the handle; it never works
     /// out the project for you.
     #[arg(long = "project")]
     pub project: Option<String>,
@@ -1865,9 +1870,9 @@ pub struct EmitDecisionProposedArgs {
     pub project_source: Option<ProjectSourceArg>,
 
     /// When `--project` is absent, work the project out from where this runs: the
-    /// `.hivemind-project` files of the folders the uncommitted change touches, else the
+    /// `.loomtracer-project` files of the folders the uncommitted change touches, else the
     /// nearest one walking up from the working directory, then the project anchored to the
-    /// city rig (`GC_RIG`), then this actor's `hivemind project use` setting. Each records
+    /// city rig (`GC_RIG`), then this actor's `loomtracer project use` setting. Each records
     /// how it was determined. A change touching several projects is recorded for the nearest
     /// project they are all part of; with none in common it is saved to the personal project
     /// and the reply names them. When nothing applies the decision is saved to the personal
@@ -2259,7 +2264,7 @@ impl PrepareDocumentFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
 pub enum DocumentExtractorCommandArg {
-    HivemindDocumentExtractor,
+    LoomtracerDocumentExtractor,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2391,7 +2396,7 @@ pub enum QueryCommand {
     GetDecisionsAddedSince(QueryAddedSinceArgs),
     /// A shareable read-only export of `get_recent_activity` or `get_decisions_changed_since`
     /// (`--query`) as JSON or Markdown, carrying the query parameters, ledger range, generation
-    /// time and a citation map, with truncation stated. `hivemind export` (without `query`)
+    /// time and a citation map, with truncation stated. `loomtracer export` (without `query`)
     /// writes the whole decision log as files instead.
     #[command(name = "export_read_only_summary")]
     ExportReadOnlySummary(QueryExportReadOnlySummaryArgs),
@@ -2418,7 +2423,7 @@ pub enum QueryCommand {
     /// names the project the decision is filed under; `--project` scopes the report to
     /// one project and `--move-to` names where the flagged ones belong. Read-only:
     /// report only, never moves anything — put a confirmed decision where it belongs
-    /// with `hivemind move --decision <id> --to <project>`.
+    /// with `loomtracer move --decision <id> --to <project>`.
     #[command(name = "scan_misfiled_decisions")]
     ScanMisfiledDecisions(QueryScanMisfiledDecisionsArgs),
     /// "What should I know before I touch this?" — decisions bearing on the working
@@ -2558,7 +2563,7 @@ pub struct QueryRecallArgs {
     pub project: Option<String>,
 }
 
-/// `hivemind query get_waiting_requests` (hivemind-bbnw.4).
+/// `loomtracer query get_waiting_requests` (hivemind-bbnw.4).
 #[derive(Debug, Clone, Args)]
 pub struct QueryWaitingRequestsArgs {
     #[arg(long = "limit", default_value_t = 25)]
@@ -2568,7 +2573,7 @@ pub struct QueryWaitingRequestsArgs {
     pub cursor: Option<String>,
 }
 
-/// `hivemind query get_contested_decisions` (hivemind-bbnw.7).
+/// `loomtracer query get_contested_decisions` (hivemind-bbnw.7).
 #[derive(Debug, Clone, Args)]
 pub struct QueryContestedDecisionsArgs {
     #[arg(long = "limit", default_value_t = 25)]
@@ -2578,7 +2583,7 @@ pub struct QueryContestedDecisionsArgs {
     pub cursor: Option<String>,
 }
 
-/// `hivemind query get_open_why_decisions` (hivemind-lapcm).
+/// `loomtracer query get_open_why_decisions` (hivemind-lapcm).
 #[derive(Debug, Clone, Args)]
 pub struct QueryOpenWhyDecisionsArgs {
     #[arg(long = "limit", default_value_t = 25)]
@@ -2589,7 +2594,7 @@ pub struct QueryOpenWhyDecisionsArgs {
     pub cursor: Option<String>,
 }
 
-/// `hivemind query get_changed_decisions` (hivemind-bbnw.7).
+/// `loomtracer query get_changed_decisions` (hivemind-bbnw.7).
 #[derive(Debug, Clone, Args)]
 pub struct QueryChangedDecisionsArgs {
     /// The start of the window: an RFC3339 timestamp, a YYYY-MM-DD date, or a duration such as
@@ -2912,7 +2917,7 @@ pub struct TuiArgs {
     #[arg(long = "limit", default_value_t = 25)]
     pub limit: usize,
 
-    #[arg(long = "dot-output", default_value = "hivemind-neighborhood.dot")]
+    #[arg(long = "dot-output", default_value = "loomtracer-neighborhood.dot")]
     pub dot_output: PathBuf,
 }
 
@@ -3078,7 +3083,7 @@ pub struct QueryScanMisfiledDecisionsArgs {
     pub project: Option<String>,
 
     /// The registered project the flagged decisions belong in. Each row then carries the
-    /// `hivemind move --decision <id> --to <project>` that puts it there; nothing is moved
+    /// `loomtracer move --decision <id> --to <project>` that puts it there; nothing is moved
     /// by this report. Decisions already filed there are not flagged.
     #[arg(long = "move-to")]
     pub move_to: Option<String>,
@@ -3124,10 +3129,10 @@ pub(crate) fn actor_help(default_actor: &str, ambient_agent: Option<String>) -> 
              {default_actor} instead. A typed --actor is recorded as typed"
         )
     } else if default_actor.trim().starts_with("agent:") {
-        format!("{lead}: {default_actor}, named by HIVEMIND_ACTOR")
+        format!("{lead}: {default_actor}, named by LOOMTRACER_ACTOR")
     } else {
         format!(
-            "{lead}: {default_actor}, from HIVEMIND_ACTOR or the git user. An agent session \
+            "{lead}: {default_actor}, from LOOMTRACER_ACTOR or the git user. An agent session \
              records the agent, agent:<tool>:<name>, instead"
         )
     }

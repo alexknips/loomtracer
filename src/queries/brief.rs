@@ -95,7 +95,7 @@ pub struct DecidedBy {
 }
 
 /// The conversation a classifier drafted a decision from, as the ledger's received batches state
-/// it. Each part is empty when the ledger never received the batches (a `hivemind emit` capture
+/// it. Each part is empty when the ledger never received the batches (a `loomtracer emit` capture
 /// names a fresh batch id): who was in a conversation is never guessed.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DraftedFrom {
@@ -169,7 +169,7 @@ pub struct DecisionBrief {
     /// Display-only; `event_origin` stays canonical for resolver ranking (SEARCH_DESIGN.md).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub occurred_at: Option<DateTime<Utc>>,
-    /// When this decision's question was first explicitly asked (`hivemind ask` /
+    /// When this decision's question was first explicitly asked (`loomtracer ask` /
     /// `request_decision`), if ever — `occurred_at` is when it was answered. `None` when the
     /// question was only ever named via `--question`, never asked first (hivemind-bbnw.4).
     #[serde(skip_serializing_if = "Option::is_none")]

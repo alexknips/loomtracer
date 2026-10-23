@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { HiveMindProblem } from "@/components/hivemind-problem";
+import { LoomtracerProblem } from "@/components/loomtracer-problem";
 import { StatusBadge } from "@/components/status-badge";
-import { hivemind } from "@/lib/hivemind/client";
-import { load } from "@/lib/hivemind/load";
-import type { AttentionItem } from "@/lib/hivemind/types";
+import { loomtracer } from "@/lib/loomtracer/client";
+import { load } from "@/lib/loomtracer/load";
+import type { AttentionItem } from "@/lib/loomtracer/types";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Review · Loomtracer" };
@@ -27,11 +27,11 @@ function Decisions({ items, total, empty, testid }: { items: AttentionItem[]; to
 }
 
 export default async function ReviewPage() {
-  const client = hivemind();
+  const client = loomtracer();
   const result = await load(() => Promise.all([
     client.search({ status: "proposed", limit: LIMIT }), client.attention("contested", LIMIT), client.waiting(LIMIT), client.attention("open-why", LIMIT),
   ]));
-  if (!result.ok) return <AppShell active="Review"><HiveMindProblem error={result.error} /></AppShell>;
+  if (!result.ok) return <AppShell active="Review"><LoomtracerProblem error={result.error} /></AppShell>;
   const [proposed, contested, waiting, openWhy] = result.value;
   return <AppShell active="Review"><section className="content-page">
     <header className="page-heading"><div><span className="eyebrow">Review</span><h1>What needs a person</h1></div><p>Read from the ledger each time. A decision that gets answered, replaced or resolved leaves its list on the next load.</p></header>
@@ -52,6 +52,6 @@ export default async function ReviewPage() {
         <Decisions testid="review-open-why" total={openWhy.total_matches} empty="Every binding decision in force says what it rests on." items={openWhy.items} />
       </section>
     </div>
-    <p className="hm-note">This page lists; it does not decide. Accept, disagree with or replace a decision with <code>hivemind review</code>, <code>hivemind disagree</code> and <code>hivemind supersede</code>, or through the MCP tools. The HiveMind HTTP API has no endpoint to accept or reject one.</p>
+    <p className="hm-note">This page lists; it does not decide. Accept, disagree with or replace a decision with <code>loomtracer review</code>, <code>loomtracer disagree</code> and <code>loomtracer supersede</code>, or through the MCP tools. The Loomtracer HTTP API has no endpoint to accept or reject one.</p>
   </section></AppShell>;
 }

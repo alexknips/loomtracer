@@ -12,11 +12,11 @@
 //! ledger, and read back through the real query layer — no hand-built graph rows. The Postgres
 //! parity of the same read path lives in `src/projector/postgres/tests.rs`.
 
-use hivemind::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
-use hivemind::ledger::InMemoryEventLedger;
-use hivemind::projector::memory::MemoryGraph;
-use hivemind::projector::project_from_ledger;
-use hivemind::queries::{
+use loomtracer::commands::{Commands, DecisionProposalInput, FloorInput, Grounding};
+use loomtracer::ledger::InMemoryEventLedger;
+use loomtracer::projector::memory::MemoryGraph;
+use loomtracer::projector::project_from_ledger;
+use loomtracer::queries::{
     get_decision_brief, get_decision_context, get_decision_context_candidates,
     get_failure_attribution, search_decisions, AuthorshipShape, DecisionContextRequest,
     FailureAttributionRequest, ReviewShape, SearchDecisionRequest,

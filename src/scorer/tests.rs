@@ -8,7 +8,7 @@ use crate::ledger::InMemoryEventLedger;
 
 fn unique_test_dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "hivemind-scorer-test-{name}-{}",
+        "loomtracer-scorer-test-{name}-{}",
         uuid::Uuid::new_v4()
     ))
 }
@@ -192,10 +192,10 @@ fn the_prompt_says_the_recorded_answers_and_context_are_input_facts_and_not_quot
 #[test]
 fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_from_them_is_refused(
 ) {
-    let hivemind_dir = unique_test_dir("floor-answers-in-scorer-input");
+    let loomtracer_dir = unique_test_dir("floor-answers-in-scorer-input");
     let tenant_id = TenantId::local();
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let option = commands
             .record_option("actor:test", "Rename", "Rename the command")
@@ -228,7 +228,7 @@ fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_
             .expect("propose decision");
     }
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert_eq!(pending.len(), 1);
     let text = &pending[0].decision_text;
     assert!(
@@ -254,7 +254,7 @@ fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_
     let output: AssessmentOutput =
         serde_json::from_value(serde_json::json!({ "dimensions": dims })).expect("output");
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let payload = build_assessed_payload(
             &pending[0].decision_id,
@@ -273,7 +273,7 @@ fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_
         );
     }
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 // --- the lines offered as quotable are the text the quote check accepts (hivemind-m88ju) ---
@@ -282,8 +282,8 @@ fn a_captured_decisions_pending_assessment_input_shows_both_answers_and_a_quote_
 /// `decision_id`, through the write path's own check. A line the scorer offers as quotable must
 /// be accepted; a `Recorded ...` line must be refused. Returns the labels of the quotable lines,
 /// in the order offered.
-fn offered_quotable_labels(hivemind_dir: &PathBuf, decision_id: &str, text: &str) -> Vec<String> {
-    let ledger = SqliteEventLedger::open(hivemind_dir).expect("ledger opens");
+fn offered_quotable_labels(loomtracer_dir: &PathBuf, decision_id: &str, text: &str) -> Vec<String> {
+    let ledger = SqliteEventLedger::open(loomtracer_dir).expect("ledger opens");
     let commands = Commands::new(&ledger);
     let mut quotable = Vec::new();
     for line in text.lines() {
@@ -320,10 +320,10 @@ fn offered_quotable_labels(hivemind_dir: &PathBuf, decision_id: &str, text: &str
 
 #[test]
 fn every_line_offered_as_quotable_for_a_classified_capture_is_accepted_and_no_other_is() {
-    let hivemind_dir = unique_test_dir("quotable-classified");
+    let loomtracer_dir = unique_test_dir("quotable-classified");
     let tenant_id = TenantId::local();
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let mut capture = minimal_decision_capture();
         capture.title = "Store events in SQLite".to_owned();
@@ -344,7 +344,7 @@ fn every_line_offered_as_quotable_for_a_classified_capture_is_accepted_and_no_ot
             .expect("record batch classified");
     }
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert_eq!(pending.len(), 1);
     let text = &pending[0].decision_text;
     assert!(
@@ -357,21 +357,21 @@ fn every_line_offered_as_quotable_for_a_classified_capture_is_accepted_and_no_ot
     );
     assert!(!text.contains("Options considered"), "{text}");
 
-    let quotable = offered_quotable_labels(&hivemind_dir, &pending[0].decision_id, text);
+    let quotable = offered_quotable_labels(&loomtracer_dir, &pending[0].decision_id, text);
     assert_eq!(
         quotable,
         ["Title", "Rationale", "Option", "Option", "Chosen option"]
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn every_line_offered_as_quotable_for_a_directly_captured_decision_is_accepted_and_no_other_is() {
-    let hivemind_dir = unique_test_dir("quotable-proposed");
+    let loomtracer_dir = unique_test_dir("quotable-proposed");
     let tenant_id = TenantId::local();
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let rest = commands
             .record_option("actor:test", "REST", "REST is simpler to operate")
@@ -407,10 +407,10 @@ fn every_line_offered_as_quotable_for_a_directly_captured_decision_is_accepted_a
             .expect("propose decision");
     }
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert_eq!(pending.len(), 1);
     let quotable = offered_quotable_labels(
-        &hivemind_dir,
+        &loomtracer_dir,
         &pending[0].decision_id,
         &pending[0].decision_text,
     );
@@ -428,7 +428,7 @@ fn every_line_offered_as_quotable_for_a_directly_captured_decision_is_accepted_a
         ]
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 // --- build_assessed_payload ---
@@ -538,10 +538,10 @@ fn minimal_decision_capture() -> CaptureItem {
 
 #[test]
 fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
-    let hivemind_dir = unique_test_dir("find-unscored");
+    let loomtracer_dir = unique_test_dir("find-unscored");
     let tenant_id = TenantId::local();
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
 
         let option_a = commands
@@ -585,7 +585,7 @@ fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
             .expect("record batch classified");
     }
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert_eq!(
         pending.len(),
         2,
@@ -619,7 +619,7 @@ fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
 
     // Assess the capture: it drops out of the next scan, the direct decision remains.
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let payload = build_assessed_payload(
             &capture_id,
@@ -632,7 +632,7 @@ fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
             .expect("record assessed capture");
     }
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert_eq!(
         pending.len(),
         1,
@@ -642,7 +642,7 @@ fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
 
     // Assess the direct decision too: nothing remains pending.
     {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let payload = build_assessed_payload(
             &direct_id,
@@ -655,21 +655,21 @@ fn find_unscored_decisions_includes_classified_and_direct_and_dedupes_v2() {
             .expect("record assessed direct decision");
     }
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert!(
         pending.is_empty(),
         "both decisions are assessed; nothing left to score"
     );
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 #[test]
 fn a_malformed_v2_row_does_not_count_as_an_assessment_so_the_decision_is_still_pending() {
-    let hivemind_dir = unique_test_dir("find-unscored-malformed");
+    let loomtracer_dir = unique_test_dir("find-unscored-malformed");
     let tenant_id = TenantId::local();
     let decision_id = {
-        let ledger = SqliteEventLedger::open(&hivemind_dir).expect("ledger opens");
+        let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
         let commands = Commands::new(&ledger);
         let option_a = commands
             .record_option("actor:test", "REST", "REST is simpler to operate")
@@ -725,7 +725,7 @@ fn a_malformed_v2_row_does_not_count_as_an_assessment_so_the_decision_is_still_p
         decision_id
     };
 
-    let pending = find_unscored_decisions(&hivemind_dir, &tenant_id).expect("scan succeeds");
+    let pending = find_unscored_decisions(&loomtracer_dir, &tenant_id).expect("scan succeeds");
     assert_eq!(
         pending.len(),
         1,
@@ -733,7 +733,7 @@ fn a_malformed_v2_row_does_not_count_as_an_assessment_so_the_decision_is_still_p
     );
     assert_eq!(pending[0].decision_id, decision_id);
 
-    let _ = std::fs::remove_dir_all(&hivemind_dir);
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
 // --- resolve_capture_node_id ---

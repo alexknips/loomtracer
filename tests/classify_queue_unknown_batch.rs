@@ -7,7 +7,7 @@
 //! was received, so sending it again is accepted as before.
 //! This spawns the real binary, as an agent does.
 //!
-//! hivemind-d6tya: over `HIVEMIND_API_URL` the same refusal arrives as the server's 404, and the
+//! hivemind-d6tya: over `LOOMTRACER_API_URL` the same refusal arrives as the server's 404, and the
 //! CLI used to exit 2 as "invalid command line input" for it. The help and both docs say exit 3,
 //! and an agent that branches on the code must see one answer whether it asked a ledger or a
 //! cell.
@@ -16,8 +16,8 @@
 //! 404 `unknown_tenant`, and the CLI reads it as the local ledger's storage refusal, exit 4. It
 //! must not read as the refused batch id above: every call fails for that one reason.
 //!
-//! hivemind-vx9ma: over `HIVEMIND_API_URL` the CLI sent no tenant and no actor, so a SQLite
-//! server answered for tenant `local` as `service:api` whatever `--tenant`, `HIVEMIND_TENANT` and
+//! hivemind-vx9ma: over `LOOMTRACER_API_URL` the CLI sent no tenant and no actor, so a SQLite
+//! server answered for tenant `local` as `service:api` whatever `--tenant`, `LOOMTRACER_TENANT` and
 //! `--actor` said, while a local ledger honours all three. `list` showed another tenant's queue
 //! and `submit` recorded under the wrong name. A token still decides both on the server.
 
@@ -28,42 +28,42 @@ use std::process::{Child, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use hivemind::commands::{CommandContext, Commands};
-use hivemind::events::{Event, EventProvenance, EventType, TenantId};
-use hivemind::ledger::{EventLedger, SqliteEventLedger, SqliteUserStore};
+use loomtracer::commands::{CommandContext, Commands};
+use loomtracer::events::{Event, EventProvenance, EventType, TenantId};
+use loomtracer::ledger::{EventLedger, SqliteEventLedger, SqliteUserStore};
 
 fn unique_dir(label: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
     dir.push(format!(
-        "hivemind-classify-queue-unknown-batch-{label}-{}",
+        "loomtracer-classify-queue-unknown-batch-{label}-{}",
         uuid::Uuid::new_v4()
     ));
     dir
 }
 
-/// `hivemind --hivemind-dir <dir> <args>` with no cell URL, no shared database, no
-/// `HIVEMIND_DIR` and the default daily cap, unless `envs` says otherwise.
-fn hivemind_with(dir: &Path, envs: &[(&str, &str)], args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hivemind"));
+/// `loomtracer --loomtracer-dir <dir> <args>` with no cell URL, no shared database, no
+/// `LOOMTRACER_DIR` and the default daily cap, unless `envs` says otherwise.
+fn loomtracer_with(dir: &Path, envs: &[(&str, &str)], args: &[&str]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loomtracer"));
     command
-        .env_remove("HIVEMIND_API_URL")
-        .env_remove("HIVEMIND_DATABASE_URL")
-        .env_remove("HIVEMIND_DIR")
-        .env_remove("HIVEMIND_CLASSIFY_DAILY_CAP");
+        .env_remove("LOOMTRACER_API_URL")
+        .env_remove("LOOMTRACER_DATABASE_URL")
+        .env_remove("LOOMTRACER_DIR")
+        .env_remove("LOOMTRACER_CLASSIFY_DAILY_CAP");
     for (key, value) in envs {
         command.env(key, value);
     }
     command
-        .arg("--hivemind-dir")
+        .arg("--loomtracer-dir")
         .arg(dir)
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()
-        .expect("run hivemind") // ubs:ignore: test-only; panicking is correct in tests
+        .expect("run loomtracer") // ubs:ignore: test-only; panicking is correct in tests
 }
 
-fn hivemind(dir: &Path, args: &[&str]) -> Output {
-    hivemind_with(dir, &[], args)
+fn loomtracer(dir: &Path, args: &[&str]) -> Output {
+    loomtracer_with(dir, &[], args)
 }
 
 fn stdout(output: &Output) -> String {
@@ -107,7 +107,7 @@ fn event_count(dir: &Path) -> usize {
 }
 
 fn pending_total(dir: &Path) -> u64 {
-    let listed = hivemind(dir, &["classify-queue", "list", "--json", "--limit", "1"]);
+    let listed = loomtracer(dir, &["classify-queue", "list", "--json", "--limit", "1"]);
     assert!(listed.status.success(), "{}", stderr(&listed));
     let queue: serde_json::Value =
         serde_json::from_str(&stdout(&listed)).expect("the queue is JSON"); // ubs:ignore: test-only; panicking is correct in tests
@@ -119,7 +119,7 @@ fn submit(dir: &Path, batch_ids: &str) -> Output {
 }
 
 fn submit_with(dir: &Path, envs: &[(&str, &str)], batch_ids: &str) -> Output {
-    hivemind_with(
+    loomtracer_with(
         dir,
         envs,
         &[
@@ -197,7 +197,7 @@ fn a_received_batch_is_classified_and_can_be_sent_again() {
 fn an_unknown_batch_is_not_answered_with_the_daily_cap() {
     let dir = unique_dir("cap");
     ledger_with_batches(&dir, &["session-x:0-1", "session-x:1-2"]);
-    let capped = [("HIVEMIND_CLASSIFY_DAILY_CAP", "1")];
+    let capped = [("LOOMTRACER_CLASSIFY_DAILY_CAP", "1")];
 
     let first = submit_with(&dir, &capped, "session-x:0-1");
     assert!(first.status.success(), "{}", stderr(&first));
@@ -223,7 +223,7 @@ fn an_unknown_batch_is_not_answered_with_the_daily_cap() {
 }
 
 // ---------------------------------------------------------------------------
-// Over HIVEMIND_API_URL (hivemind-d6tya)
+// Over LOOMTRACER_API_URL (hivemind-d6tya)
 // ---------------------------------------------------------------------------
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -247,7 +247,7 @@ fn strip_ansi(line: &str) -> String {
     out
 }
 
-/// A `hivemind serve --port 0` process on a ledger directory, killed when dropped.
+/// A `loomtracer serve --port 0` process on a ledger directory, killed when dropped.
 struct Served {
     child: Child,
     url: String,
@@ -255,20 +255,20 @@ struct Served {
 
 impl Served {
     fn start(dir: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_hivemind"))
-            .env_remove("HIVEMIND_API_KEY")
-            .env_remove("HIVEMIND_ADMIN_KEY")
-            .env_remove("HIVEMIND_DATABASE_URL")
-            .env_remove("HIVEMIND_BIND")
-            .env_remove("HIVEMIND_PORT")
+        let mut child = Command::new(env!("CARGO_BIN_EXE_loomtracer"))
+            .env_remove("LOOMTRACER_API_KEY")
+            .env_remove("LOOMTRACER_ADMIN_KEY")
+            .env_remove("LOOMTRACER_DATABASE_URL")
+            .env_remove("LOOMTRACER_BIND")
+            .env_remove("LOOMTRACER_PORT")
             .env_remove("WORKOS_DOMAIN")
-            .args(["-v", "--hivemind-dir"])
+            .args(["-v", "--loomtracer-dir"])
             .arg(dir)
             .args(["serve", "--port", "0"])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("spawn hivemind serve"); // ubs:ignore: test-only; panicking is correct in tests
+            .expect("spawn loomtracer serve"); // ubs:ignore: test-only; panicking is correct in tests
         let stderr = child.stderr.take().expect("piped stderr"); // ubs:ignore: test-only; panicking is correct in tests
         let (tx, lines) = mpsc::channel();
         std::thread::spawn(move || {
@@ -312,9 +312,9 @@ impl Drop for Served {
 }
 
 /// `classify-queue submit` the way an agent on a cell runs it: from a folder of its own that
-/// holds no ledger, with only `HIVEMIND_API_URL` pointing at the server.
+/// holds no ledger, with only `LOOMTRACER_API_URL` pointing at the server.
 fn submit_over(url: &str, own_dir: &Path, batch_ids: &str) -> Output {
-    submit_with(own_dir, &[("HIVEMIND_API_URL", url)], batch_ids)
+    submit_with(own_dir, &[("LOOMTRACER_API_URL", url)], batch_ids)
 }
 
 #[test]
@@ -411,7 +411,7 @@ fn over_a_cell_url_a_received_batch_is_still_classified() {
 }
 
 // ---------------------------------------------------------------------------
-// An unknown tenant over HIVEMIND_API_URL (hivemind-vf0iz)
+// An unknown tenant over LOOMTRACER_API_URL (hivemind-vf0iz)
 // ---------------------------------------------------------------------------
 
 const GHOST_TENANT: &str = "ghost";
@@ -427,17 +427,17 @@ fn token_for_unregistered_tenant(dir: &Path) -> String {
 }
 
 fn list_over(url: &str, token: &str, own_dir: &Path) -> Output {
-    hivemind_with(
+    loomtracer_with(
         own_dir,
-        &[("HIVEMIND_API_URL", url), ("HIVEMIND_API_KEY", token)],
+        &[("LOOMTRACER_API_URL", url), ("LOOMTRACER_API_KEY", token)],
         &["classify-queue", "list"],
     )
 }
 
 fn submit_over_as(url: &str, token: &str, own_dir: &Path, batch_ids: &str) -> Output {
-    hivemind_with(
+    loomtracer_with(
         own_dir,
-        &[("HIVEMIND_API_URL", url), ("HIVEMIND_API_KEY", token)],
+        &[("LOOMTRACER_API_URL", url), ("LOOMTRACER_API_KEY", token)],
         &[
             "classify-queue",
             "submit",
@@ -507,11 +507,11 @@ fn the_unknown_tenant_refusal_reads_the_same_over_a_cell_url_as_on_a_local_ledge
     let own_dir = unique_dir("own-tenant-same");
     let served = Served::start(&served_dir);
 
-    let local_list = hivemind(
+    let local_list = loomtracer(
         &local_dir,
         &["--tenant", GHOST_TENANT, "classify-queue", "list"],
     );
-    let local_submit = hivemind(
+    let local_submit = loomtracer(
         &local_dir,
         &[
             "--tenant",
@@ -567,7 +567,7 @@ fn over_a_cell_url_a_registered_tenants_token_still_gets_exit_3_for_an_unknown_b
     );
 }
 
-/// A server that is not HiveMind's answers 404 in its own words, not as the ledger's refusal:
+/// A server that is not Loomtracer's answers 404 in its own words, not as the ledger's refusal:
 /// that stays the generic failure, exit 2, not an invariant violation about a batch.
 #[test]
 fn a_404_that_is_not_the_servers_not_found_stays_a_failed_request() {
@@ -598,7 +598,7 @@ fn a_404_that_is_not_the_servers_not_found_stays_a_failed_request() {
 }
 
 // ---------------------------------------------------------------------------
-// --tenant and --actor over HIVEMIND_API_URL (hivemind-vx9ma)
+// --tenant and --actor over LOOMTRACER_API_URL (hivemind-vx9ma)
 // ---------------------------------------------------------------------------
 
 const ACME: &str = "acme";
@@ -620,12 +620,12 @@ fn ledger_with_a_batch_in_local_and_in_acme(dir: &Path) {
     ledger_with_batches_in(dir, &acme(), &[ACME_BATCH]);
 }
 
-/// `hivemind <args>` the way an agent on a cell runs it: from a folder of its own that holds no
-/// ledger, with `HIVEMIND_API_URL` (and whatever else `envs` adds) pointing at the server.
+/// `loomtracer <args>` the way an agent on a cell runs it: from a folder of its own that holds no
+/// ledger, with `LOOMTRACER_API_URL` (and whatever else `envs` adds) pointing at the server.
 fn over_cell(url: &str, own_dir: &Path, envs: &[(&str, &str)], args: &[&str]) -> Output {
-    let mut all_envs = vec![("HIVEMIND_API_URL", url)];
+    let mut all_envs = vec![("LOOMTRACER_API_URL", url)];
     all_envs.extend_from_slice(envs);
-    hivemind_with(own_dir, &all_envs, args)
+    loomtracer_with(own_dir, &all_envs, args)
 }
 
 /// The batch ids a `classify-queue list --json` answer holds.
@@ -684,7 +684,7 @@ fn over_a_cell_url_list_shows_the_queue_of_the_tenant_the_flag_names() {
 }
 
 #[test]
-fn over_a_cell_url_list_takes_the_tenant_from_hivemind_tenant_too() {
+fn over_a_cell_url_list_takes_the_tenant_from_loomtracer_tenant_too() {
     let served_dir = unique_dir("served-list-env-tenant");
     ledger_with_a_batch_in_local_and_in_acme(&served_dir);
     let own_dir = unique_dir("own-list-env-tenant");
@@ -693,7 +693,7 @@ fn over_a_cell_url_list_takes_the_tenant_from_hivemind_tenant_too() {
     let listed = over_cell(
         &served.url,
         &own_dir,
-        &[("HIVEMIND_TENANT", ACME)],
+        &[("LOOMTRACER_TENANT", ACME)],
         &["classify-queue", "list", "--json"],
     );
 
@@ -788,7 +788,7 @@ fn over_a_cell_url_a_token_decides_the_tenant_and_the_actor_not_the_flags() {
         .token_secret;
     let own_dir = unique_dir("own-token-wins");
     let served = Served::start(&served_dir);
-    let envs = [("HIVEMIND_API_KEY", token.as_str())];
+    let envs = [("LOOMTRACER_API_KEY", token.as_str())];
 
     let listed = over_cell(
         &served.url,
