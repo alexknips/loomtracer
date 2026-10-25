@@ -568,6 +568,55 @@ fn capture_decision_accepts_a_rationale_holding_a_utc_clock_time() {
 }
 
 #[test]
+fn capture_decision_accepts_a_rationale_holding_a_disk_size() {
+    // hivemind-fra8l: "30G", the "6G" of "24.6G" and "2T" read as citations into a chat list, so
+    // the deacon's and witnesses' disk notes were refused.
+    let dir = unique_dir("disk-size");
+    let config = McpConfig::new(&dir).with_session_id("disk-size-session");
+    let notes = [
+        "escalate only if the disk drops below 30G or Dolt latency goes over five seconds",
+        "Docker prune reclaimed 24.6G and the disk is healthy again",
+        "the data volume is 2T and stays that way",
+        "the cache is 512M and the pool is 30GB",
+    ];
+    let requests: Vec<String> = notes
+        .iter()
+        .zip(1..)
+        .map(|(note, id)| {
+            capture_with_rationale_note(
+                id,
+                &format!("Watch the disk {id}"),
+                note,
+                json!([{"kind": "bet"}]),
+            )
+        })
+        .collect();
+    let requests: Vec<&str> = requests.iter().map(String::as_str).collect();
+    let responses = drive(&config, &requests);
+    for (note, response) in notes.iter().zip(&responses) {
+        assert_eq!(
+            response["result"]["isError"],
+            Value::Bool(false),
+            "{note}: {response:?}"
+        );
+    }
+
+    // A citation into a chat list beside a size is still refused.
+    let refused = capture_with_rationale_note(
+        5,
+        "Watch the disk again",
+        "below 30G the verbatim 1a was the pick",
+        json!([{"kind": "bet"}]),
+    );
+    let responses = drive(&config, &[refused.as_str()]);
+    let result = &responses[0]["result"];
+    assert_eq!(result["isError"], Value::Bool(true), "{result:?}");
+    let text = result["content"][0]["text"].as_str().expect("error text");
+    assert!(text.contains("bare list item (\"1a\")"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn topic_keys_arg_reads_a_string_as_one_key_and_keeps_every_other_refusal() {
     let read = |value: Value, required: bool| {
         let args = json!({ "topic_keys": value });

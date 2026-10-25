@@ -1195,6 +1195,77 @@ fn propose_decision_accepts_a_rationale_holding_a_utc_clock_time() {
 }
 
 #[test]
+fn bare_list_reference_skips_a_disk_size() {
+    // hivemind-fra8l: "30G" and "2T" are quantities, not citations; "24.6G" was refused as "6G".
+    // 40 of the cell's real rationales (the deacon's and witnesses' disk notes) hold one.
+    for rationale in [
+        "Escalate only if the disk drops below 30G or Dolt latency goes over five seconds",
+        "Docker prune reclaimed 24.6G and the disk is back above 50G",
+        "Keep 20G free, and treat 4G or 1G of headroom as already too low",
+        "The volume grew from 25.1G to 2T over the quarter",
+        "The cache is 30g, 2t, 512M and 30GB",
+        "The pool holds 30G",
+    ] {
+        assert_eq!(
+            find_bare_list_reference(rationale),
+            None,
+            "a disk size must not read as a list citation: {rationale}"
+        );
+    }
+}
+
+#[test]
+fn bare_list_reference_still_finds_a_citation_beside_a_disk_size() {
+    for (rationale, citation) in [
+        ("Below 30G the verbatim 1a was the pick", "1a"),
+        ("We took 2c once Docker reclaimed 24.6G", "2c"),
+        ("Between 20G and 50G the notes say 1b won", "1b"),
+        ("With 2T free the notes say 2. a clearer one won", "2. a"),
+        // Only the units of a size are skipped: the letters either side of g and t still cite.
+        ("Option 3f was the pick on a 30G disk", "3f"),
+        ("Option 3 and then 4b on a 2T disk", "4b"),
+    ] {
+        assert_eq!(
+            find_bare_list_reference(rationale),
+            Some(citation.to_owned()),
+            "{rationale}"
+        );
+    }
+}
+
+#[test]
+fn propose_decision_accepts_a_rationale_holding_a_disk_size() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let option_id = commands
+        .record_option("actor:alice", "A", "Option A")
+        .expect("option a");
+
+    commands
+        .propose_decision(DecisionProposalInput {
+            project: None,
+            grounding: Grounding::NotAsked,
+            expressed_confidence: None,
+            actor_id: "actor:alice",
+            title: "Decision whose why names a disk size",
+            rationale: "Escalate only if the disk drops below 30G or Docker prune reclaimed 24.6G",
+            topic_keys: &["topic".to_owned()],
+            option_ids: std::slice::from_ref(&option_id),
+            option_labels: &["A".to_owned()],
+            chosen_option_id: None,
+            decided_by: None,
+            delegated_by: None,
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            quote: None,
+            question: None,
+            floor: FloorInput::NotAsked,
+        })
+        .expect("a disk size in the rationale is not a bare list item");
+}
+
+#[test]
 fn propose_decision_allows_a_list_shaped_rationale_when_quote_and_question_are_given() {
     let ledger = InMemoryEventLedger::new();
     let commands = Commands::new(&ledger);

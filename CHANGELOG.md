@@ -63,6 +63,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A rationale holding a disk size like `30G`, `24.6G` or `2T` is no longer refused as a "bare
+  list item".** The capture check for a reference into a chat list (`1a`, `2. a`) treated the
+  `G` of `30G` as a list letter, and read `24.6G` as `6G`, because a number followed by `k`, `m`,
+  `s`, `h`, `d`, `w`, `y` or `x` was a figure but one followed by `g` or `t` was not. A rationale
+  such as "escalate only if the disk drops below 30G" was refused on the CLI, the plugin's
+  `capture.sh` and MCP `capture_decision` (stdio and `POST /mcp`), and the agents that write disk
+  notes lost the number or the capture. A number followed by `g` or `t`, in either case, is now a
+  figure like `28k` and `167h`. 40 of the 2245 distinct rationales on the cell held one. `1a`,
+  `1b`, `2c` and `2. a` beside a size are still refused unless `quote` and `question` carry the
+  verbatim words. (hivemind-fra8l)
+
 - **`chain` answers for a decision that replaced several records, and names them.** `chain`
   (`get_supersession_chain`, `GET /v1/decisions/{id}/supersession-chain`) failed with exit 1 and
   `supersession chain branched at <id>: N candidates` whenever the decision a question led to had
