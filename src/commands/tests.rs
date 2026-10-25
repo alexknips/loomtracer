@@ -422,7 +422,8 @@ fn record_option_rejects_outline_and_unpunctuated_numbered_answers() {
 fn record_option_rejects_lettered_answers_and_bare_lists_that_include_one() {
     // hivemind-swrmr, mayor ruling B: a number with a letter is an answer number whatever the
     // list starts at, and a bare list of plain numbers that includes 1 is a list of answers; a
-    // list that skips an item is still a list.
+    // list that skips an item is still a list. hivemind-nf97m, mayor ruling B: the "NAME/"
+    // exemption for versions does not cover a number with a letter, so "item/1a" still counts.
     let ledger = InMemoryEventLedger::new();
     let commands = Commands::new(&ledger);
 
@@ -430,6 +431,8 @@ fn record_option_rejects_lettered_answers_and_bare_lists_that_include_one() {
         "answers 1a, 3a and 5a",
         "answers 2a, 3b and 4a",
         "answers 2a, 3 and 4a",
+        "item/1a item/2a item/3a",
+        "answers q/1a, q/2a and q/3a",
         "picked 1, 3 and 4",
         "picked 3, 1 and 4",
         "answers 1 and 3 and 4",
@@ -480,6 +483,38 @@ fn record_option_has_recorded_limits_on_versions_that_count_up_in_order() {
             commands
                 .record_option("actor:carol", label, "description")
                 .is_err(),
+            "label {label:?} is a recorded limit"
+        );
+    }
+}
+
+#[test]
+fn record_option_has_recorded_limits_on_bundles_that_read_as_versions() {
+    // hivemind-nf97m, mayor ruling B: known limits, kept here so they stay written down (doc
+    // comment on `bundles_numbered_answers`, CHANGELOG). The rule reads the shape of the numbers,
+    // not the words, so accepting "ship 1.1 and 1.2 now, 2.0 next quarter" and "serve HTTP/1.1
+    // and HTTP/2, not HTTP/3" also accepts these bundles, which the rule before it refused.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "answers 1.1, 1.2 and 2.0",
+        "answers 1.2, 1.1 and 2.1",
+        "answers q/1, q/2 and q/3",
+        "1.1 fix the bug 1.2 add tests 2.0 ship it",
+        "answers 1.0, 2.0 and 3.0",
+        "picked 1.0, 1.1 and 1.2",
+        "answers 1.2, 2.0 and 2.1",
+        "answers 1.1, 2.0, 2.1",
+        "answers q/1.1, q/1.2 and q/2.1",
+        "answers 1a, 2.0 and 3a",
+        "1. ship 2.0 wait 3. cancel",
+        "picked option/1, option/2 and option/3",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_ok(),
             "label {label:?} is a recorded limit"
         );
     }

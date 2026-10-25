@@ -72,12 +72,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   ending in `.0` (`2.0`, `1.0`) names a release, since an outline starts at `.1`; an outline
   number that does not come after the one before it (`1.2 and 1.3, drop 1.0 and 1.1`) is not
   counting up; and a version written straight after a name and a slash (`HTTP/1.1, HTTP/2,
-  HTTP/3`) belongs to the name. `answers 1.1, 1.2 and 2.1`, `go with 1.1, 1.3 and 2.2`, `alex
-  picked 1.2 / 2.1 / 3.3`, `1.1 fix the bug 1.2 add tests 1.3 ship it`, `answers 1a, 3a and 5a`,
-  `picked 1, 3 and 4` and a list that mixes plain and outline numbers (`1. ship 1.1 a 1.2 b 2.
-  wait`) are still refused. Known limits: versions that count up from 1.1 in order cannot be told
-  from outline numbers, so `enable TLS 1.1, 1.2 and 1.3`, `upgrade from 1.1 to 1.2, then 2.1` and
-  `support http 1.1, 2 and 3` are still read as a list of answers. (hivemind-nf97m)
+  HTTP/3`) belongs to the name, unless it has a letter: a number with a letter is an answer
+  number wherever it stands. `answers 1.1, 1.2 and 2.1`, `go with 1.1, 1.3 and 2.2`, `alex picked
+  1.2 / 2.1 / 3.3`, `1.1 fix the bug 1.2 add tests 1.3 ship it`, `answers 1a, 3a and 5a`, `item/1a
+  item/2a item/3a`, `picked 1, 3 and 4` and a list that mixes plain and outline numbers (`1. ship
+  1.1 a 1.2 b 2. wait`) are still refused. Known limits: versions that count up from 1.1 in order
+  cannot be told from outline numbers, so `enable TLS 1.1, 1.2 and 1.3`, `upgrade from 1.1 to 1.2,
+  then 2.1` and `support http 1.1, 2 and 3` are still read as a list of answers. The rule reads
+  the shape of the numbers, not the words, so letting the release plans above through also lets
+  through a few real bundles of the same shape, and they capture: `answers 1.1, 1.2 and 2.0`,
+  `answers 1.2, 1.1 and 2.1`, `answers q/1, q/2 and q/3` and `1.1 fix the bug 1.2 add tests 2.0
+  ship it`. So do `answers 1.0, 2.0 and 3.0`, `picked 1.0, 1.1 and 1.2`, `answers 1.2, 2.0 and
+  2.1`, `answers 1.1, 2.0, 2.1`, `answers q/1.1, q/1.2 and q/2.1`, `answers 1a, 2.0 and 3a`,
+  `1. ship 2.0 wait 3. cancel` and `picked option/1, option/2 and option/3`. (hivemind-nf97m)
 
 - **A decision drafted by passive capture is held to the option-label rules the capture verbs
   enforce.** The rules (a label over 80 characters, "chosen" in a label, a bucket such as "other

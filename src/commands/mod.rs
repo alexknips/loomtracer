@@ -4837,7 +4837,9 @@ fn option_label_problem(label: &str) -> Option<String> {
 /// outline number whose item part is 0 ("2.0", "1.0") names a release, since a numbered outline
 /// starts at .1; an outline number that does not come after the one before it ("require TLS 1.2
 /// and 1.3, drop 1.0 and 1.1") is not counting up; and a version written straight after a name
-/// and a slash ("HTTP/1.1 and HTTP/2 and HTTP/3") belongs to the name.
+/// and a slash ("HTTP/1.1 and HTTP/2 and HTTP/3") belongs to the name. A number with a letter is
+/// the exception to that last one: it is an answer number wherever it stands, so "item/1a item/2a
+/// item/3a" is refused.
 ///
 /// Known limits: a label that counts 1, 2, 3 in earnest ("keep 1, 2 and 3 replicas warm") or
 /// names a quantity with a one-letter unit ("keep 7d, 4w and 12m of logs") reads as a list of
@@ -4846,6 +4848,14 @@ fn option_label_problem(label: &str) -> Option<String> {
 /// count up from 1.1 in order cannot be told from outline numbers either, so "enable TLS 1.1, 1.2
 /// and 1.3", "upgrade from 1.1 to 1.2, then 2.1" and "support http 1.1, 2 and 3" read as lists of
 /// answers.
+///
+/// The rule reads the shape of the numbers, not the words around them, so letting a release plan
+/// through ("ship 1.1 and 1.2 now, 2.0 next quarter", "serve HTTP/1.1 and HTTP/2, not HTTP/3")
+/// lets through a few real bundles that have the same shape, and they capture: "answers 1.1, 1.2
+/// and 2.0", "answers 1.2, 1.1 and 2.1", "answers q/1, q/2 and q/3" and "1.1 fix the bug 1.2 add
+/// tests 2.0 ship it". So do "answers 1.0, 2.0 and 3.0", "picked 1.0, 1.1 and 1.2", "answers 1.2,
+/// 2.0 and 2.1", "answers 1.1, 2.0, 2.1", "answers q/1.1, q/1.2 and q/2.1", "answers 1a, 2.0 and
+/// 3a", "1. ship 2.0 wait 3. cancel" and "picked option/1, option/2 and option/3".
 fn bundles_numbered_answers(lower_label: &str) -> bool {
     let tokens = tokens_with_separators(lower_label);
     let mut part_of_number = vec![false; tokens.len()];
@@ -4932,8 +4942,10 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
         }
         last_top_level = top_level;
 
-        // The list moves on past a version, but a version is not one of its items.
-        let after_a_name = *separator == "/"
+        // The list moves on past a version, but a version is not one of its items. A number with
+        // a letter is an answer number wherever it stands, so "item/1a" is not a version.
+        let after_a_name = !is_lettered
+            && *separator == "/"
             && i.checked_sub(1)
                 .and_then(|previous| tokens.get(previous))
                 .is_some_and(|(_, name)| name.ends_with(|c: char| c.is_ascii_alphabetic()));
