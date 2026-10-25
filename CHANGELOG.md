@@ -86,6 +86,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   2.1`, `answers 1.1, 2.0, 2.1`, `answers q/1.1, q/1.2 and q/2.1`, `answers 1a, 2.0 and 3a`,
   `1. ship 2.0 wait 3. cancel` and `picked option/1, option/2 and option/3`. (hivemind-nf97m)
 
+- **An option that packs answers into one label with slashes ("answers 1a/2/3a") is refused again.**
+  The version exemption read a lettered answer number before the slash as a name, so in
+  `answers 1a/2/3a` the `2` counted as a version of "1a" and the label captured as one option,
+  on `capture_decision` (stdio and `POST /mcp`), `emit decision.capture`, `capture.sh`,
+  `supersede` and a classified batch. A number with a letter is an answer number on either side of
+  a slash: `answers 1a/2/3a`, `alex answered 1a/2/3b`, `picked 1a/2.1/3a`, `answers 2a/3/4a`,
+  `answers 1a/2/3a/4`, `go with 1b/2/3a` and `1a/2/3a: keep, wait, cancel` are refused, and
+  versions after a real name (`HTTP/1.1, HTTP/2, HTTP/3`) still capture. (hivemind-nwdya)
+
 - **`why`, `verify`, `chain` and `compact-view` by description answer with the decision that
   stands when every record the words matched was replaced by it.** A question that matched an
   early draft, or a decision that was reworded and then replaced, listed the drafts and the

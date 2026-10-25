@@ -4839,7 +4839,8 @@ fn option_label_problem(label: &str) -> Option<String> {
 /// and 1.3, drop 1.0 and 1.1") is not counting up; and a version written straight after a name
 /// and a slash ("HTTP/1.1 and HTTP/2 and HTTP/3") belongs to the name. A number with a letter is
 /// the exception to that last one: it is an answer number wherever it stands, so "item/1a item/2a
-/// item/3a" is refused.
+/// item/3a" is refused. It is also never the name: after "1a/" the next number is the next answer,
+/// so "answers 1a/2/3a" and "go with 1b/2/3a" are refused.
 ///
 /// Known limits: a label that counts 1, 2, 3 in earnest ("keep 1, 2 and 3 replicas warm") or
 /// names a quantity with a one-letter unit ("keep 7d, 4w and 12m of logs") reads as a list of
@@ -4943,12 +4944,16 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
         last_top_level = top_level;
 
         // The list moves on past a version, but a version is not one of its items. A number with
-        // a letter is an answer number wherever it stands, so "item/1a" is not a version.
+        // a letter is an answer number wherever it stands, so "item/1a" is not a version, and a
+        // lettered answer number before the slash is not a name, so "1a/2/3a" is a list.
         let after_a_name = !is_lettered
             && *separator == "/"
             && i.checked_sub(1)
                 .and_then(|previous| tokens.get(previous))
-                .is_some_and(|(_, name)| name.ends_with(|c: char| c.is_ascii_alphabetic()));
+                .is_some_and(|(_, name)| {
+                    name.ends_with(|c: char| c.is_ascii_alphabetic())
+                        && !is_numbered_answer_token(name)
+                });
         if after_a_name {
             continue;
         }

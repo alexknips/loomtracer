@@ -419,6 +419,38 @@ fn record_option_rejects_outline_and_unpunctuated_numbered_answers() {
 }
 
 #[test]
+fn record_option_rejects_answers_written_with_slashes_after_a_lettered_number() {
+    // hivemind-nwdya: "1a" before a slash is an answer number, not the name of a version, so the
+    // number after it is the next answer. nf97m let "answers 1a/2/3a" through by reading "1a" as
+    // a name and "2" as its version.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "answers 1a/2/3a",
+        "alex answered 1a/2/3b",
+        "picked 1a/2.1/3a",
+        "answers 2a/3/4a",
+        "answers 1a/2/3a/4",
+        "go with 1b/2/3a",
+        "1a/2/3a: keep, wait, cancel",
+        "alex's answers 1a/2/3a, common parent",
+        "answers 1/2a/3",
+        "answers 1a / 2 / 3a",
+        "answers 1a/2a/3a",
+        "answers 1a, 2 and 3a",
+        "answers 1a-2-3a",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_err(),
+            "label {label:?} bundles numbered answers"
+        );
+    }
+}
+
+#[test]
 fn record_option_rejects_lettered_answers_and_bare_lists_that_include_one() {
     // hivemind-swrmr, mayor ruling B: a number with a letter is an answer number whatever the
     // list starts at, and a bare list of plain numbers that includes 1 is a list of answers; a
