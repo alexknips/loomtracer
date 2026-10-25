@@ -230,10 +230,10 @@ const QUERY_SPECS: &[QuerySpec] = &[
         expectation: QueryExpectation::Error,
     },
     QuerySpec {
-        name: "get_supersession_chain_branch_error",
-        snapshot_file: "get_supersession_chain_branch_error.json",
+        name: "get_supersession_chain_branch",
+        snapshot_file: "get_supersession_chain_branch.json",
         args: &["query", "get_supersession_chain", "--id", "decision-016"],
-        expectation: QueryExpectation::Error,
+        expectation: QueryExpectation::Success,
     },
     // The seed predates projects, so every decision projects to its recorder's personal
     // project (`actor:planner` -> `personal:actor:planner`).

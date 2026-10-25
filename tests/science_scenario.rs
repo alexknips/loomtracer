@@ -121,10 +121,10 @@ fn gw150914_scenario_tracks_uncertainty_to_publication_decision() -> TestResult<
     assert_eq!(provisional.status, DecisionStatus::Superseded);
     let chain = get_supersession_chain(&graph, D_PROVISIONAL_BBH)?;
     assert_eq!(
-        chain.data.decision_ids,
+        chain.data.chain.decision_ids,
         vec![D_PROVISIONAL_BBH.to_owned(), D_PUBLISH.to_owned()]
     );
-    assert_eq!(chain.data.input_index, 0);
+    assert_eq!(chain.data.chain.input_index, 0);
 
     let neighborhood = get_decision_neighborhood(&graph, D_PUBLISH, &NeighborhoodRequest::all())?;
     assert_edge(

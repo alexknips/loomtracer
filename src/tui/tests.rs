@@ -180,3 +180,50 @@ fn results_and_the_open_decision_say_whether_a_premise_was_looked_at_again() {
         Some(ReexamineStatus::Reaffirmed)
     );
 }
+
+#[test]
+fn moving_toward_a_fork_in_the_supersession_line_says_so_instead_of_finding_nothing() {
+    use crate::queries::test_fixtures::Scenario;
+
+    let scenario = Scenario::new();
+    for (id, title) in [
+        ("d:a", "Draft plan"),
+        ("d:b", "Plan for the demo"),
+        ("d:merged", "One plan"),
+    ] {
+        scenario
+            .decision(id, title, "agent:scribe", "2026-01-01T00:00:00Z")
+            .expect("proposed");
+    }
+    for old in ["d:a", "d:b"] {
+        scenario
+            .supersede(old, "d:merged", "agent:scribe", "2026-01-02T00:00:00Z")
+            .expect("superseded");
+    }
+    let graph = scenario.graph().expect("graph");
+    let mut app = DecisionSearchApp::new(TuiConfig {
+        query: None,
+        topic_keys: Vec::new(),
+        statuses: Vec::new(),
+        actor_ids: Vec::new(),
+        sources: Vec::new(),
+        limit: 25,
+        dot_output: PathBuf::from("out.dot"),
+    });
+    app.open_decision_id(&graph, "d:merged", false);
+
+    // Two decisions lie that way: no single one to open, and the fork is shown.
+    app.open_supersession_neighbor(&graph, SupersessionDirection::Older);
+    assert_eq!(app.current_decision_id(), Some("d:merged"));
+    let shown = app.error_message.clone().unwrap_or_default();
+    assert!(shown.contains("d:merged supersedes 2 decisions"), "{shown}");
+
+    // Nothing lies the other way, which is not a fork.
+    app.error_message = None;
+    app.open_supersession_neighbor(&graph, SupersessionDirection::Newer);
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some("No newer superseding decision")
+    );
+    assert!(app.error_message.is_none());
+}

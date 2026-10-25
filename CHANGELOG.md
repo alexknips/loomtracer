@@ -63,6 +63,20 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`chain` answers for a decision that replaced several records, and names them.** `chain`
+  (`get_supersession_chain`, `GET /v1/decisions/{id}/supersession-chain`) failed with exit 1 and
+  `supersession chain branched at <id>: N candidates` whenever the decision a question led to had
+  replaced more than one record, which is where `why`, `verify` and `compact-view` now land
+  (hivemind-am6rp). The error named neither the chain nor the records. It now answers, with the
+  line to that decision as before and, beside it, `forks`: `[{at, side, candidates: [{decision_id,
+  title}]}]`, one entry per side where the line stopped, the older side first, each candidate
+  with its title (`side: older` lists the records `at` replaced; `side: newer` lists the decisions
+  that each replaced `at`, so no single one is current). `--summary` adds a `BRANCHED:` line and
+  one `  <id><TAB><title>` line per candidate. A line that runs straight answers exactly as
+  before, with no `forks` key. The line still ends at the fork and does not follow the records
+  past it; name one of them with `--id` to see its chain. In the terminal browser, `[` and `]`
+  at a fork show the fork instead of "No older superseded decision". (hivemind-n217f)
+
 - **An option that names versions counting up from 1.x ("ship 1.1 and 1.2 now, 2.0 next quarter",
   "require TLS 1.2 and 1.3, drop 1.0 and 1.1") is no longer refused as "bundles multiple numbered
   answers".** Since the outline-number fix below, `1.1, 1.2, 2.0` read as outline numbers
@@ -110,10 +124,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   keeps today's behaviour: its records are listed as replaced. Words that match one replaced
   record alone still answer with that record, saying it was replaced. A verb that writes
   (`disagree`, `supersede`, `ground`, ...) is unchanged: it never acts on a decision for the words
-  of a record that decision replaced. `chain` by description reaches the same decision, and
-  `chain` takes only a linear chain: a decision that replaced several records is reported as
-  branched (`supersession chain branched at <id>: N candidates`), as it is when named by id, where
-  it used to list the records; name one of them with `--id` to see its chain. (hivemind-am6rp)
+  of a record that decision replaced. `chain` by description reaches the same decision.
+  (hivemind-am6rp)
 
 - **A rationale holding a UTC clock time like `09:04Z` is no longer refused as a "bare list
   item".** The capture check for a reference into a chat list (`1a`, `2. a`) read the `04Z` of

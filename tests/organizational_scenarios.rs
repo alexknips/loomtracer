@@ -227,7 +227,7 @@ fn organizational_queries_surface_contested_rejected_and_superseded_paths() -> T
             );
             let chain = get_supersession_chain(&graph, decision_id)?;
             assert_eq!(
-                chain.data.decision_ids,
+                chain.data.chain.decision_ids,
                 scenario
                     .supersession_chain
                     .iter()

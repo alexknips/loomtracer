@@ -141,13 +141,17 @@ fn derives_all_decision_status_cases() -> Result<()> {
 
 /// A decision proposed by `proposer` with nothing else on it.
 fn proposed_event(sequence: u128, decision_id: &str, proposer: &str) -> Event {
+    titled_proposed_event(sequence, decision_id, decision_id, proposer)
+}
+
+fn titled_proposed_event(sequence: u128, decision_id: &str, title: &str, proposer: &str) -> Event {
     test_event(
         sequence,
         EventType::DecisionProposed,
         proposer,
         json!({
             "decision_id": decision_id,
-            "title": decision_id,
+            "title": title,
             "rationale": "Standings fixture",
             "topic_keys": ["standings"],
             "option_ids": [],
@@ -5103,10 +5107,11 @@ fn get_supersession_chain_walks_both_directions() -> Result<()> {
 
     let chain = get_supersession_chain(&graph, "d2")?;
     assert_eq!(
-        chain.data.decision_ids,
+        chain.data.chain.decision_ids,
         vec!["d1".to_owned(), "d2".to_owned(), "d3".to_owned()]
     );
-    assert_eq!(chain.data.input_index, 1);
+    assert_eq!(chain.data.chain.input_index, 1);
+    assert!(chain.data.forks.is_empty());
     Ok(())
 }
 
@@ -5427,6 +5432,21 @@ fn fork(at: &str, side: SupersessionSide, candidates: &[&str]) -> SupersessionFo
     }
 }
 
+/// A fork whose candidates are titled with their own ids, as `proposed_event` titles them.
+fn named_fork(at: &str, side: SupersessionSide, candidates: &[&str]) -> NamedSupersessionFork {
+    NamedSupersessionFork {
+        at: at.to_owned(),
+        side,
+        candidates: candidates
+            .iter()
+            .map(|id| ForkCandidate {
+                decision_id: (*id).to_owned(),
+                title: (*id).to_owned(),
+            })
+            .collect(),
+    }
+}
+
 #[test]
 fn compact_view_of_a_decision_two_others_superseded_says_no_single_terminal_exists() -> Result<()> {
     // d:w was superseded by d:x, which d:a and d:b then each superseded.
@@ -5446,10 +5466,17 @@ fn compact_view_of_a_decision_two_others_superseded_says_no_single_terminal_exis
     assert_eq!(line.chain.input_index, 0);
     assert_eq!(line.forks, vec![expected.clone()]);
 
-    let error = get_supersession_chain(&graph, "d:w").expect_err("a branched chain is not a chain");
-    assert!(
-        format!("{error}").contains("supersession chain branched at d:x: 2 candidates"),
-        "the strict chain still says where it branches: {error}"
+    // `chain` answers with the line to the fork and names the decisions past it: nothing is
+    // picked as current, and it is no failure.
+    let answer = get_supersession_chain(&graph, "d:w")?;
+    assert_eq!(answer.data.chain, line.chain);
+    assert_eq!(
+        answer.data.forks,
+        vec![named_fork("d:x", SupersessionSide::Newer, &["d:a", "d:b"])]
+    );
+    assert_eq!(
+        answer.data.forks[0].note(),
+        "d:x is superseded by 2 decisions, so no single decision is current"
     );
 
     // From the fork itself and from anything older in its chain, the view ends at the fork:
@@ -5485,8 +5512,13 @@ fn compact_view_of_a_decision_that_superseded_two_lists_both() -> Result<()> {
     let line = walk_supersession(&graph, "d:x")?.data;
     assert_eq!(line.chain.decision_ids, vec!["d:x"]);
     assert_eq!(line.forks, vec![expected.clone()]);
-    let error = get_supersession_chain(&graph, "d:x").expect_err("a branched chain is not a chain");
-    assert!(format!("{error}").contains("supersession chain branched at d:x: 2 candidates"));
+    let answer = get_supersession_chain(&graph, "d:x")?;
+    assert_eq!(answer.data.chain, line.chain);
+    assert_eq!(
+        answer.data.forks,
+        vec![named_fork("d:x", SupersessionSide::Older, &["d:y", "d:z"])]
+    );
+    assert_eq!(answer.result_count, 3, "the line and the two it names");
 
     let view = get_compact_view(&graph, "d:x")?
         .data
@@ -5503,6 +5535,65 @@ fn compact_view_of_a_decision_that_superseded_two_lists_both() -> Result<()> {
         view.elided.superseded_decision_count, 2,
         "both decisions it superseded are counted as elided"
     );
+    Ok(())
+}
+
+/// hivemind-n217f: a decision that replaced several records is where `chain` ends for a question
+/// that leads to it, and it answers with the records by title instead of failing.
+#[test]
+fn chain_of_a_decision_that_replaced_several_names_each_by_title() -> Result<()> {
+    // d:merged replaced d:b and d:c; d:a replaced d:b, so d:merged is also the newer end of d:a.
+    let graph = graph_from_events([
+        titled_proposed_event(1, "d:a", "Draft plan", "agent:scribe"),
+        titled_proposed_event(2, "d:b", "Plan v2", "agent:scribe"),
+        titled_proposed_event(3, "d:c", "Plan for the demo", "agent:scribe"),
+        titled_proposed_event(4, "d:merged", "One plan", "agent:scribe"),
+        superseded_event(5, "d:a", "d:b"),
+        superseded_event(6, "d:b", "d:merged"),
+        superseded_event(7, "d:c", "d:merged"),
+    ])?;
+
+    let answer = get_supersession_chain(&graph, "d:merged")?;
+    assert_eq!(answer.data.chain.decision_ids, vec!["d:merged"]);
+    assert_eq!(answer.data.chain.input_index, 0);
+    assert_eq!(
+        answer.data.forks,
+        vec![NamedSupersessionFork {
+            at: "d:merged".to_owned(),
+            side: SupersessionSide::Older,
+            candidates: vec![
+                ForkCandidate {
+                    decision_id: "d:b".to_owned(),
+                    title: "Plan v2".to_owned(),
+                },
+                ForkCandidate {
+                    decision_id: "d:c".to_owned(),
+                    title: "Plan for the demo".to_owned(),
+                },
+            ],
+        }]
+    );
+    assert_eq!(
+        answer.data.forks[0].note(),
+        "d:merged supersedes 2 decisions"
+    );
+    let json = serde_json::to_value(&answer.data).map_err(|e| query_error(e.to_string()))?;
+    assert_eq!(json["forks"][0]["side"], "older");
+    assert_eq!(
+        json["forks"][0]["candidates"][1]["title"],
+        "Plan for the demo"
+    );
+    assert_eq!(json["decision_ids"], json!(["d:merged"]));
+
+    // From a record on one branch the line runs on to the merge: it follows the single
+    // replacement on each step, and does not turn back into the merge's other branch.
+    let from_a = get_supersession_chain(&graph, "d:a")?;
+    assert_eq!(
+        from_a.data.chain.decision_ids,
+        vec!["d:a", "d:b", "d:merged"]
+    );
+    assert_eq!(from_a.data.chain.input_index, 0);
+    assert!(from_a.data.forks.is_empty());
     Ok(())
 }
 
@@ -5527,9 +5618,16 @@ fn a_pair_superseded_twice_is_one_step_not_a_branch() -> Result<()> {
     );
 
     let chain = get_supersession_chain(&graph, "d:old")?.data;
-    assert_eq!(chain.decision_ids, vec!["d:old", "d:new"]);
-    assert_eq!(chain.input_index, 0);
+    assert_eq!(chain.chain.decision_ids, vec!["d:old", "d:new"]);
+    assert_eq!(chain.chain.input_index, 0);
+    assert!(chain.forks.is_empty());
     assert!(walk_supersession(&graph, "d:old")?.data.forks.is_empty());
+    let json = serde_json::to_value(&chain).map_err(|e| query_error(e.to_string()))?;
+    assert_eq!(
+        json,
+        json!({"decision_ids": ["d:old", "d:new"], "input_index": 0}),
+        "a straight line answers as the chain alone"
+    );
 
     let view = get_compact_view(&graph, "d:old")?
         .data

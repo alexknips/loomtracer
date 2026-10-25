@@ -857,6 +857,143 @@ async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replace
     Ok(())
 }
 
+/// hivemind-n217f: `chain` for a decision that replaced several records answers, through every
+/// surface, with the line to that decision and each replaced record by title. Before, it failed
+/// with `supersession chain branched at <id>: N candidates`, naming neither the chain nor the
+/// records.
+#[tokio::test]
+async fn chain_of_a_decision_that_replaced_several_records_names_each_through_every_surface(
+) -> TestResult<()> {
+    let dir = unique_temp_dir("read-surface-parity-chain-merge");
+    let path = dir.to_str().ok_or("the ledger path is utf-8")?;
+    let waits_for_beta = propose_decision(
+        path,
+        "Launch waits for the beta",
+        "Nothing is announced before the beta has run",
+        "launch",
+    )?;
+    let waits_for_pricing = propose_decision(
+        path,
+        "Launch waits for the pricing page",
+        "Nobody signs up before the price is public",
+        "launch",
+    )?;
+    let merged = propose_decision(
+        path,
+        "Launch happens before the beta",
+        "The announcement brings the first beta testers",
+        "launch",
+    )?;
+    for old in [&waits_for_beta, &waits_for_pricing] {
+        run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            "human:alice",
+            "--loomtracer-dir",
+            path,
+            "emit",
+            "decision.superseded",
+            "--old",
+            old,
+            "--new",
+            &merged,
+        ]))?;
+    }
+    let mut mcp = McpServer::start(&dir)?;
+    let question = "launch";
+
+    let cli = without_latency(via_cli(&dir, "chain", question)?);
+    let data = &cli["data"];
+    assert_eq!(data["decision_ids"], json!([merged]), "{cli}");
+    assert_eq!(data["input_index"], 0, "{cli}");
+    let forks = data["forks"]
+        .as_array()
+        .ok_or_else(|| format!("the answer names the records it replaced: {cli}"))?;
+    assert_eq!(forks.len(), 1, "{cli}");
+    assert_eq!(forks[0]["at"], merged.as_str(), "{cli}");
+    assert_eq!(forks[0]["side"], "older", "{cli}");
+    let mut named: Vec<(&str, &str)> = forks[0]["candidates"]
+        .as_array()
+        .ok_or("a fork has candidates")?
+        .iter()
+        .map(|candidate| {
+            Ok((
+                candidate["decision_id"]
+                    .as_str()
+                    .ok_or("a candidate has an id")?,
+                candidate["title"]
+                    .as_str()
+                    .ok_or("a candidate has a title")?,
+            ))
+        })
+        .collect::<TestResult<_>>()?;
+    named.sort_unstable();
+    let mut expected = vec![
+        (waits_for_beta.as_str(), "Launch waits for the beta"),
+        (
+            waits_for_pricing.as_str(),
+            "Launch waits for the pricing page",
+        ),
+    ];
+    expected.sort_unstable();
+    assert_eq!(named, expected, "{cli}");
+
+    let from_mcp = without_latency(mcp.call("get_supersession_chain", question)?);
+    assert_eq!(from_mcp, cli, "the MCP reply differs");
+
+    // Named by id, as a follow-up on the id the answer gave.
+    let by_id = without_latency(serde_json::from_str(&run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        path,
+        "query",
+        "chain",
+        "--id",
+        &merged,
+    ]))?)?);
+    assert_eq!(by_id["data"], cli["data"], "chain --id differs");
+    let response = app(&dir)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/decisions/{merged}/supersession-chain"))
+                .header("x-loomtracer-actor", "agent:test:parity")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await?.to_bytes();
+    let http: Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(http["data"], cli["data"], "the HTTP reply differs");
+
+    let summary = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        path,
+        "query",
+        "chain",
+        question,
+        "--summary",
+    ]))?;
+    assert!(
+        summary
+            .lines()
+            .any(|line| line == format!("BRANCHED: {merged} supersedes 2 decisions")),
+        "{summary}"
+    );
+    for (id, title) in &expected {
+        assert!(
+            summary
+                .lines()
+                .any(|line| line == format!("  {id}\t{title}")),
+            "no line names {id} by title: {summary}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
 /// One decision proposed on the ledger at `path`, its id.
 fn propose_decision(path: &str, title: &str, rationale: &str, topic: &str) -> TestResult<String> {
     let id = run(&Cli::parse_from([

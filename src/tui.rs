@@ -26,7 +26,7 @@ use crate::queries::{
     get_supersession_chain, search_decisions, CompactView, DecisionSearchResult, DecisionStatus,
     DecisionView, GroundingState, HypothesisContext, HypothesisStatus, NeighborNode,
     NeighborhoodRequest, NeighborhoodView, ReexamineEntry, ReexamineMarker, ReexamineStatus,
-    SearchDecisionRequest,
+    SearchDecisionRequest, SupersessionSide,
 };
 use crate::summarize::{summarize_decisions, SummarizeMode, SummarizeRequest};
 use crate::Result;
@@ -467,7 +467,7 @@ impl DecisionSearchApp {
         let Some(current) = self.current_decision_id().map(str::to_owned) else {
             return;
         };
-        let chain = match get_supersession_chain(graph, &current) {
+        let view = match get_supersession_chain(graph, &current) {
             Ok(response) => response.data,
             Err(error) => {
                 self.error_message = Some(error.to_string());
@@ -475,6 +475,7 @@ impl DecisionSearchApp {
                 return;
             }
         };
+        let chain = &view.chain;
         let target_index = match direction {
             SupersessionDirection::Older => chain.input_index.checked_sub(1),
             SupersessionDirection::Newer => {
@@ -483,6 +484,21 @@ impl DecisionSearchApp {
             }
         };
         let Some(target_index) = target_index else {
+            // The line stops at a fork: no single decision lies that way, which is not the same
+            // as nothing lying that way.
+            let side = match direction {
+                SupersessionDirection::Older => SupersessionSide::Older,
+                SupersessionDirection::Newer => SupersessionSide::Newer,
+            };
+            if let Some(fork) = view
+                .forks
+                .iter()
+                .find(|fork| fork.side == side && fork.at == current)
+            {
+                self.error_message = Some(format!("supersession chain branched: {}", fork.note()));
+                self.status_message = Some("Supersession chain branches here".to_owned());
+                return;
+            }
             self.status_message = Some(match direction {
                 SupersessionDirection::Older => "No older superseded decision".to_owned(),
                 SupersessionDirection::Newer => "No newer superseding decision".to_owned(),

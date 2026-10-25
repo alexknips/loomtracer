@@ -1,0 +1,27 @@
+{
+  "data": {
+    "decision_ids": [
+      "decision-016"
+    ],
+    "forks": [
+      {
+        "at": "decision-016",
+        "candidates": [
+          {
+            "decision_id": "decision-018",
+            "title": "Seed decision 018"
+          },
+          {
+            "decision_id": "decision-019",
+            "title": "Seed decision 019"
+          }
+        ],
+        "side": "newer"
+      }
+    ],
+    "input_index": 0
+  },
+  "latency_ms": 0,
+  "result_count": 3,
+  "truncated": false
+}

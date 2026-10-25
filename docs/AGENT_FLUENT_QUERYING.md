@@ -477,11 +477,13 @@ did. Candidates that fold to two heads or more stay `Ambiguous` and list the hea
 with the records it absorbed in `resolved_via`. A chain that branches (a decision replaced
 by two decisions) or loops has no single head: its records stay listed as replaced, each
 naming `superseded_by`. A question that already resolves keeps its answer: words that match
-one replaced record alone answer with that record, saying it was replaced. `chain` takes
-only a linear chain, so when the head replaced several records it reports the branch
-(`supersession chain branched at <id>`), exactly as it does for that head named by id; name one
-of the records with `--id` to see its chain. A verb that writes does not fold: it never acts on a decision for
-the words of a record that decision replaced, and `--id` names exactly the record given.
+one replaced record alone answer with that record, saying it was replaced. When the head
+replaced several records, `chain` answers with the line to the head and `forks`, the branch
+by title (`{at, side, candidates: [{decision_id, title}]}`; a `BRANCHED:` line and one line per
+record in `--summary`), exactly as it does for that head named by id; the line does not follow
+the records past the fork, so name one of them with `--id` to see its chain. A verb that writes
+does not fold: it never acts on a decision for the words of a record that decision replaced, and
+`--id` names exactly the record given.
 
 **`recall` asks the same way.** `recall_decisions` (Layer 3) drops the question
 words ("what did we decide about projects" searches for `projects`) before it

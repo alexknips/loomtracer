@@ -36,8 +36,8 @@ use crate::queries::{
     ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind, ReaffirmedPremise,
     RecentActivityResults, RecentDecisionsResults, ReexamineEntry, ReexamineMarker,
     ReexamineStatus, RelevantDecision, ResolveOutcome, ResolvedCandidate, ReviewShape,
-    SituationalResults, StillHolds, SupersessionChain, TimelineEntry, TimelineFact, TitleChange,
-    UpstreamPremise, WaitingRequestsResults, POLARITY_REASON,
+    SituationalResults, StillHolds, SupersessionChainView, TimelineEntry, TimelineFact,
+    TitleChange, UpstreamPremise, WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
 use crate::{LoomtracerError, Result};
@@ -907,7 +907,8 @@ pub(crate) fn render_misfiled_scan_summary(candidates: &[MisfiledDecisionCandida
     output.trim_end().to_owned()
 }
 
-pub(crate) fn render_supersession_summary(chain: &SupersessionChain) -> String {
+pub(crate) fn render_supersession_summary(view: &SupersessionChainView) -> String {
+    let chain = &view.chain;
     if chain.decision_ids.is_empty() {
         return "No supersession chain found".to_owned();
     }
@@ -920,6 +921,18 @@ pub(crate) fn render_supersession_summary(chain: &SupersessionChain) -> String {
             "chain"
         };
         let _ = writeln!(output, "{marker}\t{index}\t{decision_id}");
+    }
+    // The line stops at a fork; the decisions on the far side follow, each with its title.
+    for fork in &view.forks {
+        let _ = writeln!(output, "BRANCHED: {}", fork.note());
+        for candidate in &fork.candidates {
+            let _ = writeln!(
+                output,
+                "  {}\t{}",
+                candidate.decision_id,
+                summary_cell(&candidate.title)
+            );
+        }
     }
     output.trim_end().to_owned()
 }

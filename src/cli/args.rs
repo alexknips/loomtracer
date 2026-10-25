@@ -2334,7 +2334,9 @@ pub enum QueryCommand {
     #[command(name = "get_relevant_decisions")]
     GetRelevantDecisions(QueryRelevantDecisionsArgs),
     /// The chain of replacements a decision sits in, oldest first: what it superseded and what
-    /// superseded it. Friendlier alias: `chain`.
+    /// superseded it. Where it forks (a decision that replaced several records, or one that
+    /// several decisions replaced) the line stops and `forks` names those decisions by title.
+    /// Friendlier alias: `chain`.
     #[command(name = "get_supersession_chain", alias = "chain")]
     GetSupersessionChain(QueryFluentDecisionArgs),
     /// "Why was this decided?" — the decision's title, rationale, chosen and rejected options,

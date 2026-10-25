@@ -7,6 +7,7 @@ use serde::Serialize;
 use crate::projector::{GraphParams, GraphValue, GraphView, RelationKind};
 use crate::{LoomtracerError, Result};
 
+use super::decision::get_decision_title;
 use super::follows_from::decision_path;
 use super::shared::{query_error, query_timer_start, required_string};
 use super::QueryResponse;
@@ -42,19 +43,57 @@ impl SupersessionFork {
     /// get their wording, so they cannot disagree.
     pub fn note(&self) -> String {
         let candidates = self.candidates.join(", ");
-        match self.side {
-            SupersessionSide::Older => format!(
-                "{} supersedes {} decisions ({candidates})",
-                self.at,
-                self.candidates.len()
-            ),
-            SupersessionSide::Newer => format!(
-                "{} is superseded by {} decisions ({candidates}), so no single decision is current",
-                self.at,
-                self.candidates.len()
-            ),
-        }
+        fork_note(
+            &self.at,
+            self.side,
+            self.candidates.len(),
+            Some(&candidates),
+        )
     }
+}
+
+fn fork_note(at: &str, side: SupersessionSide, count: usize, listed: Option<&str>) -> String {
+    let listed = listed.map_or_else(String::new, |listed| format!(" ({listed})"));
+    match side {
+        SupersessionSide::Older => format!("{at} supersedes {count} decisions{listed}"),
+        SupersessionSide::Newer => format!(
+            "{at} is superseded by {count} decisions{listed}, so no single decision is current"
+        ),
+    }
+}
+
+/// A decision on the far side of a fork, with the title a person knows it by.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ForkCandidate {
+    pub decision_id: String,
+    pub title: String,
+}
+
+/// A [`SupersessionFork`] whose candidates are named by title, as `chain` answers it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct NamedSupersessionFork {
+    pub at: String,
+    pub side: SupersessionSide,
+    /// The distinct decisions on that side of `at`, in id order.
+    pub candidates: Vec<ForkCandidate>,
+}
+
+impl NamedSupersessionFork {
+    /// [`SupersessionFork::note`] without the list of ids, which the caller prints with titles.
+    pub fn note(&self) -> String {
+        fork_note(&self.at, self.side, self.candidates.len(), None)
+    }
+}
+
+/// What `chain` answers: the line through a decision and, where it stopped at a fork, the
+/// decisions on the far side by title. A line that runs straight serializes as the chain alone.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SupersessionChainView {
+    #[serde(flatten)]
+    pub chain: SupersessionChain,
+    /// At most one fork per side, the older side first. Absent when the line runs straight.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub forks: Vec<NamedSupersessionFork>,
 }
 
 /// The supersession line through a decision, as far as it runs without forking.
@@ -119,26 +158,38 @@ pub fn supersedes_path(
     decision_path(graph, RelationKind::Supersedes, from_id, to_id)
 }
 
-/// The chain through `decision_id`, or an error when it forks. Callers that can say what a fork
-/// is use [`walk_supersession`].
+/// The chain through `decision_id`. A fork ends the line on its side and is named in the answer
+/// with each candidate's title: nothing is picked, and it is no failure.
 pub fn get_supersession_chain(
     graph: &impl GraphView,
     decision_id: &str,
-) -> Result<QueryResponse<SupersessionChain>> {
+) -> Result<QueryResponse<SupersessionChainView>> {
     let line = walk_supersession(graph, decision_id)?;
-    if let Some(fork) = line.data.forks.first() {
-        return Err(query_error(format!(
-            "supersession chain branched at {}: {} candidates",
-            fork.at,
-            fork.candidates.len()
-        ))
-        .into());
-    }
+    let SupersessionLine { chain, forks } = line.data;
+    let forks = forks
+        .into_iter()
+        .map(|fork| name_fork(graph, fork))
+        .collect::<Result<Vec<_>>>()?;
+    let named: usize = forks.iter().map(|fork| fork.candidates.len()).sum();
     Ok(QueryResponse {
-        result_count: line.result_count,
+        result_count: line.result_count + named,
         truncated: line.truncated,
         latency_ms: line.latency_ms,
-        data: line.data.chain,
+        data: SupersessionChainView { chain, forks },
+    })
+}
+
+fn name_fork(graph: &impl GraphView, fork: SupersessionFork) -> Result<NamedSupersessionFork> {
+    let mut candidates = Vec::with_capacity(fork.candidates.len());
+    for decision_id in fork.candidates {
+        let title = get_decision_title(graph, &decision_id)?
+            .ok_or_else(|| query_error(format!("decision not found: {decision_id}")))?;
+        candidates.push(ForkCandidate { decision_id, title });
+    }
+    Ok(NamedSupersessionFork {
+        at: fork.at,
+        side: fork.side,
+        candidates,
     })
 }
 
