@@ -10,6 +10,8 @@ stranger's install while every master-built test stays green (hivemind-cxqd). Th
     attributed to their own tool (agent:claude / agent:codex);
   * `capture.sh` writes a decision, evidence and a hypothesis, under Claude Code's and Codex's
     environment, and `query-decisions.sh` reads them back;
+  * a decision captured without saying what it binds and what undoing it costs is refused, through
+    MCP and through `capture.sh`, with a message that names both questions;
   * the Codex skill's direct CLI form works as the skill says to use it on an older CLI;
   * the AskUserQuestion hooks never get in the way and still record the human's answer;
   * the SessionStart directive names only tools the release's MCP server serves;
@@ -53,7 +55,22 @@ SESSIONS = {
     "codex": {"CODEX_THREAD_ID": "check-codex-thread"},
 }
 
+# The decision floor (hivemind-bbnw.10): a captured decision says what it binds and what undoing it
+# would cost, or the release refuses it and writes nothing. The same two answers as CLI flags (for
+# capture.sh and `supersede.sh`) and as MCP objects, and the two questions every refusal names.
+FLOOR_FLAGS = ["--binds", "Operators see an outage after three attempts", "--cheap-to-undo"]
+FLOOR_WIRE = {
+    "binds": {"level": "something", "statement": "Operators see an outage after three attempts"},
+    "undo_cost": {"level": "cheap"},
+}
+FLOOR_QUESTIONS = ("what it binds", "what undoing it would cost")
+
 FAILURES: List[str] = []
+
+
+def names_floor_questions(refusal: str) -> bool:
+    """True when a refusal says that nothing was written and names both floor questions."""
+    return "nothing was written" in refusal and all(q in refusal for q in FLOOR_QUESTIONS)
 
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
@@ -253,7 +270,7 @@ def tool_result(response: Dict[str, Any]) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"error": text}
 
 
-def check_mcp(world: World, label: str, config: Path, tool: str) -> None:
+def check_mcp(world: World, label: str, config: Path, tool: str, has_floor: bool) -> None:
     server = json.loads(config.read_text())["mcpServers"]["loomtracer"]
     project = world.project(f"mcp-{label}")
     argv = [server["command"], *server["args"]]
@@ -274,32 +291,36 @@ def check_mcp(world: World, label: str, config: Path, tool: str) -> None:
         listed = client.request("tools/list", {})
         names = [t["name"] for t in (listed.get("result") or {}).get("tools", [])]
         check(f"{label} MCP server lists capture_decision", "capture_decision" in names, str(names))
-        reply = tool_result(
-            client.request(
-                "tools/call",
-                {
-                    "name": "capture_decision",
-                    "arguments": {
-                        "title": title,
-                        "rationale": "A plugin that runs ahead of the CLI under it breaks a stranger's install",
-                        "topic_keys": ["plugin-compat"],
-                        "options": [
-                            {"label": "Match the release", "description": "Pass only flags the CLI lists"},
-                            {"label": "Match master", "description": "Pass every flag master has"},
-                        ],
-                        "chosen_option_label": "Match the release",
-                        "grounding": [
-                            {"kind": "assumption", "statement": "People install the latest release binary"}
-                        ],
-                    },
-                },
-            )
-        )
+        arguments: Dict[str, Any] = {
+            "title": title,
+            "rationale": "A plugin that runs ahead of the CLI under it breaks a stranger's install",
+            "topic_keys": ["plugin-compat"],
+            "options": [
+                {"label": "Match the release", "description": "Pass only flags the CLI lists"},
+                {"label": "Match master", "description": "Pass every flag master has"},
+            ],
+            "chosen_option_label": "Match the release",
+            "grounding": [{"kind": "assumption", "statement": "People install the latest release binary"}],
+        }
+        # A release from before the floor has no `binds` / `undo_cost`; it takes the capture without.
+        answered = {**arguments, **FLOOR_WIRE} if has_floor else arguments
+        reply = tool_result(client.request("tools/call", {"name": "capture_decision", "arguments": answered}))
         check(
             f"{label} MCP capture_decision is accepted",
             not reply.get("error") and "decision_id" in json.dumps(reply),
             json.dumps(reply)[:600],
         )
+        if has_floor:
+            # What an agent that forgets the two answers is told.
+            reply = tool_result(
+                client.request("tools/call", {"name": "capture_decision", "arguments": arguments})
+            )
+            error = str(reply.get("error") or "")
+            check(
+                f"{label} MCP capture_decision without binds/undo answers is refused",
+                names_floor_questions(error),
+                json.dumps(reply)[:600],
+            )
     except (RuntimeError, ValueError, OSError) as error:
         check(f"{label} MCP session", False, str(error))
     finally:
@@ -327,25 +348,30 @@ DECISION_FLAGS = [
 ]  # fmt: skip
 
 
-def check_capture_script(world: World, label: str, tool: str) -> Path:
+def check_capture_script(world: World, label: str, tool: str, has_floor: bool) -> Path:
     project = world.project(f"capture-{label}")
     script = str(CAPTURE / "scripts" / "capture.sh")
     env = world.env(project, tool)
-    done = run(["bash", script, *DECISION_FLAGS], cwd=project, env=env)
-    check(f"capture.sh decision ({label})", done.returncode == 0 and "Captured Loomtracer decision" in done.stdout, tail(done))
-    # The skill and the commands teach the two answers; a release CLI may lack the flags, and the
-    # helper then leaves them out rather than have the CLI refuse the whole capture.
-    answered = world.project(f"answers-{label}")
-    done = run(
-        ["bash", script, *DECISION_FLAGS, "--binds", "Operators see an outage after three attempts", "--cheap-to-undo"],
-        cwd=answered,
-        env=world.env(answered, tool),
-    )
+    # The skill and the commands teach the two answers, so they are always sent; a release CLI may
+    # lack the flags, and the helper then leaves them out rather than have the CLI refuse the whole
+    # capture.
+    done = run(["bash", script, *DECISION_FLAGS, *FLOOR_FLAGS], cwd=project, env=env)
     check(
-        f"capture.sh decision with binds/undo answers ({label})",
+        f"capture.sh decision ({label})",
         done.returncode == 0 and "Captured Loomtracer decision" in done.stdout and "unexpected argument" not in done.stderr,
         tail(done),
     )
+    if has_floor:
+        # What an agent that forgets the two answers is told, and that the release wrote nothing.
+        bare = world.project(f"bare-{label}")
+        done = run(["bash", script, *DECISION_FLAGS], cwd=bare, env=world.env(bare, tool))
+        check(
+            f"capture.sh decision without binds/undo answers is refused ({label})",
+            done.returncode != 0
+            and names_floor_questions(done.stderr)
+            and not world.actors_for(bare, "retry budget attempts"),
+            tail(done),
+        )
     done = run(["bash", script, "Retry dashboards were green all week", "--kind", "evidence"], cwd=project, env=env)
     check(f"capture.sh evidence ({label})", done.returncode == 0 and "Captured Loomtracer evidence" in done.stdout, tail(done))
     done = run(["bash", script, "Operators check the dashboard daily", "--kind", "hypothesis"], cwd=project, env=env)
@@ -508,6 +534,7 @@ def check_context_scripts(
     binary_has_importance: bool,
     binary_has_reaffirm: bool,
     binary_has_reexamine: bool,
+    binary_has_floor: bool,
 ) -> None:
     scripts = CONTEXT / "scripts"
 
@@ -535,6 +562,7 @@ def check_context_scripts(
         "--rationale", "The flaky upstream needs more attempts than three to succeed reliably",
         "--topic-keys", "retries", "--options", "Keep 3 attempts,Raise to 5 attempts",
         "--chose", "Raise to 5 attempts", "--rests-on-assumption", "The upstream stays flaky",
+        *(FLOOR_FLAGS if binary_has_floor else []),
     )  # fmt: skip
     check("loomtracer-context supersede", done.returncode == 0, tail(done))
     done = verb("importance")
@@ -611,17 +639,26 @@ def main() -> int:
             subprocess.run([str(binary), "query", "rank_decisions_by_importance", "--help"], capture_output=True).returncode == 0
         )
 
-        check_mcp(world, "Claude Code", CAPTURE / ".mcp.json", "claude")
-        check_mcp(world, "Codex", CAPTURE / ".codex-plugin" / "mcp.json", "codex")
-        claude_project = check_capture_script(world, "Claude Code", "claude")
-        check_capture_script(world, "Codex", "codex")
+        has_floor = (
+            "--binds-nothing"
+            in subprocess.run(
+                [str(binary), "emit", "decision.capture", "--help"], capture_output=True, text=True
+            ).stdout
+        )
+
+        check_mcp(world, "Claude Code", CAPTURE / ".mcp.json", "claude", has_floor)
+        check_mcp(world, "Codex", CAPTURE / ".codex-plugin" / "mcp.json", "codex", has_floor)
+        claude_project = check_capture_script(world, "Claude Code", "claude", has_floor)
+        check_capture_script(world, "Codex", "codex", has_floor)
         check_skill_direct_form(world, "Claude Code", "claude")
         check_skill_direct_form(world, "Codex", "codex")
         check_ask_hooks(world)
         check_session_start_hook(world)
         has_reaffirm = subprocess.run([str(binary), "reaffirm", "--help"], capture_output=True).returncode == 0
         has_reexamine = subprocess.run([str(binary), "reexamine", "--help"], capture_output=True).returncode == 0
-        check_context_scripts(world, claude_project, has_ground, has_importance, has_reaffirm, has_reexamine)
+        check_context_scripts(
+            world, claude_project, has_ground, has_importance, has_reaffirm, has_reexamine, has_floor
+        )
 
     print()
     if FAILURES:
