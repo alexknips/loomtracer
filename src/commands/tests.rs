@@ -8603,3 +8603,240 @@ fn rename_project_refuses_what_it_cannot_carry_out() {
         "a refused rename registers nothing"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Option labels of a classified batch (hivemind-0921o): the rules in the module header.
+// ---------------------------------------------------------------------------
+
+/// A decision capture whose weighed options are `options` and whose chosen option is `chosen`.
+fn labelled(title: &str, options: &[&str], chosen: &str) -> CaptureItem {
+    CaptureItem {
+        options: Some(options.iter().map(|label| (*label).to_owned()).collect()),
+        chosen_option: Some(chosen.to_owned()),
+        ..capture("decision", title, "The ruling, as the classifier read it")
+    }
+}
+
+/// The labels a capture verb refuses, as the batch found them (hivemind-0921o repro).
+const REFUSED_LABELS: [&str; 6] = [
+    "other rejected options",
+    "keep the chosen domain as it is",
+    "replay a real governance history of RFCs, PEPs and KEPs, then audit each system's record of it",
+    "1. ship 2. wait 3. cancel",
+    "answers 1.1, 1.2 and 2.1",
+    "picked 1, 3 and 4",
+];
+
+#[test]
+fn a_classified_capture_with_an_option_label_no_capture_verb_accepts_is_refused_and_the_rest_recorded(
+) {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in REFUSED_LABELS {
+        // The label as a weighed option, and as the chosen one.
+        for bad in [
+            labelled(
+                "Bad label",
+                &[label, "Leave it as it is"],
+                "Leave it as it is",
+            ),
+            labelled("Bad label", &["Leave it as it is"], label),
+        ] {
+            let recorded = classified_batch(
+                &commands,
+                &format!("batch-{}", ledger.latest_offset().expect("offset")),
+                None,
+                vec![
+                    labelled("Before", &["Postgres", "SQLite"], "Postgres"),
+                    bad,
+                    labelled("After", &["Postgres", "SQLite"], "SQLite"),
+                ],
+            )
+            .expect("the batch is recorded");
+
+            let verb_refusal = commands
+                .record_option("actor:carol", label, "description")
+                .expect_err("a capture verb refuses the label")
+                .to_string();
+            assert_eq!(recorded.recorded_count, 2, "{label:?}");
+            assert_eq!(recorded.refused.len(), 1, "{label:?}");
+            assert_eq!(recorded.refused[0].index, 1, "{label:?}");
+            assert_eq!(recorded.refused[0].title, "Bad label");
+            assert!(
+                verb_refusal.ends_with(&recorded.refused[0].reason),
+                "the reason is the capture verbs': {verb_refusal:?} vs {:?}",
+                recorded.refused[0].reason
+            );
+
+            let titles: Vec<String> = recorded_captures(&ledger, recorded.event_id)
+                .iter()
+                .map(|capture| capture["title"].as_str().expect("title").to_owned())
+                .collect();
+            assert_eq!(titles, ["Before", "After"], "{label:?}");
+        }
+    }
+}
+
+#[test]
+fn a_classified_batch_of_refused_captures_is_still_recorded_so_it_leaves_the_queue() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    let recorded = classified_batch(
+        &commands,
+        "batch-1",
+        None,
+        vec![labelled(
+            "Bucket probe",
+            &["other rejected options", "Leave it as it is"],
+            "other rejected options",
+        )],
+    )
+    .expect("recorded");
+
+    assert_eq!(recorded.recorded_count, 0);
+    assert_eq!(recorded.refused.len(), 1);
+    assert!(recorded_captures(&ledger, recorded.event_id).is_empty());
+}
+
+#[test]
+fn a_classified_capture_with_everyday_labels_is_not_refused() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    let mut evidence = capture("evidence", "A bucket on a kind with no options", "Observed");
+    evidence.options = Some(vec!["other rejected options".to_owned()]);
+    evidence.chosen_option = None;
+    let recorded = classified_batch(
+        &commands,
+        "batch-1",
+        None,
+        vec![
+            labelled(
+                "Backups",
+                &[
+                    "keep 7 daily, 4 weekly and 12 monthly backups",
+                    "upgrade to gc 1.5.1",
+                ],
+                "upgrade to gc 1.5.1",
+            ),
+            evidence,
+        ],
+    )
+    .expect("recorded");
+
+    assert_eq!(recorded.recorded_count, 2);
+    assert!(recorded.refused.is_empty());
+    let mut reply = serde_json::json!({ "capture_count": recorded.recorded_count });
+    recorded.annotate_reply(&mut reply);
+    assert!(reply.get("refused").is_none(), "{reply}");
+}
+
+#[test]
+fn the_reply_names_each_refused_capture_and_why() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    let recorded = classified_batch(
+        &commands,
+        "batch-1",
+        None,
+        vec![
+            labelled("Good", &["Postgres", "SQLite"], "Postgres"),
+            labelled(
+                "Bucket probe",
+                &["other rejected options"],
+                "other rejected options",
+            ),
+        ],
+    )
+    .expect("recorded");
+
+    let mut reply = serde_json::json!({ "capture_count": recorded.recorded_count });
+    recorded.annotate_reply(&mut reply);
+    assert_eq!(reply["capture_count"], 1);
+    assert_eq!(reply["refused"][0]["index"], 1);
+    assert_eq!(reply["refused"][0]["title"], "Bucket probe");
+    assert!(
+        reply["refused"][0]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("reads as a bucket of rejected options")),
+        "{reply}"
+    );
+}
+
+#[test]
+fn a_refused_capture_leaves_restated_positions_as_submitted_and_unlinks_a_supersession_of_it() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let first = classified_batch(
+        &commands,
+        "batch-1",
+        Some("2026-09-27T10:00:00Z"),
+        vec![capture(
+            "decision",
+            "Run every town seat on Fable only",
+            "Cost",
+        )],
+    )
+    .expect("first classification");
+    let restated_id = format!("capture:{}:0", first.event_id);
+
+    let mut superseding = labelled("Newer ruling", &["Postgres", "SQLite"], "SQLite");
+    superseding.supersedes_id = Some("Bucket probe".to_owned());
+    let recorded = classified_batch(
+        &commands,
+        "batch-2",
+        Some("2026-09-28T09:00:00Z"),
+        vec![
+            labelled(
+                "Bucket probe",
+                &["other rejected options"],
+                "other rejected options",
+            ),
+            restating("Fable only for every town seat", &restated_id),
+            superseding,
+        ],
+    )
+    .expect("recorded");
+
+    assert_eq!(recorded.refused[0].index, 0);
+    assert_eq!(recorded.restated.len(), 1);
+    assert_eq!(recorded.restated[0].index, 1, "numbered as submitted");
+    assert_eq!(recorded.recorded_count, 2);
+    let kept = recorded_captures(&ledger, recorded.event_id);
+    assert_eq!(kept[1]["title"], "Newer ruling");
+    assert!(
+        kept[1].get("supersedes_id").is_none(),
+        "the title it superseded names nothing recorded: {kept:?}"
+    );
+}
+
+#[test]
+fn a_supersession_by_title_survives_when_a_kept_capture_holds_the_title() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    let mut superseding = labelled("Newer ruling", &["Postgres", "SQLite"], "SQLite");
+    superseding.supersedes_id = Some("Same title".to_owned());
+    let recorded = classified_batch(
+        &commands,
+        "batch-1",
+        None,
+        vec![
+            labelled(
+                "Same title",
+                &["other rejected options"],
+                "other rejected options",
+            ),
+            labelled("Same title", &["Postgres", "SQLite"], "Postgres"),
+            superseding,
+        ],
+    )
+    .expect("recorded");
+
+    let kept = recorded_captures(&ledger, recorded.event_id);
+    assert_eq!(recorded.refused.len(), 1);
+    assert_eq!(kept[1]["supersedes_id"], "Same title");
+}

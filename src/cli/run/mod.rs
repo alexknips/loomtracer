@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::commands::{
     CaptureWarning, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
-    DeterminedProject, FloorInput, Grounding, ProjectRenameInput, SupersedeInput,
+    DeterminedProject, FloorInput, Grounding, ProjectRenameInput, RefusedCapture, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, LedgerError};
 use crate::events::{
@@ -1756,7 +1756,10 @@ pub(crate) fn run_emit_in_context<W: IoWrite>(
                 captures,
                 None,
             )?;
-            OutputEnvelope::new("emit", "batch_id", batch_id).with_restated(recorded.restated)
+            announce_refused_captures(cli, &recorded.refused, notices);
+            OutputEnvelope::new("emit", "batch_id", batch_id)
+                .with_restated(recorded.restated)
+                .with_refused(recorded.refused)
         }
         EmitCommand::DecisionScored(args) => {
             let (actor_id, provenance) = capture_actor_and_provenance(&args.provenance)?;
@@ -1830,6 +1833,22 @@ fn announce_placement<W: IoWrite>(
         if let Some(reminder) = reminder {
             let _ = writeln!(notices, "{reminder}");
         }
+    }
+}
+
+/// Text mode only: one line per capture of a classification left out for an option label, on
+/// `notices` (stderr in the CLI), so the batch id on stdout stays what scripts parse. The other
+/// captures are recorded. JSON replies carry `refused`.
+fn announce_refused_captures<W: IoWrite>(cli: &Cli, refused: &[RefusedCapture], notices: &mut W) {
+    if cli.json {
+        return;
+    }
+    for capture in refused {
+        let _ = writeln!(
+            notices,
+            "refused: capture {} ({:?}) was not recorded: {}",
+            capture.index, capture.title, capture.reason
+        );
     }
 }
 

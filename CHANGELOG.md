@@ -63,6 +63,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A decision drafted by passive capture is held to the option-label rules the capture verbs
+  enforce.** The rules (a label over 80 characters, "chosen" in a label, a bucket such as "other
+  rejected options", several numbered answers packed into one) only ran on `capture_decision`,
+  `emit decision.capture`, `supersede` and the plugin's `capture.sh`, so a classified batch
+  (`classify-queue submit`, `POST /v1/classify-queue/submit`, `classify_queue_submit`, `emit
+  ingest.batch_classified`, the server-side classifier) recorded `chose: other rejected options`,
+  `chose: 1. ship 2. wait 3. cancel` and 94-character labels that `why` then printed. A decision
+  capture with such a label among its `options` or as its `chosen_option` is now left out of the
+  classification, and the reply lists it under `refused` with its `index`, `title` and the same
+  `reason` the capture verbs give (text-mode `emit ingest.batch_classified` writes one `refused:`
+  line per capture on stderr). Every other capture of the batch is recorded and the batch leaves
+  the queue, so one bad label costs one draft and not the batch; send the refused capture again,
+  alone, with the label fixed. A kept capture that superseded a refused one by title loses that
+  link, because the title now names nothing recorded. Drafts already on the ledger keep the
+  labels they were recorded with: replay never runs the check. (hivemind-0921o)
+
 - **An option that packs outline-numbered answers into one label ("answers 1.1, 1.2 and 2.1") is
   refused again, and an everyday label with three plain numbers ("keep 7 daily, 4 weekly and 12
   monthly backups") is no longer refused.** The previous fix counted `1.1` as one decimal, so

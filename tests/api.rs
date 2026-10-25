@@ -7558,3 +7558,56 @@ mod admin_tokens_postgres {
             .expect("dropping app must not panic");
     }
 }
+
+/// hivemind-0921o over HTTP: a submitted classification is held to the option-label rules the
+/// capture verbs enforce. The capture with the bad label is named in the reply and not recorded,
+/// the other capture in the batch is, and the batch leaves the queue.
+#[tokio::test]
+async fn classify_queue_submit_names_a_capture_with_a_bucket_label_and_records_the_rest() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/ingest",
+            ingest_json_at("label:first", "label-sess", "2026-09-27T10:00:00Z"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}"); // ubs:ignore
+
+    let mut bucket = decision_capture_json("Bucket probe on the town seats", None);
+    bucket["options"] = serde_json::json!(["other rejected options", "fable-only"]);
+    bucket["chosen_option"] = serde_json::json!("other rejected options");
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/classify-queue/submit",
+            serde_json::json!({
+                "batch_ids": ["label:first"],
+                "captures": [bucket, decision_capture_json("Run every town seat on Fable only", None)],
+                "model": "agent:worker-a"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["capture_count"], 1, "{body}"); // ubs:ignore
+    assert_eq!(body["refused"][0]["index"], 0, "{body}"); // ubs:ignore
+    assert_eq!(
+        body["refused"][0]["title"], "Bucket probe on the town seats",
+        "{body}"
+    ); // ubs:ignore
+    assert!(
+        body["refused"][0]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("reads as a bucket of rejected options")),
+        "{body}"
+    ); // ubs:ignore
+
+    let (_, pending) = call(
+        app(dir.clone()),
+        get_req("/v1/classify-queue?session_id=label-sess"),
+    )
+    .await;
+    assert_eq!(pending["batches"].as_array().unwrap().len(), 0, "{pending}"); // ubs:ignore
+}

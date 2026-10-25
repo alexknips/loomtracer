@@ -6,7 +6,8 @@ use serde::Serialize;
 
 use crate::commands::{
     CaptureWarning, DecisionMoveOutcome, DecisionPlacement, DecisionRetitleOutcome,
-    ProjectRenameOutcome, ProjectTopicDeclaration, RestatedCapture, RestsOn, RestsOnKind,
+    ProjectRenameOutcome, ProjectTopicDeclaration, RefusedCapture, RestatedCapture, RestsOn,
+    RestsOnKind,
 };
 use crate::error::{CliError, CommandError};
 use crate::events::{EventId, EventType, ModelDimension};
@@ -2910,6 +2911,10 @@ pub(crate) struct OutputEnvelope {
     /// whether each was linked or not recorded; absent when none did.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) restated: Vec<RestatedCapture>,
+    /// Captures of an `emit ingest.batch_classified` left out because an option label could not
+    /// be recorded, with the reason; absent when none was.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) refused: Vec<RefusedCapture>,
 }
 
 impl OutputEnvelope {
@@ -2922,11 +2927,17 @@ impl OutputEnvelope {
             project_notice: None,
             project_reminder: None,
             restated: Vec::new(),
+            refused: Vec::new(),
         }
     }
 
     pub(crate) fn with_restated(mut self, restated: Vec<RestatedCapture>) -> Self {
         self.restated = restated;
+        self
+    }
+
+    pub(crate) fn with_refused(mut self, refused: Vec<RefusedCapture>) -> Self {
+        self.refused = refused;
         self
     }
 

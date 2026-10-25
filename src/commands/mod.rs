@@ -229,6 +229,27 @@
 //!   reply lists each restating capture and whether it was `linked` or `deduplicated`. A sibling
 //!   capture that named a deduplicated one by title now names the decision it restated.
 //!
+//! # Option labels of a classified batch (`capture_labels` module, hivemind-0921o)
+//!
+//! The capture verbs refuse an option label the record must not hold (`validate_option_label`:
+//! over 80 characters, "chosen" in it, a bucket of "rejected options", several numbered answers
+//! bundled into one). A classification reaches the ledger without those verbs, so
+//! `record_ingest_batch_classified` applies the same rules (`option_label_problem`), tested in
+//! `commands/tests.rs`:
+//!
+//! - A `decision` capture with such a label among its `options`, or as its `chosen_option`, is
+//!   not recorded. Only a decision is asked: the projector writes Option nodes for no other kind.
+//! - The reply lists each such capture as `refused` (`index` among the captures as submitted,
+//!   `title`, and the `reason` the capture verbs give for the same label). Every other capture
+//!   is recorded and the classification event is written in every case, so the batches leave the
+//!   queue even when every capture was refused. Nothing is relabelled or trimmed: a refused
+//!   capture is sent again, alone, with the label fixed.
+//! - A recorded capture that superseded a refused one by title loses that `supersedes_id`: the
+//!   title names nothing recorded. A title a recorded capture also holds is kept.
+//! - `restated` positions stay as submitted. The asks of `decision-request` captures are
+//!   planned before the labels are checked, so a malformed batch is still refused whole.
+//! - Replay never runs the check: classifications written before it keep their labels.
+//!
 //! # Submitting a classification (`require_received_batches`, hivemind-odmnc)
 //!
 //! `classify-queue submit` (the CLI verb, `POST /v1/classify-queue/submit` and the MCP tool
@@ -326,6 +347,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+mod capture_labels;
 mod capture_warning;
 mod ground_later;
 mod grounding;
@@ -335,6 +357,8 @@ mod reaffirm;
 mod restatement;
 mod transcript;
 
+pub use capture_labels::RefusedCapture;
+use capture_labels::{at_submitted_positions, set_aside_refused, LabelSettlement};
 use capture_warning::option_label_warnings;
 pub use capture_warning::{insert_warnings_into, CaptureWarning, OPTION_LABEL_LOOKS_LIKE_A_SLUG};
 pub use ground_later::GroundedAddition;
@@ -1717,7 +1741,13 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             capture.session_initiator = None;
         }
         let asks = self.plan_transcript_asks(batch_ids, &mut captures)?;
-        let (captures, restated) = self.settle_restatements(batch_ids, captures)?;
+        let LabelSettlement {
+            kept,
+            kept_at,
+            refused,
+        } = set_aside_refused(captures);
+        let (captures, restated) = self.settle_restatements(batch_ids, kept)?;
+        let restated = at_submitted_positions(restated, &kept_at);
         let recorded_count = captures.len();
         let answers = captured_answers(&captures);
 
@@ -1744,6 +1774,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             event_id,
             recorded_count,
             restated,
+            refused,
         })
     }
 
@@ -4728,10 +4759,12 @@ fn generate_option_id() -> String {
 const MAX_OPTION_LABEL_LEN: usize = 80;
 
 /// Content quality gate for a captured option label, run once at `record_option_with_id` time —
-/// the single choke point every capture path (`capture_decision` MCP/API tool, `loomtracer emit
+/// the single choke point every capture verb (`capture_decision` MCP/API tool, `loomtracer emit
 /// decision.proposed`, and `supersede`) routes an option label through before it ever reaches
-/// the ledger. Three failure modes observed in the wild (hivemind-zdsh.10 audit, decisions
-/// ca4da326 / 502c4375 / others):
+/// the ledger. A classified batch has no such verb, so `record_ingest_batch_classified` asks
+/// `option_label_problem` of each decision capture's labels itself (hivemind-0921o). Three
+/// failure modes observed in the wild (hivemind-zdsh.10 audit, decisions ca4da326 / 502c4375 /
+/// others):
 ///   1. The label re-encodes the choice itself ("...-chosen-...") — `CHOSE` is the only
 ///      representation of which option was picked; a label must not duplicate that.
 ///   2. A "bucket" option that stands in for several distinct rejected options at once
@@ -4741,40 +4774,45 @@ const MAX_OPTION_LABEL_LEN: usize = 80;
 /// This only gates *new* captures — replay of historical events never calls it, so ledger
 /// history written before this check existed keeps replaying unchanged.
 fn validate_option_label(label: &str) -> Result<()> {
+    match option_label_problem(label) {
+        Some(problem) => Err(CommandError::Validation(problem).into()),
+        None => Ok(()),
+    }
+}
+
+/// Why `label` may not be recorded as an option label, in the words every capture path refuses
+/// it with, or `None` when it may.
+fn option_label_problem(label: &str) -> Option<String> {
     let trimmed = label.trim();
     if trimmed.chars().count() > MAX_OPTION_LABEL_LEN {
-        return Err(CommandError::Validation(format!(
+        return Some(format!(
             "option label exceeds {MAX_OPTION_LABEL_LEN} characters ({} chars): {trimmed:?} — \
              keep the label to one short name for the option; put detail in the description",
             trimmed.chars().count()
-        ))
-        .into());
+        ));
     }
 
     let lower = trimmed.to_ascii_lowercase();
     if lower.contains("chosen") {
-        return Err(CommandError::Validation(format!(
+        return Some(format!(
             "option label must not encode the decision outcome (found 'chosen' in {trimmed:?}); \
              the CHOSE edge (chosen_option_id) is the only representation of which option was picked"
-        ))
-        .into());
+        ));
     }
     if lower.contains("rejected options") {
-        return Err(CommandError::Validation(format!(
+        return Some(format!(
             "option label reads as a bucket of rejected options ({trimmed:?}); capture each \
              rejected option as its own option instead of grouping them into one"
-        ))
-        .into());
+        ));
     }
     if bundles_numbered_answers(&lower) {
-        return Err(CommandError::Validation(format!(
+        return Some(format!(
             "option label appears to bundle multiple numbered answers into one option \
              ({trimmed:?}); capture each answer as its own option"
-        ))
-        .into());
+        ));
     }
 
-    Ok(())
+    None
 }
 
 /// Heuristic for "several numbered answers packed into one label" (e.g.

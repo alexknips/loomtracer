@@ -50,6 +50,19 @@ such label carries no `warnings` key. A lone lowercase word (`sqlite`) is a fine
 checks its option labels the same way and replies with the same `warnings`. Raw
 `emit decision.proposed` is the low-level event path and is not checked.
 
+Some labels are refused rather than warned about, and a classified batch is held to the same
+refusals as the capture verbs: a label over 80 characters, one with "chosen" in it (the choice
+is a fact on the record, `--chose`, never a word in a label), a bucket such as "other rejected
+options", and one that packs several numbered answers together. A decision capture of a
+classification (`classify-queue submit`, `POST /v1/classify-queue/submit`, `classify_queue_submit`,
+`emit ingest.batch_classified` and the server-side classifier) with such a label among its
+`options` or as its `chosen_option` is not recorded. The reply lists it under `refused` (`index`
+among the captures sent, `title` and the `reason` the capture verbs give for the same label),
+text-mode `emit ingest.batch_classified` writes one `refused:` line per capture on stderr, and
+every other capture of the batch is recorded, so one bad label costs one draft and not the
+batch. A reply with no refusal carries no `refused` key. Send a refused capture again, alone and
+with the label fixed.
+
 ## What the decision rests on
 
 Every `decision.capture` (and `supersede`) answers "what does this decision rest

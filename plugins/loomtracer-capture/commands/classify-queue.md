@@ -138,8 +138,10 @@ Each CaptureItem JSON object must include:
   tracker (required)
 - `topic_keys`: array of topic strings (required, may be empty array)
 - `evidence_ids`: array of existing evidence IDs referenced (required, usually empty array)
-- `options`: array of option strings or null
-- `chosen_option`: string or null
+- `options`: array of option strings or null. One short label (80 characters at most) per
+  real alternative, as `capture.sh --option` takes it: no bucket such as "other rejected
+  options", no "chosen" in a label, and no several numbered answers packed into one
+- `chosen_option`: string or null, one of the `options` labels word for word, held to the same rules
 - `extraction_confidence`: float in [0,1] — your confidence this item is genuinely durable
 
 Optional fields (omit rather than null unless needed):
@@ -168,8 +170,13 @@ Optional fields (omit rather than null unless needed):
   decided" above); empty when none is shown
 - `rejected_by`: array of the actors the text shows rejecting it; empty when none is shown
 
+If the reply lists `refused`, those captures were not recorded because a label broke one of
+the rules above: each entry gives its `index` among the captures you sent, its `title` and the
+`reason`. The other captures of the call are recorded. Submit each refused capture again,
+alone, with the label fixed (a batch that is already classified accepts another submission).
+
 **Process all batches in sequence.** Report a summary: batches processed, total captures
-written, any errors.
+written, any refused captures and what you did about them, any errors.
 
 ## Bounds
 

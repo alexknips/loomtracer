@@ -20,7 +20,7 @@ use crate::ledger::EventLedger;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
 
-use super::{classified_capture_position, payload_value_as_str, Commands};
+use super::{classified_capture_position, payload_value_as_str, Commands, RefusedCapture};
 
 /// What became of a capture that named a decision it restates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -36,8 +36,8 @@ pub enum RestatementOutcome {
 /// One capture that named a decision it restates, and what became of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RestatedCapture {
-    /// Position among the captures as submitted (a deduplicated capture is not recorded, so the
-    /// recorded positions after it shift).
+    /// Position among the captures as submitted (a deduplicated or refused capture is not
+    /// recorded, so the recorded positions after it shift).
     pub index: usize,
     pub title: String,
     pub restates_id: String,
@@ -52,20 +52,29 @@ pub struct ClassifiedBatchRecorded {
     pub recorded_count: usize,
     /// Every capture that named a decision it restates, in submission order.
     pub restated: Vec<RestatedCapture>,
+    /// Every capture left out because an option label of it could not be recorded, in
+    /// submission order. The other captures are recorded.
+    pub refused: Vec<RefusedCapture>,
 }
 
 impl ClassifiedBatchRecorded {
-    /// Adds `restated` to a reply object (each capture that named a decision it restates, and
-    /// whether it was `linked` or `deduplicated`) when any did, and nothing otherwise, so every
-    /// surface (CLI, HTTP, MCP) says the same thing in the same place.
+    /// Adds `restated` (each capture that named a decision it restates, and whether it was
+    /// `linked` or `deduplicated`) and `refused` (each capture left out for an option label, with
+    /// the reason) to a reply object when there are any, and nothing otherwise, so every surface
+    /// (CLI, HTTP, MCP) says the same thing in the same place.
     pub fn annotate_reply(&self, reply: &mut serde_json::Value) {
-        if self.restated.is_empty() {
+        let Some(reply) = reply.as_object_mut() else {
             return;
+        };
+        if !self.restated.is_empty() {
+            if let Ok(restated) = serde_json::to_value(&self.restated) {
+                reply.insert("restated".to_owned(), restated);
+            }
         }
-        if let (Some(reply), Ok(restated)) =
-            (reply.as_object_mut(), serde_json::to_value(&self.restated))
-        {
-            reply.insert("restated".to_owned(), restated);
+        if !self.refused.is_empty() {
+            if let Ok(refused) = serde_json::to_value(&self.refused) {
+                reply.insert("refused".to_owned(), refused);
+            }
         }
     }
 }

@@ -14769,3 +14769,123 @@ fn migrate_storage_in_a_folder_with_no_ledger_creates_none() -> CliTestResult {
         "no ledger was created",
     )
 }
+
+/// hivemind-0921o: a classified batch is held to the option-label rules the capture verbs
+/// enforce. The capture with the bad label is named in the reply and recorded nowhere, the other
+/// capture in the batch is recorded, and `why` never prints the label.
+#[test]
+fn a_classified_batch_leaves_out_a_capture_with_a_bucket_label_and_records_the_rest(
+) -> CliTestResult {
+    let backend = TestBackend::sqlite("classified-bucket-label");
+    let captures_path = unique_test_dir("classified-bucket-label-captures").with_extension("json");
+    let capture = |title: &str, options: serde_json::Value, chosen: &str| {
+        serde_json::json!({
+            "kind": "decision",
+            "title": title,
+            "rationale": "Which option for the probe? A checker test on a ledger copy",
+            "topic_keys": ["ops"],
+            "evidence_ids": [],
+            "options": options,
+            "chosen_option": chosen,
+            "extraction_confidence": 0.9
+        })
+    };
+    std::fs::write(
+        &captures_path,
+        serde_json::json!([
+            capture(
+                "Bucket probe",
+                serde_json::json!(["other rejected options", "Leave it as it is"]),
+                "other rejected options"
+            ),
+            capture(
+                "Retention probe",
+                serde_json::json!(["Keep thirty days", "Keep ninety days"]),
+                "Keep thirty days"
+            ),
+        ])
+        .to_string(),
+    )?;
+    let emit_args = |path: &'_ std::path::Path| -> Vec<String> {
+        [
+            "emit",
+            "ingest.batch_classified",
+            "--captures",
+            path.to_str().expect("utf-8 captures path"),
+            "--agent-tool",
+            "claude",
+            "--agent-session",
+            "label-session",
+            "--classifier-model",
+            "claude-haiku-4-5-20251001",
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    };
+
+    let args = emit_args(&captures_path);
+    let reply = run_json_reply(
+        &backend,
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    ensure_json_eq(
+        &reply["refused"][0]["title"],
+        serde_json::json!("Bucket probe"),
+        "the reply names the refused capture",
+    )?;
+    ensure_json_eq(
+        &reply["refused"][0]["index"],
+        serde_json::json!(0),
+        "and where it was in the batch",
+    )?;
+    ensure(
+        reply["refused"][0]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("reads as a bucket of rejected options")),
+        &format!("the reason is the capture verbs' own, got {reply}"),
+    )?;
+
+    // Text mode keeps stdout the bare batch id and says the same on the notices stream.
+    let text_path = unique_test_dir("classified-bucket-label-text").with_extension("json");
+    std::fs::write(
+        &text_path,
+        serde_json::json!([capture(
+            "Second bucket probe",
+            serde_json::json!(["other rejected options", "Leave it as it is"]),
+            "Leave it as it is"
+        )])
+        .to_string(),
+    )?;
+    let args = emit_args(&text_path);
+    let (stdout, notices) = run_emit_text(
+        &backend,
+        &args.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
+    ensure(
+        !stdout.contains(char::is_whitespace),
+        "text stdout stays the bare batch id",
+    )?;
+    ensure(
+        notices.contains("refused: capture 0 (\"Second bucket probe\") was not recorded")
+            && notices.contains("reads as a bucket of rejected options"),
+        &format!("the refusal is announced, got {notices:?}"),
+    )?;
+
+    let why = run(&Cli::parse_from(cli_args(
+        &backend,
+        &["query", "why", "Retention probe", "--summary"],
+    )))?;
+    ensure(
+        why.contains("Keep thirty days"),
+        &format!("the other capture in the batch is recorded, got:\n{why}"),
+    )?;
+    let bucket = run(&Cli::parse_from(cli_args(
+        &backend,
+        &["--json", "query", "recall", "Bucket probe"],
+    )))?;
+    ensure(
+        !bucket.contains("rejected options"),
+        &format!("no label of the refused capture is on the record, got:\n{bucket}"),
+    )?;
+    Ok(())
+}
