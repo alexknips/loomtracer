@@ -1085,6 +1085,84 @@ fn propose_decision_accepts_a_rationale_quoting_a_full_decision_id() {
 }
 
 #[test]
+fn bare_list_reference_skips_a_utc_clock_time() {
+    // hivemind-v08hc: the `04Z` of `09:04Z` is a digit run bounded by `:` and one freestanding
+    // letter, so a rationale naming when something happened was refused as a citation.
+    for rationale in [
+        "the literal host-load>20 rule killed an idle box at 09:04Z",
+        "the box went idle at 9:04Z and stayed so",
+        "the box went idle at 09:04z and stayed so",
+        "Restarted at 09:04:01Z after the stall",
+        "Restarted at 09:04:01.250Z after the stall",
+        "The incident started 2026-10-25T09:04Z and was over soon after",
+        "The incident ran 2026-10-25T09:04:01Z to 2026-10-25T09:31:07.5Z",
+        "The box was idle between 07:38Z and 08:24Z",
+        "Queue drained by 23:59Z",
+        "09:04Z",
+    ] {
+        assert_eq!(
+            find_bare_list_reference(rationale),
+            None,
+            "a clock time must not read as a list citation: {rationale}"
+        );
+    }
+}
+
+#[test]
+fn bare_list_reference_still_finds_a_citation_beside_a_utc_clock_time() {
+    for (rationale, citation) in [
+        ("At 09:04Z the verbatim 1a was the pick", "1a"),
+        ("Between 07:38Z and 08:24Z we took 2c", "2c"),
+        ("We took 2c between 07:38Z and 08:24Z", "2c"),
+        ("At 09:04:01Z the notes say 2. a clearer one won", "2. a"),
+        ("From 2026-10-25T09:04Z the verbatim 1b stands", "1b"),
+        ("From 2026-10-25T09:04:01.250Z the verbatim 3a stands", "3a"),
+        // Only a whole clock time is skipped: the same digits and letter outside one still cite.
+        ("Option 04Z was the pick", "04Z"),
+        ("Option 09:04 and then 04Z was the pick", "04Z"),
+        ("Option 09:041Z was the pick", "041Z"),
+    ] {
+        assert_eq!(
+            find_bare_list_reference(rationale),
+            Some(citation.to_owned()),
+            "{rationale}"
+        );
+    }
+}
+
+#[test]
+fn propose_decision_accepts_a_rationale_holding_a_utc_clock_time() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let option_id = commands
+        .record_option("actor:alice", "A", "Option A")
+        .expect("option a");
+
+    commands
+        .propose_decision(DecisionProposalInput {
+            project: None,
+            grounding: Grounding::NotAsked,
+            expressed_confidence: None,
+            actor_id: "actor:alice",
+            title: "Decision whose why names a time",
+            rationale: "the literal host-load>20 rule killed an idle box at 09:04Z",
+            topic_keys: &["topic".to_owned()],
+            option_ids: std::slice::from_ref(&option_id),
+            option_labels: &["A".to_owned()],
+            chosen_option_id: None,
+            decided_by: None,
+            delegated_by: None,
+            still_proposed: false,
+            hypothesis_ids: &[],
+            evidence_ids: &[],
+            quote: None,
+            question: None,
+            floor: FloorInput::NotAsked,
+        })
+        .expect("a UTC clock time in the rationale is not a bare list item");
+}
+
+#[test]
 fn propose_decision_allows_a_list_shaped_rationale_when_quote_and_question_are_given() {
     let ledger = InMemoryEventLedger::new();
     let commands = Commands::new(&ledger);

@@ -4417,7 +4417,9 @@ fn require_readable_rationale(rationale: &str, has_quote_pair: bool) -> Result<(
 /// that legitimately needs to carry one of these tokens. A full id such as
 /// `decision-0d40fa67-612a-4f3b-8c1d-0123456789ab` is skipped whole: three of its uuid groups
 /// are four hex digits, and a group like `612a` is a digit run and one letter that is not a
-/// citation (hivemind-kra19).
+/// citation (hivemind-kra19). A UTC clock time (`09:04Z`, `09:04:01Z`, `2026-10-25T09:04Z`) is
+/// skipped whole too: its minutes and seconds are digit runs bounded by `:` and followed by the
+/// freestanding letter `Z` (hivemind-v08hc).
 fn find_bare_list_reference(text: &str) -> Option<String> {
     fn is_word_char(c: char) -> bool {
         c.is_alphanumeric() || c == '_'
@@ -4456,6 +4458,39 @@ fn find_bare_list_reference(text: &str) -> Option<String> {
         Some(cursor)
     }
 
+    /// Where the UTC clock time whose hour is the digit run `digit_start..digit_end` ends, when
+    /// one does: `H:MM` or `HH:MM`, optionally `:SS` and `.fraction`, then a `Z` standing alone
+    /// (`09:04Z`, `9:04:01Z`, `09:04:01.250Z`). The time half of `2026-10-25T09:04Z` starts at
+    /// its `09`. Without this the `04Z` after the colon reads as a citation.
+    fn utc_clock_time_end(chars: &[char], digit_start: usize, digit_end: usize) -> Option<usize> {
+        let two_digits_after_colon = |cursor: usize| {
+            chars.get(cursor) == Some(&':')
+                && chars
+                    .get(cursor + 1..cursor + 3)
+                    .is_some_and(|pair| pair.iter().all(char::is_ascii_digit))
+        };
+        if digit_end - digit_start > 2 || !two_digits_after_colon(digit_end) {
+            return None;
+        }
+        let mut cursor = digit_end + 3;
+        if two_digits_after_colon(cursor) {
+            cursor += 3;
+            if chars.get(cursor) == Some(&'.') {
+                let fraction = chars
+                    .iter()
+                    .skip(cursor + 1)
+                    .take_while(|c| c.is_ascii_digit())
+                    .count();
+                if fraction > 0 {
+                    cursor += 1 + fraction;
+                }
+            }
+        }
+        let is_utc_marker = matches!(chars.get(cursor), Some('Z' | 'z'));
+        let ends_word = !chars.get(cursor + 1).is_some_and(|c| is_word_char(*c));
+        (is_utc_marker && ends_word).then_some(cursor + 1)
+    }
+
     /// The letters that follow a digit run in a quantity rather than a list citation: thousand
     /// and million (`k`, `m`), durations (`s`, `h`, `d`, `w`, `y`) and a multiplier (`x`), in
     /// either case. `b` is deliberately absent: "1b" is the second item of list 1 as readily as
@@ -4485,6 +4520,10 @@ fn find_bare_list_reference(text: &str) -> Option<String> {
         let mut digit_end = i;
         while digit_end < len && chars[digit_end].is_ascii_digit() {
             digit_end += 1;
+        }
+        if let Some(end) = utc_clock_time_end(&chars, digit_start, digit_end) {
+            i = end;
+            continue;
         }
         let before_ok = digit_start == 0 || !is_word_char(chars[digit_start - 1]);
         i = digit_end;

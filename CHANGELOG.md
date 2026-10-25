@@ -115,6 +115,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   branched (`supersession chain branched at <id>: N candidates`), as it is when named by id, where
   it used to list the records; name one of them with `--id` to see its chain. (hivemind-am6rp)
 
+- **A rationale holding a UTC clock time like `09:04Z` is no longer refused as a "bare list
+  item".** The capture check for a reference into a chat list (`1a`, `2. a`) read the `04Z` of
+  `09:04Z` as a citation, so a rationale such as "the literal host-load>20 rule killed an idle
+  box at 09:04Z" was refused on the CLI and over MCP `capture_decision`, and agents that write
+  their times as `HH:MMZ` either lost the time or had the capture refused. A clock time (`09:04Z`,
+  `09:04:01Z`, `2026-10-25T09:04Z`, a fraction of a second, a lowercase `z`) is now skipped whole,
+  the way a full decision id is. `1a`, `2c` and `2. a` beside a time are still refused unless
+  `quote` and `question` carry the verbatim words, and so is a lone `04Z` outside a time.
+  (hivemind-v08hc)
+
 - **A decision drafted by passive capture is held to the option-label rules the capture verbs
   enforce.** The rules (a label over 80 characters, "chosen" in a label, a bucket such as "other
   rejected options", several numbered answers packed into one) only ran on `capture_decision`,

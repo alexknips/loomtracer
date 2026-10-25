@@ -519,6 +519,55 @@ fn capture_decision_accepts_a_single_string_topic_key_and_a_rationale_with_figur
 }
 
 #[test]
+fn capture_decision_accepts_a_rationale_holding_a_utc_clock_time() {
+    // hivemind-v08hc: the `04Z` of `09:04Z` read as a citation into a chat list, so the mayor's
+    // capture was refused until it said "this morning".
+    let dir = unique_dir("utc-clock-time");
+    let config = McpConfig::new(&dir).with_session_id("clock-time-session");
+    let notes = [
+        "the literal host-load>20 rule killed an idle box at 09:04Z",
+        "the box was restarted at 09:04:01Z",
+        "the incident began 2026-10-25T09:04Z",
+        "the box sat idle between 07:38Z and 08:24Z",
+    ];
+    let requests: Vec<String> = notes
+        .iter()
+        .zip(1..)
+        .map(|(note, id)| {
+            capture_with_rationale_note(
+                id,
+                &format!("Drop the load rule {id}"),
+                note,
+                json!([{"kind": "bet"}]),
+            )
+        })
+        .collect();
+    let requests: Vec<&str> = requests.iter().map(String::as_str).collect();
+    let responses = drive(&config, &requests);
+    for (note, response) in notes.iter().zip(&responses) {
+        assert_eq!(
+            response["result"]["isError"],
+            Value::Bool(false),
+            "{note}: {response:?}"
+        );
+    }
+
+    // A citation into a chat list beside a time is still refused.
+    let refused = capture_with_rationale_note(
+        5,
+        "Drop the load rule again",
+        "at 09:04Z the verbatim 1a was the pick",
+        json!([{"kind": "bet"}]),
+    );
+    let responses = drive(&config, &[refused.as_str()]);
+    let result = &responses[0]["result"];
+    assert_eq!(result["isError"], Value::Bool(true), "{result:?}");
+    let text = result["content"][0]["text"].as_str().expect("error text");
+    assert!(text.contains("bare list item (\"1a\")"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn topic_keys_arg_reads_a_string_as_one_key_and_keeps_every_other_refusal() {
     let read = |value: Value, required: bool| {
         let args = json!({ "topic_keys": value });
