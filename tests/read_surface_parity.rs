@@ -741,32 +741,16 @@ async fn a_decision_with_no_choice_lists_its_options_as_open_through_every_surfa
 
 /// hivemind-erlbl: a list of candidates says what became of each one. A decision that was
 /// replaced is listed as replaced and names its replacement, through every surface, in the JSON
-/// and in `--summary`; before, only the one-call answer and `recall` said so.
+/// and in `--summary`; before, only the one-call answer and `recall` said so. A record replaced by
+/// one decision is folded into it (hivemind-am6rp, see the test below), so this one is replaced
+/// by two: a chain that branches has no single decision to fold into.
 #[tokio::test]
 async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replaced_it_through_every_surface(
 ) -> TestResult<()> {
     let dir = unique_temp_dir("read-surface-parity-listed-status");
     let path = dir.to_str().ok_or("the ledger path is utf-8")?;
-    let propose = |title: &str, rationale: &str| -> TestResult<String> {
-        let id = run(&Cli::parse_from([
-            "loomtracer",
-            "--actor",
-            "human:alice",
-            "--loomtracer-dir",
-            path,
-            "emit",
-            "decision.proposed",
-            "--title",
-            title,
-            "--rationale",
-            rationale,
-            "--topic-keys",
-            "pricing",
-            "--options",
-            "Before testers,After testers",
-        ]))?;
-        Ok(id.trim().to_owned())
-    };
+    let propose =
+        |title: &str, rationale: &str| propose_decision(path, title, rationale, "pricing");
     let replaced = propose(
         "Pricing is chosen after the testers",
         "The paid shape waits for what the first testers say",
@@ -775,23 +759,29 @@ async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replace
         "Pricing is chosen before the testers",
         "The waitlist page quotes a real price, so the paid shape is chosen first",
     )?;
+    let other_replacement = propose(
+        "Pricing is chosen when the waitlist opens",
+        "The waitlist price question settles the paid shape, whatever the testers say",
+    )?;
     let untouched = propose(
         "Pricing is chosen once the trial ends",
         "Nothing is charged during the own-use trial",
     )?;
-    run(&Cli::parse_from([
-        "loomtracer",
-        "--actor",
-        "human:alice",
-        "--loomtracer-dir",
-        path,
-        "emit",
-        "decision.superseded",
-        "--old",
-        &replaced,
-        "--new",
-        &replacement,
-    ]))?;
+    for new in [&replacement, &other_replacement] {
+        run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            "human:alice",
+            "--loomtracer-dir",
+            path,
+            "emit",
+            "decision.superseded",
+            "--old",
+            &replaced,
+            "--new",
+            new,
+        ]))?;
+    }
     let mut mcp = McpServer::start(&dir)?;
 
     for verb in ["why", "verify"] {
@@ -805,7 +795,7 @@ async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replace
         let candidates = cli["data"]["candidates"]
             .as_array()
             .ok_or("a list has candidates")?;
-        assert_eq!(candidates.len(), 3, "{verb}: {cli}");
+        assert_eq!(candidates.len(), 4, "{verb}: {cli}");
         let candidate = |id: &str| -> TestResult<&Value> {
             candidates
                 .iter()
@@ -815,11 +805,21 @@ async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replace
 
         let old = candidate(&replaced)?;
         assert_eq!(old["status"], "superseded", "{verb}: {cli}");
-        assert_eq!(old["superseded_by"], json!([replacement]), "{verb}: {cli}");
-        for standing in [&replacement, &untouched] {
+        let mut named: Vec<&str> = old["superseded_by"]
+            .as_array()
+            .ok_or("a replaced decision names what replaced it")?
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        named.sort_unstable();
+        let mut expected = vec![replacement.as_str(), other_replacement.as_str()];
+        expected.sort_unstable();
+        assert_eq!(named, expected, "{verb}: {cli}");
+        for standing in [&replacement, &other_replacement, &untouched] {
             let candidate = candidate(standing)?;
             assert_eq!(candidate["status"], "proposed", "{verb}: {cli}");
             assert!(candidate.get("superseded_by").is_none(), "{verb}: {cli}");
+            assert!(candidate.get("resolved_via").is_none(), "{verb}: {cli}");
         }
 
         assert_eq!(plugin, cli, "{verb}: the plugin's reply differs");
@@ -841,7 +841,9 @@ async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replace
             .find(|line| line.contains(&replaced))
             .ok_or_else(|| format!("{verb}: {replaced} is not listed: {summary}"))?;
         assert!(
-            line.ends_with(&format!("status: superseded by {replacement}")),
+            line.contains("status: superseded by ")
+                && line.contains(&replacement)
+                && line.contains(&other_replacement),
             "{verb}: {line}"
         );
         let line = summary
@@ -849,6 +851,111 @@ async fn a_listed_decision_says_its_status_and_a_replaced_one_names_what_replace
             .find(|line| line.contains(&untouched))
             .ok_or_else(|| format!("{verb}: {untouched} is not listed: {summary}"))?;
         assert!(line.ends_with("status: proposed"), "{verb}: {line}");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// One decision proposed on the ledger at `path`, its id.
+fn propose_decision(path: &str, title: &str, rationale: &str, topic: &str) -> TestResult<String> {
+    let id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        "human:alice",
+        "--loomtracer-dir",
+        path,
+        "emit",
+        "decision.proposed",
+        "--title",
+        title,
+        "--rationale",
+        rationale,
+        "--topic-keys",
+        topic,
+        "--options",
+        "Before,After",
+    ]))?;
+    Ok(id.trim().to_owned())
+}
+
+/// hivemind-am6rp: a question that matched a record a later decision replaced is answered with
+/// the decision that stands, and the answer names the record, through every surface. Before, the
+/// record and its replacement came back as two rivals (`outcome: ambiguous`).
+#[tokio::test]
+async fn a_replaced_record_answers_with_the_decision_that_replaced_it_through_every_surface(
+) -> TestResult<()> {
+    let dir = unique_temp_dir("read-surface-parity-replaced-record");
+    let path = dir.to_str().ok_or("the ledger path is utf-8")?;
+    let replaced = propose_decision(
+        path,
+        "Launch waits for the beta",
+        "Nothing is announced before the beta has run",
+        "launch",
+    )?;
+    let replacement = propose_decision(
+        path,
+        "Launch happens before the beta",
+        "The announcement brings the first beta testers",
+        "launch",
+    )?;
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        "human:alice",
+        "--loomtracer-dir",
+        path,
+        "emit",
+        "decision.superseded",
+        "--old",
+        &replaced,
+        "--new",
+        &replacement,
+    ]))?;
+    let mut mcp = McpServer::start(&dir)?;
+
+    for verb in ["why", "verify"] {
+        let question = "launch beta";
+        let cli = without_latency(via_cli(&dir, verb, question)?);
+        let plugin = without_latency(via_plugin(&dir, verb, question)?);
+        let from_mcp = without_latency(mcp.call(mcp_tool(verb), question)?);
+        let (status, http) = via_http(&dir, verb, question).await?;
+
+        assert_ne!(cli["data"]["outcome"], "ambiguous", "{verb}: {cli}");
+        let answered = cli["data"]["root"]["id"]
+            .as_str()
+            .or_else(|| cli["data"]["decision_id"].as_str())
+            .ok_or_else(|| format!("{verb}: an answer names its decision: {cli}"))?;
+        assert_eq!(answered, replacement, "{verb}: {cli}");
+        let via = cli["resolved_via"]
+            .as_array()
+            .ok_or_else(|| format!("{verb}: the answer names the record it came through: {cli}"))?;
+        assert_eq!(via.len(), 1, "{verb}: {cli}");
+        assert_eq!(via[0]["decision_id"], replaced.as_str(), "{verb}: {cli}");
+        assert_eq!(
+            via[0]["title"], "Launch waits for the beta",
+            "{verb}: {cli}"
+        );
+
+        assert_eq!(plugin, cli, "{verb}: the plugin's reply differs");
+        assert_eq!(from_mcp, cli, "{verb}: the MCP reply differs");
+        assert_eq!(status, StatusCode::OK, "{verb}: {http}");
+        assert_eq!(without_latency(http), cli, "{verb}: the HTTP reply differs");
+
+        let summary = run(&Cli::parse_from([
+            "loomtracer",
+            "--loomtracer-dir",
+            path,
+            "query",
+            verb,
+            question,
+            "--summary",
+        ]))?;
+        let line = summary
+            .lines()
+            .find(|line| line.starts_with("resolved via:"))
+            .ok_or_else(|| format!("{verb}: no `resolved via:` line: {summary}"))?;
+        assert!(line.contains(&replaced), "{verb}: {line}");
     }
 
     let _ = std::fs::remove_dir_all(&dir);

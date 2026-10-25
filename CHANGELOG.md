@@ -86,6 +86,26 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   2.1`, `answers 1.1, 2.0, 2.1`, `answers q/1.1, q/1.2 and q/2.1`, `answers 1a, 2.0 and 3a`,
   `1. ship 2.0 wait 3. cancel` and `picked option/1, option/2 and option/3`. (hivemind-nf97m)
 
+- **`why`, `verify`, `chain` and `compact-view` by description answer with the decision that
+  stands when every record the words matched was replaced by it.** A question that matched an
+  early draft, or a decision that was reworded and then replaced, listed the drafts and the
+  decision that replaced them as rivals (`outcome: ambiguous`), although the ledger held one
+  answer; 4 of 16 questions put to the cell came back that way. When the outcome of a verb that
+  only reads would be `ambiguous`, it now folds each candidate into the decision at the end of its
+  supersession chain and decides again. If the candidates fold to one decision, the call answers
+  with that decision (its own id, title and status, with the words the matched record carried) and
+  names the replaced records the words matched in `resolved_via: [{decision_id, title}]` beside `data` (a `resolved via:` line in
+  `--summary`; the same key on `GET /v1/decisions/why` and the MCP tools). If they fold to two
+  decisions or more, the call stays `ambiguous` and lists those decisions, each with the records
+  it absorbed under `resolved_via`. A chain that branches (a decision replaced by two) or loops
+  keeps today's behaviour: its records are listed as replaced. Words that match one replaced
+  record alone still answer with that record, saying it was replaced. A verb that writes
+  (`disagree`, `supersede`, `ground`, ...) is unchanged: it never acts on a decision for the words
+  of a record that decision replaced. `chain` by description reaches the same decision, and
+  `chain` takes only a linear chain: a decision that replaced several records is reported as
+  branched (`supersession chain branched at <id>: N candidates`), as it is when named by id, where
+  it used to list the records; name one of them with `--id` to see its chain. (hivemind-am6rp)
+
 - **A decision drafted by passive capture is held to the option-label rules the capture verbs
   enforce.** The rules (a label over 80 characters, "chosen" in a label, a bucket such as "other
   rejected options", several numbered answers packed into one) only ran on `capture_decision`,

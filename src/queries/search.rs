@@ -2522,6 +2522,7 @@ fn outranking_below_bar(
 /// One decision candidate for the resolve-by-description primitive (`resolve.rs`): the same
 /// deterministic tier ranking `collect_graph_search_results` already computes, plus the
 /// `event_origin` recency tiebreak. No new ranking logic — see docs/AGENT_FLUENT_QUERYING.md §1.1.
+#[derive(Clone)]
 pub(crate) struct ResolverCandidateRow {
     pub(crate) decision_id: String,
     pub(crate) title: String,
@@ -2577,6 +2578,9 @@ pub(crate) struct ResolverCandidateRow {
     /// Admitted below the bar while a decision left out says more of the question, see
     /// `outweighed_below_bar`; it is listed with the answer and is never the one named alone.
     pub(crate) outweighed: bool,
+    /// The records the question matched that the decision replaced, folded into it by the
+    /// resolver for a verb that only reads (hivemind-am6rp); empty until it does.
+    pub(crate) resolved_via: Vec<RecordedCopy>,
 }
 
 impl ResolverCandidateRow {
@@ -2633,6 +2637,7 @@ pub(crate) fn collect_resolver_candidates(
             promoted: false,
             peer: scored.peer,
             outweighed: scored.outweighed,
+            resolved_via: Vec::new(),
         })
         .collect())
 }

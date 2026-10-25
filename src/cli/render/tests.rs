@@ -1797,6 +1797,7 @@ fn listed_candidate(
         missing_terms: Vec::new(),
         polarity_mismatch: false,
         also_recorded_as: Vec::new(),
+        resolved_via: Vec::new(),
     }
 }
 

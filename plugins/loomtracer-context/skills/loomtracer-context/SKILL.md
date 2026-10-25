@@ -314,7 +314,10 @@ A newer loomtracer also folds a decision that was recorded more than once and
 linked as the same decision: the answer shows the earliest matching record and
 lists the others under `also_recorded_as` (an `also recorded as:` line in
 `--summary` output). Those are the same decision, not rivals; do not pick
-between them.
+between them. A newer loomtracer likewise answers with the decision that
+replaced the records your words matched (the head of their supersession chain)
+when those records would otherwise come back as an ambiguous list, naming them
+under `resolved_via` (a `resolved via:` line in `--summary` output).
 
 This mirrors AGENTS.md's honesty standard: no invented confidence. A wrong
 guess on a write verb is worse than asking again.

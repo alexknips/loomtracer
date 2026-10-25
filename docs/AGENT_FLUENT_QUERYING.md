@@ -461,6 +461,28 @@ named, and `search` lists records, not decisions. A `relation.removed` for a
 `SAME_AS` is a ledger fact the graph does not project, so a retracted link is
 still folded.
 
+**A record a later decision replaced is not a rival of the decision that replaced it**
+(hivemind-am6rp). A question that matches an early draft, or a decision that was reworded
+and then replaced, finds records that all lead to the one decision that stands; listing
+them beside it answered `ambiguous` about a ledger holding one answer. A verb that only
+reads (`why`, `verify`, `chain`, `compact-view`) therefore folds each candidate into the
+head of its supersession chain when its outcome would be `Ambiguous`, and decides again
+over the heads. Candidates that fold to one
+head answer with that head: its own id, title and status, the words the matched record
+carried, and `resolved_via: [{decision_id, title}]` naming the replaced records the
+question matched, oldest first (a `resolved via:` line ahead of `--summary` output, the
+key beside `data` in `--json`, the HTTP routes and MCP). The head need not hold any of the
+words itself: when it was reworded, it is the decision that stands for the records that
+did. Candidates that fold to two heads or more stay `Ambiguous` and list the heads, each
+with the records it absorbed in `resolved_via`. A chain that branches (a decision replaced
+by two decisions) or loops has no single head: its records stay listed as replaced, each
+naming `superseded_by`. A question that already resolves keeps its answer: words that match
+one replaced record alone answer with that record, saying it was replaced. `chain` takes
+only a linear chain, so when the head replaced several records it reports the branch
+(`supersession chain branched at <id>`), exactly as it does for that head named by id; name one
+of the records with `--id` to see its chain. A verb that writes does not fold: it never acts on a decision for
+the words of a record that decision replaced, and `--id` names exactly the record given.
+
 **`recall` asks the same way.** `recall_decisions` (Layer 3) drops the question
 words ("what did we decide about projects" searches for `projects`) before it
 searches (the same list, decision verbs and framing adverbs included), reports

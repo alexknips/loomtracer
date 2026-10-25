@@ -1260,6 +1260,7 @@ fn a_close_match_is_named_in_the_envelope_and_a_full_match_is_not() {
         missing_terms: vec!["keep".to_owned(), "stable".to_owned()],
         polarity_mismatch: false,
         also_recorded_as: Vec::new(),
+        resolved_via: Vec::new(),
     };
     let full = ResolvedCandidate {
         missing_terms: Vec::new(),
@@ -1462,6 +1463,7 @@ fn the_envelope_names_the_other_records_beside_data() {
             decision_id: "d:2".to_owned(),
             title: "Fable for every town seat".to_owned(),
         }],
+        resolved_via: Vec::new(),
     };
     let mut envelope = json!({"data": {}});
     annotate_resolution(&mut envelope, &candidate);
@@ -2554,6 +2556,7 @@ fn headline_candidate(id: &str, said_as_word: u64, said_in_any_form: u64) -> Res
         promoted: false,
         peer: false,
         outweighed: false,
+        resolved_via: Vec::new(),
     }
 }
 
@@ -2921,25 +2924,32 @@ fn candidate_of<'a>(candidates: &'a [ResolvedCandidate], id: &str) -> &'a Resolv
 fn a_listed_candidate_says_its_status_and_a_replaced_one_names_what_replaced_it() -> Result<()> {
     let graph = replaced_pricing_graph()?;
 
-    for outcome in [
-        resolve_decision_by_description(&graph, "pricing chosen", None)?.data,
-        resolve_decision_for_reading(&graph, "pricing chosen", None)?.data,
-    ] {
-        let candidates = listed(outcome);
-        assert_eq!(candidates.len(), 3);
+    // A verb that writes lists every record apart, a replaced one as replaced.
+    let candidates = listed(resolve_decision_by_description(&graph, "pricing chosen", None)?.data);
+    assert_eq!(candidates.len(), 3);
 
-        let replaced = candidate_of(&candidates, "d:after");
-        assert_eq!(replaced.status, DecisionStatus::Superseded);
-        assert_eq!(replaced.superseded_by, ["d:before"]);
+    let replaced = candidate_of(&candidates, "d:after");
+    assert_eq!(replaced.status, DecisionStatus::Superseded);
+    assert_eq!(replaced.superseded_by, ["d:before"]);
 
-        let replacement = candidate_of(&candidates, "d:before");
-        assert_eq!(replacement.status, DecisionStatus::Accepted);
-        assert!(replacement.superseded_by.is_empty());
+    let replacement = candidate_of(&candidates, "d:before");
+    assert_eq!(replacement.status, DecisionStatus::Accepted);
+    assert!(replacement.superseded_by.is_empty());
+    assert!(replacement.resolved_via.is_empty());
 
-        let untouched = candidate_of(&candidates, "d:later");
-        assert_eq!(untouched.status, DecisionStatus::Proposed);
-        assert!(untouched.superseded_by.is_empty());
-    }
+    let untouched = candidate_of(&candidates, "d:later");
+    assert_eq!(untouched.status, DecisionStatus::Proposed);
+    assert!(untouched.superseded_by.is_empty());
+
+    // A verb that only reads lists the decision that stands, with the record it replaced folded
+    // into it (hivemind-am6rp).
+    let candidates = listed(reading(&graph, "pricing chosen")?.data);
+    assert_eq!(candidates.len(), 2);
+    let replacement = candidate_of(&candidates, "d:before");
+    assert_eq!(replacement.status, DecisionStatus::Accepted);
+    assert!(replacement.superseded_by.is_empty());
+    assert_eq!(via_ids(replacement), ["d:after"]);
+    assert!(candidate_of(&candidates, "d:later").resolved_via.is_empty());
     Ok(())
 }
 
@@ -2947,7 +2957,7 @@ fn a_listed_candidate_says_its_status_and_a_replaced_one_names_what_replaced_it(
 fn the_json_of_a_candidate_has_its_status_and_names_the_replacement_only_when_there_is_one(
 ) -> Result<()> {
     let graph = replaced_pricing_graph()?;
-    let candidates = listed(resolve_decision_for_reading(&graph, "pricing chosen", None)?.data);
+    let candidates = listed(resolve_decision_by_description(&graph, "pricing chosen", None)?.data);
 
     let replaced = serde_json::to_value(candidate_of(&candidates, "d:after")).expect("serializes");
     assert_eq!(replaced["status"], "superseded");
@@ -2956,8 +2966,19 @@ fn the_json_of_a_candidate_has_its_status_and_names_the_replacement_only_when_th
     let accepted = serde_json::to_value(candidate_of(&candidates, "d:before")).expect("serializes");
     assert_eq!(accepted["status"], "accepted");
     assert!(accepted.get("superseded_by").is_none());
+    assert!(accepted.get("resolved_via").is_none());
 
-    // The `#N` continuation file keeps both.
+    // The `#N` continuation file keeps both, and what a candidate was reached through.
+    let written = serde_json::to_value(&candidates).expect("serializes");
+    let kept: Vec<ResolvedCandidate> = serde_json::from_value(written).expect("reads back");
+    assert_eq!(kept, candidates);
+
+    let candidates = listed(reading(&graph, "pricing chosen")?.data);
+    let folded = serde_json::to_value(candidate_of(&candidates, "d:before")).expect("serializes");
+    assert_eq!(
+        folded["resolved_via"],
+        json!([{"decision_id": "d:after", "title": "Pricing is chosen after the testers"}])
+    );
     let written = serde_json::to_value(&candidates).expect("serializes");
     let kept: Vec<ResolvedCandidate> = serde_json::from_value(written).expect("reads back");
     assert_eq!(kept, candidates);
@@ -2983,4 +3004,295 @@ fn a_decision_resolved_by_its_id_says_its_status_and_what_replaced_it() -> Resul
         other => panic!("expected the decision named: {other:?}"),
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Replaced records fold into the decision that stands (hivemind-am6rp)
+// ---------------------------------------------------------------------------
+
+/// The ids of the replaced records a candidate was reached through, in the order they were recorded.
+fn via_ids(candidate: &ResolvedCandidate) -> Vec<&str> {
+    candidate
+        .resolved_via
+        .iter()
+        .map(|record| record.decision_id.as_str())
+        .collect()
+}
+
+/// A ruling about the review, recorded as two drafts and the accepted decision that replaced both.
+/// The three say the same in their titles, so the words alone do not tell them apart.
+fn review_graph() -> Result<MemoryGraph> {
+    let title = "Review runs async in Slack batches";
+    graph_from_events([
+        decision_proposed_because(
+            1,
+            "d:draft-a",
+            title,
+            "Draft: no sitting is booked",
+            &["review"],
+        ),
+        decision_proposed_because(
+            2,
+            "d:draft-b",
+            title,
+            "Draft: until a sitting is booked",
+            &["review"],
+        ),
+        decision_proposed_because(
+            3,
+            "d:stands",
+            title,
+            "No sitting is booked, so batches run async",
+            &["review"],
+        ),
+        decision_accepted(4, "d:stands"),
+        decision_superseded(5, "d:draft-a", "d:stands"),
+        decision_superseded(6, "d:draft-b", "d:stands"),
+    ])
+}
+
+const REVIEW_QUESTION: &str = "review async slack batches";
+
+#[test]
+fn records_replaced_by_the_decision_that_matched_too_answer_with_that_decision() -> Result<()> {
+    let graph = review_graph()?;
+
+    let response = reading(&graph, REVIEW_QUESTION)?;
+    assert_eq!(response.result_count, 1);
+    match response.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:stands");
+            assert_eq!(candidate.status, DecisionStatus::Accepted);
+            assert!(candidate.superseded_by.is_empty());
+            assert!(candidate.missing_terms.is_empty(), "{candidate:?}");
+            assert_eq!(via_ids(&candidate), ["d:draft-a", "d:draft-b"]);
+            assert!(candidate.needs_annotation());
+        }
+        other => panic!("the drafts were replaced by the decision that stands: {other:?}"),
+    }
+
+    // A verb that writes never acts on a decision for the words of the records it replaced.
+    let candidates = listed(resolve_decision_by_description(&graph, REVIEW_QUESTION, None)?.data);
+    assert_eq!(candidates.len(), 3);
+    assert!(candidates.iter().all(|c| c.resolved_via.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_head_the_words_did_not_match_answers_for_the_records_that_led_to_it() -> Result<()> {
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:first",
+            "Rename the product to Upheld after the comparison",
+            &["naming"],
+        ),
+        decision_proposed(
+            2,
+            "d:second",
+            "Rename the product to Upheld after the comparison, before the first listing",
+            &["naming"],
+        ),
+        decision_accepted(3, "d:second"),
+        decision_proposed(4, "d:name", "Loomtracer is the product name", &["naming"]),
+        decision_accepted(5, "d:name"),
+        decision_superseded(6, "d:first", "d:second"),
+        decision_superseded(7, "d:second", "d:name"),
+    ])?;
+    let question = "rename product Upheld comparison";
+
+    match reading(&graph, question)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:name");
+            assert_eq!(candidate.title, "Loomtracer is the product name");
+            assert_eq!(candidate.status, DecisionStatus::Accepted);
+            assert!(candidate.superseded_by.is_empty());
+            assert_eq!(via_ids(&candidate), ["d:first", "d:second"]);
+            assert_eq!(
+                candidate.resolved_via[0].title,
+                "Rename the product to Upheld after the comparison"
+            );
+            let looked_up = match resolve_decision_by_id(&graph, "d:name")?.data {
+                ResolveOutcome::Resolved { candidate } => candidate,
+                other => panic!("the head exists: {other:?}"),
+            };
+            assert_eq!(candidate.event_origin, looked_up.event_origin);
+        }
+        other => panic!("both records lead to the one decision that stands: {other:?}"),
+    }
+
+    // The chain is one chain whichever record the words matched.
+    let candidates = listed(resolve_decision_by_description(&graph, question, None)?.data);
+    assert_eq!(candidates.len(), 2);
+    assert!(candidates.iter().all(|c| c.resolved_via.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_description_that_resolves_to_a_replaced_record_keeps_that_answer() -> Result<()> {
+    // Folding is for a question that would be answered `ambiguous`: asking about a decision that
+    // was replaced still answers with it, saying it was replaced.
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:old",
+            "Backups run nightly to the cold bucket",
+            &["backups"],
+        ),
+        decision_proposed(2, "d:new", "Snapshots are kept for a year", &["backups"]),
+        decision_superseded(3, "d:old", "d:new"),
+    ])?;
+
+    match reading(&graph, "backups cold bucket")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:old");
+            assert_eq!(candidate.status, DecisionStatus::Superseded);
+            assert_eq!(candidate.superseded_by, ["d:new"]);
+            assert!(candidate.resolved_via.is_empty());
+        }
+        other => panic!("the one record that matched is the answer: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn records_that_end_in_different_decisions_stay_ambiguous_and_list_those_decisions() -> Result<()> {
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:nightly",
+            "Backups run nightly to the cold bucket",
+            &["backups"],
+        ),
+        decision_proposed(
+            2,
+            "d:weekly",
+            "Backups run weekly to the cold bucket",
+            &["backups"],
+        ),
+        decision_proposed(3, "d:archive", "Snapshots go to the archive", &["backups"]),
+        decision_accepted(4, "d:archive"),
+        decision_proposed(5, "d:year", "Snapshots are kept for a year", &["backups"]),
+        decision_accepted(6, "d:year"),
+        decision_superseded(7, "d:nightly", "d:archive"),
+        decision_superseded(8, "d:weekly", "d:year"),
+    ])?;
+
+    let candidates = listed(reading(&graph, "backups cold bucket")?.data);
+    assert_eq!(candidates.len(), 2);
+    let archive = candidate_of(&candidates, "d:archive");
+    assert_eq!(archive.status, DecisionStatus::Accepted);
+    assert_eq!(via_ids(archive), ["d:nightly"]);
+    let year = candidate_of(&candidates, "d:year");
+    assert_eq!(year.status, DecisionStatus::Accepted);
+    assert_eq!(via_ids(year), ["d:weekly"]);
+    Ok(())
+}
+
+#[test]
+fn a_chain_that_branches_keeps_its_records_listed_as_replaced() -> Result<()> {
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:old",
+            "Pricing is chosen after the testers",
+            &["pricing"],
+        ),
+        decision_proposed(
+            2,
+            "d:x",
+            "Pricing is chosen before the testers",
+            &["pricing"],
+        ),
+        decision_proposed(3, "d:y", "Pricing is chosen at launch", &["pricing"]),
+        decision_superseded(4, "d:old", "d:x"),
+        decision_superseded(5, "d:old", "d:y"),
+    ])?;
+
+    let candidates = listed(reading(&graph, "pricing chosen")?.data);
+    assert_eq!(candidates.len(), 3);
+    let old = candidate_of(&candidates, "d:old");
+    assert_eq!(old.status, DecisionStatus::Superseded);
+    assert_eq!(old.superseded_by, ["d:x", "d:y"]);
+    assert!(candidates.iter().all(|c| c.resolved_via.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_chain_that_loops_keeps_its_records_listed_as_replaced() -> Result<()> {
+    let graph = graph_from_events([
+        decision_proposed(1, "d:a", "Release notes are written by hand", &["releases"]),
+        decision_proposed(
+            2,
+            "d:b",
+            "Release notes are written by script",
+            &["releases"],
+        ),
+        decision_superseded(3, "d:a", "d:b"),
+        decision_superseded(4, "d:b", "d:a"),
+    ])?;
+
+    let candidates = listed(reading(&graph, "release notes written")?.data);
+    assert_eq!(candidates.len(), 2);
+    assert!(candidates
+        .iter()
+        .all(|c| c.status == DecisionStatus::Superseded && c.resolved_via.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_replaced_record_beside_another_decision_that_holds_the_words_stays_ambiguous() -> Result<()> {
+    let graph = graph_from_events([
+        decision_proposed(
+            1,
+            "d:old",
+            "Backups run nightly to the cold bucket",
+            &["backups"],
+        ),
+        decision_proposed(2, "d:new", "Snapshots are kept for a year", &["backups"]),
+        decision_proposed(
+            3,
+            "d:other",
+            "Backups run weekly to the cold bucket",
+            &["backups"],
+        ),
+        decision_superseded(4, "d:old", "d:new"),
+    ])?;
+
+    let candidates = listed(reading(&graph, "backups cold bucket")?.data);
+    let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+    assert_eq!(candidates.len(), 2, "{ids:?}");
+    assert_eq!(via_ids(candidate_of(&candidates, "d:new")), ["d:old"]);
+    assert!(candidate_of(&candidates, "d:other").resolved_via.is_empty());
+    Ok(())
+}
+
+#[test]
+fn the_envelope_names_the_replaced_records_beside_data() {
+    let candidate = ResolvedCandidate {
+        decision_id: "d:name".to_owned(),
+        title: "Loomtracer is the product name".to_owned(),
+        rank: 1,
+        event_origin: 1,
+        status: DecisionStatus::Accepted,
+        superseded_by: Vec::new(),
+        matched_fields: vec!["title".to_owned()],
+        missing_terms: Vec::new(),
+        polarity_mismatch: false,
+        also_recorded_as: Vec::new(),
+        resolved_via: vec![RecordedCopy {
+            decision_id: "d:first".to_owned(),
+            title: "Rename the product to Upheld".to_owned(),
+        }],
+    };
+    assert!(candidate.needs_annotation());
+
+    let mut envelope = json!({"data": {}});
+    annotate_resolution(&mut envelope, &candidate);
+    assert_eq!(
+        envelope["resolved_via"],
+        json!([{"decision_id": "d:first", "title": "Rename the product to Upheld"}])
+    );
+    assert!(envelope.get("close_match").is_none());
+    assert!(envelope.get("also_recorded_as").is_none());
 }

@@ -327,8 +327,9 @@ pub(crate) fn format_query_response<T: Serialize>(
 
 /// `format_query_response` for a read verb that resolved its target from a description. When the
 /// description named a word the decision lacks, or the decision was recorded more than once, the
-/// answer says so: `close match:` / `also recorded as:` lines ahead of `--summary` output,
-/// `close_match` / `also_recorded_as` beside `data` in `--json` (hivemind-3lko, hivemind-83cj). A
+/// answer says so: `close match:` / `also recorded as:` / `resolved via:` lines ahead of
+/// `--summary` output, `close_match` / `also_recorded_as` / `resolved_via` beside `data` in
+/// `--json` (hivemind-3lko, hivemind-83cj, hivemind-am6rp). A
 /// full match of a decision recorded once (`None`) prints exactly what `format_query_response`
 /// does.
 pub(crate) fn format_close_matched_response<T: Serialize>(
@@ -350,8 +351,8 @@ pub(crate) fn format_close_matched_response<T: Serialize>(
     format_json_value(true, &envelope)
 }
 
-/// The lines that tell a reader how the decision below was resolved: the words it lacks, and the
-/// other records of the same decision.
+/// The lines that tell a reader how the decision below was resolved: the words it lacks, the
+/// other records of the same decision, and the replaced records the description matched.
 fn render_resolution_notices(candidate: &ResolvedCandidate) -> String {
     let mut lines: Vec<String> = Vec::new();
     if !candidate.missing_terms.is_empty() {
@@ -372,6 +373,17 @@ fn render_resolution_notices(candidate: &ResolvedCandidate) -> String {
             .map(|copy| format!("{} \"{}\"", copy.decision_id, copy.title))
             .collect();
         lines.push(format!("also recorded as: {}", copies.join("; ")));
+    }
+    if !candidate.resolved_via.is_empty() {
+        let records: Vec<String> = candidate
+            .resolved_via
+            .iter()
+            .map(|record| format!("{} \"{}\"", record.decision_id, record.title))
+            .collect();
+        lines.push(format!(
+            "resolved via: {} (replaced by this decision)",
+            records.join("; ")
+        ));
     }
     lines.join("\n")
 }
@@ -1646,6 +1658,14 @@ pub(crate) fn render_resolve_outcome_summary(outcome: &ResolveOutcome) -> String
                 }
                 if candidate.polarity_mismatch {
                     let _ = write!(output, "\tpolarity: {POLARITY_REASON}");
+                }
+                if !candidate.resolved_via.is_empty() {
+                    let records: Vec<&str> = candidate
+                        .resolved_via
+                        .iter()
+                        .map(|record| record.decision_id.as_str())
+                        .collect();
+                    let _ = write!(output, "\tresolved via: {}", records.join(" "));
                 }
                 output.push('\n');
             }

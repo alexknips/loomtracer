@@ -84,9 +84,20 @@
 //! any other, on how much of the question it carries, so a negated question is not answered by
 //! whatever decision happens to say "no" somewhere, nor sent past the decision asked about because
 //! that decision states its answer positively.
+//!
+//! A record a later decision replaced is not a rival of the decision that replaced it
+//! (hivemind-am6rp). When the outcome of a verb that only reads would be `Ambiguous`, every
+//! candidate is folded into the decision at the end of its supersession chain
+//! (`fold_into_chain_heads`) and the outcome is decided again over those: candidates that end in
+//! one decision are one candidate, that decision, naming the records the words matched in
+//! `resolved_via`; candidates that end in different decisions stay apart, each naming its own. A
+//! chain that branches or loops has no single end and keeps its candidates as they are. A
+//! description that already resolves keeps its answer, a replaced decision included, and a verb
+//! that writes folds nothing: it never acts on a decision for the words of a record that decision
+//! replaced.
 
 use std::cmp::{Ordering, Reverse};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -210,6 +221,11 @@ pub struct ResolvedCandidate {
     /// earliest recorded of them that matches the description, and these are the rest.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also_recorded_as: Vec<RecordedCopy>,
+    /// Records the description matched that this decision replaced (hivemind-am6rp): a verb that
+    /// only reads folds a replaced record into the decision at the end of its supersession chain,
+    /// so the candidate is that decision and these are the matched records that led to it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved_via: Vec<RecordedCopy>,
 }
 
 impl ResolvedCandidate {
@@ -220,9 +236,12 @@ impl ResolvedCandidate {
     }
 
     /// Whether an answer resolved to this candidate has something to say about how it was
-    /// resolved: words it lacks, or other records of the same decision.
+    /// resolved: words it lacks, other records of the same decision, or the replaced records it
+    /// was reached through.
     pub fn needs_annotation(&self) -> bool {
-        !self.missing_terms.is_empty() || !self.also_recorded_as.is_empty()
+        !self.missing_terms.is_empty()
+            || !self.also_recorded_as.is_empty()
+            || !self.resolved_via.is_empty()
     }
 }
 
@@ -268,6 +287,11 @@ pub fn resolve_decision_by_description(
 ///   shows the decision and names what it lacks. Equally close candidates, and a candidate whose
 ///   headline holds fewer than two of the words, stay an `Ambiguous` list (hivemind-tfde).
 ///
+/// When that would be `Ambiguous`, the records the words matched that a later decision replaced
+/// are folded into the decision at the end of their supersession chain and the outcome is decided
+/// again over the decisions that stand, each naming the replaced records it absorbed in
+/// `resolved_via` (hivemind-am6rp).
+///
 /// And for a description one decision alone matches in full, when that decision says fewer than two
 /// of the words in its title and topic keys and close candidates exist: it is `Ambiguous`, listed
 /// first, with the close candidates after it, so the decision that is about the question is not
@@ -304,16 +328,41 @@ fn resolve_for(
     // `recall` just named: a word's other forms and the words that stand in for it. A verb that
     // writes matches a word and its inflections only; a synonym never picks what it writes to.
     let related = asker == Asker::Reader;
+    let found = collect_resolver_candidates(graph, description, &topic_keys, close, related)?;
+    // A verb that only shows a decision answers with the one that stands when the records the
+    // words matched would otherwise be listed against it: if the outcome is `Ambiguous`, the
+    // candidates are folded into the heads of their supersession chains and the outcome is
+    // decided again over those. A description that already resolves keeps its answer, so asking
+    // about a decision that was replaced still answers with it, saying it was replaced. A verb
+    // that writes keeps every record apart; it never acts on a decision whose own words were not
+    // the ones asked (hivemind-am6rp).
+    let unfolded = (asker == Asker::Reader).then(|| found.clone());
+    let mut settled = settle(graph, description, asker, found)?;
+    if let Some(found) = unfolded {
+        if matches!(settled.data, ResolveOutcome::Ambiguous { .. }) {
+            let folded = fold_into_chain_heads(graph, found)?;
+            if folded.iter().any(|row| !row.resolved_via.is_empty()) {
+                settled = settle(graph, description, asker, folded)?;
+            }
+        }
+    }
+    settled.latency_ms = started.elapsed().as_millis();
+    Ok(settled)
+}
+
+/// What `description` resolves to over the candidates `found`, for `asker`. The latency of the
+/// response it returns is not set: the caller measures the whole call.
+fn settle(
+    graph: &impl GraphView,
+    description: &str,
+    asker: Asker,
+    found: Vec<ResolverCandidateRow>,
+) -> Result<QueryResponse<ResolveOutcome>> {
     // Records of one decision, linked `SAME_AS`, are one candidate; records with no link between
     // them stay separate, so a tie among them stays `Ambiguous`.
     let mut also_recorded_as: HashMap<String, Vec<RecordedCopy>> = HashMap::new();
     let mut rows: Vec<ResolverCandidateRow> = Vec::new();
-    for folded in fold_linked(
-        graph,
-        collect_resolver_candidates(graph, description, &topic_keys, close, related)?,
-        |row| row.decision_id.as_str(),
-        absorb_record,
-    )? {
+    for folded in fold_linked(graph, found, |row| row.decision_id.as_str(), absorb_record)? {
         if !folded.also_recorded_as.is_empty() {
             also_recorded_as.insert(folded.item.decision_id.clone(), folded.also_recorded_as);
         }
@@ -384,6 +433,7 @@ fn resolve_for(
             matched_fields: row.matched_fields,
             missing_terms: row.missing_terms,
             polarity_mismatch: row.polarity_mismatch,
+            resolved_via: row.resolved_via,
         })
         .collect();
 
@@ -411,7 +461,7 @@ fn resolve_for(
     Ok(QueryResponse {
         result_count,
         truncated,
-        latency_ms: started.elapsed().as_millis(),
+        latency_ms: 0,
         data: outcome,
     })
 }
@@ -668,6 +718,148 @@ fn absorb_record(shown: &mut ResolverCandidateRow, other: ResolverCandidateRow) 
     shown
         .missing_terms
         .retain(|term| other.missing_terms.contains(term));
+    shown.resolved_via.extend(other.resolved_via);
+}
+
+/// Folds every candidate that a later decision replaced into the decision at the end of its
+/// supersession chain (hivemind-am6rp). A question that matches an early draft, or a decision
+/// that was reworded and then replaced, finds records that all lead to the one decision that
+/// stands, and listing them as rivals answers "ambiguous" about a ledger that holds one answer.
+/// Called only for a verb that only reads, once its outcome is `Ambiguous`.
+///
+/// The records that fold to one head become one candidate: the head itself when it matched (the
+/// replaced records are absorbed like the records of one decision, `absorb_record`), otherwise the
+/// best of the records, standing in for the head under the head's id, title, status and recorded
+/// order, with the words it matched. Either way `resolved_via` names the replaced records that
+/// led there. Records that fold to different heads stay different candidates, each with its own
+/// `resolved_via`, so the outcome stays `Ambiguous` and lists the heads. A chain that branches (a
+/// decision replaced by two) or loops has no head to fold into: its candidates stay as they are,
+/// listed as replaced, as before.
+fn fold_into_chain_heads(
+    graph: &impl GraphView,
+    rows: Vec<ResolverCandidateRow>,
+) -> Result<Vec<ResolverCandidateRow>> {
+    let mut groups: Vec<(Option<String>, Vec<ResolverCandidateRow>)> = Vec::new();
+    for row in rows {
+        let head = chain_head(graph, &row)?;
+        let group = head
+            .as_ref()
+            .and_then(|head| groups.iter_mut().find(|(at, _)| at.as_ref() == Some(head)));
+        match group {
+            Some((_, members)) => members.push(row),
+            None => groups.push((head, vec![row])),
+        }
+    }
+
+    let mut folded = Vec::with_capacity(groups.len());
+    for (head, members) in groups {
+        match head {
+            Some(head)
+                if members.len() > 1 || members.iter().all(|row| row.decision_id != head) =>
+            {
+                folded.extend(fold_into_head(graph, &head, members)?);
+            }
+            _ => folded.extend(members),
+        }
+    }
+    Ok(folded)
+}
+
+/// The decision at the end of the supersession chain `row` sits in: its own id when nothing
+/// replaced it. `None` when the chain has no single end to fold into: a decision on the way was
+/// replaced by two, or the chain loops back on itself.
+fn chain_head(graph: &impl GraphView, row: &ResolverCandidateRow) -> Result<Option<String>> {
+    if row.superseded_by.is_empty() {
+        return Ok(Some(row.decision_id.clone()));
+    }
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut at = row.decision_id.clone();
+    loop {
+        let mut replaced_by: Vec<String> = neighbor_pairs(
+            graph,
+            NodeKind::Decision,
+            &at,
+            RelationKind::Supersedes,
+            NodeKind::Decision,
+            Direction::Incoming,
+        )?
+        .into_iter()
+        .map(|(by_id, _)| by_id)
+        .collect();
+        replaced_by.sort();
+        replaced_by.dedup();
+        let next = match replaced_by.len() {
+            0 => return Ok(Some(at)),
+            1 => replaced_by.swap_remove(0),
+            _ => return Ok(None),
+        };
+        if next == at || seen.contains(&next) {
+            return Ok(None);
+        }
+        seen.insert(std::mem::replace(&mut at, next));
+    }
+}
+
+/// One candidate for the records `members` that end in `head`: see `fold_into_chain_heads`.
+fn fold_into_head(
+    graph: &impl GraphView,
+    head: &str,
+    members: Vec<ResolverCandidateRow>,
+) -> Result<Vec<ResolverCandidateRow>> {
+    let head_matched = members.iter().any(|row| row.decision_id == head);
+    let standing = if head_matched {
+        None
+    } else {
+        match resolve_decision_by_id(graph, head)?.data {
+            ResolveOutcome::Resolved { candidate } => Some(candidate),
+            _ => return Ok(members),
+        }
+    };
+
+    let (matched_head, mut replaced): (Vec<_>, Vec<_>) =
+        members.into_iter().partition(|row| row.decision_id == head);
+    replaced.sort_by(by_standing);
+    let mut replaced = replaced.into_iter();
+    let Some(mut carrier) = matched_head.into_iter().next().or_else(|| replaced.next()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut led_here: Vec<(i64, RecordedCopy)> = Vec::new();
+    let mut note = |row: &ResolverCandidateRow| {
+        led_here.push((
+            row.event_origin,
+            RecordedCopy {
+                decision_id: row.decision_id.clone(),
+                title: row.title.clone(),
+            },
+        ));
+    };
+    if standing.is_some() {
+        note(&carrier);
+    }
+    for other in replaced {
+        note(&other);
+        carrier.peer &= other.peer;
+        carrier.outweighed &= other.outweighed;
+        absorb_record(&mut carrier, other);
+    }
+    if let Some(standing) = standing {
+        carrier.decision_id = standing.decision_id;
+        carrier.title = standing.title;
+        carrier.event_origin = standing.event_origin;
+        carrier.accepted = standing.status == DecisionStatus::Accepted;
+        carrier.status = standing.status;
+        carrier.superseded_by = standing.superseded_by;
+    }
+    led_here.sort_by(|(left_at, left), (right_at, right)| {
+        left_at
+            .cmp(right_at)
+            .then_with(|| left.decision_id.cmp(&right.decision_id))
+    });
+    carrier
+        .resolved_via
+        .extend(led_here.into_iter().map(|(_, record)| record));
+    Ok(vec![carrier])
 }
 
 /// Look up a decision named by its literal id, as a grounding premise: `Resolved` when the
@@ -711,6 +903,7 @@ pub fn resolve_decision_by_id(
                 missing_terms: Vec::new(),
                 polarity_mismatch: false,
                 also_recorded_as: Vec::new(),
+                resolved_via: Vec::new(),
             },
         },
         None => ResolveOutcome::NotFound,
@@ -726,10 +919,12 @@ pub fn resolve_decision_by_id(
 
 /// Says, beside `data` in a read verb's JSON envelope, how a description was resolved when that
 /// is worth knowing: `close_match: {decision_id, title, missing_terms}` for a decision that
-/// matched all but some of the words asked, and `also_recorded_as: [{decision_id, title}]` for
-/// the other records of a decision recorded more than once. A description that matched in full
-/// a decision recorded once adds nothing, so a key's presence is the whole signal. Shared by the
-/// CLI's `--json`, the HTTP API and MCP so the three cannot name it differently.
+/// matched all but some of the words asked, `also_recorded_as: [{decision_id, title}]` for the
+/// other records of a decision recorded more than once, and `resolved_via: [{decision_id, title}]`
+/// for the replaced records the description matched that led to the decision that stands. A
+/// description that matched in full a decision recorded once adds nothing, so a key's presence is
+/// the whole signal. Shared by the CLI's `--json`, the HTTP API and MCP so the three cannot name
+/// it differently.
 pub fn annotate_resolution(envelope: &mut serde_json::Value, candidate: &ResolvedCandidate) {
     let Some(envelope) = envelope.as_object_mut() else {
         return;
@@ -748,6 +943,12 @@ pub fn annotate_resolution(envelope: &mut serde_json::Value, candidate: &Resolve
         envelope.insert(
             "also_recorded_as".to_owned(),
             serde_json::json!(candidate.also_recorded_as),
+        );
+    }
+    if !candidate.resolved_via.is_empty() {
+        envelope.insert(
+            "resolved_via".to_owned(),
+            serde_json::json!(candidate.resolved_via),
         );
     }
 }
