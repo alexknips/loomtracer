@@ -4782,9 +4782,13 @@ fn validate_option_label(label: &str) -> Result<()> {
 /// numbers its items in order, so the label is a bundle when three or more of its answer numbers
 /// count up from 1: each is one more than the one before ("1. ship 2. wait 3. cancel",
 /// "1 ship, 2 wait, 3 cancel", "1a-2-3a"), or, for an outline number, the same top-level number
-/// or one more ("answers 1.1, 1.2 and 2.1", "alex picked 1.2 / 2.1 / 3.3"). Other numbers are
-/// quantities, versions and times, and a label may hold as many as it likes: "keep 7 daily, 4
-/// weekly and 12 monthly backups", "windows 7, 8 and 10", "node 18 to 20 and postgres 15 to 16".
+/// or one more ("answers 1.1, 1.2 and 2.1", "alex picked 1.2 / 2.1 / 3.3"). Two more shapes are
+/// a list whatever the numbers are: a number with a letter ("1a", "3b") always counts, so
+/// "answers 1a, 3a and 5a" and "answers 2a, 3b and 4a" are refused, and so is a bare list of
+/// three or more plain numbers, with only punctuation, "and" or "or" between them, that includes
+/// 1 ("picked 1, 3 and 4"). Other numbers are quantities, versions and times, and a label may
+/// hold as many as it likes: "keep 7 daily, 4 weekly and 12 monthly backups", "windows 7, 8 and
+/// 10", "node 18 to 20 and postgres 15 to 16".
 ///
 /// An answer number is 1-2 digits with an optional single letter ("1a", "2", "6a"), or an outline
 /// number of two single digits joined by a `.` ("1.1"). Tokens that are only pieces of one number
@@ -4793,9 +4797,10 @@ fn validate_option_label(label: &str) -> Result<()> {
 /// counting their pieces refused any option that names one. A lone "phase 1", a version like "v2"
 /// and a 4-digit year do not trip this either.
 ///
-/// Known limits: a label that counts 1, 2, 3 in earnest ("keep 1 daily, 2 weekly and 3 monthly
-/// backups") reads as an enumeration, and one that skips an item ("answers 1a, 3a and 5a") does
-/// not.
+/// Known limits: a label that counts 1, 2, 3 in earnest ("keep 1, 2 and 3 replicas warm") or
+/// names a quantity with a one-letter unit ("keep 7d, 4w and 12m of logs") reads as a list of
+/// answers, and a bare list of plain numbers that does not include 1 ("go with 2, 3 and 4")
+/// cannot be told from "drop support for windows 7, 8 and 10", so it captures.
 fn bundles_numbered_answers(lower_label: &str) -> bool {
     let tokens = tokens_with_separators(lower_label);
     let mut part_of_number = vec![false; tokens.len()];
@@ -4848,14 +4853,30 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
 
     let mut last_top_level = 0;
     let mut counting_up = 0;
+    let mut bare_run = 0;
+    let mut bare_run_has_one = false;
     for (((_, token), part_of_number), is_outline) in
         tokens.iter().zip(&part_of_number).zip(&outline_start)
     {
-        if *part_of_number || !(*is_outline || is_numbered_answer_token(token)) {
+        let is_answer = !*part_of_number && (*is_outline || is_numbered_answer_token(token));
+        let is_plain = is_answer && !*is_outline && token.bytes().all(|b| b.is_ascii_digit());
+        if is_plain {
+            bare_run += 1;
+            bare_run_has_one |= leading_number(token) == 1;
+            if bare_run >= 3 && bare_run_has_one {
+                return true;
+            }
+        } else if !matches!(*token, "and" | "or") {
+            bare_run = 0;
+            bare_run_has_one = false;
+        }
+        if !is_answer {
             continue;
         }
         let top_level = leading_number(token);
-        if top_level == last_top_level + 1
+        let is_lettered = token.ends_with(|c: char| c.is_ascii_lowercase());
+        if is_lettered
+            || top_level == last_top_level + 1
             || (*is_outline && last_top_level > 0 && top_level == last_top_level)
         {
             last_top_level = top_level;

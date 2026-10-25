@@ -357,6 +357,52 @@ fn record_option_rejects_outline_and_unpunctuated_numbered_answers() {
 }
 
 #[test]
+fn record_option_rejects_lettered_answers_and_bare_lists_that_include_one() {
+    // hivemind-swrmr, mayor ruling B: a number with a letter is an answer number whatever the
+    // list starts at, and a bare list of plain numbers that includes 1 is a list of answers; a
+    // list that skips an item is still a list.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "answers 1a, 3a and 5a",
+        "answers 2a, 3b and 4a",
+        "answers 2a, 3 and 4a",
+        "picked 1, 3 and 4",
+        "picked 3, 1 and 4",
+        "answers 1 and 3 and 4",
+        "answers 1, 3, 4 or 6",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_err(),
+            "label {label:?} bundles numbered answers"
+        );
+    }
+}
+
+#[test]
+fn record_option_has_two_recorded_limits_on_plain_number_lists() {
+    // hivemind-swrmr known limits, kept here so they stay written down. A bare list of plain
+    // numbers that leaves out 1 cannot be told from "drop support for windows 7, 8 and 10", so it
+    // captures; a label that counts 1, 2, 3 as quantities still reads as a list.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    assert!(commands
+        .record_option("actor:carol", "go with 2, 3 and 4", "description")
+        .is_ok());
+    assert!(commands
+        .record_option(
+            "actor:carol",
+            "keep 1, 2 and 3 replicas warm",
+            "description"
+        )
+        .is_err());
+}
+
+#[test]
 fn record_option_allows_a_short_clean_label() {
     // A lone numbered reference or version-looking token must not trip the bundling heuristic.
     let ledger = InMemoryEventLedger::new();
