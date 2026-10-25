@@ -4896,6 +4896,12 @@ fn option_label_problem(label: &str) -> Option<String> {
 /// tests 2.0 ship it". So do "answers 1.0, 2.0 and 3.0", "picked 1.0, 1.1 and 1.2", "answers 1.2,
 /// 2.0 and 2.1", "answers 1.1, 2.0, 2.1", "answers q/1.1, q/1.2 and q/2.1", "answers 1a, 2.0 and
 /// 3a", "1. ship 2.0 wait 3. cancel" and "picked option/1, option/2 and option/3".
+///
+/// A lettered answer number before a slash is never a name, so "1a/" reads like "1a,", and a
+/// slash bundle of the out-of-order class above captures wherever its comma form does: "answers
+/// 1a/1.3, 1.1 and 1.2", "answers 1a/1.3, 1.1, 1.2 and 1.3", "1a/1.3: ship, 1.2: wait, 1.3:
+/// cancel", "go with 1b/1.3 then 1.1 and 1.2", "answers 1b/2.2, 2.1 and 2.2" and "answers 2a/2.2,
+/// 2.1, 2.2" (compare "answers 1a, 1.3, 1.1 and 1.2", which captures too).
 fn bundles_numbered_answers(lower_label: &str) -> bool {
     let tokens = tokens_with_separators(lower_label);
     let mut part_of_number = vec![false; tokens.len()];

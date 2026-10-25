@@ -107,7 +107,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `supersede` and a classified batch. A number with a letter is an answer number on either side of
   a slash: `answers 1a/2/3a`, `alex answered 1a/2/3b`, `picked 1a/2.1/3a`, `answers 2a/3/4a`,
   `answers 1a/2/3a/4`, `go with 1b/2/3a` and `1a/2/3a: keep, wait, cancel` are refused, and
-  versions after a real name (`HTTP/1.1, HTTP/2, HTTP/3`) still capture. (hivemind-nwdya)
+  versions after a real name (`HTTP/1.1, HTTP/2, HTTP/3`) still capture. Known limit: the fix makes
+  `1a/` read like `1a,`, so a slash bundle of the out-of-order class (the answer numbers do not
+  count up, as in `answers 1a, 1.3, 1.1 and 1.2`, which captures with a comma or a space) now
+  captures as one option too, where the build before this fix refused it: `answers 1a/1.3, 1.1 and
+  1.2`, `answers 1a/1.3, 1.1, 1.2 and 1.3`, `1a/1.3: ship, 1.2: wait, 1.3: cancel`, `go with 1b/1.3
+  then 1.1 and 1.2`, `answers 1b/2.2, 2.1 and 2.2` and `answers 2a/2.2, 2.1, 2.2`. The rule reads
+  the shape of the numbers, so these are the slash form of a limit recorded above, not a new one.
+  (hivemind-nwdya, hivemind-zg82n)
 
 - **`why`, `verify`, `chain` and `compact-view` by description answer with the decision that
   stands when every record the words matched was replaced by it.** A question that matched an

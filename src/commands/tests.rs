@@ -553,6 +553,38 @@ fn record_option_has_recorded_limits_on_bundles_that_read_as_versions() {
 }
 
 #[test]
+fn record_option_has_recorded_limits_on_slash_bundles_that_are_out_of_order() {
+    // hivemind-zg82n: known limit, kept here so it stays written down (doc comment on
+    // `bundles_numbered_answers`, CHANGELOG). A lettered answer number before a slash reads like
+    // the same number before a comma, so each slash bundle below captures exactly where its comma
+    // or space form already does under the out-of-order limit above.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "answers 1a/1.3, 1.1 and 1.2",
+        "answers 1a/1.3, 1.1, 1.2 and 1.3",
+        "1a/1.3: ship, 1.2: wait, 1.3: cancel",
+        "go with 1b/1.3 then 1.1 and 1.2",
+        "answers 1b/2.2, 2.1 and 2.2",
+        "answers 2a/2.2, 2.1, 2.2",
+        "answers 1a, 1.3, 1.1 and 1.2",
+        "answers 1a, 1.3, 1.1, 1.2 and 1.3",
+        "1a, 1.3: ship, 1.2: wait, 1.3: cancel",
+        "go with 1b, 1.3 then 1.1 and 1.2",
+        "answers 1b, 2.2, 2.1 and 2.2",
+        "answers 2a, 2.2, 2.1, 2.2",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_ok(),
+            "label {label:?} is a recorded limit"
+        );
+    }
+}
+
+#[test]
 fn record_option_allows_a_short_clean_label() {
     // A lone numbered reference or version-looking token must not trip the bundling heuristic.
     let ledger = InMemoryEventLedger::new();
