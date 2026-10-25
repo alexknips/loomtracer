@@ -4798,8 +4798,7 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
             && before.ends_with(|c: char| c.is_ascii_digit())
             && after.starts_with(|c: char| c.is_ascii_digit())
         {
-            part_of_number[i] = true;
-            part_of_number[i + 1] = true;
+            mark_flags(&mut part_of_number, i, 2);
         }
     }
     for (i, triple) in tokens.windows(3).enumerate() {
@@ -4814,7 +4813,7 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
                     && is_month_or_day(second)
                     && is_year(third)));
         if is_date {
-            part_of_number[i..i + 3].fill(true);
+            mark_flags(&mut part_of_number, i, 3);
         }
     }
     tokens
@@ -4829,23 +4828,24 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
 /// precedes it (empty only for a token at the very start).
 fn tokens_with_separators(text: &str) -> Vec<(&str, &str)> {
     let mut tokens = Vec::new();
-    let mut separator_start = 0;
-    let mut token_start = None;
-    for (i, c) in text.char_indices() {
-        match (c.is_ascii_alphanumeric(), token_start) {
-            (true, None) => token_start = Some(i),
-            (false, Some(start)) => {
-                tokens.push((&text[separator_start..start], &text[start..i]));
-                separator_start = i;
-                token_start = None;
-            }
-            _ => {}
-        }
-    }
-    if let Some(start) = token_start {
-        tokens.push((&text[separator_start..start], &text[start..]));
+    let mut rest = text;
+    while let Some(token_start) = rest.find(|c: char| c.is_ascii_alphanumeric()) {
+        let (separator, from_token) = rest.split_at(token_start);
+        let token_len = from_token
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(from_token.len());
+        let (token, after) = from_token.split_at(token_len);
+        tokens.push((separator, token));
+        rest = after;
     }
     tokens
+}
+
+/// Sets `len` flags to true, starting at `start`; flags past the end are left out.
+fn mark_flags(flags: &mut [bool], start: usize, len: usize) {
+    for flag in flags.iter_mut().skip(start).take(len) {
+        *flag = true;
+    }
 }
 
 fn is_year(token: &str) -> bool {
