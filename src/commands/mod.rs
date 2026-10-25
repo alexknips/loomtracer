@@ -4783,13 +4783,77 @@ fn validate_option_label(label: &str) -> Result<()> {
 /// (1-2 digits optionally followed by a single letter, e.g. "1a", "2", "6a"). Three or more
 /// such tokens in one label is treated as bundling rather than a single legitimate reference
 /// (a lone "phase 1" or a version like "v2" doesn't trip this; a 4-digit run like a year
-/// doesn't either).
+/// doesn't either). Tokens that are only pieces of one number do not count: a version or decimal
+/// ("gc 1.5.1", "0.8", "2.1.28x") is digits joined by a single `.`, and a date ("2026-10-24",
+/// "2026/10/24", "24/10/2026") is a four-digit year with a month and a day — none of them is a
+/// list of answers, and counting their pieces refused any option that names a version.
 fn bundles_numbered_answers(lower_label: &str) -> bool {
-    lower_label
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|token| is_numbered_answer_token(token))
+    let tokens = tokens_with_separators(lower_label);
+    let mut part_of_number = vec![false; tokens.len()];
+    for (i, pair) in tokens.windows(2).enumerate() {
+        let [(_, before), (separator, after)] = pair else {
+            continue;
+        };
+        if *separator == "."
+            && before.ends_with(|c: char| c.is_ascii_digit())
+            && after.starts_with(|c: char| c.is_ascii_digit())
+        {
+            part_of_number[i] = true;
+            part_of_number[i + 1] = true;
+        }
+    }
+    for (i, triple) in tokens.windows(3).enumerate() {
+        let [(_, first), (first_separator, second), (second_separator, third)] = triple else {
+            continue;
+        };
+        let is_date = first_separator == second_separator
+            && matches!(*first_separator, "-" | "/")
+            && ((is_year(first) && is_month_or_day(second) && is_month_or_day(third))
+                || (*first_separator == "/"
+                    && is_month_or_day(first)
+                    && is_month_or_day(second)
+                    && is_year(third)));
+        if is_date {
+            part_of_number[i..i + 3].fill(true);
+        }
+    }
+    tokens
+        .iter()
+        .zip(&part_of_number)
+        .filter(|((_, token), part_of_number)| !**part_of_number && is_numbered_answer_token(token))
         .count()
         >= 3
+}
+
+/// The ASCII-alphanumeric tokens of `text`, each paired with the run of other characters that
+/// precedes it (empty only for a token at the very start).
+fn tokens_with_separators(text: &str) -> Vec<(&str, &str)> {
+    let mut tokens = Vec::new();
+    let mut separator_start = 0;
+    let mut token_start = None;
+    for (i, c) in text.char_indices() {
+        match (c.is_ascii_alphanumeric(), token_start) {
+            (true, None) => token_start = Some(i),
+            (false, Some(start)) => {
+                tokens.push((&text[separator_start..start], &text[start..i]));
+                separator_start = i;
+                token_start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(start) = token_start {
+        tokens.push((&text[separator_start..start], &text[start..]));
+    }
+    tokens
+}
+
+fn is_year(token: &str) -> bool {
+    token.len() == 4 && token.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn is_month_or_day(token: &str) -> bool {
+    (1..=2).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn is_numbered_answer_token(token: &str) -> bool {

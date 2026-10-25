@@ -63,6 +63,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **An option label with a version number, a decimal or a date in it is no longer refused as
+  "bundles multiple numbered answers".** The check counts short numbers in a label and refuses
+  three or more, and it split "gc 1.5.1" at every dot into three, so
+  `capture_decision`, `emit decision.capture`, `supersede` and every other capture path refused
+  "upgrade to gc 1.5.1 on tmux after a rehearsal" and the capturer had to cut the version out of
+  the option, losing what was chosen. Digits joined by a single `.` (`1.5.1`, `v0.8.0`, `2.1.28x`,
+  `0.25`) now count as one number, and so does a date (`2026-10-24`, `2026/10/24`, `24/10/2026`;
+  `24.10.2026` is a dotted number). A real enumeration (`1. ship 2. wait 3. cancel`, `1a-2-3a`) is
+  still refused, also when a version sits beside it. (hivemind-j6tgw)
+
 - **A Postgres server that refuses a login now says so: "password authentication failed for user
   ...", not only "timed out waiting for connection: db error".** The connection pool kept only the
   first line of the Postgres client's error, which for any server refusal is `db error`, so

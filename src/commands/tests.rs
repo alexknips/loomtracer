@@ -245,6 +245,58 @@ fn record_option_rejects_numbered_answer_bundle_label() {
 }
 
 #[test]
+fn record_option_allows_version_numbers_decimals_and_dates_in_a_label() {
+    // hivemind-j6tgw: "gc 1.5.1" split on every non-alphanumeric character into three numbered
+    // tokens (1, 5, 1) and was refused as a bundle of numbered answers. A version, a decimal or
+    // a date is one number whatever its pieces look like.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "upgrade to gc 1.5.1 on tmux after a rehearsal",
+        "rehearse then upgrade to gc 1.5.1 on tmux",
+        "stay on v0.8.0",
+        "move to 2.1.28x",
+        "bump gc 1.4.1 to 1.5.1 and tmux 3.4 to 3.5",
+        "weight of 0.25 or 0.5 or 0.75",
+        "freeze on 2026-10-24, ship on 2026-11-03",
+        "cut over 2026/10/24 and retire 2026/12/31",
+        "cut over 24/10/2026 and retire 31/12/2026",
+        "cut over 24.10.2026 and retire 31.12.2026",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_ok(),
+            "label {label:?} is not a list of numbered answers"
+        );
+    }
+}
+
+#[test]
+fn record_option_still_rejects_numbered_answers_beside_a_version_or_date() {
+    // The version and date exemption removes the pieces of one number from the count; real
+    // numbered answers next to it still make three.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "1. ship 2. wait 3. cancel",
+        "1) ship; 2) wait; 3) cancel",
+        "answers 1a-2-3a on gc 1.5.1",
+        "keep 1, 2 and 3 on 2026-10-24",
+        "1.5.1 with answers 1, 2, 3",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_err(),
+            "label {label:?} bundles numbered answers"
+        );
+    }
+}
+
+#[test]
 fn record_option_allows_a_short_clean_label() {
     // A lone numbered reference or version-looking token must not trip the bundling heuristic.
     let ledger = InMemoryEventLedger::new();
