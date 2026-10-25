@@ -4820,25 +4820,32 @@ fn option_label_problem(label: &str) -> Option<String> {
 /// numbers its items in order, so the label is a bundle when three or more of its answer numbers
 /// count up from 1: each is one more than the one before ("1. ship 2. wait 3. cancel",
 /// "1 ship, 2 wait, 3 cancel", "1a-2-3a"), or, for an outline number, the same top-level number
-/// or one more ("answers 1.1, 1.2 and 2.1", "alex picked 1.2 / 2.1 / 3.3"). Two more shapes are
-/// a list whatever the numbers are: a number with a letter ("1a", "3b") always counts, so
-/// "answers 1a, 3a and 5a" and "answers 2a, 3b and 4a" are refused, and so is a bare list of
-/// three or more plain numbers, with only punctuation, "and" or "or" between them, that includes
-/// 1 ("picked 1, 3 and 4"). Other numbers are quantities, versions and times, and a label may
-/// hold as many as it likes: "keep 7 daily, 4 weekly and 12 monthly backups", "windows 7, 8 and
-/// 10", "node 18 to 20 and postgres 15 to 16".
+/// with a higher item number, or the next top-level number ("answers 1.1, 1.2 and 2.1", "alex
+/// picked 1.2 / 2.1 / 3.3"). Two more shapes are a list whatever the numbers are: a number with a
+/// letter ("1a", "3b") always counts, so "answers 1a, 3a and 5a" and "answers 2a, 3b and 4a" are
+/// refused, and so is a bare list of three or more plain numbers, with only punctuation, "and" or
+/// "or" between them, that includes 1 ("picked 1, 3 and 4"). Other numbers are quantities,
+/// versions and times, and a label may hold as many as it likes: "keep 7 daily, 4 weekly and 12
+/// monthly backups", "windows 7, 8 and 10", "node 18 to 20 and postgres 15 to 16".
 ///
 /// An answer number is 1-2 digits with an optional single letter ("1a", "2", "6a"), or an outline
 /// number of two single digits joined by a `.` ("1.1"). Tokens that are only pieces of one number
 /// are not answer numbers: a version or decimal ("gc 1.5.1", "0.8", "2.1.28x", "3.12"), a time
 /// ("02:00") and a date ("2026-10-24", "2026/10/24", "24/10/2026") are not a list of answers, and
 /// counting their pieces refused any option that names one. A lone "phase 1", a version like "v2"
-/// and a 4-digit year do not trip this either.
+/// and a 4-digit year do not trip this either. Three more shapes are versions, not items: an
+/// outline number whose item part is 0 ("2.0", "1.0") names a release, since a numbered outline
+/// starts at .1; an outline number that does not come after the one before it ("require TLS 1.2
+/// and 1.3, drop 1.0 and 1.1") is not counting up; and a version written straight after a name
+/// and a slash ("HTTP/1.1 and HTTP/2 and HTTP/3") belongs to the name.
 ///
 /// Known limits: a label that counts 1, 2, 3 in earnest ("keep 1, 2 and 3 replicas warm") or
 /// names a quantity with a one-letter unit ("keep 7d, 4w and 12m of logs") reads as a list of
 /// answers, and a bare list of plain numbers that does not include 1 ("go with 2, 3 and 4")
-/// cannot be told from "drop support for windows 7, 8 and 10", so it captures.
+/// cannot be told from "drop support for windows 7, 8 and 10", so it captures. Versions that
+/// count up from 1.1 in order cannot be told from outline numbers either, so "enable TLS 1.1, 1.2
+/// and 1.3", "upgrade from 1.1 to 1.2, then 2.1" and "support http 1.1, 2 and 3" read as lists of
+/// answers.
 fn bundles_numbered_answers(lower_label: &str) -> bool {
     let tokens = tokens_with_separators(lower_label);
     let mut part_of_number = vec![false; tokens.len()];
@@ -4890,11 +4897,15 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
     }
 
     let mut last_top_level = 0;
+    let mut last_counted_outline = (0, 0);
     let mut counting_up = 0;
     let mut bare_run = 0;
     let mut bare_run_has_one = false;
-    for (((_, token), part_of_number), is_outline) in
-        tokens.iter().zip(&part_of_number).zip(&outline_start)
+    for (i, (((separator, token), part_of_number), is_outline)) in tokens
+        .iter()
+        .zip(&part_of_number)
+        .zip(&outline_start)
+        .enumerate()
     {
         let is_answer = !*part_of_number && (*is_outline || is_numbered_answer_token(token));
         let is_plain = is_answer && !*is_outline && token.bytes().all(|b| b.is_ascii_digit());
@@ -4913,13 +4924,33 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
         }
         let top_level = leading_number(token);
         let is_lettered = token.ends_with(|c: char| c.is_ascii_lowercase());
-        if is_lettered
+        if !(is_lettered
             || top_level == last_top_level + 1
-            || (*is_outline && last_top_level > 0 && top_level == last_top_level)
+            || (*is_outline && last_top_level > 0 && top_level == last_top_level))
         {
-            last_top_level = top_level;
-            counting_up += 1;
+            continue;
         }
+        last_top_level = top_level;
+
+        // The list moves on past a version, but a version is not one of its items.
+        let after_a_name = *separator == "/"
+            && i.checked_sub(1)
+                .and_then(|previous| tokens.get(previous))
+                .is_some_and(|(_, name)| name.ends_with(|c: char| c.is_ascii_alphabetic()));
+        if after_a_name {
+            continue;
+        }
+        if *is_outline {
+            let item = tokens
+                .get(i + 1)
+                .map_or(0, |(_, next)| leading_number(next));
+            let outline_number = (top_level, item);
+            if item == 0 || outline_number <= last_counted_outline {
+                continue;
+            }
+            last_counted_outline = outline_number;
+        }
+        counting_up += 1;
     }
     counting_up >= 3
 }

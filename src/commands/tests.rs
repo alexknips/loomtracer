@@ -330,6 +330,68 @@ fn record_option_allows_everyday_labels_with_several_plain_numbers() {
 }
 
 #[test]
+fn record_option_allows_versions_that_count_up_from_one_point_x() {
+    // hivemind-nf97m: a release plan that names 1.1, 1.2 and 2.0 read as outline numbers 1.1, 1.2
+    // and 2.1 and was refused as bundled answers. A ".0" names a release, outline numbers count
+    // up in order, and a version after "NAME/" belongs to the name.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "ship 1.1 and 1.2 now, 2.0 next quarter",
+        "roll the API from 1.0 to 1.1, then 2.0",
+        "upgrade from 1.4 to 1.5 and skip 2.0",
+        "serve HTTP/1.1 and HTTP/2, not HTTP/3",
+        "require TLS 1.2 and 1.3, drop 1.0 and 1.1",
+        "keep HTTP/1.1 and add HTTP/2 and HTTP/3",
+        "ship 1.0, then 1.1 and 2.0",
+        "upgrade java 1.8 to 1.9 and then 2.0",
+        "ship 1.0 now, 1.1 and 1.2 later",
+        "ship 1.0, 2.0 and 3.0",
+        "use HTTP/1.1, HTTP/2 and HTTP/3",
+        "keep TLS 1.2, drop TLS 1.1 and 1.0",
+        "drop 1.3, 1.2 and 1.1",
+        "support OAuth 1.0 and 2.0",
+        "test on python 2.6, 2.7 and 3.5",
+        "bump the schema from 1.1 to 1.2",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_ok(),
+            "label {label:?} names versions, not numbered answers"
+        );
+    }
+}
+
+#[test]
+fn record_option_still_rejects_outline_answers_beside_versions() {
+    // The ".0", ordering and "NAME/" exemptions take versions out of the count; outline numbers
+    // that count up in order, alone or mixed with plain item numbers, still make a list.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "answers 1.1, 1.2, 1.3",
+        "answers 1.0, 1.1, 1.2, 1.3",
+        "go with 1.2, 2.1 and 3.1",
+        "1.1 yes, 1.2 no, 2.1 later",
+        "answers 1, 1.1, 1.2",
+        "1. ship 1.1 a 1.2 b 2. wait",
+        "1 ship 1.1 a 1.2 b 2 wait",
+        "answers 1.1, 1.2 and 2.1 for HTTP/2",
+        "1 ship, 2 wait, 3 cancel on HTTP/2",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_err(),
+            "label {label:?} bundles numbered answers"
+        );
+    }
+}
+
+#[test]
 fn record_option_rejects_outline_and_unpunctuated_numbered_answers() {
     // hivemind-swrmr: outline numbers ("1.1") were read as one decimal each, so three of them
     // counted as no numbered answers. A list that counts up from 1 is still a list, whether its
@@ -400,6 +462,27 @@ fn record_option_has_two_recorded_limits_on_plain_number_lists() {
             "description"
         )
         .is_err());
+}
+
+#[test]
+fn record_option_has_recorded_limits_on_versions_that_count_up_in_order() {
+    // hivemind-nf97m known limits, kept here so they stay written down. Versions that count up
+    // from 1.1 in order cannot be told from outline numbers, so they read as a list of answers.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "enable TLS 1.1, 1.2 and 1.3",
+        "upgrade from 1.1 to 1.2, then 2.1",
+        "support http 1.1, 2 and 3",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_err(),
+            "label {label:?} is a recorded limit"
+        );
+    }
 }
 
 #[test]
