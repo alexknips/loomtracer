@@ -63,6 +63,22 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **An option that packs outline-numbered answers into one label ("answers 1.1, 1.2 and 2.1") is
+  refused again, and an everyday label with three plain numbers ("keep 7 daily, 4 weekly and 12
+  monthly backups") is no longer refused.** The previous fix counted `1.1` as one decimal, so
+  three outline numbers counted as no numbered answers and `capture_decision`, `emit
+  decision.capture`, `supersede` and the plugin's `capture.sh` recorded one option pointing into a
+  numbered list that is not on the record; before it, any three short numbers in a label, a time
+  like `02:00` included, were refused as "bundles multiple numbered answers", and the capturer had
+  to cut numbers out of the option. The check now asks what a real enumeration does: its numbers
+  count up from 1 (`1. ship 2. wait 3. cancel`, `1 ship, 2 wait, 3 cancel`, `1a-2-3a`, and
+  `1.1, 1.2, 2.1` for outline numbers). Quantities, versions and times (`7 daily, 4 weekly and 12
+  monthly`, `node 18 to 20 and postgres 15 to 16`, `windows 7, 8 and 10`, `02:00 and 04:00`,
+  `2 replicas with 4 vCPU and 8 GB`) are not a list and capture whole. A label that really counts
+  1, 2, 3 as quantities is still read as a list, and a list that skips an item (`answers 1a, 3a
+  and 5a`) is not. `1gb, 2gb and 3gb` no longer counts as `1`, `2`, `3`. (hivemind-swrmr,
+  hivemind-oagoy)
+
 - **An option label with a version number, a decimal or a date in it is no longer refused as
   "bundles multiple numbered answers".** The check counts short numbers in a label and refuses
   three or more, and it split "gc 1.5.1" at every dot into three, so

@@ -4778,27 +4778,56 @@ fn validate_option_label(label: &str) -> Result<()> {
 }
 
 /// Heuristic for "several numbered answers packed into one label" (e.g.
-/// "alex-s-answers-1a-2-common-parent-3a-4a-5a-6a-plus-child-as-evid"): tokenize on non-
-/// alphanumeric boundaries and count tokens that look like a short numbered-answer reference
-/// (1-2 digits optionally followed by a single letter, e.g. "1a", "2", "6a"). Three or more
-/// such tokens in one label is treated as bundling rather than a single legitimate reference
-/// (a lone "phase 1" or a version like "v2" doesn't trip this; a 4-digit run like a year
-/// doesn't either). Tokens that are only pieces of one number do not count: a version or decimal
-/// ("gc 1.5.1", "0.8", "2.1.28x") is digits joined by a single `.`, and a date ("2026-10-24",
-/// "2026/10/24", "24/10/2026") is a four-digit year with a month and a day — none of them is a
-/// list of answers, and counting their pieces refused any option that names a version.
+/// "alex-s-answers-1a-2-common-parent-3a-4a-5a-6a-plus-child-as-evid"). A real enumeration
+/// numbers its items in order, so the label is a bundle when three or more of its answer numbers
+/// count up from 1: each is one more than the one before ("1. ship 2. wait 3. cancel",
+/// "1 ship, 2 wait, 3 cancel", "1a-2-3a"), or, for an outline number, the same top-level number
+/// or one more ("answers 1.1, 1.2 and 2.1", "alex picked 1.2 / 2.1 / 3.3"). Other numbers are
+/// quantities, versions and times, and a label may hold as many as it likes: "keep 7 daily, 4
+/// weekly and 12 monthly backups", "windows 7, 8 and 10", "node 18 to 20 and postgres 15 to 16".
+///
+/// An answer number is 1-2 digits with an optional single letter ("1a", "2", "6a"), or an outline
+/// number of two single digits joined by a `.` ("1.1"). Tokens that are only pieces of one number
+/// are not answer numbers: a version or decimal ("gc 1.5.1", "0.8", "2.1.28x", "3.12"), a time
+/// ("02:00") and a date ("2026-10-24", "2026/10/24", "24/10/2026") are not a list of answers, and
+/// counting their pieces refused any option that names one. A lone "phase 1", a version like "v2"
+/// and a 4-digit year do not trip this either.
+///
+/// Known limits: a label that counts 1, 2, 3 in earnest ("keep 1 daily, 2 weekly and 3 monthly
+/// backups") reads as an enumeration, and one that skips an item ("answers 1a, 3a and 5a") does
+/// not.
 fn bundles_numbered_answers(lower_label: &str) -> bool {
     let tokens = tokens_with_separators(lower_label);
     let mut part_of_number = vec![false; tokens.len()];
+    let mut outline_start = vec![false; tokens.len()];
     for (i, pair) in tokens.windows(2).enumerate() {
-        let [(_, before), (separator, after)] = pair else {
+        let [(before_separator, before), (separator, after)] = pair else {
             continue;
         };
-        if *separator == "."
+        if matches!(*separator, "." | ":")
             && before.ends_with(|c: char| c.is_ascii_digit())
             && after.starts_with(|c: char| c.is_ascii_digit())
         {
-            mark_flags(&mut part_of_number, i, 2);
+            // An outline number is exactly two single digits joined by a `.`: one more `.digit`
+            // on either side makes it a version ("1.5.1").
+            let continues_before = *before_separator == "."
+                && i.checked_sub(1)
+                    .and_then(|previous| tokens.get(previous))
+                    .is_some_and(|(_, token)| token.ends_with(|c: char| c.is_ascii_digit()));
+            let continues_after = tokens.get(i + 2).is_some_and(|(next_separator, token)| {
+                *next_separator == "." && token.starts_with(|c: char| c.is_ascii_digit())
+            });
+            if *separator == "."
+                && is_single_digit(before)
+                && is_single_digit(after)
+                && !continues_before
+                && !continues_after
+            {
+                mark_flags(&mut outline_start, i, 1);
+                mark_flags(&mut part_of_number, i + 1, 1);
+            } else {
+                mark_flags(&mut part_of_number, i, 2);
+            }
         }
     }
     for (i, triple) in tokens.windows(3).enumerate() {
@@ -4816,12 +4845,37 @@ fn bundles_numbered_answers(lower_label: &str) -> bool {
             mark_flags(&mut part_of_number, i, 3);
         }
     }
-    tokens
-        .iter()
-        .zip(&part_of_number)
-        .filter(|((_, token), part_of_number)| !**part_of_number && is_numbered_answer_token(token))
-        .count()
-        >= 3
+
+    let mut last_top_level = 0;
+    let mut counting_up = 0;
+    for (((_, token), part_of_number), is_outline) in
+        tokens.iter().zip(&part_of_number).zip(&outline_start)
+    {
+        if *part_of_number || !(*is_outline || is_numbered_answer_token(token)) {
+            continue;
+        }
+        let top_level = leading_number(token);
+        if top_level == last_top_level + 1
+            || (*is_outline && last_top_level > 0 && top_level == last_top_level)
+        {
+            last_top_level = top_level;
+            counting_up += 1;
+        }
+    }
+    counting_up >= 3
+}
+
+/// The number a token starts with: 2 for "2", 3 for "3a" and 12 for "12". Zero for a token that
+/// does not start with a digit.
+fn leading_number(token: &str) -> u32 {
+    token
+        .chars()
+        .map_while(|c| c.to_digit(10))
+        .fold(0, |number, digit| number * 10 + digit)
+}
+
+fn is_single_digit(token: &str) -> bool {
+    token.len() == 1 && token.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// The ASCII-alphanumeric tokens of `text`, each paired with the run of other characters that
@@ -4857,14 +4911,14 @@ fn is_month_or_day(token: &str) -> bool {
 }
 
 fn is_numbered_answer_token(token: &str) -> bool {
-    let mut chars = token.chars();
-    let digit_count = chars.by_ref().take_while(char::is_ascii_digit).count();
-    if digit_count == 0 || digit_count > 2 {
+    let digit_count = token.chars().take_while(char::is_ascii_digit).count();
+    if !(1..=2).contains(&digit_count) {
         return false;
     }
-    match chars.as_str().chars().collect::<Vec<_>>().as_slice() {
-        [] => true,
-        [c] => c.is_ascii_lowercase(),
+    let mut rest = token.chars().skip(digit_count);
+    match (rest.next(), rest.next()) {
+        (None, _) => true,
+        (Some(letter), None) => letter.is_ascii_lowercase(),
         _ => false,
     }
 }

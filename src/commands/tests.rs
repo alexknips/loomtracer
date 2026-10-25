@@ -297,6 +297,66 @@ fn record_option_still_rejects_numbered_answers_beside_a_version_or_date() {
 }
 
 #[test]
+fn record_option_allows_everyday_labels_with_several_plain_numbers() {
+    // hivemind-oagoy: any three short numbers made a label a "bundle", so a retention, a version
+    // bump, a maintenance window or a sizing could not be captured whole. Quantities, versions and
+    // times are not a list of answers; only numbers that count up from 1 are.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "keep 7 daily, 4 weekly and 12 monthly backups",
+        "upgrade node 18 to 20 and postgres 15 to 16",
+        "move to node 20, python 3 and postgres 17",
+        "drop support for windows 7, 8 and 10",
+        "run the backup between 02:00 and 04:00",
+        "shrink the nightly window to 01:00-05:00",
+        "open the window at 01:00, 02:00 and 03:00",
+        "2 replicas with 4 vCPU and 8 GB each",
+        "keep the 30, 60 and 90 day reports",
+        "pin node 20, python 3.12 and postgres 17",
+        "split into 3 services on 2 hosts",
+        "keep 1gb, 2gb and 3gb of logs",
+        "run 1 server, 1 proxy and 1 cache",
+        "bump gc 1.5.1 to 1.6.0 and tmux 3.4 to 3.5",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_ok(),
+            "label {label:?} is not a list of numbered answers"
+        );
+    }
+}
+
+#[test]
+fn record_option_rejects_outline_and_unpunctuated_numbered_answers() {
+    // hivemind-swrmr: outline numbers ("1.1") were read as one decimal each, so three of them
+    // counted as no numbered answers. A list that counts up from 1 is still a list, whether its
+    // items are numbered 1 2 3, 1a 2 3a or 1.1 1.2 2.1.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+
+    for label in [
+        "answers 1.1, 1.2 and 2.1",
+        "go with 1.1, 1.3 and 2.2",
+        "alex picked 1.2 / 2.1 / 3.3",
+        "1.1 fix the bug 1.2 add tests 1.3 ship it",
+        "1 ship, 2 wait, 3 cancel",
+        "answers 1a, 2 and 3a",
+        "1a-2-3a",
+        "1. ship 1.5.1 2. wait 3. cancel",
+    ] {
+        assert!(
+            commands
+                .record_option("actor:carol", label, "description")
+                .is_err(),
+            "label {label:?} bundles numbered answers"
+        );
+    }
+}
+
+#[test]
 fn record_option_allows_a_short_clean_label() {
     // A lone numbered reference or version-looking token must not trip the bundling heuristic.
     let ledger = InMemoryEventLedger::new();
