@@ -8,9 +8,14 @@
 //! script therefore pins the sha-tagged image it built in that env file, and
 //! keeps the pin only when the new container came up healthy.
 //!
+//! `scripts/cell-update.sh --from-ci` pulls the image CI built for the commit
+//! instead of building it, by the digest CI published on the `edge` release, and
+//! builds locally only when CI published nothing for the commit (hivemind-b3my9).
+//!
 //! `docker` and `curl` are stand-ins on `PATH` that log what they were asked
-//! and answer from environment variables; the script itself, `git` and `awk`
-//! run for real.
+//! and answer from environment variables (`curl` serves the `edge` release from
+//! a directory, with a real 200, 404 or other status); the script itself, `git`
+//! and `awk` run for real.
 #![cfg(unix)]
 
 use std::fs;
@@ -28,15 +33,46 @@ echo "$*" >> "$SHIM_LOG"
 if [ "$1" = compose ]; then
   echo "LOOMTRACER_IMAGE=${LOOMTRACER_IMAGE-unset}" >> "$SHIM_LOG"
 fi
+if [ "$1" = pull ] && [ "${SHIM_PULL_FAILS:-0}" = 1 ]; then
+  exit 1
+fi
 "#;
 
+/// The health and version probes answer as before. A GET under `releases/download/edge/` is
+/// answered from `$SHIM_EDGE_DIR` the way `curl -sSL -o FILE -w '%{http_code}'` would: 200 and the
+/// file, 404 when there is none, or `$SHIM_EDGE_STATUS` for every file when that is set. Each such
+/// URL is logged to `$SHIM_LOG.curl`.
 const FAKE_CURL: &str = r#"#!/bin/sh
-for url; do :; done
+out=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift ;;
+    -w) shift ;;
+    -*) ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
 case "$url" in
   */v1/health) [ "${SHIM_HEALTHY:-1}" = 1 ] ;;
   */v1/version) printf '{"sha":"%s"}' "$SHIM_VERSION_SHA" ;;
+  */releases/download/edge/*)
+    echo "$url" >> "$SHIM_LOG.curl"
+    file="$SHIM_EDGE_DIR/${url##*/}"
+    if [ -n "${SHIM_EDGE_STATUS:-}" ]; then
+      printf '%s' "$SHIM_EDGE_STATUS"
+    elif [ -f "$file" ]; then
+      cp "$file" "$out"
+      printf 200
+    else
+      printf 404
+    fi
+    ;;
 esac
 "#;
+
+/// A digest as `docker/build-push-action` reports one.
+const CI_DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 /// The tests write executables and then run them; a `fork` from a sibling test
 /// thread in between can hold the write descriptor open and fail the `exec`
@@ -53,6 +89,12 @@ struct Run {
     compose_file: Option<String>,
     /// `LOOMTRACER_ENV_FILE`.
     env_file: Option<PathBuf>,
+    /// Flags before the ref: `--from-ci`, `--no-build`.
+    flags: Vec<&'static str>,
+    /// `docker pull` fails.
+    pull_fails: bool,
+    /// The status the release server answers every `edge` download with.
+    edge_status: Option<&'static str>,
 }
 
 struct Cell {
@@ -70,7 +112,7 @@ impl Cell {
             short_sha: String::new(),
             root,
         };
-        for dir in [cell.repo(), cell.dir(), cell.bin()] {
+        for dir in [cell.repo(), cell.dir(), cell.bin(), cell.edge_dir()] {
             fs::create_dir(dir)?;
         }
         for name in ["docker-compose.yml", "docker-compose.local-agents.yml"] {
@@ -116,6 +158,41 @@ impl Cell {
         self.root.path().join("bin")
     }
 
+    /// What the `edge` release holds, as the fake `curl` serves it.
+    fn edge_dir(&self) -> PathBuf {
+        self.root.path().join("edge")
+    }
+
+    /// CI published `digest` as the image of the commit under test.
+    fn publish_digest(&self, digest: &str) -> TestResult<()> {
+        fs::write(
+            self.edge_dir()
+                .join(format!("loomtracer-cell-image-{}.digest", self.short_sha)),
+            format!("{digest}\n"),
+        )?;
+        Ok(())
+    }
+
+    /// What `--from-ci` pulls and pins for the commit under test.
+    fn ci_image(&self) -> String {
+        format!(
+            "ghcr.io/alexknips/loomtracer:{}@{CI_DIGEST}",
+            self.short_sha
+        )
+    }
+
+    /// The `edge` release URLs the script asked for.
+    fn edge_requests(&self) -> TestResult<Vec<String>> {
+        let log = self.root.path().join("docker.log.curl");
+        if !log.exists() {
+            return Ok(Vec::new());
+        }
+        Ok(fs::read_to_string(log)?
+            .lines()
+            .map(str::to_owned)
+            .collect())
+    }
+
     fn log(&self) -> PathBuf {
         self.root.path().join("docker.log")
     }
@@ -148,10 +225,15 @@ impl Cell {
         let mut command = Command::new("sh");
         command
             .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/cell-update.sh"))
+            .args(&run.flags)
             .arg("HEAD")
             .current_dir(self.repo())
             .env("PATH", path)
             .env("SHIM_LOG", self.log())
+            .env("SHIM_EDGE_DIR", self.edge_dir())
+            .env("SHIM_PULL_FAILS", if run.pull_fails { "1" } else { "0" })
+            .env_remove("SHIM_EDGE_STATUS")
+            .env_remove("LOOMTRACER_REPO")
             .env("SHIM_HEALTHY", if run.unhealthy { "0" } else { "1" })
             .env(
                 "SHIM_VERSION_SHA",
@@ -170,6 +252,9 @@ impl Cell {
         if let Some(env_file) = &run.env_file {
             command.env("LOOMTRACER_ENV_FILE", env_file);
         }
+        if let Some(status) = run.edge_status {
+            command.env("SHIM_EDGE_STATUS", status);
+        }
         Ok(command.output()?)
     }
 
@@ -177,6 +262,15 @@ impl Cell {
     fn update(&self) -> TestResult<Output> {
         self.run(Run {
             compose_file: Some(self.compose_files()),
+            ..Run::default()
+        })
+    }
+
+    /// A run against the cell's two compose files with the given flags.
+    fn update_with(&self, flags: &[&'static str]) -> TestResult<Output> {
+        self.run(Run {
+            compose_file: Some(self.compose_files()),
+            flags: flags.to_vec(),
             ..Run::default()
         })
     }
@@ -434,5 +528,234 @@ fn update_whose_version_does_not_match_puts_the_env_file_back() -> TestResult<()
     assert!(!output.status.success());
     assert!(stderr(&output).contains("does not mention"));
     assert_eq!(fs::read_to_string(cell.env_file())?, before);
+    Ok(())
+}
+
+#[test]
+fn from_ci_pulls_the_image_by_the_digest_ci_published_and_pins_it() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest(CI_DIGEST)?;
+    cell.write_env(
+        "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE=loomtracer:000000000000\n",
+        0o600,
+    )?;
+
+    let output = cell.update_with(&["--from-ci"])?;
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    // Nothing was compiled: the image came from the registry, by digest.
+    let calls = cell.docker_calls()?;
+    assert!(
+        calls.iter().all(|call| !call.starts_with("build ")),
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&format!("pull {}", cell.ci_image())),
+        "{calls:?}"
+    );
+    // The pin is what was pulled, tag and digest, and the restart runs it.
+    assert_eq!(
+        fs::read_to_string(cell.env_file())?,
+        format!(
+            "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE={}\n",
+            cell.ci_image()
+        )
+    );
+    assert!(
+        calls.contains(&format!("LOOMTRACER_IMAGE={}", cell.ci_image())),
+        "{calls:?}"
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("(CI-built)"));
+    Ok(())
+}
+
+#[test]
+fn from_ci_builds_locally_when_ci_published_no_image_for_the_commit() -> TestResult<()> {
+    let cell = Cell::new()?;
+
+    let output = cell.update_with(&["--from-ci"])?;
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    let calls = cell.docker_calls()?;
+    assert!(
+        calls.iter().all(|call| !call.starts_with("pull ")),
+        "{calls:?}"
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.starts_with("build ")
+                && call.contains(&format!("-t {} ", cell.image()))),
+        "{calls:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(cell.env_file())?,
+        format!("LOOMTRACER_IMAGE={}\n", cell.image())
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("CI has no image"), "{stdout}");
+    assert!(stdout.contains("(built locally)"), "{stdout}");
+    Ok(())
+}
+
+#[test]
+fn from_ci_no_build_exits_3_and_changes_nothing_when_ci_has_no_image() -> TestResult<()> {
+    let cell = Cell::new()?;
+    let before = "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE=loomtracer:000000000000\n";
+    cell.write_env(before, 0o600)?;
+
+    let output = cell.update_with(&["--from-ci", "--no-build"])?;
+
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("not building"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fs::read_to_string(cell.env_file())?, before);
+    // docker was never run: no build, no pull, no restart.
+    assert!(!cell.log().exists());
+    Ok(())
+}
+
+#[test]
+fn from_ci_stops_on_a_digest_that_is_not_one_and_does_not_build() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest("sha256:not-a-digest")?;
+    let before = "POSTGRES_PASSWORD=s3cret\n";
+    cell.write_env(before, 0o600)?;
+
+    let output = cell.update_with(&["--from-ci"])?;
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("is not a sha256 digest"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fs::read_to_string(cell.env_file())?, before);
+    assert!(
+        !cell.log().exists(),
+        "docker ran: {:?}",
+        cell.docker_calls()
+    );
+    Ok(())
+}
+
+#[test]
+fn from_ci_whose_pull_fails_stops_without_building_or_pinning() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest(CI_DIGEST)?;
+    let before = "POSTGRES_PASSWORD=s3cret\n";
+    cell.write_env(before, 0o600)?;
+
+    let output = cell.run(Run {
+        compose_file: Some(cell.compose_files()),
+        flags: vec!["--from-ci"],
+        pull_fails: true,
+        ..Run::default()
+    })?;
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("could not pull"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fs::read_to_string(cell.env_file())?, before);
+    let calls = cell.docker_calls()?;
+    assert!(
+        calls.iter().all(|call| call.starts_with("pull ")),
+        "only the pull ran: {calls:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn from_ci_does_not_build_when_the_release_server_fails() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest(CI_DIGEST)?;
+
+    let output = cell.run(Run {
+        compose_file: Some(cell.compose_files()),
+        flags: vec!["--from-ci"],
+        edge_status: Some("503"),
+        ..Run::default()
+    })?;
+
+    // Only a 404 means "CI has not published this"; a server that is merely
+    // failing must not start an hour of compiling on the host.
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("HTTP 503"), "{}", stderr(&output));
+    assert!(!cell.log().exists());
+    assert!(!cell.env_file().exists());
+    Ok(())
+}
+
+#[test]
+fn from_ci_image_that_does_not_report_the_sha_puts_the_env_file_back() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest(CI_DIGEST)?;
+    let before = "POSTGRES_PASSWORD=s3cret\nLOOMTRACER_IMAGE=loomtracer:000000000000\n";
+    cell.write_env(before, 0o600)?;
+
+    let output = cell.run(Run {
+        version_sha: Some("ffffffffffff".to_owned()),
+        compose_file: Some(cell.compose_files()),
+        flags: vec!["--from-ci"],
+        ..Run::default()
+    })?;
+
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("does not mention"));
+    assert_eq!(fs::read_to_string(cell.env_file())?, before);
+    Ok(())
+}
+
+#[test]
+fn without_from_ci_the_script_never_asks_the_release_server() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest(CI_DIGEST)?;
+
+    let output = cell.update()?;
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    assert!(cell.edge_requests()?.is_empty());
+    assert!(
+        cell.docker_calls()?
+            .iter()
+            .any(|call| call.starts_with("build ")),
+        "{:?}",
+        cell.docker_calls()?
+    );
+    Ok(())
+}
+
+#[test]
+fn from_ci_asks_for_the_digest_of_the_commit_it_was_given() -> TestResult<()> {
+    let cell = Cell::new()?;
+    cell.publish_digest(CI_DIGEST)?;
+
+    assert!(cell.update_with(&["--from-ci"])?.status.success());
+
+    assert_eq!(
+        cell.edge_requests()?,
+        vec![format!(
+            "https://github.com/alexknips/loomtracer/releases/download/edge/\
+             loomtracer-cell-image-{}.digest",
+            cell.short_sha
+        )]
+    );
+    Ok(())
+}
+
+#[test]
+fn no_build_without_from_ci_is_a_usage_error() -> TestResult<()> {
+    let cell = Cell::new()?;
+
+    let output = cell.update_with(&["--no-build"])?;
+
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    assert!(!cell.log().exists());
     Ok(())
 }

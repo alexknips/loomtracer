@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-# scripts/cell-update.sh [ref]
+# scripts/cell-update.sh [--from-ci [--no-build]] [ref]
 #
 # Updates a self-hosted Loomtracer cell (docker-compose.yml) to a given git
 # ref by building the server image from source and tagging it with the
@@ -21,11 +21,26 @@ set -eu
 # up healthy: on any failure the env file is put back exactly as it was, and
 # a reconciler rolls the cell back to the previous image.
 #
+# --from-ci pulls the image CI built for the commit instead of compiling it
+# here (hivemind-b3my9): .github/workflows/edge.yml pushes
+# ghcr.io/<repo>:<sha> once CI passed on the commit and publishes the image's
+# digest on the repo's `edge` release. The digest read from there is what is
+# pulled and what is pinned (`ghcr.io/<repo>:<sha>@sha256:...`), so the cell
+# runs exactly the image CI recorded; the /v1/version check below still has to
+# report the sha. When CI has no image for the commit (still running, failed,
+# older than the newest 40) the script says so and builds locally as before;
+# --no-build exits 3 there instead, for a caller that would rather retry later
+# than compile. Anything else that goes wrong (an unreachable server, a digest
+# that is not one, a pull that fails) stops the script before it touches the
+# env file: it is never papered over with a local build.
+#
 # NOT wired to run automatically on every merge: that's an explicit
 # non-goal (see hivemind-zdsh.7's DO/NOT). This is the mechanism a
 # scheduled dog order or a human invokes deliberately.
 #
 # Environment:
+#   LOOMTRACER_REPO          GitHub repo whose CI-built image --from-ci pulls
+#                          (default: alexknips/loomtracer).
 #   LOOMTRACER_COMPOSE_FILE  compose file(s), colon-separated like COMPOSE_FILE
 #                          (default: docker-compose.yml). Pass every file the
 #                          cell is reconciled with, override files included.
@@ -33,7 +48,43 @@ set -eu
 #                          compose (default: `.env` next to the first compose
 #                          file, which is where compose looks by itself).
 
-ref="${1:-origin/master}"
+usage() {
+  echo "usage: cell-update.sh [--from-ci [--no-build]] [ref]" >&2
+}
+
+from_ci=0
+no_build=0
+ref=""
+for arg in "$@"; do
+  case "$arg" in
+    --from-ci) from_ci=1 ;;
+    --no-build) no_build=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "unknown option: $arg" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [ -n "$ref" ]; then
+        usage
+        exit 2
+      fi
+      ref="$arg"
+      ;;
+  esac
+done
+if [ "$no_build" = 1 ] && [ "$from_ci" != 1 ]; then
+  echo "--no-build only means something with --from-ci" >&2
+  usage
+  exit 2
+fi
+
+ref="${ref:-origin/master}"
+repo="${LOOMTRACER_REPO:-alexknips/loomtracer}"
 compose_files="${LOOMTRACER_COMPOSE_FILE:-docker-compose.yml}"
 first_compose_file="${compose_files%%:*}"
 env_file="${LOOMTRACER_ENV_FILE:-$(dirname "$first_compose_file")/.env}"
@@ -94,8 +145,75 @@ finish() {
 trap finish EXIT
 trap 'exit 1' HUP INT TERM
 
-echo "Building ${image} from ${ref} (${full_sha})..."
-docker build --build-arg "GIT_SHA=${full_sha}" -t "$image" -f Dockerfile "$repo_root"
+# Sets $image to the CI-built image of $short_sha, pulled by the digest CI
+# published: 0 when it did, 1 when CI has no image of it. It stops the script
+# (exit) on anything else, and nothing it does touches the env file.
+pull_ci_image() {
+  base_url="https://github.com/${repo}/releases/download/edge"
+  digest_file="$(mktemp)" || exit 1
+
+  # fetch: 200 -> the body is in the file; 404 -> CI has not published this
+  # (the one answer that means "build it here"); anything else -> stop.
+  code="$(curl -sSL -o "$digest_file" -w '%{http_code}' \
+    "${base_url}/loomtracer-cell-image-${short_sha}.digest")" || {
+    rm -f "$digest_file"
+    exit 1
+  }
+  case "$code" in
+    200) ;;
+    404)
+      rm -f "$digest_file"
+      return 1
+      ;;
+    *)
+      echo "GET ${base_url}/loomtracer-cell-image-${short_sha}.digest answered HTTP ${code}" >&2
+      rm -f "$digest_file"
+      exit 1
+      ;;
+  esac
+
+  digest="$(tr -d ' \t\r\n' < "$digest_file")"
+  rm -f "$digest_file"
+  case "$digest" in
+    sha256:????????????????????????????????????????????????????????????????) ;;
+    *)
+      echo "the published digest for ${short_sha} is not a sha256 digest: '${digest}'" >&2
+      exit 1
+      ;;
+  esac
+
+  ci_image="ghcr.io/$(printf '%s' "$repo" | tr '[:upper:]' '[:lower:]'):${short_sha}@${digest}"
+  echo "Pulling the CI-built ${ci_image}..."
+  docker pull "$ci_image" || {
+    echo "could not pull ${ci_image}; nothing was changed." >&2
+    exit 1
+  }
+  image="$ci_image"
+}
+
+built_by="built locally"
+ci_image_pulled=0
+if [ "$from_ci" = 1 ]; then
+  echo "Looking for the CI-built image of ${ref} (${short_sha})..."
+  # Not `if pull_ci_image`: set -e does not apply inside a function called as a
+  # condition, and the pull's own checks above must stop the script.
+  pull_status=0
+  pull_ci_image || pull_status=$?
+  if [ "$pull_status" = 0 ]; then
+    ci_image_pulled=1
+    built_by="CI-built"
+  elif [ "$no_build" = 1 ]; then
+    echo "CI has no image for ${short_sha} (is CI still running on it?); not building (--no-build)." >&2
+    exit 3
+  else
+    echo "CI has no image for ${short_sha}; building it here instead."
+  fi
+fi
+
+if [ "$ci_image_pulled" != 1 ]; then
+  echo "Building ${image} from ${ref} (${full_sha})..."
+  docker build --build-arg "GIT_SHA=${full_sha}" -t "$image" -f Dockerfile "$repo_root"
+fi
 
 echo "Pinning LOOMTRACER_IMAGE=${image} in ${env_file}..."
 [ "$env_existed" != 1 ] || cp "$env_file" "$env_backup"
@@ -129,7 +247,7 @@ done
 
 deployed_version="$(curl -fsS "$version_url")"
 echo "Cell healthy."
-echo "  built:    ${short_sha}"
+echo "  built:    ${short_sha} (${built_by})"
 echo "  deployed: ${deployed_version}"
 
 case "$deployed_version" in

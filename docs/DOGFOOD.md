@@ -130,6 +130,9 @@ To install a specific ref (e.g. `origin/master`) without checking it out —
 useful for a script or dog order that shouldn't disturb the caller's own
 checkout — use `scripts/install-local.sh [ref]` instead; it builds the ref
 in a disposable git worktree and installs to the same `~/.local/bin`.
+`scripts/install-local.sh --from-ci [ref]` installs the binary CI already built
+for that commit instead of compiling it, and builds as before when CI has none
+yet (`docs/SELF_HOSTING.md`, "Deploying a commit without compiling").
 
 If `~/.local/bin` is not on your `$PATH`, add it. If `loomtracer` is not
 installed on `PATH` at all, replace `loomtracer` in the examples below with

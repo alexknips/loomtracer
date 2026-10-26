@@ -671,7 +671,9 @@ it by commit sha — never `:latest`, which only moves when a `v*` tag is
 pushed (see `.github/workflows/release.yml`) and can otherwise sit behind
 master for weeks — restarts the `loomtracer` service with it, and waits for
 `/v1/health` before declaring success. Confirm what's actually running with
-`curl http://localhost:8080/v1/version`.
+`curl http://localhost:8080/v1/version`. Add `--from-ci` to pull the image CI
+built for that commit instead of compiling it on the host
+([below](#deploying-a-commit-without-compiling)).
 
 **The update stays.** Before the restart, the script writes the tag it built
 as `LOOMTRACER_IMAGE=loomtracer:<sha>` in the compose project's `.env`.
@@ -722,6 +724,61 @@ this silently keeps serving the old container. If `.env` pins
 pin before updating by hand.
 
 Postgres schema migrations run automatically at startup.
+
+### Deploying a commit without compiling
+
+Building the server image, or the CLI, compiles Rust for the better part of an hour of
+heavy CPU. CI does it once for every commit that lands on `master`, so a host can fetch the
+result instead. When CI has passed on a `master` commit, the `Edge` workflow
+(`.github/workflows/edge.yml`) publishes these for it, `<sha12>` being the commit's first
+12 characters:
+
+| What | Where |
+|---|---|
+| CLI, Linux x86_64 (the build `release.yml` ships) | `loomtracer-linux-x86_64-<sha12>.tar.gz` and its `.sha256`, on the repository's `edge` release |
+| Cell image | `ghcr.io/alexknips/loomtracer:<sha12>`, and `:edge` for the newest commit; its digest is `loomtracer-cell-image-<sha12>.digest` on the `edge` release |
+
+`edge` is a prerelease: GitHub's "Latest" and `scripts/install.sh` stay on the newest `v*`
+tag. It keeps the newest 40 commits. A commit on which CI failed publishes nothing; re-running
+the failed CI jobs until they pass publishes it then.
+
+```bash
+scripts/install-local.sh --from-ci [ref]   # the CLI, into ~/.local/bin
+scripts/cell-update.sh --from-ci [ref]     # the cell, as in "Upgrading" above
+```
+
+`ref` is a ref of the checkout you run the script from, `origin/master` by default; a commit
+sha works. Both scripts resolve it to the commit, look for what CI published for it and:
+
+- **install it, verified.** `install-local.sh` checks the tarball against the published
+  sha256 and runs the binary once: it must report the commit (`loomtracer --version` ends in
+  `+<sha12>`) before it replaces the installed one. `cell-update.sh` reads the digest from the
+  release, pulls `ghcr.io/alexknips/loomtracer:<sha12>@sha256:<digest>`, pins that exact
+  reference as `LOOMTRACER_IMAGE` in `.env`, and then does what it always does: restart,
+  wait for `/v1/health`, require `/v1/version` to report the commit, and put `.env` back if
+  either fails. Neither runs `cargo` or `docker build`.
+- **or build locally, when CI has published nothing for the commit** — CI is still running on
+  it, it failed, it is older than the newest 40 commits, or the machine is not Linux x86_64
+  (the CLI only). The script says so and continues as it does without `--from-ci`. Add
+  `--no-build` to exit with status 3 instead, for a caller that would rather try again in
+  a while than compile.
+
+Only "CI published nothing" (HTTP 404 on the checksum or digest) falls back. A server that
+errors, a checksum that does not match, a binary that reports another commit or does not run
+on the host, a digest that is not one, and a failed `docker pull` all stop the script with
+nothing installed and `.env` untouched. A silent local build there would cost the hour of CPU
+this exists to save and hide a broken artifact.
+
+The checksum and the digest come from the same GitHub release as the files they check, so they
+catch a truncated download or a mismatched commit, not a compromised repository; that is the
+trust `scripts/install.sh` already asks for. The CLI is built on GitHub's current Ubuntu
+runner and needs a glibc at least as new as that one, like the release binaries; the image
+carries its own.
+
+To roll back, run the same script for the earlier commit (`scripts/cell-update.sh --from-ci
+<previous sha>`); it can pull any of the newest 40. A fork whose CI publishes its own `edge`
+release sets `LOOMTRACER_REPO=owner/repo` for the scripts; the fork's `ghcr.io` package must
+be public for an unauthenticated `docker pull`.
 
 ### Upgrading a cell from v0.8.0 or earlier
 

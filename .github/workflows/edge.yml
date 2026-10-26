@@ -1,0 +1,264 @@
+name: Edge
+
+# Builds what a deploy installs, once per master commit, so a host pulls it instead of
+# compiling it (hivemind-b3my9): the Linux x86_64 binary, as a rolling `edge` prerelease
+# asset named by the commit, and the cell image, pushed to ghcr.io tagged by the commit.
+#
+# It starts from the CI workflow's `workflow_run`, not from the push: the `if:` below lets
+# it run only when CI concluded `success` on that commit, whichever jobs CI has, so a job
+# added to ci.yml gates the artifacts without a second list to keep in step. Re-running a
+# failed CI run until it passes publishes the commit then.
+#
+# scripts/install-local.sh --from-ci and scripts/cell-update.sh --from-ci read what this
+# publishes; keep the asset names, the `edge` tag and the image tags in step with them
+# (docs/SELF_HOSTING.md, "Deploying a commit without compiling").
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The commit CI just passed, not master's head, which may have moved on since.
+  SHA: ${{ github.event.workflow_run.head_sha }}
+
+jobs:
+  edge-binary:
+    name: Build edge binary (x86_64-unknown-linux-gnu)
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the commit CI passed
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      # The same build, strip and tarball as the linux-x86_64 leg of release.yml, so the edge
+      # binary is the one the next release would ship; only the asset name differs, by the sha.
+      - name: Build release binary
+        run: LOOMTRACER_BUILD_SHA="${SHA}" cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+      - name: Package tarball and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha12="${SHA:0:12}"
+          asset="loomtracer-linux-x86_64-${sha12}.tar.gz"
+          mkdir -p dist package
+          cp target/x86_64-unknown-linux-gnu/release/loomtracer package/loomtracer
+          strip package/loomtracer
+          # A binary that does not report the commit it is named after is not published
+          # under that name (build.rs embeds it as <semver>+<sha12>).
+          version="$(package/loomtracer --version)"
+          case "${version}" in
+            *"+${sha12}"*) ;;
+            *)
+              echo "::error::package/loomtracer reports '${version}', not +${sha12}"
+              exit 1
+              ;;
+          esac
+          tar -C package -czf "dist/${asset}" loomtracer
+          (cd dist && sha256sum "${asset}" > "${asset}.sha256")
+
+      - name: Upload edge binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-binary
+          path: dist/*
+          if-no-files-found: error
+
+  edge-image:
+    name: Build and push edge cell image
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out the commit CI passed
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # `edge` follows master's head. A run for a commit master has already moved past (two
+      # merges in a row, the older one's CI finishing last) must not move it back.
+      - name: Work out the image tags
+        id: tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "sha12=${SHA:0:12}" >> "${GITHUB_OUTPUT}"
+          head="$(gh api "repos/${GITHUB_REPOSITORY}/commits/master" --jq .sha)"
+          if [ "${head}" = "${SHA}" ]; then
+            echo "edge=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "edge=false" >> "${GITHUB_OUTPUT}"
+            echo "master is at ${head:0:12}, past ${SHA:0:12}: the edge tag stays where it is."
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ steps.tags.outputs.sha12 }}
+            type=raw,value=edge,enable=${{ steps.tags.outputs.edge }}
+
+      - name: Build and push cell image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # cell-update.sh --from-ci pulls the image by this digest, read from the release, so the
+      # image it runs is the one built here. Run it once first: an image that does not report
+      # the commit it is tagged with is not published.
+      - name: Record the image digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          sha12="${SHA:0:12}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          case "${DIGEST}" in
+            sha256:????????????????????????????????????????????????????????????????) ;;
+            *)
+              echo "::error::build-push-action reported digest '${DIGEST}'"
+              exit 1
+              ;;
+          esac
+          version="$(docker run --rm "${image}@${DIGEST}" --version)"
+          case "${version}" in
+            *"+${sha12}"*) ;;
+            *)
+              echo "::error::${image}@${DIGEST} reports '${version}', not +${sha12}"
+              exit 1
+              ;;
+          esac
+          mkdir -p dist
+          printf '%s\n' "${DIGEST}" > "dist/loomtracer-cell-image-${sha12}.digest"
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-image
+          path: dist/*
+          if-no-files-found: error
+
+  edge-release:
+    name: Publish to the edge release
+    needs: [edge-binary, edge-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One publisher at a time: two runs would both try to create the release.
+    concurrency:
+      group: edge-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # Commits kept on the release. GitHub allows 1000 assets on one; each commit takes 3.
+      KEEP: "40"
+
+    steps:
+      - name: Download the edge artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: edge-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify every edge asset is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha12="${SHA:0:12}"
+          missing=()
+          for asset in \
+            "loomtracer-linux-x86_64-${sha12}.tar.gz" \
+            "loomtracer-linux-x86_64-${sha12}.tar.gz.sha256" \
+            "loomtracer-cell-image-${sha12}.digest"; do
+            [ -s "dist/${asset}" ] || missing+=("${asset}")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            for asset in "${missing[@]}"; do
+              echo "::error::missing: ${asset}"
+            done
+            ls -la dist/ || true
+            exit 1
+          fi
+
+      # A prerelease that is never "latest": scripts/install.sh and the plugin check read the
+      # latest release, which must stay the last v* tag. The tag marks where `edge` began and
+      # does not move; the asset names carry the commit.
+      - name: Create the edge release
+        run: |
+          set -euo pipefail
+          if ! gh release view edge >/dev/null 2>&1; then
+            gh release create edge \
+              --prerelease --latest=false \
+              --target "${SHA}" \
+              --title "Edge: CI builds of master" \
+              --notes "Rolling builds of master that passed CI, one set of assets per commit, named by its first 12 characters. Not a release: the latest release is the newest v* tag. See docs/SELF_HOSTING.md, \"Deploying a commit without compiling\"."
+          fi
+
+      # In this order, one upload at a time: the checksum and the digest are what a deploy
+      # looks for first, so when it sees one, the binary or the image it names is there.
+      - name: Upload the assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha12="${SHA:0:12}"
+          gh release upload edge --clobber "dist/loomtracer-linux-x86_64-${sha12}.tar.gz"
+          gh release upload edge --clobber "dist/loomtracer-linux-x86_64-${sha12}.tar.gz.sha256"
+          gh release upload edge --clobber "dist/loomtracer-cell-image-${sha12}.digest"
+
+      - name: Prune the commits beyond the newest ${{ env.KEEP }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view edge --json assets --jq '
+            .assets
+            | map(select(.name | test("-[0-9a-f]{12}\\.")))
+            | group_by(.name | capture("-(?<sha>[0-9a-f]{12})\\.").sha)
+            | map({at: (map(.createdAt) | max), names: map(.name)})
+            | sort_by(.at) | reverse | .['"${KEEP}"':][].names[]' \
+            | while read -r name; do
+                echo "deleting ${name}"
+                gh release delete-asset edge "${name}" --yes
+              done

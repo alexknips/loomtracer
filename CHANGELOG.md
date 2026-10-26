@@ -49,6 +49,38 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
   (hivemind-x4xl7, hivemind-n33h7, hivemind-r9cs1)
 
+### Added
+
+- **CI builds the CLI and the cell image for every `master` commit that passes it, and
+  `--from-ci` deploys them without compiling on the host.** Deploying meant `cargo build
+  --release` for the CLI (`scripts/install-local.sh`) and another release build inside
+  `docker build` for the cell (`scripts/cell-update.sh`): about an hour of heavy CPU per deploy
+  on a host that also runs the rest of the town. The new `Edge` workflow
+  (`.github/workflows/edge.yml`) starts when CI concludes `success` on a push to `master`, so
+  a commit CI failed on publishes nothing, and publishes for that commit's first 12 characters
+  (`<sha12>`): the Linux x86_64 binary as `loomtracer-linux-x86_64-<sha12>.tar.gz` with its
+  `.sha256` on a rolling `edge` prerelease (newest 40 commits kept; GitHub's "Latest" and
+  `scripts/install.sh` stay on the newest `v*` tag), and the cell image as
+  `ghcr.io/alexknips/loomtracer:<sha12>` (and `:edge` for the newest commit) with its digest
+  as `loomtracer-cell-image-<sha12>.digest` on the same release. Both are checked once more
+  before they are published: the binary and the image must report `+<sha12>` as their version.
+  - `scripts/install-local.sh --from-ci [ref]` downloads the binary, checks it against the
+    published sha256, runs it once to see that it reports the commit, and only then replaces the
+    installed one. `scripts/cell-update.sh --from-ci [ref]` pulls
+    `ghcr.io/alexknips/loomtracer:<sha12>@sha256:<digest>`, by the digest read from the release,
+    pins that exact reference as `LOOMTRACER_IMAGE` in `.env` and goes on as before: restart,
+    wait for `/v1/health`, require `/v1/version` to report the commit, restore `.env` on failure.
+    Neither runs `cargo` or `docker build`.
+  - When CI has published nothing for the commit (HTTP 404: still running, failed, or older than
+    the newest 40), the script says so and builds locally as it always has; `--no-build` exits
+    with status 3 there instead, for a caller that would rather retry later than compile. It is
+    the only answer that falls back: a failing server, a checksum or digest that does not check
+    out, a binary that reports another commit or will not run, and a failed `docker pull` stop
+    the script with the installed binary and `.env` untouched, instead of a silent hour of
+    compiling that hides a broken artifact. Without `--from-ci` both scripts behave exactly as
+    before.
+  - `docs/SELF_HOSTING.md` has the steps ("Deploying a commit without compiling"). (hivemind-b3my9)
+
 ### Changed
 
 - **The web UI moved to its own repository,
