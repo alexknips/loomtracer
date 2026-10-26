@@ -60,6 +60,14 @@ set, proof-line format, and the docs-only exception's rationale — summary:
   cargo test --locked
   ```
 
+  These run on the toolchain pinned in `rust-toolchain.toml`, the one CI and the
+  Docker image build with. Install it once with `rustup toolchain install` in the
+  repository (rustup also installs it the first time you run `cargo` there, but
+  warns that this is deprecated); do not override it with `cargo +nightly` or a
+  different `rustup default`. To bump it, change `channel` in `rust-toolchain.toml` and the
+  `FROM rust:` tag in `Dockerfile` together: `tests/toolchain_pin.rs` fails when
+  they differ, and CI reads the version from `rust-toolchain.toml`.
+
 The site and its docs live in
 [`alexknips/loomtracer-site`](https://github.com/alexknips/loomtracer-site), not
 here. If you add or change a CLI subcommand, flag, or MCP tool, regenerate the

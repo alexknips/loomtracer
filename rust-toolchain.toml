@@ -1,0 +1,12 @@
+# The one Rust toolchain every build uses: a local `cargo` (a polecat's, the refinery's, yours), CI
+# (`.github/actions/setup-rust` reads the channel from here) and the Docker image (the `FROM rust:`
+# tag in `Dockerfile`). To bump it, change `channel` here and that tag together;
+# `tests/toolchain_pin.rs` fails when they differ or when the channel stops being an exact version.
+#
+# An exact version, not `stable` and not `nightly`: a floating default moves under every host
+# separately, so a local build stops matching CI, and a nightly keeps every build's directory
+# under target/debug/build instead of reusing it (hivemind-yqv18).
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

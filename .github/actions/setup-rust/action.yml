@@ -13,9 +13,24 @@ inputs:
 runs:
   using: composite
   steps:
+    # The version comes from rust-toolchain.toml, the one place the toolchain is chosen, so CI
+    # compiles with what a local `cargo` does (hivemind-yqv18). `@master` because only that ref
+    # takes an explicit `toolchain`; the `@stable` ref would install stable whatever the file says.
+    - name: Read the pinned toolchain
+      id: pin
+      shell: bash
+      run: |
+        channel=$(sed -n 's/^channel *= *"\(.*\)"$/\1/p' "$GITHUB_WORKSPACE/rust-toolchain.toml")
+        if [ -z "$channel" ]; then
+          echo "rust-toolchain.toml has no channel" >&2
+          exit 1
+        fi
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@master
       with:
+        toolchain: ${{ steps.pin.outputs.channel }}
         components: ${{ inputs.components }}
         targets: ${{ inputs.targets }}
 

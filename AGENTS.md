@@ -8,7 +8,7 @@ Loomtracer is **memory for decisions**: what was decided, which options lost and
 
 ## Build and test
 
-A Rust crate; a stable toolchain is all you need. Before submitting a code diff, run what CI runs (`.github/workflows/ci.yml`):
+A Rust crate on the one toolchain `rust-toolchain.toml` pins: install it once with `rustup toolchain install` in the repository (rustup also installs it on the first `cargo` run, but warns that this is deprecated), and CI and the Docker image build with the same version, so do not override it with `+nightly` or a different default. Before submitting a code diff, run what CI runs (`.github/workflows/ci.yml`):
 
 ```bash
 cargo fmt --check

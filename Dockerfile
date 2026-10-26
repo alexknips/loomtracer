@@ -1,7 +1,9 @@
 # Stage 1: Rust build
 # Debian trixie (glibc 2.40) required: fastembed-rs/ort pre-built ONNX Runtime
 # binaries use glibc 2.38+ symbols (__isoc23_strtol etc.) unavailable in bookworm.
-FROM rust:1.88-slim-trixie AS builder
+# The rust: tag is the channel in rust-toolchain.toml; tests/toolchain_pin.rs fails when
+# they differ (hivemind-yqv18).
+FROM rust:1.99.1-slim-trixie AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \

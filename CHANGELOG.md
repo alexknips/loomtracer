@@ -112,6 +112,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **One Rust toolchain for every build: `rust-toolchain.toml` pins 1.99.1.** The repository named
+  no toolchain, so a local `cargo` used whatever the host's default was (a floating nightly on the
+  build hosts), CI used whatever `stable` was that day, and the Docker image used 1.88. A local
+  build, CI and the image now compile with the same exact version, with `rustfmt` and `clippy`:
+  `.github/actions/setup-rust` reads the version from the file, the Dockerfile's `FROM rust:` tag
+  is 1.99.1 (it was 1.88), and `tests/toolchain_pin.rs` fails when they differ or the pin becomes
+  a floating channel. Run `rustup toolchain install` in the repository once to get the pinned
+  toolchain (rustup also installs it on the first `cargo` run, with a deprecation warning). To
+  bump it, change `channel` and the Dockerfile tag together. (hivemind-yqv18)
 - **The web UI moved to its own repository,
   [`alexknips/loomtracer-web`](https://github.com/alexknips/loomtracer-web), with its history.**
   `web/`, `packages/reasoning/` and the npm workspace files at the root (`package.json`,

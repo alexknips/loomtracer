@@ -394,11 +394,8 @@ jobs:
           done
           curl -sf http://localhost:8080/v1/health | grep '"ok"'
 
-      - name: Install Rust toolchain (for loomtracer binary)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust (for loomtracer binary)
+        uses: ./.github/actions/setup-rust
 
       - name: Build loomtracer + fidelity-eval binaries
         run: cargo build --locked --features eval-tools --bin loomtracer --bin fidelity-eval
@@ -466,11 +463,8 @@ jobs:
           done
           curl -sf http://localhost:8080/v1/health | grep '"ok"'
 
-      - name: Install Rust toolchain (for loomtracer binary)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+      - name: Set up Rust (for loomtracer binary)
+        uses: ./.github/actions/setup-rust
 
       - name: Build loomtracer binary
         run: cargo build --locked --bin loomtracer
