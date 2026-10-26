@@ -294,7 +294,9 @@ and the agent-seat `classify-queue` command) apply the same rule:
   the session agent as the only actor on record, because it is the sole acceptor and took
   part in the session (`PARTICIPATED_BY`). Another acceptor, a person who accepts the draft
   later, or an agent that was not in the session makes it `peer_reviewed`
-  (hivemind-26br4).
+  (hivemind-26br4). The failure-attribution report follows the same reading: a call that
+  reads `self_accepted` is in `delegation` / `agent_alone` (or `delegated`, when a person
+  delegated the scope) whether or not `actor_id` named the agent (hivemind-j9ncb).
 
 `tests/fixtures/transcripts/` holds one transcript for each case (decided,
 the session agent deciding alone, the agent carrying out a person's call, proposed

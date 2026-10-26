@@ -14,8 +14,8 @@ use crate::events::{
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::{
-    get_decision_brief, get_waiting_requests, DecisionBrief, DecisionStatus, ReviewShape,
-    WaitingRequestsRequest,
+    get_decision_brief, get_failure_attribution, get_waiting_requests, AttributionGroup,
+    DecisionBrief, DecisionStatus, FailureAttributionRequest, ReviewShape, WaitingRequestsRequest,
 };
 
 const SUBMITTER: &str = "agent:claude:hook";
@@ -700,12 +700,21 @@ fn who_decided_a_call_relayed_without_its_decider_stays_proposed() {
 // as `actor_id` (the proposer) is a detail of the worker. The review must not depend on it, and
 // must never claim a review by someone who is not on record.
 
-/// A fixture's first capture, with `edit` applied to it, as the graph reads it once recorded.
-fn first_draft_edited(fixture: &str, edit: impl FnOnce(&mut Value)) -> DecisionBrief {
+/// A fixture's first capture, with `edit` applied to it, recorded into a fresh ledger.
+fn record_first_draft_edited(
+    fixture: &str,
+    edit: impl FnOnce(&mut Value),
+) -> (InMemoryEventLedger, ClassifiedBatchRecorded) {
     let mut fixture: Value = serde_json::from_str(fixture).expect("fixture parses");
     edit(&mut fixture["captures"][0]);
     let ledger = InMemoryEventLedger::new();
     let recorded = record(&ledger, &fixture.to_string());
+    (ledger, recorded)
+}
+
+/// A fixture's first capture, with `edit` applied to it, as the graph reads it once recorded.
+fn first_draft_edited(fixture: &str, edit: impl FnOnce(&mut Value)) -> DecisionBrief {
+    let (ledger, recorded) = record_first_draft_edited(fixture, edit);
     draft_brief(&ledger, &recorded)
 }
 
@@ -764,6 +773,82 @@ fn a_person_accepting_a_draft_that_names_no_proposer_is_a_review() {
     let brief = brief_of(&ledger, &draft.decision_id);
     assert_eq!(brief.decided_by.decider_ids, [ALEX]);
     assert_eq!(brief.decided_by.review, ReviewShape::PeerReviewed);
+}
+
+// --- how an agent's own call counts in the failure report (hivemind-j9ncb) ---
+//
+// `analyze_failure_modes` splits the agent's self-accepted calls into `delegated` and
+// `agent_alone`. A call its `review` dimension counts as the agent's own self-acceptance must be
+// in `agent_alone` too, with or without a named proposer, or the two groups disagree about how
+// many lone calls the agent made.
+
+/// The `delegation` and `review` groups of the failure report over `ledger`, as
+/// `analyze_failure_modes` reads them: how many decisions each holds.
+fn failure_report_groups(
+    ledger: &InMemoryEventLedger,
+) -> (Vec<AttributionGroup>, Vec<AttributionGroup>) {
+    let report = get_failure_attribution(&graph_of(ledger), &FailureAttributionRequest::default())
+        .expect("report reads")
+        .data;
+    (report.by_delegation, report.by_review)
+}
+
+fn total_of(groups: &[AttributionGroup], label: &str) -> usize {
+    groups
+        .iter()
+        .find(|group| group.group_label == label)
+        .map_or(0, |group| group.total)
+}
+
+/// The agent's own call counts as `agent_alone` whether or not `actor_id` names it, so the
+/// delegation group holds exactly what `review` counts as self-accepted.
+#[test]
+fn an_agents_own_call_counts_agent_alone_with_or_without_a_named_proposer() {
+    let unnamed = record_first_draft_edited(AGENT_DECIDES_ALONE, |_| {}).0;
+    let named = record_first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+        capture["actor_id"] = json!(SUBMITTER);
+    })
+    .0;
+
+    for ledger in [&unnamed, &named] {
+        let (delegation, review) = failure_report_groups(ledger);
+        assert_eq!(total_of(&review, "self_accepted"), 1);
+        assert_eq!(total_of(&delegation, "agent_alone"), 1);
+        assert_eq!(total_of(&delegation, "delegated"), 0);
+    }
+}
+
+/// Calls the review dimension does not read as the agent's own stay out of `agent_alone`: an
+/// agent outside the session, the session agent with a person, and a person's later review.
+#[test]
+fn calls_someone_else_reviewed_stay_out_of_agent_alone() {
+    let outside_agent = record_first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+        capture["accepted_by"] = json!(["agent:claude:planner"]);
+    })
+    .0;
+    let agent_and_person = record_first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+        capture["accepted_by"] = json!([SUBMITTER, "human:sam"]);
+    })
+    .0;
+    let accepted_later = {
+        let (ledger, recorded) = record_first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+            capture["accepted_by"] = json!(null);
+        });
+        commands(&ledger)
+            .accept_decision(&format!("capture:{}:0", recorded.event_id), ALEX)
+            .expect("a person can accept a draft");
+        ledger
+    };
+
+    for ledger in [&outside_agent, &agent_and_person, &accepted_later] {
+        let (delegation, review) = failure_report_groups(ledger);
+        assert_eq!(total_of(&review, "peer_reviewed"), 1);
+        assert_eq!(total_of(&review, "self_accepted"), 0);
+        assert!(
+            delegation.is_empty(),
+            "someone else reviewed it, so it is not the agent's lone call: {delegation:?}"
+        );
+    }
 }
 
 /// The decision the first capture of `recorded` became, as the graph reads it.

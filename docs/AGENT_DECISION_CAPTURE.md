@@ -276,7 +276,9 @@ Markdown decision-log export (`loomtracer export --format markdown`) appends
 `(Delegated by: human:<name>)` to the decider in the `Decided by` cell of each
 `INDEX.md` row and adds a `Delegated by:` line to the decision's Provenance
 section; and the failure-attribution report splits agent self-accepted
-decisions into a `delegation` dimension (`delegated` vs `agent_alone`). A
+decisions into a `delegation` dimension (`delegated` vs `agent_alone`),
+counting an agent's call whose `review` reads `self_accepted` whether or not
+the record names it as proposer. A
 decision with no marker has no `delegated_by` key at all, never a null, and
 the export prints no `Delegated by` text for it.
 

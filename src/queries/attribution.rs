@@ -547,16 +547,28 @@ fn authorship_label(shape: AuthorshipShape) -> String {
 /// decision in `delegated` (it can only be recorded on an agent's self-acceptance, and stays
 /// after a human later reviews it); an agent-authored, self-accepted decision without one is
 /// `agent_alone`. An unreviewed agent proposal is neither: nobody has decided it yet.
+///
+/// "Self-accepted" is the one reading `review` counts, so this group and `by_review` never tell
+/// two stories about the same call: a classifier draft that names no proposer reads
+/// `SelfAccepted` for the session agent that accepted it alone (hivemind-26br4), and its
+/// `authorship` stays `Unknown` because a proposer is never inferred (hivemind-j9ncb).
 fn delegation_label(context: &DecisionContext) -> Option<String> {
     if context.delegated_by.is_some() {
         Some("delegated".to_owned())
-    } else if context.authorship == AuthorshipShape::AgentOnly
-        && context.review == ReviewShape::SelfAccepted
-    {
+    } else if an_agent_accepted_its_own_call(context) {
         Some("agent_alone".to_owned())
     } else {
         None
     }
+}
+
+/// An agent's own call that nobody else reviewed: it proposed and accepted it itself, or the
+/// record names no proposer and `derive_context` read its lone agent acceptor as the session
+/// agent. `SelfAccepted` with no `proposer_id` only comes from that second case, so a person's
+/// later review of such a draft (`PeerReviewed`) stays out.
+fn an_agent_accepted_its_own_call(context: &DecisionContext) -> bool {
+    context.review == ReviewShape::SelfAccepted
+        && (context.authorship == AuthorshipShape::AgentOnly || context.proposer_id.is_none())
 }
 
 fn review_label(shape: ReviewShape) -> String {

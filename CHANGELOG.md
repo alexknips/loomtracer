@@ -96,6 +96,15 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   accepted still read `PeerReviewed`. A draft nobody has accepted now says `undecided: the
   transcript names no one who accepted it`. The change is in how the graph is read, so records
   already in a ledger read right with no replay and no event is rewritten. (hivemind-26br4)
+- **`analyze_failure_modes` counts the session agent's own call as `agent_alone` when the record
+  names no proposer, as it already counts it `self_accepted`.** The `delegation` group asked for
+  a proposer on top of the self-acceptance, and a classifier draft that names none keeps
+  `authorship` `unknown`, so the same call was in `review` / `self_accepted` and missing from
+  `delegation` / `agent_alone`: someone reading the report for how the agent's lone calls fail
+  saw fewer of them than `why` says exist. Now the two groups hold the same calls, with or
+  without `actor_id`; a call an outside agent, a person, or a person later reviewed stays out of
+  `agent_alone`. The change is in how the graph is read, so records already in a ledger count
+  right with no replay and no event is rewritten. (hivemind-j9ncb)
 - **Updating the capture client before the cell no longer queues the same turns again on every
   hook run.** A shipper that names a project and talks to a cell that predates project filing
   used to send the span first and look for the cell's echo of the project after: the old cell had
