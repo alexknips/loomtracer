@@ -504,7 +504,12 @@ nothing in common stay `Ambiguous` and list the roots, each with its consequence
 that rests on two of them is listed on its own, and decisions that rest on each other in a loop
 have no root and stay as they are. A question that already resolves keeps its answer: words that
 match a consequence alone answer with it, and the consequence's own `why` shows what it rests on.
-A verb that writes does not fold. The restatement check of the classifier shows its judge the
+The fold never hides a decision that holds every word (hivemind-6imih): a candidate is folded
+only into a root that is at least as much about the question (`About`), a full match is never
+folded into a close one, and while any decision holds every word close candidates are not folded
+into one another, since that turned a tie of close candidates into an answer over the full match.
+A close root that takes the candidates it ties lacks at most a third of the question's words. A
+candidate that does not fold stays listed. A verb that writes does not fold. The restatement check of the classifier shows its judge the
 consequences beside the decision they rest on, since a capture can restate one without restating
 the other.
 

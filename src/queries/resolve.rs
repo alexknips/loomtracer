@@ -313,7 +313,9 @@ pub fn resolve_decision_by_description(
 /// again over the decisions that stand, each naming the replaced records it absorbed in
 /// `resolved_via` (hivemind-am6rp). If it is still `Ambiguous`, the candidates that rest on exactly
 /// one other candidate that rests on none are folded into it and the outcome is decided once more,
-/// the root naming them in `consequences` (hivemind-zdsh.25).
+/// the root naming them in `consequences` (hivemind-zdsh.25). A candidate folds only into a root
+/// that is at least as much about the question, and a full match never into a close one
+/// (hivemind-6imih).
 ///
 /// And for a description one decision alone matches in full, when that decision says fewer than two
 /// of the words in its title and topic keys and close candidates exist: it is `Ambiguous`, listed
@@ -373,7 +375,7 @@ fn resolve_for(
             }
         }
         if matches!(settled.data, ResolveOutcome::Ambiguous { .. }) {
-            let roots = fold_into_premises(graph, rows)?;
+            let roots = fold_into_premises(graph, rows, resolver_terms(description).len())?;
             if roots.iter().any(|row| !row.consequences.is_empty()) {
                 settled = settle(graph, description, asker, roots)?;
             }
@@ -919,9 +921,18 @@ fn stands_for(row: &ResolverCandidateRow) -> impl Iterator<Item = &str> {
 /// they are not the words the root matched. A candidate that rests on two roots, or only on
 /// candidates that rest on each other, has no one decision to fold into and stays as it is, and so
 /// do the roots.
+///
+/// The root must still be the decision the question is about (`can_absorb`): it is no less about
+/// the question than the candidate it holds, a full match is never folded into a close root (the
+/// list leaves the close root out once a full match is there, or names it as the answer, so the
+/// full match would vanish), and while a decision holds every word a close candidate is not folded
+/// into a close one, which would turn a tie of close candidates into an answer over the full match.
+/// A close root that takes its tied candidates leads them, so it may lack no more than a third of
+/// the question's words. What does not fold stays listed (hivemind-6imih).
 fn fold_into_premises(
     graph: &impl GraphView,
     rows: Vec<ResolverCandidateRow>,
+    term_count: usize,
 ) -> Result<Vec<ResolverCandidateRow>> {
     // The candidates, by position, that each candidate rests on. A decision that names no
     // premise rests on nothing, which costs no walk.
@@ -943,15 +954,23 @@ fn fold_into_premises(
         );
     }
 
+    let full_match_among_them = rows.iter().any(|row| !row.is_close());
     let root_of: Vec<Option<usize>> = rests_on
         .iter()
-        .map(|premises| {
+        .zip(&rows)
+        .map(|(premises, row)| {
             let mut roots = premises
                 .iter()
                 .copied()
                 .filter(|at| rests_on.get(*at).is_some_and(Vec::is_empty));
             match (roots.next(), roots.next()) {
-                (Some(root), None) => Some(root),
+                (Some(root), None)
+                    if rows.get(root).is_some_and(|it| {
+                        it.can_absorb(row, full_match_among_them, term_count)
+                    }) =>
+                {
+                    Some(root)
+                }
                 _ => None,
             }
         })

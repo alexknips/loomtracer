@@ -2595,7 +2595,34 @@ impl ResolverCandidateRow {
     pub(crate) fn is_close(&self) -> bool {
         !self.missing_terms.is_empty() || self.polarity_mismatch
     }
+
+    /// Whether `other` can be folded into this candidate as its consequence (hivemind-zdsh.25): the
+    /// root must still be the decision the question is about, so it is no less about the question
+    /// than `other` (`About`); a full match is never folded into a close candidate, which a list
+    /// leaves out once a full match is there; and a close candidate holds a close one only while no
+    /// decision holds every word (`full_match_among_them`), since folding is then what turns a tie
+    /// of close candidates, one of them out-weighing the full match, into an answer. A close root
+    /// that takes the candidates it ties leads them, so it may lack no more than one in
+    /// `ROOT_LACKS_AT_MOST_ONE_IN` of the question's `term_count` words: a decision that holds
+    /// three of five words does not win a tie by folding, and an off-topic question that shares a
+    /// few words with a decision and its follow-up is not answered with it (hivemind-6imih).
+    pub(crate) fn can_absorb(
+        &self,
+        other: &Self,
+        full_match_among_them: bool,
+        term_count: usize,
+    ) -> bool {
+        self.about.cmp_about(&other.about).is_ge()
+            && (!self.is_close()
+                || (other.is_close()
+                    && !full_match_among_them
+                    && self.missing_terms.len() * ROOT_LACKS_AT_MOST_ONE_IN <= term_count))
+    }
 }
+
+/// A close root that takes the candidates it ties as its consequences may lack at most one in this
+/// many of the question's words (`ResolverCandidateRow::can_absorb`).
+const ROOT_LACKS_AT_MOST_ONE_IN: usize = 3;
 
 /// Backend-agnostic candidate rows for resolve-by-description: reuses
 /// `collect_graph_search_results`'s tier system unmodified (§1.1 of the design), narrowed by an

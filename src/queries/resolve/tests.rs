@@ -3529,6 +3529,188 @@ fn a_decision_that_rests_on_a_replaced_record_rests_on_the_decision_that_replace
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// A fold never hides a full match under a close one (hivemind-6imih)
+// ---------------------------------------------------------------------------
+
+const RULESET_QUESTION: &str = "frontend repository ruleset check";
+
+/// A root that says two of the four words of `RULESET_QUESTION` (a close candidate) and two
+/// decisions that say all four and follow from it.
+fn ruleset_decisions() -> Vec<Event> {
+    vec![
+        decision_proposed(
+            1,
+            "d:root",
+            "Split the frontend into its own repository",
+            &["frontend"],
+        ),
+        decision_accepted(2, "d:root"),
+        decision_proposed(
+            3,
+            "d:first",
+            "Drop the frontend CI check from the repository ruleset after the split",
+            &["frontend"],
+        ),
+        decision_proposed(
+            4,
+            "d:second",
+            "Add a frontend repository ruleset check to the release checklist",
+            &["frontend"],
+        ),
+    ]
+}
+
+fn sorted_ids(candidates: &[ResolvedCandidate]) -> Vec<&str> {
+    let mut ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+    ids.sort_unstable();
+    ids
+}
+
+#[test]
+fn full_matches_that_rest_on_a_close_candidate_stay_listed() -> Result<()> {
+    // Folded into d:root, which lacks "ruleset" and "check", the two would leave only the close
+    // candidate, and a full match holds that back: the decisions that say every word vanished.
+    let mut events = ruleset_decisions();
+    events.push(follows_from(5, "d:first", "d:root"));
+    events.push(follows_from(6, "d:second", "d:root"));
+    let graph = graph_from_events(events)?;
+
+    let candidates = listed(reading(&graph, RULESET_QUESTION)?.data);
+    assert_eq!(sorted_ids(&candidates), ["d:first", "d:second"]);
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_full_match_that_rests_on_a_close_candidate_is_not_dropped_for_the_other_one() -> Result<()> {
+    // d:first and d:second tie. Folding d:first into the close d:root left d:second alone and
+    // answered with it, as if d:first did not hold every word.
+    let mut events = ruleset_decisions();
+    events.push(follows_from(5, "d:first", "d:root"));
+    let graph = graph_from_events(events)?;
+
+    let candidates = listed(reading(&graph, RULESET_QUESTION)?.data);
+    assert_eq!(sorted_ids(&candidates), ["d:first", "d:second"]);
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn full_matches_still_fold_into_a_full_match() -> Result<()> {
+    // d:whole holds every word here, so it hides no full match.
+    let mut events = ruleset_decisions();
+    events.push(decision_proposed(
+        7,
+        "d:whole",
+        "The frontend repository ruleset check is part of the split",
+        &["frontend"],
+    ));
+    events.push(follows_from(5, "d:first", "d:whole"));
+    events.push(follows_from(6, "d:second", "d:whole"));
+    let graph = graph_from_events(events)?;
+
+    match reading(&graph, RULESET_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:whole");
+            assert_eq!(consequence_ids(&candidate), ["d:first", "d:second"]);
+        }
+        other => panic!("both follow from the decision that says every word: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn close_candidates_still_fold_into_a_close_root() -> Result<()> {
+    // All three lack "rollout": none holds every word, so the root hides no full match.
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+
+    match reading(&graph, "frontend repository split rollout")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:root");
+            assert_eq!(candidate.missing_terms, ["rollout"]);
+            assert_eq!(consequence_ids(&candidate), ["d:first", "d:second"]);
+        }
+        other => panic!("the three lack the same word: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_tie_of_close_candidates_is_not_folded_into_an_answer_while_a_full_match_is_there() -> Result<()>
+{
+    // The full match says its words in a rationale; the two close candidates say three of the four
+    // in their titles and lack "show", so both out-weigh it and tie. Folding d:audit into d:dates
+    // would leave d:dates alone in front of the decision that holds every word, and answer it.
+    let graph = graph_from_events([
+        decision_proposed_because(
+            1,
+            "d:full",
+            "Report layout",
+            "We show export dates on each row.",
+            &[],
+        ),
+        decision_proposed(2, "d:dates", "Report export dates", &[]),
+        decision_proposed(
+            3,
+            "d:audit",
+            "Report export dates are kept in the audit log",
+            &[],
+        ),
+        decision_proposed(4, "d:queue", "Adopt async queue for billing", &["billing"]),
+        follows_from(5, "d:audit", "d:dates"),
+    ])?;
+
+    let candidates = listed(reading(&graph, "does the report show export dates")?.data);
+    assert!(candidates.iter().any(|c| c.decision_id == "d:full"));
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_tie_of_close_candidates_still_folds_when_no_decision_holds_every_word() -> Result<()> {
+    // The same two without the full match: nothing is hidden by the fold, and d:dates is the one.
+    let graph = graph_from_events([
+        decision_proposed(1, "d:dates", "Report export dates", &[]),
+        decision_proposed(
+            2,
+            "d:audit",
+            "Report export dates are kept in the audit log",
+            &[],
+        ),
+        decision_proposed(3, "d:queue", "Adopt async queue for billing", &["billing"]),
+        follows_from(4, "d:audit", "d:dates"),
+    ])?;
+
+    match reading(&graph, "does the report show export dates")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:dates");
+            assert_eq!(consequence_ids(&candidate), ["d:audit"]);
+        }
+        other => panic!("d:audit follows from d:dates and both lack the same word: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_close_root_that_lacks_half_the_question_does_not_win_its_tie() -> Result<()> {
+    // Each of the three says three of the six words, and d:first and d:second follow from d:root.
+    // Taking them, d:root would be answered with half of the question missing.
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+
+    let candidates =
+        listed(reading(&graph, "frontend repository split rollout schedule owner")?.data);
+    assert_eq!(sorted_ids(&candidates), ["d:first", "d:root", "d:second"]);
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
 #[test]
 fn a_description_that_already_resolves_keeps_its_answer_and_names_no_consequences() -> Result<()> {
     // Only d:first holds "ruleset" and "check", so the question is not a tie and nothing folds:

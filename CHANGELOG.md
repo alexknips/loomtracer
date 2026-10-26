@@ -115,6 +115,25 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   with it. A verb that writes (`disagree`, `supersede`, `ground`, ...) is unchanged: it never acts
   on a decision for the words of another. The classifier's restatement check still shows its judge
   a decision that rests on a nearby one, beside it. (hivemind-zdsh.25)
+- **`why`, `verify`, `chain` and `compact-view` by description no longer drop the decisions that
+  hold every word, or answer a decision that lacks some, when the decisions the words matched rest
+  on one another.** The fold of decisions that rest on another (hivemind-zdsh.25, the entry above)
+  ran over the close candidates too, and a decision that holds every word was folded into one that
+  lacks a word. A list leaves a close candidate out once a full match is there, so the full matches
+  went with it: "when do we rename the product to Upheld?" lost the decision that dropped the
+  Upheld plan, "show the history of the decision that personal projects are visible to the whole
+  tenant" answered the superseded model that decision rests on, and "why did we move the web UI
+  out of the loomtracer repo?" answered the decision for the opposite move. A decision is now
+  folded into the one it rests on only when that one is at least as much about the question (its
+  title, topic keys and recorded question carry as much of it) and is not a close match over a full
+  match. While any decision holds every word, close candidates are not folded into one another
+  (that turned a tie of close candidates into an answer over the full match). A close decision that
+  takes the candidates it ties lacks at most a third of the question's words, so "what grade does
+  the doctor need before we hire them?" stays a list of three close candidates instead of
+  answering the one that shares three of its five words. What does not fold stays listed, as before
+  hivemind-zdsh.25. The repro of hivemind-zdsh.25 and its paraphrases still answer the split of
+  the frontend with the decisions that rest on it in `consequences`. No ledger or wire shape
+  changes. (hivemind-6imih)
 - **An agent's own call reads as the agent's own, whether or not the classifier also named it as
   the proposer.** A draft that lists the session's own agent in `accepted_by` and names no
   `actor_id` read `review=PeerReviewed` and `recorded by: unknown`: a review by someone else
