@@ -317,7 +317,10 @@ lists the others under `also_recorded_as` (an `also recorded as:` line in
 between them. A newer loomtracer likewise answers with the decision that
 replaced the records your words matched (the head of their supersession chain)
 when those records would otherwise come back as an ambiguous list, naming them
-under `resolved_via` (a `resolved via:` line in `--summary` output).
+under `resolved_via` (a `resolved via:` line in `--summary` output). Likewise, when
+the decisions your words matched rest on one of them (they follow from it), the
+answer is that decision, and the others come back under `consequences` (a
+`consequences:` line in `--summary` output): they are what it led to, not rivals.
 
 This mirrors AGENTS.md's honesty standard: no invented confidence. A wrong
 guess on a write verb is worse than asking again.

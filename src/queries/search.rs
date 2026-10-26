@@ -2581,6 +2581,12 @@ pub(crate) struct ResolverCandidateRow {
     /// The records the question matched that the decision replaced, folded into it by the
     /// resolver for a verb that only reads (hivemind-am6rp); empty until it does.
     pub(crate) resolved_via: Vec<RecordedCopy>,
+    /// The decisions it follows from directly (`FOLLOWS_FROM`): what the resolver reads to tell
+    /// which candidates rest on another candidate (hivemind-zdsh.25).
+    pub(crate) premises: Vec<String>,
+    /// The candidates that rest on the decision, folded into it by the resolver for a verb that
+    /// only reads (hivemind-zdsh.25); empty until it does.
+    pub(crate) consequences: Vec<RecordedCopy>,
 }
 
 impl ResolverCandidateRow {
@@ -2638,6 +2644,8 @@ pub(crate) fn collect_resolver_candidates(
             peer: scored.peer,
             outweighed: scored.outweighed,
             resolved_via: Vec::new(),
+            premises: scored.result.decision.premise_decision_ids,
+            consequences: Vec::new(),
         })
         .collect())
 }

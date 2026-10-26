@@ -1798,6 +1798,7 @@ fn listed_candidate(
         polarity_mismatch: false,
         also_recorded_as: Vec::new(),
         resolved_via: Vec::new(),
+        consequences: Vec::new(),
     }
 }
 
@@ -1853,6 +1854,33 @@ fn a_close_candidate_says_its_status_before_the_words_it_lacks() {
         summary.ends_with(
             "#1\tdecision-old\tPaid shape is chosen after the testers\tstatus: superseded by decision-new\tmissing: pricing"
         ),
+        "{summary}"
+    );
+}
+
+#[test]
+fn a_candidate_names_the_decisions_that_rest_on_it() {
+    let mut root = listed_candidate(
+        "decision-split",
+        "Split the frontend into its own repository",
+        DecisionStatus::Accepted,
+        &[],
+    );
+    root.consequences = vec![crate::queries::RecordedCopy {
+        decision_id: "decision-remove".to_owned(),
+        title: "Remove web/ from the main repository".to_owned(),
+    }];
+
+    assert_eq!(
+        render_resolution_notices(&root),
+        "consequences: decision-remove \"Remove web/ from the main repository\" (rest on this decision)"
+    );
+
+    let summary = render_resolve_outcome_summary(&ResolveOutcome::Ambiguous {
+        candidates: vec![root],
+    });
+    assert!(
+        summary.ends_with("\tstatus: accepted\tconsequences: decision-remove"),
         "{summary}"
     );
 }

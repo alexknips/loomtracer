@@ -1,5 +1,7 @@
 //! Premise-chain traversal: walks the FOLLOWS_FROM edge graph with cycle protection.
 
+use std::collections::HashSet;
+
 use crate::projector::{GraphView, NodeKind, RelationKind};
 use crate::Result;
 
@@ -68,6 +70,38 @@ pub(super) fn decision_path(
         }
         cursor += 1;
     }
+}
+
+/// Every decision a decision rests on over `FOLLOWS_FROM`, directly or through others, given the
+/// premises it names itself (`direct`), which are part of the answer. The same walk as
+/// [`decision_path`] without a target: every decision is visited once, so it ends on any graph,
+/// including one that already holds a cycle, and it is bounded by the decisions reachable from
+/// `direct`. A set, not a chain: the caller asks whether a decision is among them.
+pub(super) fn premises_reached(
+    graph: &impl GraphView,
+    direct: &[String],
+) -> Result<HashSet<String>> {
+    let mut reached: HashSet<String> = HashSet::new();
+    let mut pending: Vec<String> = direct.to_vec();
+    while let Some(current) = pending.pop() {
+        if reached.contains(&current) {
+            continue;
+        }
+        for (premise, _event_origin) in neighbor_pairs(
+            graph,
+            NodeKind::Decision,
+            &current,
+            RelationKind::FollowsFrom,
+            NodeKind::Decision,
+            Direction::Outgoing,
+        )? {
+            if !reached.contains(&premise) {
+                pending.push(premise);
+            }
+        }
+        reached.insert(current);
+    }
+    Ok(reached)
 }
 
 /// The ids from the start of the walk to `reached[end]`, following each decision back to the one

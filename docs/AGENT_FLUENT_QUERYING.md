@@ -485,6 +485,29 @@ the records past the fork, so name one of them with `--id` to see its chain. A v
 does not fold: it never acts on a decision for the words of a record that decision replaced, and
 `--id` names exactly the record given.
 
+**A decision is not a rival of the decisions that rest on it** (hivemind-zdsh.25). A decision and
+its own consequences share its words: "Remove web/ from loomtracer now" follows from "Split the
+frontend into its own repo" and says what that one says, so the decision a question is about
+could never win by the margin of its words, and `why` answered `ambiguous` about a ledger holding
+one answer. When the outcome of a verb that only reads is still `Ambiguous` after the replaced
+records are folded, each candidate that rests on exactly one candidate that rests on none is
+folded into that one, and the outcome is decided again. A candidate rests on another when the
+other is among the decisions it follows from (the `FOLLOWS_FROM` edge that `ground` and the
+`--rests-on-decision` flag of a capture write), directly or through other decisions, whether or
+not the words matched the decisions in between; a candidate that absorbed replaced records stands for them, so a decision
+that rests on a replaced record rests on the one that replaced it. The root answers with its own
+id, title, status and the words it matched itself, and names what rests on it in `consequences:
+[{decision_id, title}]`, oldest first (a `consequences:` line ahead of `--summary` output, the
+key beside `data` in `--json`, the HTTP routes and MCP). Their words are not carried over to the
+root, so the root still has to be the decision the question is about. Candidates that rest on
+nothing in common stay `Ambiguous` and list the roots, each with its consequences; a candidate
+that rests on two of them is listed on its own, and decisions that rest on each other in a loop
+have no root and stay as they are. A question that already resolves keeps its answer: words that
+match a consequence alone answer with it, and the consequence's own `why` shows what it rests on.
+A verb that writes does not fold. The restatement check of the classifier shows its judge the
+consequences beside the decision they rest on, since a capture can restate one without restating
+the other.
+
 **`recall` asks the same way.** `recall_decisions` (Layer 3) drops the question
 words ("what did we decide about projects" searches for `projects`) before it
 searches (the same list, decision verbs and framing adverbs included), reports

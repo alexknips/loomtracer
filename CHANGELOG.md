@@ -63,6 +63,26 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`why`, `verify`, `chain` and `compact-view` by description answer with a decision when the
+  other decisions the words matched rest on it, where they answered `ambiguous`.** A decision and
+  the decisions that follow from it say the same words ("Remove web/ from loomtracer now" follows
+  from "Split the frontend into its own repo"), so the decision a question was about could never
+  win by the margin of its words. The one miss of a dogfood check that put 18 of Alex's decisions
+  to `why` by description was this case: the split of the frontend came back `ambiguous` beside
+  two decisions that follow from it. When the outcome of a verb that only reads is still
+  `ambiguous` after the replaced records are folded (hivemind-am6rp), it now folds each candidate
+  that rests on exactly one candidate that rests on none (`FOLLOWS_FROM`, directly or through
+  other decisions; a candidate that absorbed replaced records stands for them) into that one, and
+  decides again. If one decision is left it answers with it, and names the others in
+  `consequences: [{decision_id, title}]` beside `data`, oldest first (a `consequences:` line in
+  `--summary`; the same key on `GET /v1/decisions/why` and the MCP tools), so nothing is hidden.
+  Candidates that rest on nothing in common stay `ambiguous` and list the roots, each with its
+  consequences under `consequences`; a candidate that rests on two of them is listed on its own,
+  and decisions that rest on each other in a loop have no root and stay as they are. Words that
+  already resolve keep their answer, so asking about a consequence by its own words still answers
+  with it. A verb that writes (`disagree`, `supersede`, `ground`, ...) is unchanged: it never acts
+  on a decision for the words of another. The classifier's restatement check still shows its judge
+  a decision that rests on a nearby one, beside it. (hivemind-zdsh.25)
 - **Updating the capture client before the cell no longer queues the same turns again on every
   hook run.** A shipper that names a project and talks to a cell that predates project filing
   used to send the span first and look for the cell's echo of the project after: the old cell had

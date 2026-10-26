@@ -1098,3 +1098,93 @@ async fn a_replaced_record_answers_with_the_decision_that_replaced_it_through_ev
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
+
+/// hivemind-zdsh.25: a question that matched a decision and a decision that rests on it is
+/// answered with the decision it rests on, and the answer names the other as its consequence,
+/// through every surface. Before, the two came back as rivals (`outcome: ambiguous`).
+#[tokio::test]
+async fn a_decision_that_rests_on_the_answer_is_named_as_its_consequence_through_every_surface(
+) -> TestResult<()> {
+    let dir = unique_temp_dir("read-surface-parity-consequence");
+    let path = dir.to_str().ok_or("the ledger path is utf-8")?;
+    let root = propose_decision(
+        path,
+        "Split the frontend into its own repository",
+        "The web UI ships on its own cadence",
+        "frontend",
+    )?;
+    let consequence = propose_decision(
+        path,
+        "Remove the frontend from the main repository now that the split is decided",
+        "Nothing else needs the web directory",
+        "frontend",
+    )?;
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        "human:alice",
+        "--loomtracer-dir",
+        path,
+        "emit",
+        "relation.added",
+        "--kind",
+        "follows-from",
+        "--from",
+        &consequence,
+        "--to",
+        &root,
+    ]))?;
+    let mut mcp = McpServer::start(&dir)?;
+
+    for verb in ["why", "verify"] {
+        let question = "frontend repository split";
+        let cli = without_latency(via_cli(&dir, verb, question)?);
+        let plugin = without_latency(via_plugin(&dir, verb, question)?);
+        let from_mcp = without_latency(mcp.call(mcp_tool(verb), question)?);
+        let (status, http) = via_http(&dir, verb, question).await?;
+
+        assert_ne!(cli["data"]["outcome"], "ambiguous", "{verb}: {cli}");
+        let answered = cli["data"]["root"]["id"]
+            .as_str()
+            .or_else(|| cli["data"]["decision_id"].as_str())
+            .ok_or_else(|| format!("{verb}: an answer names its decision: {cli}"))?;
+        assert_eq!(answered, root, "{verb}: {cli}");
+        let rest_on_it = cli["consequences"]
+            .as_array()
+            .ok_or_else(|| format!("{verb}: the answer names what rests on it: {cli}"))?;
+        assert_eq!(rest_on_it.len(), 1, "{verb}: {cli}");
+        assert_eq!(
+            rest_on_it[0]["decision_id"],
+            consequence.as_str(),
+            "{verb}: {cli}"
+        );
+        assert_eq!(
+            rest_on_it[0]["title"],
+            "Remove the frontend from the main repository now that the split is decided",
+            "{verb}: {cli}"
+        );
+
+        assert_eq!(plugin, cli, "{verb}: the plugin's reply differs");
+        assert_eq!(from_mcp, cli, "{verb}: the MCP reply differs");
+        assert_eq!(status, StatusCode::OK, "{verb}: {http}");
+        assert_eq!(without_latency(http), cli, "{verb}: the HTTP reply differs");
+
+        let summary = run(&Cli::parse_from([
+            "loomtracer",
+            "--loomtracer-dir",
+            path,
+            "query",
+            verb,
+            question,
+            "--summary",
+        ]))?;
+        let line = summary
+            .lines()
+            .find(|line| line.starts_with("consequences:"))
+            .ok_or_else(|| format!("{verb}: no `consequences:` line: {summary}"))?;
+        assert!(line.contains(&consequence), "{verb}: {line}");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}

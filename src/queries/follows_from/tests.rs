@@ -2,7 +2,7 @@
 #[cfg(test)]
 use crate::projector::{memory::MemoryGraph, GraphProperties, GraphView, RelationKind};
 
-use super::follows_from_path;
+use super::{follows_from_path, premises_reached};
 
 /// A graph whose `FOLLOWS_FROM` edges are `edges`, each `(decision, premise)`.
 fn graph_with(edges: &[(&str, &str)]) -> MemoryGraph {
@@ -102,4 +102,33 @@ fn a_blank_id_is_an_error_not_a_miss() {
     let graph = graph_with(&[]);
     assert!(follows_from_path(&graph, " ", "d-1").is_err());
     assert!(follows_from_path(&graph, "d-1", "").is_err());
+}
+
+fn reached(graph: &MemoryGraph, direct: &[&str]) -> Vec<String> {
+    let direct: Vec<String> = direct.iter().map(|id| (*id).to_owned()).collect();
+    let mut reached: Vec<String> = premises_reached(graph, &direct)
+        .expect("walk succeeds")
+        .into_iter()
+        .collect();
+    reached.sort();
+    reached
+}
+
+#[test]
+fn the_premises_a_decision_names_are_part_of_what_it_rests_on() {
+    let graph = graph_with(&[]);
+    assert_eq!(reached(&graph, &["d-2", "d-3"]), ["d-2", "d-3"]);
+    assert!(reached(&graph, &[]).is_empty());
+}
+
+#[test]
+fn a_decision_rests_on_the_premises_of_its_premises() {
+    let graph = graph_with(&[("d-2", "d-3"), ("d-3", "d-4"), ("d-5", "d-6")]);
+    assert_eq!(reached(&graph, &["d-2"]), ["d-2", "d-3", "d-4"]);
+}
+
+#[test]
+fn the_walk_over_premises_ends_on_a_cycle_already_in_the_graph() {
+    let graph = graph_with(&[("d-1", "d-2"), ("d-2", "d-3"), ("d-3", "d-1")]);
+    assert_eq!(reached(&graph, &["d-2"]), ["d-1", "d-2", "d-3"]);
 }

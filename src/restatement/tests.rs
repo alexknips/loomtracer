@@ -1,6 +1,6 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
-use crate::commands::Commands;
+use crate::commands::{Commands, GroundInput};
 use crate::events::CaptureItem;
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph};
@@ -187,6 +187,45 @@ fn nearby_decisions_are_what_recall_would_answer_and_a_linked_decision_shows_onc
     let after = nearby_decisions(&graph_of(&f.ledger), &capture).expect("nearby");
     assert_eq!(after.len(), 1, "{after:?}");
     assert_eq!(after[0].decision_id, f.fable[0], "the earliest record");
+}
+
+#[test]
+fn a_decision_that_rests_on_a_nearby_decision_is_shown_beside_it_not_folded_into_it() {
+    let f = fixture();
+    let capture = decision("Fable only for every town seat", "Relayed once more");
+    let before = nearby_decisions(&graph_of(&f.ledger), &capture).expect("nearby");
+    assert_eq!(before.len(), 2, "{before:?}");
+
+    // The second record follows from the first, so the resolver answers with the first and
+    // names the second as its consequence (hivemind-zdsh.25). A capture can restate the second
+    // without restating the first, so the judge is shown both, the first leading.
+    Commands::new(&f.ledger)
+        .ground_decision(GroundInput {
+            actor_id: ALEX,
+            decision_id: &f.fable[1],
+            premise_decision_ids: &[f.fable[0].clone()],
+            evidence_ids: &[],
+            hypothesis_ids: &[],
+        })
+        .expect("grounds");
+    match resolve_decision_for_reading(&graph_of(&f.ledger), &capture.title, None)
+        .expect("resolves")
+        .data
+    {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, f.fable[0]);
+            assert_eq!(candidate.consequences.len(), 1, "{candidate:?}");
+            assert_eq!(candidate.consequences[0].decision_id, f.fable[1]);
+        }
+        other => panic!("the second record follows from the first: {other:?}"),
+    }
+
+    let after = nearby_decisions(&graph_of(&f.ledger), &capture).expect("nearby");
+    let ids: Vec<&str> = after
+        .iter()
+        .map(|nearby| nearby.decision_id.as_str())
+        .collect();
+    assert_eq!(ids, [f.fable[0].as_str(), f.fable[1].as_str()]);
 }
 
 #[test]

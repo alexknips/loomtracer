@@ -1261,6 +1261,7 @@ fn a_close_match_is_named_in_the_envelope_and_a_full_match_is_not() {
         polarity_mismatch: false,
         also_recorded_as: Vec::new(),
         resolved_via: Vec::new(),
+        consequences: Vec::new(),
     };
     let full = ResolvedCandidate {
         missing_terms: Vec::new(),
@@ -1464,6 +1465,7 @@ fn the_envelope_names_the_other_records_beside_data() {
             title: "Fable for every town seat".to_owned(),
         }],
         resolved_via: Vec::new(),
+        consequences: Vec::new(),
     };
     let mut envelope = json!({"data": {}});
     annotate_resolution(&mut envelope, &candidate);
@@ -2557,6 +2559,8 @@ fn headline_candidate(id: &str, said_as_word: u64, said_in_any_form: u64) -> Res
         peer: false,
         outweighed: false,
         resolved_via: Vec::new(),
+        premises: Vec::new(),
+        consequences: Vec::new(),
     }
 }
 
@@ -3284,6 +3288,7 @@ fn the_envelope_names_the_replaced_records_beside_data() {
             decision_id: "d:first".to_owned(),
             title: "Rename the product to Upheld".to_owned(),
         }],
+        consequences: Vec::new(),
     };
     assert!(candidate.needs_annotation());
 
@@ -3295,4 +3300,298 @@ fn the_envelope_names_the_replaced_records_beside_data() {
     );
     assert!(envelope.get("close_match").is_none());
     assert!(envelope.get("also_recorded_as").is_none());
+}
+
+// ---------------------------------------------------------------------------
+// A decision is not a rival of the decisions that rest on it (hivemind-zdsh.25)
+// ---------------------------------------------------------------------------
+
+/// `decision_id` follows from `premise_id`: the edge `ground` and `capture --rests-on-decision` write.
+fn follows_from(sequence: u128, decision_id: &str, premise_id: &str) -> Event {
+    Event {
+        tenant_id: Default::default(),
+        event_id: None,
+        event_uuid: Uuid::from_u128(sequence),
+        correlation_id: Some("resolve-test".to_owned()),
+        causation_event_id: None,
+        event_type: EventType::RelationAdded,
+        actor_id: "human:alex".to_owned(),
+        source: EventSource::Cli,
+        source_ref: None,
+        payload: json!({
+            "relation": "FOLLOWS_FROM",
+            "from_id": decision_id,
+            "to_id": premise_id
+        }),
+        ts: Some(ts("2026-01-03T00:00:00Z")),
+    }
+}
+
+/// The ids of the candidates that rest on a candidate, in the order they were recorded.
+fn consequence_ids(candidate: &ResolvedCandidate) -> Vec<&str> {
+    candidate
+        .consequences
+        .iter()
+        .map(|record| record.decision_id.as_str())
+        .collect()
+}
+
+const SPLIT_QUESTION: &str = "frontend repository split";
+
+/// A ruling and two decisions that follow from it. The three say the question's words in their
+/// titles, as a decision and its consequences do, so the words alone do not tell them apart.
+fn frontend_split(events_after: Vec<Event>) -> Result<MemoryGraph> {
+    let mut events = vec![
+        decision_proposed(
+            1,
+            "d:root",
+            "Split the frontend into its own repository",
+            &["frontend"],
+        ),
+        decision_accepted(2, "d:root"),
+        decision_proposed(
+            3,
+            "d:first",
+            "Remove the frontend from the main repository now that the split is decided",
+            &["frontend"],
+        ),
+        decision_proposed(
+            4,
+            "d:second",
+            "Drop the frontend CI check from the repository ruleset after the split",
+            &["frontend"],
+        ),
+    ];
+    events.extend(events_after);
+    graph_from_events(events)
+}
+
+#[test]
+fn decisions_that_rest_on_a_candidate_are_its_consequences_not_rivals() -> Result<()> {
+    // Unlinked, the three hold every word alike, so the question is a tie.
+    let unlinked = frontend_split(Vec::new())?;
+    assert_eq!(
+        listed(reading(&unlinked, SPLIT_QUESTION)?.data).len(),
+        3,
+        "the premise of the fixture: three alike decisions are a tie"
+    );
+
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+    let response = reading(&graph, SPLIT_QUESTION)?;
+    assert_eq!(response.result_count, 1);
+    match response.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:root");
+            assert_eq!(candidate.status, DecisionStatus::Accepted);
+            assert!(candidate.missing_terms.is_empty(), "{candidate:?}");
+            assert!(candidate.resolved_via.is_empty());
+            assert_eq!(consequence_ids(&candidate), ["d:first", "d:second"]);
+            assert_eq!(
+                candidate.consequences[0].title,
+                "Remove the frontend from the main repository now that the split is decided"
+            );
+            assert!(candidate.needs_annotation());
+        }
+        other => panic!("the two decisions follow from the one asked about: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_verb_that_writes_keeps_a_decision_and_its_consequences_apart() -> Result<()> {
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+    let candidates = listed(resolve_decision_by_description(&graph, SPLIT_QUESTION, None)?.data);
+    assert_eq!(candidates.len(), 3);
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn decisions_that_rest_on_nothing_in_common_stay_ambiguous() -> Result<()> {
+    // d:rival holds the words too and follows from nothing here: it is as much the answer as
+    // d:root is, so the root is listed with its consequences beside it.
+    let graph = frontend_split(vec![
+        decision_proposed(
+            7,
+            "d:rival",
+            "Postpone the mobile frontend repository split to spring",
+            &["frontend"],
+        ),
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+    let candidates = listed(reading(&graph, SPLIT_QUESTION)?.data);
+    let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+    assert_eq!(candidates.len(), 2, "{ids:?}");
+    assert_eq!(
+        consequence_ids(candidate_of(&candidates, "d:root")),
+        ["d:first", "d:second"]
+    );
+    assert!(candidate_of(&candidates, "d:rival").consequences.is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_decision_that_rests_on_two_candidates_is_listed_on_its_own() -> Result<()> {
+    let graph = frontend_split(vec![
+        decision_proposed(
+            7,
+            "d:rival",
+            "Postpone the mobile frontend repository split to spring",
+            &["frontend"],
+        ),
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:first", "d:rival"),
+    ])?;
+    let candidates = listed(reading(&graph, SPLIT_QUESTION)?.data);
+    let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+    assert_eq!(candidates.len(), 4, "{ids:?}");
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_decision_rests_on_a_candidate_through_decisions_the_words_did_not_match() -> Result<()> {
+    let graph = frontend_split(vec![
+        decision_proposed(7, "d:mid", "Hosting is revisited in spring", &["hosting"]),
+        follows_from(5, "d:mid", "d:root"),
+        follows_from(6, "d:first", "d:mid"),
+        follows_from(8, "d:second", "d:root"),
+    ])?;
+    match reading(&graph, SPLIT_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:root");
+            assert_eq!(consequence_ids(&candidate), ["d:first", "d:second"]);
+        }
+        other => panic!("both follow from d:root, one through d:mid: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_chain_of_candidates_folds_into_the_one_that_rests_on_none() -> Result<()> {
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:first"),
+    ])?;
+    match reading(&graph, SPLIT_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:root");
+            assert_eq!(consequence_ids(&candidate), ["d:first", "d:second"]);
+        }
+        other => panic!("d:second follows from d:first which follows from d:root: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn decisions_that_rest_on_each_other_have_no_root_and_stay_listed() -> Result<()> {
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:root", "d:first"),
+    ])?;
+    let candidates = listed(reading(&graph, SPLIT_QUESTION)?.data);
+    let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
+    assert_eq!(candidates.len(), 3, "{ids:?}");
+    assert!(candidates.iter().all(|c| c.consequences.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_decision_that_rests_on_a_replaced_record_rests_on_the_decision_that_replaced_it() -> Result<()>
+{
+    let title = "Split the frontend into its own repository";
+    let graph = graph_from_events([
+        decision_proposed(1, "d:early", title, &["frontend"]),
+        decision_proposed(2, "d:root", title, &["frontend"]),
+        decision_accepted(3, "d:root"),
+        decision_superseded(4, "d:early", "d:root"),
+        decision_proposed(
+            5,
+            "d:first",
+            "Remove the frontend from the main repository now that the split is decided",
+            &["frontend"],
+        ),
+        follows_from(6, "d:first", "d:early"),
+    ])?;
+    match reading(&graph, SPLIT_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:root");
+            assert_eq!(via_ids(&candidate), ["d:early"]);
+            assert_eq!(consequence_ids(&candidate), ["d:first"]);
+        }
+        other => panic!("d:first follows from a record d:root replaced: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_description_that_already_resolves_keeps_its_answer_and_names_no_consequences() -> Result<()> {
+    // Only d:first holds "ruleset" and "check", so the question is not a tie and nothing folds:
+    // asking about a consequence still answers with it.
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+    match reading(&graph, "frontend ruleset check")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:second");
+            assert!(candidate.consequences.is_empty());
+        }
+        other => panic!("one decision holds those words: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn the_envelope_names_the_consequences_beside_data() {
+    let candidate = ResolvedCandidate {
+        decision_id: "d:root".to_owned(),
+        title: "Split the frontend into its own repository".to_owned(),
+        rank: 1,
+        event_origin: 1,
+        status: DecisionStatus::Accepted,
+        superseded_by: Vec::new(),
+        matched_fields: vec!["title".to_owned()],
+        missing_terms: Vec::new(),
+        polarity_mismatch: false,
+        also_recorded_as: Vec::new(),
+        resolved_via: Vec::new(),
+        consequences: vec![RecordedCopy {
+            decision_id: "d:first".to_owned(),
+            title: "Remove the frontend from the main repository".to_owned(),
+        }],
+    };
+    assert!(candidate.needs_annotation());
+
+    let mut envelope = json!({"data": {}});
+    annotate_resolution(&mut envelope, &candidate);
+    assert_eq!(
+        envelope["consequences"],
+        json!([{"decision_id": "d:first", "title": "Remove the frontend from the main repository"}])
+    );
+    assert!(envelope.get("close_match").is_none());
+    assert!(envelope.get("resolved_via").is_none());
+
+    // The key is only there when there is something to say, and the `#N` continuation file
+    // keeps it.
+    let written = serde_json::to_value(&candidate).expect("serializes");
+    assert!(written.get("consequences").is_some());
+    let kept: ResolvedCandidate = serde_json::from_value(written).expect("reads back");
+    assert_eq!(kept, candidate);
+    let alone = ResolvedCandidate {
+        consequences: Vec::new(),
+        ..candidate
+    };
+    assert!(serde_json::to_value(&alone)
+        .expect("serializes")
+        .get("consequences")
+        .is_none());
+    assert!(!alone.needs_annotation());
 }

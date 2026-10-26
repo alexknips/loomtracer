@@ -51,7 +51,9 @@ pub struct NearbyDecision {
 
 /// The recorded decisions closest to a decision capture, by the words of its title: what `recall`
 /// would answer to the capture's title. A decision recorded more than once and linked `SAME_AS`
-/// is shown once.
+/// is shown once. The decisions that rest on a candidate (`consequences`, folded into it by the
+/// resolver) are separate recorded decisions and are shown after it: a capture can restate one of
+/// them without restating the decision it follows from.
 pub fn nearby_decisions(
     graph: &impl GraphView,
     capture: &CaptureItem,
@@ -65,14 +67,24 @@ pub fn nearby_decisions(
         ResolveOutcome::Ambiguous { candidates } => candidates,
         ResolveOutcome::NotFound => Vec::new(),
     };
-    Ok(candidates
-        .into_iter()
-        .take(NEARBY_LIMIT)
-        .map(|candidate| NearbyDecision {
+    let mut nearby = Vec::new();
+    for candidate in candidates {
+        nearby.push(NearbyDecision {
             decision_id: candidate.decision_id,
             title: candidate.title,
-        })
-        .collect())
+        });
+        nearby.extend(
+            candidate
+                .consequences
+                .into_iter()
+                .map(|consequence| NearbyDecision {
+                    decision_id: consequence.decision_id,
+                    title: consequence.title,
+                }),
+        );
+    }
+    nearby.truncate(NEARBY_LIMIT);
+    Ok(nearby)
 }
 
 /// The question put to the judge model for one capture and the decisions near it.
