@@ -11,6 +11,9 @@ Configuration via environment variables:
   LOOMTRACER_API_URL            Base URL of the Loomtracer server (default: http://localhost:8080)
   LOOMTRACER_API_KEY            Bearer token for /v1/ingest (optional in dev mode)
   LOOMTRACER_AGENT_TOOL         agent_tool field (default: claude)
+  LOOMTRACER_PROJECT            Project to file sessions under when their folder has no
+                                .loomtracer-project (a registered handle). The folder is
+                                the one the transcript's own records name (see core.py).
   LOOMTRACER_SIDECAR_INTERVAL   Poll interval in seconds (default: 0.25)
   LOOMTRACER_PROJECTS_DIR       Override ~/.claude/projects/ watch root
 

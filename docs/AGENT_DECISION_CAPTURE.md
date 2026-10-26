@@ -923,7 +923,49 @@ Both clients configure the server URL and auth token via environment:
 LOOMTRACER_API_URL    Base URL of the Loomtracer server (default: http://localhost:8080)
 LOOMTRACER_API_KEY    Bearer token lt_tk_... (optional in dev mode)
 LOOMTRACER_AGENT_TOOL Override agent_tool field (default: claude)
+LOOMTRACER_PROJECT    Project to file sessions under when their folder has no
+                      .loomtracer-project (a registered handle)
 ```
+
+**Which project passive captures are filed under** (hivemind-zdsh.22): each batch
+names the project of its session, and the decisions classified from it are filed
+there, with the `project_source` that says how the project was found. Before this,
+every passive capture landed in the recording agent's personal project
+(`personal:agent:<tool>`), whichever rig it came from.
+
+- The client picks the handle. The nearest `.loomtracer-project` at or above the
+  session's folder (the hook's `cwd`; the sidecar takes the folder from the
+  transcript's own records) goes out as `project` with
+  `project_source: folder_marker`. With no marker, the `LOOMTRACER_PROJECT` setting
+  goes out with `project_source: stated`. With neither, the batch names no project.
+  A marker that cannot be read, or does not hold exactly one handle on one line, holds
+  the span back instead of being walked past, as on the CLI.
+- The cell checks the handle the way `capture --project` does, and **refuses** one
+  nobody registered: the request fails (4xx), nothing is recorded, and the error
+  names `loomtracer project register <handle>`. Both clients keep their cursor on any
+  refusal, so the span is sent again once the project exists: nothing is filed under
+  another project meanwhile, and nothing is lost. (Recording the batch as personal
+  with a notice was the other choice. The clients never read the reply, so the notice
+  would reach nobody, and a batch recorded as personal stays there.) A personal
+  address is refused too; `project_source` without `project` is a 400. The reply of a cell
+that recorded the project echoes it (`project`, `project_source`); a client that sent one
+and gets no echo (a cell that predates this and dropped the field) holds the span back too,
+so deploy order never files a session's decisions in the personal project unseen. A batch
+sent again after that counts under the first receipt that named a project.
+- The classifier is never asked and cannot change it. When a classification is
+  recorded, the write layer reads the batches it covers and records the project on
+  the `ingest.batch_classified` event, and the projector files each decision there:
+  the one project the batches name; when they name several, the nearest project they
+  are all `part_of`, else the recorder's personal project (the rule of a change that
+  spans folders, see [`MULTI_TENANCY.md`](MULTI_TENANCY.md)). A batch that names no
+  project says nothing and never votes, so a session whose first batches were shipped
+  before its client was configured is still filed under the project the rest name.
+  The `project_source` is the first covered batch's that named a project. The reply of
+  `classify-queue submit` (CLI, HTTP and MCP) carries `project` and `project_source`
+  when a project was found, and `project_notice` when the batches span several.
+- Explicit captures are unchanged, and a classification recorded before this, or from
+  batches that name no project, stays in the personal project (`loomtracer move`
+  files it elsewhere).
 
 **Server-side classifier**: the server runs an optional background Layer-3
 worker (`src/classifier.rs`) that reads `ingest.batch_received` events and

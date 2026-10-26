@@ -44,7 +44,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::commands::DeterminedProject;
+use crate::commands::{nearest_common_project, DeterminedProject};
 use crate::error::CliError;
 use crate::events::{ProjectAnchorKind, ProjectSource, TenantId};
 use crate::ledger::{EventLedger, LedgerConfig, TenantScopedLedger};
@@ -312,11 +312,7 @@ fn nearest_common_ancestor(ancestries: &[ProjectAncestry]) -> Option<String> {
                 .collect()
         })
         .collect();
-    let (first, rest) = chains.split_first()?;
-    first
-        .iter()
-        .find(|candidate| rest.iter().all(|chain| chain.contains(candidate)))
-        .map(|candidate| (*candidate).to_owned())
+    nearest_common_project(&chains)
 }
 
 /// The distinct project handles the touched files' folders are attached to: the nearest

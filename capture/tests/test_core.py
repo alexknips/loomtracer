@@ -14,6 +14,7 @@ from core import (
     _write_cursor,
     cursor_path_for_session,
     jsonl_path_for_session,
+    project_for_session,
     ship,
 )
 
@@ -417,6 +418,178 @@ class TestCursorFlow(unittest.TestCase):
         self.assertEqual(posted[0]["turns"][0]["turn_id"], "u1")
 
         core_module._post = orig_post
+
+
+class TestProjectOfBatches(unittest.TestCase):
+    """Each batch names the project of the session, so the decisions classified
+    from it are filed under that project and not the agent's personal one."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.session_id = "test-session-project"
+        self.jsonl_path = os.path.join(self.tmpdir, f"{self.session_id}.jsonl")
+        self.cursor_dir = os.path.join(self.tmpdir, "cursors")
+        # The folder the session runs in, with a nested one beneath it.
+        self.repo = os.path.join(self.tmpdir, "repo")
+        self.nested = os.path.join(self.repo, "services", "billing")
+        os.makedirs(self.nested)
+
+        import core as core_module
+        self._orig_cursor_path = core_module.cursor_path_for_session
+        core_module.cursor_path_for_session = lambda sid: os.path.join(
+            self.cursor_dir, f"{sid}.offset"
+        )
+        self._orig_env = os.environ.pop("LOOMTRACER_PROJECT", None)
+
+    def tearDown(self):
+        import core as core_module
+        core_module.cursor_path_for_session = self._orig_cursor_path
+        os.environ.pop("LOOMTRACER_PROJECT", None)
+        if self._orig_env is not None:
+            os.environ["LOOMTRACER_PROJECT"] = self._orig_env
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _marker(self, folder, text):
+        with open(os.path.join(folder, ".loomtracer-project"), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _record(self, uuid, **extra):
+        record = {
+            "type": "user",
+            "uuid": uuid,
+            "message": {"role": "user", "content": [{"type": "text", "text": f"turn {uuid}"}]},
+        }
+        record.update(extra)
+        return record
+
+    def _write_jsonl(self, records, mode="w"):
+        with open(self.jsonl_path, mode, encoding="utf-8") as fh:
+            for record in records:
+                fh.write(json.dumps(record) + "\n")
+
+    def _ship_new_turn(self, session_dir):
+        """Run ship() past the first-run cursor init, with one new turn, and
+        return the envelopes it posted (a refused span leaves the list empty)."""
+        import core as core_module
+        self._write_jsonl([self._record("old0")])
+        posted = []
+        orig_post = core_module._post
+        core_module._post = lambda url, key, env: posted.append(env)
+        try:
+            ship(self.session_id, self.jsonl_path, "http://localhost:8080", "")
+            self._write_jsonl([self._record("new0")], mode="a")
+            ship(
+                self.session_id,
+                self.jsonl_path,
+                "http://localhost:8080",
+                "",
+                session_dir=session_dir,
+            )
+        finally:
+            core_module._post = orig_post
+        return posted
+
+    def _cursor_offset(self):
+        with open(os.path.join(self.cursor_dir, f"{self.session_id}.offset")) as fh:
+            return int(fh.read())
+
+    def test_the_marker_of_the_session_folder_names_the_project(self):
+        self._marker(self.repo, "loomtracer\n")
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(len(posted), 1)
+        self.assertEqual(posted[0]["project"], "loomtracer")
+        self.assertEqual(posted[0]["project_source"], "folder_marker")
+
+    def test_the_nearest_marker_above_the_folder_wins(self):
+        self._marker(self.repo, "platform")
+        self._marker(os.path.join(self.repo, "services"), "billing")
+        self.assertEqual(
+            project_for_session(self.nested, self.jsonl_path), ("billing", "folder_marker")
+        )
+        self.assertEqual(
+            project_for_session(self.repo, self.jsonl_path), ("platform", "folder_marker")
+        )
+
+    def test_the_setting_names_the_project_when_no_marker_is_above(self):
+        os.environ["LOOMTRACER_PROJECT"] = " hivemind-company "
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(posted[0]["project"], "hivemind-company")
+        self.assertEqual(posted[0]["project_source"], "stated")
+
+    def test_the_marker_wins_over_the_setting(self):
+        self._marker(self.repo, "loomtracer")
+        os.environ["LOOMTRACER_PROJECT"] = "hivemind-company"
+        self.assertEqual(
+            project_for_session(self.repo, self.jsonl_path), ("loomtracer", "folder_marker")
+        )
+
+    def test_neither_marker_nor_setting_names_no_project(self):
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(len(posted), 1)
+        self.assertNotIn("project", posted[0])
+        self.assertNotIn("project_source", posted[0])
+
+    def test_without_a_session_folder_the_transcripts_own_cwd_is_used(self):
+        """The sidecar has no hook payload: the records name the folder."""
+        self._marker(self.repo, "loomtracer")
+        self._write_jsonl([self._record("old0", cwd=self.nested)])
+        self.assertEqual(
+            project_for_session(None, self.jsonl_path), ("loomtracer", "folder_marker")
+        )
+
+    def test_a_broken_marker_ships_nothing_and_leaves_the_cursor(self):
+        """A marker that is not one handle on one line is never walked past: the
+        span is held back (cursor untouched) until the marker is fixed."""
+        self._marker(self.repo, "two handles\n")
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(posted, [])
+        # The cursor sits where the first run left it, before the new turn.
+        self.assertLess(self._cursor_offset(), os.path.getsize(self.jsonl_path))
+
+        self._marker(self.repo, "loomtracer")
+        import core as core_module
+        orig_post = core_module._post
+        core_module._post = lambda url, key, env: posted.append(env)
+        try:
+            ship(
+                self.session_id,
+                self.jsonl_path,
+                "http://localhost:8080",
+                "",
+                session_dir=self.repo,
+            )
+        finally:
+            core_module._post = orig_post
+        self.assertEqual([env["project"] for env in posted], ["loomtracer"])
+        self.assertEqual(self._cursor_offset(), os.path.getsize(self.jsonl_path))
+
+    def test_an_empty_marker_is_refused_too(self):
+        self._marker(self.repo, "  \n")
+        with self.assertRaises(ValueError):
+            project_for_session(self.repo, self.jsonl_path)
+
+
+class TestProjectEcho(unittest.TestCase):
+    """A batch that names a project is only done once the cell says it recorded it."""
+
+    def test_the_echoed_project_is_accepted(self):
+        from core import _require_project_recorded
+
+        _require_project_recorded({"project": "billing"}, b'{"project": "billing"}')
+
+    def test_a_reply_without_the_project_is_refused(self):
+        from core import _require_project_recorded
+
+        for reply in (b"{}", b"", b"not json", b"[]", b'{"project": "other"}'):
+            with self.assertRaises(RuntimeError, msg=reply):
+                _require_project_recorded({"project": "billing"}, reply)
+
+    def test_a_batch_naming_no_project_needs_no_echo(self):
+        from core import _require_project_recorded
+
+        _require_project_recorded({"batch_id": "b"}, b"{}")
+        _require_project_recorded({"batch_id": "b"}, b"")
 
 
 class TestPostHttpError(unittest.TestCase):

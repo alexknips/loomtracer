@@ -20,7 +20,10 @@ use crate::ledger::EventLedger;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
 
-use super::{classified_capture_position, payload_value_as_str, Commands, RefusedCapture};
+use super::{
+    classified_capture_position, payload_value_as_str, ClassificationFiling, Commands,
+    RefusedCapture,
+};
 
 /// What became of a capture that named a decision it restates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -55,6 +58,9 @@ pub struct ClassifiedBatchRecorded {
     /// Every capture left out because an option label of it could not be recorded, in
     /// submission order. The other captures are recorded.
     pub refused: Vec<RefusedCapture>,
+    /// The project the covered batches stated (`None` when none did): where the decisions of
+    /// this classification are filed, and the projects they span when there were several.
+    pub filing: Option<ClassificationFiling>,
 }
 
 impl ClassifiedBatchRecorded {
@@ -75,6 +81,16 @@ impl ClassifiedBatchRecorded {
             if let Ok(refused) = serde_json::to_value(&self.refused) {
                 reply.insert("refused".to_owned(), refused);
             }
+        }
+        let Some(filing) = &self.filing else {
+            return;
+        };
+        if let Some((project, source)) = &filing.project {
+            reply.insert("project".to_owned(), serde_json::json!(project));
+            reply.insert("project_source".to_owned(), serde_json::json!(source));
+        }
+        if let Some(notice) = filing.span_notice() {
+            reply.insert("project_notice".to_owned(), serde_json::json!(notice));
         }
     }
 }

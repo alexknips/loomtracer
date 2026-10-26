@@ -4379,6 +4379,77 @@ fn classified_batch_decision_projects_to_the_recorders_personal_project() -> Res
 }
 
 #[test]
+fn classified_batch_decision_projects_to_the_project_its_classification_recorded() -> Result<()> {
+    // hivemind-zdsh.22: the write layer records the project the covered batches named on the
+    // classification event; the projector copies it, and the source, onto every decision of it
+    // and does not derive the recorder's personal project for them.
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(event(
+        EventType::IngestBatchClassified,
+        "agent:loomtracer:classifier",
+        json!({
+            "batch_id": "batch:filed",
+            "classifier_model": "claude-haiku-4-5-20251001",
+            "schema_version": "2",
+            "project": "billing",
+            "project_source": "folder_marker",
+            "captures": [{
+                "kind": "decision",
+                "title": "Use Postgres for storage",
+                "rationale": "Scales well and team knows it",
+                "topic_keys": ["storage"],
+                "evidence_ids": [],
+                "options": ["postgres", "mysql"],
+                "chosen_option": "postgres",
+                "extraction_confidence": 0.92
+            }]
+        }),
+    ))?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let nodes = graph.nodes();
+    let properties = nodes
+        .iter()
+        .find(|((kind, _), _)| *kind == NodeKind::Decision)
+        .map(|(_, props)| props.clone())
+        .expect("decision node from capture"); // ubs:ignore
+    assert_eq!(
+        properties.get("project"),
+        Some(&GraphValue::String("billing".to_owned()))
+    );
+    assert_eq!(
+        properties.get("project_source"),
+        Some(&GraphValue::String("folder_marker".to_owned()))
+    );
+    Ok(())
+}
+
+#[test]
+fn a_classification_naming_a_project_without_its_source_is_refused() {
+    let payload = json!({
+        "batch_id": "batch:half",
+        "classifier_model": "claude-haiku-4-5-20251001",
+        "schema_version": "2",
+        "project": "billing",
+        "captures": []
+    });
+    let stored = event(
+        EventType::IngestBatchClassified,
+        "agent:loomtracer:classifier",
+        payload,
+    );
+    assert!(
+        matches!(
+            crate::events::validate(&stored),
+            Err(crate::events::EventValidationError::ProjectUnpaired)
+        ),
+        "a project is recorded with how it was determined, or not at all"
+    );
+}
+
+#[test]
 fn classified_batch_under_agent_token_credits_named_human_not_the_token() -> Result<()> {
     // hivemind-zdsh.19, acceptance clause 2: a batch submitted under an agent token
     // (`agent:<tool>:<name>`) in which a human answers must yield a decision credited

@@ -28,6 +28,15 @@
           "items": { "type": "string", "minLength": 1 },
           "description": "All batch ids this single classification call covers, in submission order. Omitted or empty on events predating session-grouped classification (hivemind-zdsh.18); readers fall back to batch_id."
         },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The project every decision of this classification is filed under, worked out by the write layer from the batches it covers: the one project they state, else the nearest project all of them are part of. Never taken from a submission. Omitted when no covered batch states a project, when they share none, and on events predating the field; the projector then files each decision under the recorder's personal project. Recorded together with project_source or not at all."
+        },
+        "project_source": {
+          "enum": ["stated", "folder_marker", "rig", "current_project", "job"],
+          "description": "How project was determined, as the covered batches state it (the first that stated one). Recorded together with project or not at all."
+        },
         "captures": {
           "type": "array",
           "items": {

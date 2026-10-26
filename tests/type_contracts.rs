@@ -13,9 +13,10 @@ use loomtracer::events::{
     IngestBatchReceivedPayload, IngestTurn, ModelDimension, ModelDimensions,
     NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
     ProjectAnchorPayload, ProjectLinkKind, ProjectLinkPayload, ProjectRegisteredPayload,
-    ProjectTopicDeclaredPayload, QualityDim, QualityDims, QualityLevel, QuestionAskedPayload,
-    QuestionRecordedPayload, RelationAddedPayload, RelationKind as EventRelationKind,
-    RelationRemovedPayload, SuggestionSurfacedPayload, DECISION_ASSESSED_SCHEMA_VERSION,
+    ProjectSource, ProjectTopicDeclaredPayload, QualityDim, QualityDims, QualityLevel,
+    QuestionAskedPayload, QuestionRecordedPayload, RelationAddedPayload,
+    RelationKind as EventRelationKind, RelationRemovedPayload, SuggestionSurfacedPayload,
+    DECISION_ASSESSED_SCHEMA_VERSION,
 };
 use loomtracer::projector::{NodeKind, RelationKind as ProjectorRelationKind};
 use loomtracer::queries::{DecisionStatus, HypothesisStatus, QueryResponse};
@@ -781,6 +782,8 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
                     truncated: false,
                     ts: None,
                 }],
+                project: Some("billing".to_owned()),
+                project_source: Some(ProjectSource::FolderMarker),
             }),
         ),
         (
@@ -816,6 +819,8 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
                     question: None,
                     session_initiator: None,
                 }],
+                project: Some("billing".to_owned()),
+                project_source: Some(ProjectSource::FolderMarker),
             }),
         ),
         (

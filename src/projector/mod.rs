@@ -2119,6 +2119,10 @@ fn project_ingest_batch_classified(
         .zip(payload.captures.iter())
         .collect();
     let (resolved, _stats) = resolve_batch_local_references(&id_captures);
+    let recorder = CaptureRecorder {
+        actor: recorder,
+        project: payload.project.as_deref().zip(payload.project_source),
+    };
     for (node_id, capture) in &resolved {
         project_capture(
             graph,
@@ -2321,9 +2325,19 @@ fn project_decision_reaffirmed(
     )
 }
 
-/// `recorder` is the actor that recorded the batch, when there is one (the in-memory evaluation
-/// projection has none): a captured decision belongs to their personal project, the same rule
-/// `project_decision_proposed` applies to a proposal that names no project. `times` are the
+/// Who recorded a classification, and the project it filed its decisions under.
+#[derive(Clone, Copy, Debug)]
+struct CaptureRecorder<'a> {
+    actor: &'a str,
+    /// The project and how it was determined, as the write layer recorded them from the batches
+    /// the classification covers; `None` when none was recorded.
+    project: Option<(&'a str, ProjectSource)>,
+}
+
+/// `recorder` is who recorded the batch, when there is one (the in-memory evaluation projection
+/// has none): a captured decision belongs to the project its classification recorded, else to
+/// the recorder's personal project, the same rule `project_decision_proposed` applies to a
+/// proposal that names no project. `times` are the
 /// times the capture was classified at (see [`CaptureTimes`]; `Null` when there are none, as in
 /// the in-memory projection). `session` is the conversation the classified batches were shipped
 /// from (see `classified_session`); only a decision carries it.
@@ -2331,7 +2345,7 @@ fn project_capture(
     graph: &impl GraphView,
     capture: &CaptureItem,
     node_id: &str,
-    recorder: Option<&str>,
+    recorder: Option<CaptureRecorder<'_>>,
     origin_properties: &GraphProperties,
     times: &CaptureTimes,
     session: &ClassifiedSession,
@@ -2393,7 +2407,7 @@ fn project_capture_decision(
     graph: &impl GraphView,
     capture: &CaptureItem,
     node_id: &str,
-    recorder: Option<&str>,
+    recorder: Option<CaptureRecorder<'_>>,
     origin_properties: &GraphProperties,
     times: &CaptureTimes,
     session: &ClassifiedSession,
@@ -2405,13 +2419,17 @@ fn project_capture_decision(
     );
     props.insert("occurred_at".to_owned(), occurred_at);
     if let Some(recorder) = recorder {
-        props.insert(
-            "project".to_owned(),
-            GraphValue::String(personal_project_handle(recorder)),
-        );
+        let (project, project_source) = match recorder.project {
+            Some((handle, source)) => (handle.to_owned(), source),
+            None => (
+                personal_project_handle(recorder.actor),
+                ProjectSource::PersonalFallback,
+            ),
+        };
+        props.insert("project".to_owned(), GraphValue::String(project));
         props.insert(
             "project_source".to_owned(),
-            GraphValue::String(ProjectSource::PersonalFallback.as_str().to_owned()),
+            GraphValue::String(project_source.as_str().to_owned()),
         );
     }
     props.insert(

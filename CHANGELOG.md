@@ -63,6 +63,39 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A decision classified from a transcript is filed under the project of the session it came
+  from, where every one used to land in the recording agent's personal project.** The passive
+  path (the capture shipper → `POST /v1/ingest` → classify queue → `classify-queue submit`)
+  carried no project at all, so a town's daily check found 71 of 71 graded captures in
+  `personal:agent:claude` whatever rig said them. Now each batch names its session's project and
+  the classification files its decisions there, with a `project_source`:
+  - The shipper (`capture/hook_ship.py` and `capture/sidecar.py`) sends the nearest
+    `.loomtracer-project` at or above the session's folder as `project` with
+    `project_source: folder_marker`, else the new `LOOMTRACER_PROJECT` setting with
+    `project_source: stated`, else nothing. A marker that cannot be read, or does not hold exactly
+    one handle on one line, holds the span back instead of being walked past.
+  - `POST /v1/ingest` takes optional `project` and `project_source`, and the cell **refuses** a
+    handle nobody registered (a personal address too) the way `capture --project` does: a 4xx
+    naming `loomtracer project register <handle>`, nothing recorded. The shipper keeps its cursor
+    on a refusal and sends the span again once the project exists, so nothing is filed under
+    another project and nothing is lost meanwhile. The reply echoes the recorded `project`; a
+    shipper that sent one and gets no echo (a cell that predates this change accepts the batch and
+    drops the field) holds the span back as well, so the order of cell and shipper updates cannot
+    file a session's decisions in the personal project unseen.
+  - The classifier is not asked and cannot change it: when a classification is recorded, the
+    write layer reads the batches it covers and records `project` and `project_source` on the
+    `ingest.batch_classified` event, and the projector files each decision there. Batches that name
+    one project give that project. Batches that name several give the nearest project they are all
+    `part_of`, else the personal project, as for a change that spans folders. A batch that names no
+    project does not vote. `classify-queue submit` replies with `project` and `project_source`, and
+    with `project_notice` when the batches span several.
+  - `ingest.batch_received` and `ingest.batch_classified` gain the optional `project` and
+    `project_source` fields (both schemas). An event without them replays as before, into the
+    personal project, so no ledger needs a migration. Explicit captures are unchanged, and
+    decisions classified earlier are not moved (`loomtracer move` files them elsewhere).
+  - A decision filed this way behaves like any other in its project: it moves, a replacement of it
+    inherits its project, `project rename` carries it to the new handle, and the topic keys it
+    carries count as in use when a project adopts its vocabulary.
 - **A rationale holding a disk size like `30G`, `24.6G` or `2T` is no longer refused as a "bare
   list item".** The capture check for a reference into a chat list (`1a`, `2. a`) treated the
   `G` of `30G` as a list letter, and read `24.6G` as `6G`, because a number followed by `k`, `m`,

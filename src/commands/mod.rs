@@ -347,6 +347,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+mod batch_project;
 mod capture_labels;
 mod capture_warning;
 mod ground_later;
@@ -357,6 +358,7 @@ mod reaffirm;
 mod restatement;
 mod transcript;
 
+pub use batch_project::{nearest_common_project, ClassificationFiling};
 pub use capture_labels::RefusedCapture;
 use capture_labels::{at_submitted_positions, set_aside_refused, LabelSettlement};
 use capture_warning::option_label_warnings;
@@ -865,6 +867,10 @@ struct ClassifiedDecision {
     hypothesis_ids: Vec<String>,
     evidence_ids: Vec<String>,
     expressed_confidence: Option<String>,
+    /// The project the classification filed the draft under, and how that was determined;
+    /// `None` for the recorder's personal project (a classification whose batches state none, and
+    /// every one recorded before batches could).
+    filed: Option<(String, ProjectSource)>,
 }
 
 impl ClassifiedDecision {
@@ -885,6 +891,7 @@ impl ClassifiedDecision {
             hypothesis_ids: json_string_list(capture, "premised_on_ids"),
             evidence_ids: json_string_list(capture, "evidence_ids"),
             expressed_confidence: text("expressed_confidence").map(str::to_owned),
+            filed: classification_project(batch),
         })
     }
 
@@ -904,13 +911,25 @@ impl ClassifiedDecision {
             chosen_option_id: None,
             hypothesis_ids: self.hypothesis_ids,
             evidence_ids: self.evidence_ids,
-            project: None,
-            project_source: Some(ProjectSource::PersonalFallback),
+            project: self.filed.as_ref().map(|(handle, _)| handle.clone()),
+            project_source: Some(
+                self.filed
+                    .map_or(ProjectSource::PersonalFallback, |(_, source)| source),
+            ),
             expressed_confidence: self.expressed_confidence,
             binds: None,
             undo_cost: None,
         }
     }
+}
+
+/// The project an `ingest.batch_classified` event filed its decisions under and how that was
+/// determined, as the write layer recorded it (`None` when it recorded none: the personal
+/// project). Read from the raw payload, like the rest of a draft.
+fn classification_project(batch: &Event) -> Option<(String, ProjectSource)> {
+    let handle = batch.payload.get("project")?.as_str()?;
+    let source = ProjectSource::parse(batch.payload.get("project_source")?.as_str()?)?;
+    Some((handle.to_owned(), source))
 }
 
 /// Where a decision is filed right now, as the ledger resolves it (the same view the
@@ -1670,6 +1689,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         })
     }
 
+    /// Records a received transcript batch that names no project. See
+    /// [`Self::record_ingest_batch_for_project`].
     pub fn record_ingest_batch(
         &self,
         actor_id: &str,
@@ -1678,10 +1699,39 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         session_id: &str,
         turns: Vec<IngestTurn>,
     ) -> Result<EventId> {
+        self.record_ingest_batch_for_project(
+            actor_id, batch_id, agent_tool, session_id, turns, None,
+        )
+    }
+
+    /// Records a received transcript batch, with the project its capture client says the session
+    /// belongs to. The handle is checked the way `capture --project` checks one: it must be a
+    /// registered project, never a personal address, and a handle nobody registered is refused
+    /// with the register command and nothing recorded. The client keeps its cursor when the
+    /// server refuses a batch, so the span is sent again once the project exists; nothing is
+    /// filed under another project meanwhile, and nothing is lost. A batch that names no project
+    /// is recorded as before: a classification covering only such batches files its decisions
+    /// under the recorder's personal project (see `record_ingest_batch_classified`).
+    pub fn record_ingest_batch_for_project(
+        &self,
+        actor_id: &str,
+        batch_id: &str,
+        agent_tool: &str,
+        session_id: &str,
+        turns: Vec<IngestTurn>,
+        project: Option<DeterminedProject<'_>>,
+    ) -> Result<EventId> {
         require_valid_actor_id(actor_id)?;
         require_non_empty("batch_id", batch_id)?;
         require_non_empty("agent_tool", agent_tool)?;
         require_non_empty("session_id", session_id)?;
+        let (project, project_source) = match project {
+            Some(_) => {
+                let (handle, source) = self.resolve_stated_project(project)?;
+                (handle, Some(source))
+            }
+            None => (None, None),
+        };
 
         let event = self.event_with_uuid(
             actor_id,
@@ -1690,6 +1740,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                 agent_tool: agent_tool.to_owned(),
                 session_id: session_id.to_owned(),
                 turns,
+                project,
+                project_source,
             }),
             None,
             Uuid::new_v4(),
@@ -1754,6 +1806,8 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         // Every refusal is behind us. The asks go first, so the ledger reads ask then answer.
         self.record_transcript_asks(&asks)?;
 
+        let filing = self.classification_filing(batch_ids)?;
+
         let classification_uuid = Uuid::new_v4();
         let event = self.event_with_uuid(
             actor_id,
@@ -1763,6 +1817,14 @@ impl<'a, L: EventLedger> Commands<'a, L> {
                 classifier_model: classifier_model.to_owned(),
                 schema_version: schema_version.to_owned(),
                 captures,
+                project: filing
+                    .as_ref()
+                    .and_then(|filing| filing.project.as_ref())
+                    .map(|(handle, _)| handle.clone()),
+                project_source: filing
+                    .as_ref()
+                    .and_then(|filing| filing.project.as_ref())
+                    .map(|(_, source)| *source),
             }),
             causation_event_id,
             classification_uuid,
@@ -1775,6 +1837,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             recorded_count,
             restated,
             refused,
+            filing,
         })
     }
 
@@ -3247,9 +3310,19 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         // decision id -> (its current project, its topic keys)
         let mut decisions: HashMap<String, (String, Vec<String>)> = HashMap::new();
         self.replay_types(
-            &[EventType::DecisionProposed, EventType::DecisionMoved],
+            &[
+                EventType::DecisionProposed,
+                EventType::DecisionMoved,
+                EventType::IngestBatchClassified,
+            ],
             |event| {
                 match event.event_type {
+                    EventType::IngestBatchClassified => {
+                        for (decision_id, project, topic_keys) in classified_decisions_filed(event)
+                        {
+                            decisions.insert(decision_id, (project, topic_keys));
+                        }
+                    }
                     EventType::DecisionProposed => {
                         if let Some(decision_id) = payload_value_as_str(event, "decision_id") {
                             let project = payload_value_as_str(event, "project")
@@ -3549,13 +3622,14 @@ impl<'a, L: EventLedger> Commands<'a, L> {
     /// below: a single stray event elsewhere in the ledger must never fail a whole streaming
     /// pass just because its shape doesn't match this decision's payload type.
     fn current_decision_filing(&self, decision_id: &str) -> Result<Option<DecisionFiling>> {
-        // A classifier's draft names no project: it is its recorder's personal one, the rule
-        // `projector::project_capture_decision` applies, so a move's `from` matches the node.
+        // A classifier's draft is filed under the project its classification recorded, else its
+        // recorder's personal one: the rule `projector::project_capture_decision` applies, so a
+        // move's `from` matches the node.
         let mut current: Option<DecisionFiling> =
             self.classified_decision(decision_id)?
                 .map(|draft| DecisionFiling {
                     proposer: draft.recorder,
-                    project: None,
+                    project: draft.filed.map(|(handle, _)| handle),
                 });
 
         self.replay_types(
@@ -4222,6 +4296,38 @@ fn classified_capture_position(decision_id: &str) -> Option<(EventId, usize)> {
     let batch_event_id: EventId = batch_event_id.parse().ok()?;
     let index: usize = index.parse().ok()?;
     (batch_event_id > 0).then_some((batch_event_id, index))
+}
+
+/// The decisions an `ingest.batch_classified` event filed under a project, as (decision id,
+/// project, topic keys): every decision capture of a classification that recorded a project. None
+/// for a classification that recorded none (its decisions are in their recorder's personal
+/// project, which has no vocabulary and is never renamed). Read from the raw payload, like the
+/// rest of a draft.
+fn classified_decisions_filed(event: &Event) -> Vec<(String, String, Vec<String>)> {
+    let (Some(batch_event_id), Some((project, _))) =
+        (event.event_id, classification_project(event))
+    else {
+        return Vec::new();
+    };
+    let captures = event
+        .payload
+        .get("captures")
+        .and_then(|captures| captures.as_array())
+        .into_iter()
+        .flatten();
+    captures
+        .enumerate()
+        .filter(|(_, capture)| {
+            capture.get("kind").and_then(|kind| kind.as_str()) == Some("decision")
+        })
+        .map(|(index, capture)| {
+            (
+                format!("capture:{batch_event_id}:{index}"),
+                project.clone(),
+                json_string_list(capture, "topic_keys"),
+            )
+        })
+        .collect()
 }
 
 /// The capture at `index` of a classified batch when it is a decision, as its raw payload.

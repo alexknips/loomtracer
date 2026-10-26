@@ -25,13 +25,19 @@ class _StubIngestHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
-        self.server.requests.append(json.loads(body))
+        request = json.loads(body)
+        self.server.requests.append(request)
 
         status = self.server.next_status_fn()
+        # A cell that records the project echoes it back; one that predates project
+        # filing (echo_project False) accepts the batch and says nothing of it.
+        reply = {}
+        if self.server.echo_project and request.get("project"):
+            reply["project"] = request["project"]
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(b"{}")
+        self.wfile.write(json.dumps(reply).encode())
 
     def log_message(self, *args):  # silence default request logging
         pass
@@ -43,6 +49,7 @@ class _StubIngestServer:
     def __init__(self):
         self.httpd = http.server.HTTPServer(("127.0.0.1", 0), _StubIngestHandler)
         self.httpd.requests = []
+        self.httpd.echo_project = True
         self._statuses = [202]
         self.httpd.next_status_fn = self._next_status
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -55,6 +62,9 @@ class _StubIngestServer:
 
     def set_statuses(self, *statuses):
         self._statuses = list(statuses)
+
+    def set_echo_project(self, echo):
+        self.httpd.echo_project = echo
 
     @property
     def url(self):
@@ -251,6 +261,98 @@ class TestHookShipStdinContract(unittest.TestCase):
         result = self._run_hook(payload)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.server.requests[-1]["turns"][0]["turn_id"], "a1")
+        with open(cursor_file, encoding="utf-8") as fh:
+            self.assertGreater(int(fh.read()), offset_before)
+
+    def test_batches_name_the_project_of_the_hooks_cwd(self):
+        """The hook's cwd sits under a .loomtracer-project: the batch names that
+        project (folder_marker), so its decisions are filed under it. A cell that
+        refuses the handle (400) leaves the cursor, and the span is sent again."""
+        repo = os.path.join(self.tmpdir, "repo")
+        os.makedirs(os.path.join(repo, "src"))
+        with open(os.path.join(repo, ".loomtracer-project"), "w", encoding="utf-8") as fh:
+            fh.write("loomtracer\n")
+
+        def record(uuid, role):
+            return {
+                "type": role,
+                "uuid": uuid,
+                "message": {"role": role, "content": [{"type": "text", "text": uuid}]},
+            }
+
+        self._write_transcript([record("u0", "user")])
+        payload = {
+            "session_id": self.session_id,
+            "transcript_path": self.transcript_path,
+            "cwd": os.path.join(repo, "src"),
+            "hook_event_name": "Stop",
+        }
+        self.assertEqual(self._run_hook(payload).returncode, 0)  # cursor to EOF
+        with open(self.transcript_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record("a1", "assistant")) + "\n")
+        cursor_file = os.path.join(
+            self.cursor_home, ".loomtracer", "cursors", f"{self.session_id}.offset"
+        )
+        with open(cursor_file, encoding="utf-8") as fh:
+            offset_before = int(fh.read())
+
+        self.server.set_statuses(400, 202)
+        self.assertEqual(self._run_hook(payload).returncode, 0)
+        with open(cursor_file, encoding="utf-8") as fh:
+            self.assertEqual(int(fh.read()), offset_before)
+
+        self.assertEqual(self._run_hook(payload).returncode, 0)
+        self.assertEqual(len(self.server.requests), 2)
+        for request in self.server.requests:
+            self.assertEqual(request["project"], "loomtracer")
+            self.assertEqual(request["project_source"], "folder_marker")
+            self.assertEqual(request["turns"][0]["turn_id"], "a1")
+        with open(cursor_file, encoding="utf-8") as fh:
+            self.assertGreater(int(fh.read()), offset_before)
+
+    def test_a_cell_that_does_not_record_the_project_holds_the_span_back(self):
+        """A cell that predates project filing accepts the batch (202) and drops
+        `project`, which would file its decisions in the agent's personal project
+        with nothing said. The client treats a reply without the echo as a failure:
+        cursor untouched, and the span is sent again once the cell is updated."""
+        repo = os.path.join(self.tmpdir, "repo")
+        os.makedirs(repo)
+        with open(os.path.join(repo, ".loomtracer-project"), "w", encoding="utf-8") as fh:
+            fh.write("loomtracer\n")
+
+        def record(uuid, role):
+            return {
+                "type": role,
+                "uuid": uuid,
+                "message": {"role": role, "content": [{"type": "text", "text": uuid}]},
+            }
+
+        self._write_transcript([record("u0", "user")])
+        payload = {
+            "session_id": self.session_id,
+            "transcript_path": self.transcript_path,
+            "cwd": repo,
+            "hook_event_name": "Stop",
+        }
+        self.assertEqual(self._run_hook(payload).returncode, 0)  # cursor to EOF
+        with open(self.transcript_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record("a1", "assistant")) + "\n")
+        cursor_file = os.path.join(
+            self.cursor_home, ".loomtracer", "cursors", f"{self.session_id}.offset"
+        )
+        with open(cursor_file, encoding="utf-8") as fh:
+            offset_before = int(fh.read())
+
+        self.server.set_echo_project(False)
+        result = self._run_hook(payload)
+        self.assertEqual(result.returncode, 0, "the hook never fails")
+        self.assertIn(b"predates project filing", result.stderr)
+        with open(cursor_file, encoding="utf-8") as fh:
+            self.assertEqual(int(fh.read()), offset_before)
+
+        self.server.set_echo_project(True)
+        self.assertEqual(self._run_hook(payload).returncode, 0)
+        self.assertEqual(len(self.server.requests), 2, "the same span is sent again")
         with open(cursor_file, encoding="utf-8") as fh:
             self.assertGreater(int(fh.read()), offset_before)
 

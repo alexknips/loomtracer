@@ -23,7 +23,10 @@ use crate::ledger::EventLedger;
 use crate::util::require_valid_actor_id;
 use crate::Result;
 
-use super::{payload_value_as_str, same_identifier, validate_project_handle, Commands};
+use super::{
+    classified_decisions_filed, payload_value_as_str, same_identifier, validate_project_handle,
+    Commands,
+};
 
 /// What a rename names. A missing `display_name` or `purpose` is carried over from the old
 /// project.
@@ -166,12 +169,23 @@ impl<L: EventLedger> Commands<'_, L> {
     }
 
     /// The ids of the decisions now filed under `handle`, in id order: each decision's project
-    /// is its proposal's, or the last `decision.moved` for it, in ledger order.
+    /// is its proposal's, or the one its classification recorded (a decision a transcript was
+    /// classified into), or the last `decision.moved` for it, in ledger order.
     fn decisions_in_project(&self, handle: &str) -> Result<Vec<String>> {
         let mut filed: BTreeMap<String, Option<String>> = BTreeMap::new();
         self.replay_types(
-            &[EventType::DecisionProposed, EventType::DecisionMoved],
+            &[
+                EventType::DecisionProposed,
+                EventType::DecisionMoved,
+                EventType::IngestBatchClassified,
+            ],
             |event| {
+                if event.event_type == EventType::IngestBatchClassified {
+                    for (decision_id, project, _) in classified_decisions_filed(event) {
+                        filed.insert(decision_id, Some(project));
+                    }
+                    return Ok(());
+                }
                 let Some(decision_id) = payload_value_as_str(event, "decision_id") else {
                     return Ok(());
                 };

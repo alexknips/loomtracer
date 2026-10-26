@@ -652,6 +652,13 @@ fn to_api_error(error: LoomtracerError) -> ApiError {
         {
             ApiError::not_found(msg)
         }
+        // A request that names a project nobody registered is a request to fix, with the
+        // register command in the message, as `capture --project` refuses it.
+        LoomtracerError::Command(CommandError::Invariant(msg))
+            if msg.starts_with("project not registered") =>
+        {
+            ApiError::Validation(msg)
+        }
         LoomtracerError::Cli(CliError::InvalidInput(msg)) => ApiError::Validation(msg),
         other => ApiError::Internal(other.to_string()),
     }

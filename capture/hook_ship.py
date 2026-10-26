@@ -18,6 +18,11 @@ Configuration via environment variables:
   LOOMTRACER_API_URL        Base URL of the Loomtracer server (default: http://localhost:8080)
   LOOMTRACER_API_KEY        Bearer token for /v1/ingest (optional in dev mode)
   LOOMTRACER_AGENT_TOOL     Overrides agent_tool field (default: claude)
+  LOOMTRACER_PROJECT        Project to file the session under when its folder has
+                            no .loomtracer-project (a registered handle)
+
+Each batch names the project of the session: the nearest .loomtracer-project at
+or above the hook's cwd, else LOOMTRACER_PROJECT, else none (see core.py).
 
 Example .claude/settings.json hook configuration:
   {
@@ -90,18 +95,27 @@ def main() -> None:
     api_key = os.environ.get("LOOMTRACER_API_KEY", "")
     agent_tool = os.environ.get("LOOMTRACER_AGENT_TOOL", "claude")
 
+    # The folder the session runs in. The hook's cwd is the authority; when stdin
+    # names none, the environment's, then the process's own.
+    project_dir = (
+        str(payload.get("cwd") or "").strip()
+        or os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
+        or os.getcwd()
+    )
     transcript_path = str(payload.get("transcript_path") or "").strip()
     if transcript_path:
         jsonl = os.path.expanduser(transcript_path)
     else:
-        project_dir = (
-            str(payload.get("cwd") or "").strip()
-            or os.environ.get("CLAUDE_PROJECT_DIR", "").strip()
-            or os.getcwd()
-        )
         jsonl = jsonl_path_for_session(session_id, project_dir)
 
-    ship(session_id, jsonl, api_url, api_key, agent_tool=agent_tool)
+    ship(
+        session_id,
+        jsonl,
+        api_url,
+        api_key,
+        agent_tool=agent_tool,
+        session_dir=project_dir,
+    )
 
 
 if __name__ == "__main__":

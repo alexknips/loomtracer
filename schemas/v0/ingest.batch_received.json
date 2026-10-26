@@ -23,6 +23,15 @@
         "batch_id": { "type": "string", "minLength": 1 },
         "agent_tool": { "type": "string", "minLength": 1 },
         "session_id": { "type": "string", "minLength": 1 },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Registered project handle the capture client says the session belongs to: the .loomtracer-project of the session's folder, else a setting it was given. The write layer refuses a handle nobody registered, so a recorded handle names a registered project. Omitted means the client named none, or the batch predates the field. Recorded together with project_source or not at all."
+        },
+        "project_source": {
+          "enum": ["stated", "folder_marker", "rig", "current_project", "job"],
+          "description": "How the client determined project. Recorded together with project or not at all."
+        },
         "turns": {
           "type": "array",
           "items": {

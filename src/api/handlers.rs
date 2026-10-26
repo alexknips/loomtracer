@@ -12,10 +12,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::{
-    insert_warnings_into, CommandContext, Commands, DecisionProposalInput, FloorInput, Grounding,
-    SupersedeInput,
+    insert_warnings_into, CommandContext, Commands, DecisionProposalInput, DeterminedProject,
+    FloorInput, Grounding, SupersedeInput,
 };
-use crate::events::{CaptureItem, EventProvenance, IngestTurn};
+use crate::events::{CaptureItem, EventProvenance, IngestTurn, ProjectSource};
 use crate::floor::FloorAnswers;
 use crate::grounding::{
     resolve_grounding_in, GroundingResolution, GroundingSpec, WIRE_GROUNDING_REFUSAL,
@@ -183,6 +183,14 @@ pub(super) struct IngestBatchRequest {
     session_id: String,
     #[serde(default)]
     turns: Vec<IngestTurnRequest>,
+    /// Registered project the capture client says the session belongs to: the
+    /// `.loomtracer-project` of the session's folder, else a setting it was given. An
+    /// unregistered handle is refused (nothing recorded), the way `capture --project` refuses
+    /// it; the shipper keeps its cursor and sends the span again once the project exists.
+    project: Option<String>,
+    /// How the client determined `project`: `folder_marker` or `stated` (the default).
+    /// Requires `project`.
+    project_source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1674,6 +1682,7 @@ fn ingest_batch_blocking(
             "turns exceeds maximum of {MAX_INGEST_TURNS}"
         )));
     }
+    let project = ingest_project(req.project.as_deref(), req.project_source.as_deref())?;
 
     let turns: Vec<IngestTurn> = req
         .turns
@@ -1697,20 +1706,56 @@ fn ingest_batch_blocking(
     );
 
     let event_id = commands
-        .record_ingest_batch(
+        .record_ingest_batch_for_project(
             &ctx.actor_id,
             &req.batch_id,
             &req.agent_tool,
             &req.session_id,
             turns,
+            project.as_ref().map(|(handle, source)| DeterminedProject {
+                handle,
+                source: *source,
+            }),
         )
         .map_err(to_api_error)?;
 
-    Ok(serde_json::json!({
+    let mut reply = serde_json::json!({
         "batch_id": req.batch_id,
         "event_id": event_id,
         "queued": true,
-    }))
+    });
+    if let (Some((handle, source)), Some(reply)) = (&project, reply.as_object_mut()) {
+        reply.insert("project".to_owned(), serde_json::json!(handle));
+        reply.insert("project_source".to_owned(), serde_json::json!(source));
+    }
+    Ok(reply)
+}
+
+/// The project a batch names, as `(handle, source)`. A source with no handle is refused, and so
+/// is one a client cannot have: only `stated`, `folder_marker`, `rig`, `current_project` and
+/// `job` say how a caller found a handle (the write layer refuses the others).
+fn ingest_project(
+    project: Option<&str>,
+    project_source: Option<&str>,
+) -> ApiResult<Option<(String, ProjectSource)>> {
+    let source = project_source
+        .map(|value| {
+            ProjectSource::parse(value).ok_or_else(|| {
+                ApiError::validation(format!(
+                    "project_source must be one of stated, folder_marker, rig, current_project, job: {value}"
+                ))
+            })
+        })
+        .transpose()?;
+    match (project.map(str::trim), source) {
+        (Some(""), _) => Err(ApiError::validation("project must not be empty")),
+        (Some(handle), source) => Ok(Some((
+            handle.to_owned(),
+            source.unwrap_or(ProjectSource::Stated),
+        ))),
+        (None, Some(_)) => Err(ApiError::validation("project_source requires project")),
+        (None, None) => Ok(None),
+    }
 }
 
 #[derive(Debug, Deserialize)]

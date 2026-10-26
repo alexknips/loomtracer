@@ -1123,6 +1123,99 @@ async fn ingest_batch_enforces_auth() {
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}"); // ubs:ignore
 }
 
+/// hivemind-zdsh.22 over HTTP: a batch names the project of its session, the cell refuses a
+/// project nobody registered with nothing recorded, and a decision classified from the batch is
+/// filed under that project instead of the recording agent's personal one.
+#[tokio::test]
+async fn ingest_files_a_passive_capture_under_the_project_the_client_named() {
+    let dir = test_ledger_dir();
+    register_billing_and_platform(&dir);
+    let batch = |project: Value, source: Value| {
+        let mut body = ingest_json("sess-p:0-4", "sess-p", "claude", "Bill monthly, not yearly");
+        body["project"] = project;
+        body["project_source"] = source;
+        body
+    };
+
+    // A project nobody registered is refused, naming the way out; nothing is recorded.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json("/v1/ingest", batch("biling".into(), "folder_marker".into())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
+    assert!(
+        body.to_string()
+            .contains("loomtracer project register biling"),
+        "{body}"
+    ); // ubs:ignore
+    let (_, queue) = call(app(dir.clone()), get_req("/v1/classify-queue")).await;
+    assert_eq!(
+        queue["batches"].as_array().map(Vec::len),
+        Some(0),
+        "{queue}"
+    ); // ubs:ignore
+
+    // A source with no project, an unknown source and a blank project are bad requests.
+    for body in [
+        batch(Value::Null, "stated".into()),
+        batch("billing".into(), "from-the-sky".into()),
+        batch("  ".into(), Value::Null),
+    ] {
+        let (status, reply) = call(app(dir.clone()), post_json("/v1/ingest", body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{reply}"); // ubs:ignore
+    }
+
+    // The registered project is accepted and echoed back.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/ingest",
+            batch("billing".into(), "folder_marker".into()),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}"); // ubs:ignore
+    assert_eq!(body["project"], "billing", "{body}"); // ubs:ignore
+    assert_eq!(body["project_source"], "folder_marker", "{body}"); // ubs:ignore
+
+    // The classification files its decision under it, and its reply says so.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            "/v1/classify-queue/submit",
+            serde_json::json!({
+                "batch_ids": ["sess-p:0-4"],
+                "captures": [decision_capture_json("Bill monthly, not yearly", None)],
+                "model": "agent:worker-p"
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["project"], "billing", "{body}"); // ubs:ignore
+    assert_eq!(body["project_source"], "folder_marker", "{body}"); // ubs:ignore
+
+    let (status, body) = call(app(dir.clone()), get_req("/v1/projects")).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    let items = body["data"]["items"].as_array().expect("items"); // ubs:ignore
+    let total = |handle: &str| {
+        items
+            .iter()
+            .find(|item| item["handle"] == handle)
+            .map(|item| item["decisions"]["total"].clone())
+    };
+    assert_eq!(total("billing"), Some(Value::from(1)), "{body}"); // ubs:ignore
+    assert!(
+        items
+            .iter()
+            .all(|item| !item["personal"].as_bool().unwrap_or(false)
+                || item["decisions"]["total"] == 0),
+        "no decision landed in a personal project: {body}"
+    ); // ubs:ignore
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ---------------------------------------------------------------------------
 // RLS cross-tenant isolation via HTTP
 // ---------------------------------------------------------------------------

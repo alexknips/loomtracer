@@ -581,6 +581,18 @@ pub struct IngestBatchReceivedPayload {
     pub agent_tool: String,
     pub session_id: String,
     pub turns: Vec<IngestTurn>,
+    /// Registered project handle the capture client says the session belongs to: the
+    /// `.loomtracer-project` of the session's folder, else a setting it was given. The write
+    /// layer checks it the way `capture --project` does and refuses an unregistered one, so a
+    /// recorded handle is always a registered project. Absent for a client that names none, and
+    /// for every batch received before this field existed; a classification that covers only
+    /// such batches files its decisions under the recorder's personal project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// How the client determined `project` (`folder_marker`, or `stated` for a setting). Present
+    /// exactly when `project` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_source: Option<ProjectSource>,
 }
 
 /// Deserializes a field that may appear on disk as `null` (none), a bare string
@@ -745,6 +757,19 @@ pub struct IngestBatchClassifiedPayload {
     /// fallback over the raw event payload).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub batch_ids: Vec<String>,
+    /// The project every decision of this classification is filed under, worked out by the write
+    /// layer from the batches it covers (`record_ingest_batch_classified`): the one project
+    /// they state, else the nearest project all of them are part of. Never a submission's to
+    /// say: whatever a caller sends is replaced. Absent when no covered batch states a project,
+    /// when they share none, and on every event written before this field existed; the
+    /// projector then files each decision under the recorder's personal project, as it always
+    /// did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// How `project` was determined, as the covered batches state it. Present exactly when
+    /// `project` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_source: Option<ProjectSource>,
 }
 
 /// The batch ids a raw `ingest.batch_classified` event payload covers: `batch_ids` when present
@@ -1659,6 +1684,9 @@ pub enum EventValidationError {
     #[error("{0} requires {1} — a verbatim quote with no stated question is unreadable once the source conversation is gone")]
     RequiresPairedField(&'static str, &'static str),
 
+    #[error("payload.project and payload.project_source are recorded together or not at all")]
+    ProjectUnpaired,
+
     #[error(
         "{0} requires {1}: the two decision-floor answers are recorded together or not at all"
     )]
@@ -1968,6 +1996,7 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             require_non_empty("payload.batch_id", &payload.batch_id)?;
             require_non_empty("payload.agent_tool", &payload.agent_tool)?;
             require_non_empty("payload.session_id", &payload.session_id)?;
+            require_project_pair(payload.project.as_deref(), payload.project_source.as_ref())?;
             Ok(EventPayload::IngestBatchReceived(payload))
         }
         EventType::IngestBatchClassified => {
@@ -1975,6 +2004,7 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             require_non_empty("payload.batch_id", &payload.batch_id)?;
             require_non_empty("payload.classifier_model", &payload.classifier_model)?;
             require_non_empty("payload.schema_version", &payload.schema_version)?;
+            require_project_pair(payload.project.as_deref(), payload.project_source.as_ref())?;
             Ok(EventPayload::IngestBatchClassified(payload))
         }
         // A payload with a `schema_version` is the model-assessment shape; every event written
@@ -2146,6 +2176,19 @@ fn require_optional_non_empty(
         Err(EventValidationError::EmptyField(field))
     } else {
         Ok(())
+    }
+}
+
+/// An ingest payload names a project and how it was determined together, or neither.
+fn require_project_pair(
+    project: Option<&str>,
+    project_source: Option<&ProjectSource>,
+) -> std::result::Result<(), EventValidationError> {
+    require_optional_non_empty("payload.project", project)?;
+    if project.is_some() == project_source.is_some() {
+        Ok(())
+    } else {
+        Err(EventValidationError::ProjectUnpaired)
     }
 }
 

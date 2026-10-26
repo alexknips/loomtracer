@@ -558,6 +558,15 @@ This ladder lives once, in the client, and only runs when the caller asks for it
 function, so it can move into a plugin or server-side without touching the
 write or query layers.
 
+The passive path (`POST /v1/ingest`, then classification) has a shorter ladder,
+also worked out in the client, because nobody is there to state a project: the
+nearest `.loomtracer-project` at or above the session's folder (`folder_marker`),
+else the `LOOMTRACER_PROJECT` setting (`stated`), else none, which is the recorder's
+personal project as before. The cell refuses a handle nobody registered. Batches of
+one classification that name several projects follow the rule above: the nearest
+project they are all `part_of`, else the personal project. The steps are in
+[`AGENT_DECISION_CAPTURE.md`](AGENT_DECISION_CAPTURE.md#http-api-capture).
+
 **Over HTTP the project is an argument, or absent.** A server has no view of the
 caller's working directory, so the HTTP server never infers a project.
 MCP-over-HTTP `capture_decision` and `supersede_decision` take `project` (and

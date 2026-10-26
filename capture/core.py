@@ -8,6 +8,14 @@ Both the hook shipper and the sidecar shipper call ship() from this module.
 They behave identically — same payload schema, same cursor semantics, same
 /v1/ingest call. Only the trigger differs.
 
+Each batch names the project the session belongs to, so the decisions classified
+from it are filed under that project instead of the agent's personal one: the
+`.loomtracer-project` marker of the session's folder (the nearest one walking up,
+`project_source: folder_marker`), else the LOOMTRACER_PROJECT setting
+(`project_source: stated`), else none. The cell refuses a handle nobody
+registered; the cursor stays put on any refusal, so the span is sent again once
+the project exists and nothing is filed anywhere else meanwhile.
+
 Dependencies: stdlib only (json, os, urllib.request).
 """
 
@@ -17,7 +25,7 @@ import re
 import urllib.error
 import urllib.request
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 
 # Per-turn text cap before we mark truncated=True.
 _MAX_TURN_TEXT = 2000
@@ -25,6 +33,11 @@ _MAX_TURN_TEXT = 2000
 _MAX_BATCH_TURNS = 4
 # HTTP POST timeout in seconds.
 _POST_TIMEOUT = 3
+
+# The one-line file that attaches a folder (and everything beneath it, until a
+# nearer one) to a project; its whole content is the project handle. The CLI reads
+# the same file the same way (`loomtracer emit --project-from-context`).
+PROJECT_MARKER_FILE_NAME = ".loomtracer-project"
 
 # Claude Code mangles a project directory into its transcript folder name by
 # replacing every character that isn't alphanumeric with '-' (so a cwd with
@@ -44,14 +57,19 @@ def ship(
     api_url: str,
     api_key: str,
     agent_tool: str = "claude",
+    session_dir: Optional[str] = None,
 ) -> None:
     """Read new turns from jsonl_path since the last cursor and POST to /v1/ingest.
+
+    `session_dir` is the folder the session runs in (the hook's `cwd`); without
+    it the folder is the one the transcript's own records name. It decides the
+    project each batch names (see the module docstring).
 
     Always returns None. Exceptions are caught and printed to stderr so the
     caller (hook or sidecar) is never blocked.
     """
     try:
-        _ship_impl(session_id, jsonl_path, api_url, api_key, agent_tool)
+        _ship_impl(session_id, jsonl_path, api_url, api_key, agent_tool, session_dir)
     except Exception as exc:
         import sys
         print(f"loomtracer-ingest: error for {session_id}: {exc}", file=sys.stderr)
@@ -79,9 +97,83 @@ def cursor_path_for_session(session_id: str) -> str:
     return os.path.expanduser(f"~/.loomtracer/cursors/{session_id}.offset")
 
 
+def project_for_session(
+    session_dir: Optional[str], jsonl_path: str
+) -> Optional[Tuple[str, str]]:
+    """The project a session's batches name: (handle, project_source), or None.
+
+    1. the nearest `.loomtracer-project` at or above the session's folder
+       -> "folder_marker";
+    2. else the LOOMTRACER_PROJECT setting -> "stated";
+    3. else None: the batch names no project and its decisions stay in the
+       agent's personal project.
+
+    A marker that cannot be read, or does not hold exactly one handle on one
+    line, raises ValueError instead of being walked past: skipping it would file
+    the session under some other project than its folder says. ship() reports
+    the error and leaves the cursor, so the span is sent again once the marker is
+    fixed.
+    """
+    folder = session_dir or _transcript_cwd(jsonl_path)
+    if folder:
+        handle = _nearest_marker_handle(folder)
+        if handle:
+            return handle, "folder_marker"
+    stated = os.environ.get("LOOMTRACER_PROJECT", "").strip()
+    if stated:
+        return stated, "stated"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _nearest_marker_handle(start: str) -> Optional[str]:
+    """The handle in the nearest `.loomtracer-project` at or above `start`."""
+    folder = os.path.abspath(os.path.expanduser(start))
+    while True:
+        marker = os.path.join(folder, PROJECT_MARKER_FILE_NAME)
+        if os.path.isfile(marker):
+            try:
+                with open(marker, encoding="utf-8") as fh:
+                    contents = fh.read()
+            except (OSError, UnicodeDecodeError) as exc:
+                raise ValueError(f"cannot read {marker}: {exc}") from exc
+            handle = contents.strip()
+            if not handle or any(ch.isspace() for ch in handle):
+                raise ValueError(
+                    f"{marker} must contain exactly one project handle on a "
+                    "single line, for example `billing`"
+                )
+            return handle
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return None
+        folder = parent
+
+
+# How many leading transcript records to look through for the session's folder.
+_CWD_SCAN_LINES = 50
+
+
+def _transcript_cwd(jsonl_path: str) -> Optional[str]:
+    """The folder the session runs in, as the transcript's own records name it
+    (every Claude Code record carries a `cwd`), None when it names none."""
+    try:
+        with open(jsonl_path, "rb") as fh:
+            for _, raw_line in zip(range(_CWD_SCAN_LINES), fh):
+                try:
+                    obj = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+                cwd = obj.get("cwd") if isinstance(obj, dict) else None
+                if isinstance(cwd, str) and cwd.strip():
+                    return cwd.strip()
+    except OSError:
+        return None
+    return None
 
 
 def _ship_impl(
@@ -90,6 +182,7 @@ def _ship_impl(
     api_url: str,
     api_key: str,
     agent_tool: str,
+    session_dir: Optional[str],
 ) -> None:
     cursor_file = cursor_path_for_session(session_id)
 
@@ -138,6 +231,9 @@ def _ship_impl(
     # Dropping the head of the span would lose the human prompt, which is
     # the earliest turn.
     api_url = api_url.rstrip("/")
+    # Worked out before anything is sent, so a broken marker stops the whole span
+    # (cursor untouched) rather than shipping some of it under no project.
+    project = project_for_session(session_dir, jsonl_path)
     for n, start in enumerate(range(0, len(turns), _MAX_BATCH_TURNS)):
         envelope = {
             "batch_id": f"{session_id}:{cursor}-{new_cursor}:{n}",
@@ -145,6 +241,8 @@ def _ship_impl(
             "session_id": session_id,
             "turns": turns[start : start + _MAX_BATCH_TURNS],
         }
+        if project is not None:
+            envelope["project"], envelope["project_source"] = project
         # _post() raises on HTTP errors and network failures; letting that
         # propagate (ship() catches it) stops before the cursor moves, so
         # the next run resends the span instead of silently losing it.
@@ -248,7 +346,7 @@ def _post(api_url: str, api_key: str, envelope: dict) -> None:
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=_POST_TIMEOUT) as resp:
-            _ = resp.read()
+            reply = resp.read()
     except urllib.error.HTTPError as exc:
         try:
             detail = exc.read(200).decode("utf-8", errors="replace").strip()
@@ -257,6 +355,31 @@ def _post(api_url: str, api_key: str, envelope: dict) -> None:
         raise RuntimeError(
             f"HTTP {exc.code} {exc.reason}" + (f": {detail}" if detail else "")
         ) from exc
+    _require_project_recorded(envelope, reply)
+
+
+def _require_project_recorded(envelope: dict, reply: bytes) -> None:
+    """Raise unless the cell says it recorded the project the batch names.
+
+    A cell that predates project filing accepts the batch (202) and drops the
+    field, so its decisions would land in the agent's personal project with
+    nothing said. A cell that records it echoes the handle back; anything else
+    holds the span back (cursor untouched), and the span is sent again once the
+    cell is updated, when the batch counts under its project.
+    """
+    project = envelope.get("project")
+    if not project:
+        return
+    try:
+        recorded = json.loads(reply).get("project")
+    except (ValueError, AttributeError):
+        recorded = None
+    if recorded != project:
+        raise RuntimeError(
+            f"the cell accepted the batch without recording project {project}: "
+            "it predates project filing, so the span is held back and sent "
+            "again once the cell is updated"
+        )
 
 
 def _init_cursor(cursor_file: str, jsonl_path: str) -> None:
