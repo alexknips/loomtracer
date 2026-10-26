@@ -640,7 +640,7 @@ the migration under Unreleased above.
   `warnings` key. Raw `emit decision.proposed` stays unwarned: it is the low-level event path.
   (hivemind-1iowm)
 - **A capture whose option label looks like a slug says so in its reply.** When a label is
-  lowercase words joined by `-` or `_` (`direct-cli`, `name-a-upheld`), the reply of
+  lowercase words joined by `-` or `_` (`direct-cli`, `pick-a-postgres`), the reply of
   `capture_decision`, `POST /v1/decisions` and `emit decision.capture --json` lists it under
   `warnings`, each entry with `kind` (`option_label_looks_like_a_slug`), the `option_label` as
   sent, the `suggestion` (the words every reader shows for it, `Direct CLI`) and a `message`
@@ -1307,8 +1307,8 @@ the migration under Unreleased above.
   first in both (fourth and third before), "legend" keeps 1acd70dd first. Over 765 questions on the
   cell copy 11 expected decisions enter the top three, 25 move up inside it and one leaves it; on
   the crew copy (761 questions) none moves. The one that leaves, and the four that move down inside
-  the top three, are one decision: the superseded 19a98974 ("Renaming the product to Upheld is
-  paused ...") behind its accepted successor a42ca00a, which has the same title and now comes
+  the top three, are one decision: the superseded 19a98974 (a decision that a rename is
+  paused) behind its accepted successor a42ca00a, which has the same title and now comes
   first; that is a superseded decision dropping below an accepted one, not a proposed draft. Every
   decision that left a top three was proposed (50) or superseded (9) and every one that entered was
   accepted (59). No one-call answer is gained, lost or changed on either copy (`why` outcomes and
@@ -1960,7 +1960,7 @@ the migration under Unreleased above.
   was chosen.** The prompt listed each option by its node id (`option-3f1c…`, with `(chosen)`
   after one of them), which told a person nothing about an agent's choice. It now reads
   `Async (chosen)` and `Sync`, and a label that was recorded as a slug shows what was recorded
-  beside it (`Upheld (recorded as: name-a-upheld)`). `query recent` / `recent_decisions` carry
+  beside it (`Postgres (recorded as: pick-a-postgres)`). `query recent` / `recent_decisions` carry
   the same labels: each item's `option_ids` list is replaced by `options`, a list of
   `{option_id, label, recorded_as?}` (`chosen_option_id` still names the choice). Options list
   in option-id order, as before. (hivemind-7v77s)
@@ -2103,7 +2103,7 @@ the migration under Unreleased above.
   `built-in` or `self-hosted` was told the label "looks like a slug" and was offered words that
   were worse than the label (`E mail`). The warning now fires only on a shape ordinary words do
   not have: an underscore (`use_postgres`), three or more parts joined by `-` or `_`
-  (`name-a-upheld`), or a part that is an acronym in lowercase (`direct-cli`, `mcp-server`; prose
+  (`pick-a-postgres`), or a part that is an acronym in lowercase (`direct-cli`, `mcp-server`; prose
   writes `CLI`). Any other two-part hyphenated label, `direct-store` and `read-only` alike, gets
   no warning, because no shape tells them apart and a missed slug costs less than a warning on a
   good label. A suggestion that would hold a one-letter fragment of a split word (`E mail`, `K
@@ -2996,7 +2996,7 @@ the migration under Unreleased above.
 - **`why`, `verify`, `chain` and `compact-view` answer a question `recall` answers, in one
   call.** `recall` returned a decision for "how do we keep links to a decision page stable
   across browsers?" while `why` said "no decision matches that description", and `verify` on
-  "is the product still called Upheld" stopped at a "close" list of one that needed a second
+  "is the service still called Atlas" stopped at a "close" list of one that needed a second
   call with `--pick`. These verbs only read, so they now match at the bar `recall` uses (at
   least half of the words, not more than half), and when the close candidates that are left
   are not tied, the closest one is the answer, with a `close match:` line ahead of
@@ -3005,8 +3005,8 @@ the migration under Unreleased above.
   `get_decision_outcome`, `get_supersession_chain` and `get_compact_view`. The closest is the
   one that lacks the fewest words; between candidates that lack the same number, it is the
   one whose title or topic keys carry more of the words it did match, so the decision named
-  "Name the product Upheld" beats a decision that only says "product" and "called" somewhere
-  in a long rationale for "is the product still called Upheld". `recall` orders its close
+  "Name the service Atlas" beats a decision that only says "service" and "called" somewhere
+  in a long rationale for "is the service still called Atlas". `recall` orders its close
   matches the same way, so it and `why` name the same decision first. Candidates equally
   close on both counts are still listed, and a decision that shares only one word with the
   question is listed, never answered with. Verbs that write
@@ -3060,17 +3060,17 @@ the migration under Unreleased above.
   stated or moved into by anyone else; `--help` and the plugin README now say so. Replacements
   already on the ledger are not moved: `hivemind move` fixes one. (hivemind-9lzi)
 - **`why`, `verify`, the recall digest and the export show options as words, not slugs and
-  letter codes.** An option recorded as `name-a-upheld` read `chose: name-a-upheld` and
-  `rejected: name-b-standing, name-c-decisis`, with the answer letter inside the label, and
+  letter codes.** An option recorded as `pick-a-postgres` read `chose: pick-a-postgres` and
+  `rejected: pick-b-sqlite, pick-c-cockroach`, with the answer letter inside the label, and
   options from before labels existed read as the raw id or the id's slug. Options are now shown
-  as `Upheld`, `Standing` and `Decisis`: a label that is a slug (lowercase words joined by `-` or
+  as `Postgres`, `Sqlite` and `Cockroach`: a label that is a slug (lowercase words joined by `-` or
   `_`) is turned into words, acronyms keep their capitals (`direct-cli` reads `Direct CLI`; MCP,
   CLI, API, ADR, UI, URL, HTTP, JSON, SQL and CI), and when every option of a decision is lettered
   `a`, `b`, `c`... the shared stem and the letter are dropped. A label that is already words
   (`Direct CLI`, `sqlite`) is shown as recorded, and an option whose only record is an id with no
   words in it stays as that id. The words are a reading of the record, and the record stays in
   view: the Option node keeps the recorded text as `recorded_label`, and where it reads
-  differently `why` prints `chose: Upheld (recorded as: name-a-upheld)`, `why --json` and the
+  differently `why` prints `chose: Postgres (recorded as: pick-a-postgres)`, `why --json` and the
   brief carry `recorded_as` on each option, the decision-log export writes `recorded as:` beside
   the option, and `GET /v1/graph` Option nodes carry `recorded_as` for a page to show. The ledger
   is unchanged: the words are derived each time it is replayed, so existing ledgers read this way

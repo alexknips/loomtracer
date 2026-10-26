@@ -1,11 +1,11 @@
 //! Readable labels for one decision's options (hivemind-hk5z).
 //!
 //! An option label is meant to be a short human phrase. Older captures stored something else in
-//! that slot: a slug (`name-a-upheld`), a slug with the answer's letter inside it
+//! that slot: a slug (`pick-a-postgres`), a slug with the answer's letter inside it
 //! (`q1-a-drop-the-line`), or no label at all, only an id that is itself a slug of the label
 //! (`option-channel-a-claude-code-plugin-first-<uuid>`). The ledger keeps what was recorded;
-//! this turns it into words once, at projection, so every reader shows `Upheld` and `Standing`
-//! and never `name-a-upheld`. Labels that are already words pass through untouched.
+//! this turns it into words once, at projection, so every reader shows `Postgres` and `Sqlite`
+//! and never `pick-a-postgres`. Labels that are already words pass through untouched.
 
 /// A label the projector found for one option: the text, and whether it was recovered from a
 /// legacy option id (always slug-origin) rather than recorded as the option's label.
@@ -71,7 +71,7 @@ pub(crate) fn slug_labels_with_words(labels: &[String]) -> Vec<(&str, String)> {
 /// Whether a slug-shaped label is worth a warning at capture time. Ordinary English is hyphenated
 /// too (`e-mail`, `opt-in`, `read-only`, `real-time`) and no shape tells those from a two-word
 /// slug, so only what ordinary words do not look like is flagged: an underscore, three or more
-/// parts (`name-a-upheld`), or a part that is an acronym written in lowercase (`direct-cli`;
+/// parts (`pick-a-postgres`), or a part that is an acronym written in lowercase (`direct-cli`;
 /// prose writes `CLI`). Any other two-part hyphenated label is left alone.
 fn warrants_slug_warning(label: &str) -> bool {
     is_slug_shaped(label)

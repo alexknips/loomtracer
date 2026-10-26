@@ -141,12 +141,14 @@ fn the_set_holds_the_rows_the_bead_names_and_all_three_kinds() {
     );
 }
 
+// Six rows were reworded on 2026-10-26 (hivemind-4hdwe) to leave out a new name the product never took; their ids,
+// kinds, expectations and roles are as they were, and the pins moved with them.
 #[test]
 fn the_set_is_the_one_that_was_frozen() {
     for (fixture, pinned) in [
-        (FIXTURE, "0xeff30fed9627fb7a"),
+        (FIXTURE, "0xa648334ea3b953c8"),
         (STRAYS, "0xb4714603b5a392e3"),
-        (SHORTS, "0x7a78c7868b77c594"),
+        (SHORTS, "0x9807cafb691c6665"),
     ] {
         assert_eq!(
             format!("{:#018x}", fingerprint(fixture)),

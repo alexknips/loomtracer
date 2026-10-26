@@ -368,9 +368,9 @@ fn option_labelled_decision(decision_id: &str, labels: &[&str]) -> Event {
         "human:alice",
         json!({
             "decision_id": decision_id,
-            "title": "Name the product",
-            "rationale": "The name has to hold up",
-            "topic_keys": ["brand"],
+            "title": "Pick the ledger database",
+            "rationale": "The database has to hold up",
+            "topic_keys": ["storage"],
             "option_ids": option_ids,
             "option_labels": labels,
             "chosen_option_id": "opt:1",
@@ -382,11 +382,11 @@ fn option_labelled_decision(decision_id: &str, labels: &[&str]) -> Event {
 
 #[test]
 fn brief_keeps_the_recorded_option_text_beside_the_words_it_reads_as() -> Result<()> {
-    // hivemind-hk5z: `name-a-upheld` reads `Upheld`, and the brief still says what was recorded,
+    // hivemind-hk5z: `pick-a-postgres` reads `Postgres`, and the brief still says what was recorded,
     // so the reading never hides the record.
     let graph = graph_from_events([option_labelled_decision(
         "d:name",
-        &["name-a-upheld", "name-b-standing", "name-c-decisis"],
+        &["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"],
     )])?;
 
     let brief = get_decision_brief(&graph, "d:name")?
@@ -397,8 +397,8 @@ fn brief_keeps_the_recorded_option_text_beside_the_words_it_reads_as() -> Result
         brief.chosen_option,
         Some(OptionLabel {
             option_id: "opt:1".to_owned(),
-            label: "Upheld".to_owned(),
-            recorded_as: Some("name-a-upheld".to_owned()),
+            label: "Postgres".to_owned(),
+            recorded_as: Some("pick-a-postgres".to_owned()),
         })
     );
     assert_eq!(
@@ -406,19 +406,22 @@ fn brief_keeps_the_recorded_option_text_beside_the_words_it_reads_as() -> Result
         vec![
             OptionLabel {
                 option_id: "opt:2".to_owned(),
-                label: "Standing".to_owned(),
-                recorded_as: Some("name-b-standing".to_owned()),
+                label: "Sqlite".to_owned(),
+                recorded_as: Some("pick-b-sqlite".to_owned()),
             },
             OptionLabel {
                 option_id: "opt:3".to_owned(),
-                label: "Decisis".to_owned(),
-                recorded_as: Some("name-c-decisis".to_owned()),
+                label: "Cockroach".to_owned(),
+                recorded_as: Some("pick-c-cockroach".to_owned()),
             },
         ]
     );
     let json = serde_json::to_value(&brief).expect("brief serializes");
-    assert_eq!(json["chosen_option"]["recorded_as"], "name-a-upheld");
-    assert_eq!(json["rejected_options"][1]["recorded_as"], "name-c-decisis");
+    assert_eq!(json["chosen_option"]["recorded_as"], "pick-a-postgres");
+    assert_eq!(
+        json["rejected_options"][1]["recorded_as"],
+        "pick-c-cockroach"
+    );
     Ok(())
 }
 

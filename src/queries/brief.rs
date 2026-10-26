@@ -44,7 +44,7 @@ use super::QueryResponse;
 pub struct OptionLabel {
     pub option_id: String,
     /// What a person reads: the recorded label, turned into words when it was recorded as a slug
-    /// or a lettered code (`name-a-upheld` reads `Upheld`).
+    /// or a lettered code (`pick-a-postgres` reads `Postgres`).
     pub label: String,
     /// What the capture recorded, when that reads differently from `label`. The ledger is
     /// immutable and `label` is a reading of it, so a reader is told what the record says.

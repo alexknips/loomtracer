@@ -104,8 +104,8 @@ a reader needs without reconstructing them from edges:
   lookup into `decisions[]`.
 - **`nodes[]` with `kind: "Option"`** carry `title`: the option's own label, else its id, so an
   option always has something to show. `label` stays as it was (absent when no label was ever
-  recorded). A label recorded as a slug or a lettered code (`name-a-upheld`) is read as words
-  (`Upheld`) when the ledger is replayed; the node then also carries `recorded_as`, the text the
+  recorded). A label recorded as a slug or a lettered code (`pick-a-postgres`) is read as words
+  (`Postgres`) when the ledger is replayed; the node then also carries `recorded_as`, the text the
   capture recorded, so a page that shows the words can show what the record says beside them. It
   is absent when the label reads as it was recorded. Every `CHOSE` edge ends at such a node. A
   classifier draft can choose a label it did not weigh, or name a choice and no options: that

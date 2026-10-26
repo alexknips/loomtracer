@@ -275,10 +275,10 @@ differences from a writer, both for a description no decision matches in full
 closer. Between candidates that lack the same number, the one whose title or topic
 keys contain more of the terms it did match is closer: a decision about a thing
 says it in its headline, and one that merely holds the same words somewhere in a
-long rationale or in its evidence is a weaker answer. "Is the product still called
-Upheld" is lacked by two decisions, one without "called" and one without "upheld":
-the decision titled "Name the product Upheld" has both of its words in the title,
-the one that says "product" and "called" in its rationale has neither, so the
+long rationale or in its evidence is a weaker answer. "Is the service still called
+Atlas" is lacked by two decisions, one without "called" and one without "atlas":
+the decision titled "Name the service Atlas" has both of its words in the title,
+the one that says "service" and "called" in its rationale has neither, so the
 first is the answer. The basis is where the matched words sit (the `matched_fields`
 a result already shows). *Closer* decides whether the first of a list leads the
 next clearly enough to be answered with; it is not the order of the list.

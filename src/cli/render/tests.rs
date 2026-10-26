@@ -900,7 +900,7 @@ fn a_scan_summary_with_no_findings_says_so() {
 
 #[test]
 fn brief_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Result<()> {
-    // hivemind-hk5z: `chose: Upheld (recorded as: name-a-upheld)`, so the reading of a
+    // hivemind-hk5z: `chose: Postgres (recorded as: pick-a-postgres)`, so the reading of a
     // slug-shaped label never hides what the record says.
     let scenario = Scenario::new();
     scenario.proposal(
@@ -908,11 +908,11 @@ fn brief_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Result
         "2026-01-01T00:00:00Z",
         serde_json::json!({
             "decision_id": "d:name",
-            "title": "Name the product",
-            "rationale": "The name has to hold up",
-            "topic_keys": ["brand"],
+            "title": "Pick the ledger database",
+            "rationale": "The database has to hold up",
+            "topic_keys": ["storage"],
             "option_ids": ["opt:1", "opt:2", "opt:3"],
-            "option_labels": ["name-a-upheld", "name-b-standing", "name-c-decisis"],
+            "option_labels": ["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"],
             "chosen_option_id": "opt:1",
             "hypothesis_ids": [],
             "evidence_ids": []
@@ -922,12 +922,12 @@ fn brief_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Result
     let text = brief_text(&scenario.graph()?, "d:name")?;
 
     assert!(
-        text.contains("  chose: Upheld (recorded as: name-a-upheld)\n"),
+        text.contains("  chose: Postgres (recorded as: pick-a-postgres)\n"),
         "{text}"
     );
     assert!(
         text.contains(
-            "  rejected: Standing (recorded as: name-b-standing), Decisis (recorded as: name-c-decisis) (neither has a reason of its own; both share the rationale above)\n"
+            "  rejected: Sqlite (recorded as: pick-b-sqlite), Cockroach (recorded as: pick-c-cockroach) (neither has a reason of its own; both share the rationale above)\n"
         ),
         "{text}"
     );

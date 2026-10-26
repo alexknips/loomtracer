@@ -1225,7 +1225,7 @@ fn a_profile_section_that_fails_fails_the_export() -> Result<()> {
 
 #[test]
 fn the_options_section_shows_what_was_recorded_beside_the_words_it_reads_as() -> Result<()> {
-    // hivemind-hk5z: the export reads `name-a-upheld` as `Upheld` and still says what the record
+    // hivemind-hk5z: the export reads `pick-a-postgres` as `Postgres` and still says what the record
     // holds; an option that was words to begin with carries no note.
     let (ledger, graph) = graph_and_ledger([
         event(
@@ -1234,11 +1234,11 @@ fn the_options_section_shows_what_was_recorded_beside_the_words_it_reads_as() ->
             "human:alice",
             json!({
                 "decision_id": "decision-name",
-                "title": "Name the product",
-                "rationale": "The name has to hold up",
-                "topic_keys": ["brand"],
+                "title": "Pick the ledger database",
+                "rationale": "The database has to hold up",
+                "topic_keys": ["storage"],
                 "option_ids": ["opt-1", "opt-2", "opt-3"],
-                "option_labels": ["name-a-upheld", "name-b-standing", "name-c-decisis"],
+                "option_labels": ["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"],
                 "chosen_option_id": "opt-1",
                 "hypothesis_ids": [],
                 "evidence_ids": []
@@ -1266,11 +1266,11 @@ fn the_options_section_shows_what_was_recorded_beside_the_words_it_reads_as() ->
 
     let export = exported(&graph, &ledger, &DecisionLogRequest::default())?;
 
-    let recorded = decision_file(&export, "Name the product");
+    let recorded = decision_file(&export, "Pick the ledger database");
     for expected in [
-        "- **Upheld** (chosen; recorded as: name-a-upheld)",
-        "- Standing (recorded as: name-b-standing)",
-        "- Decisis (recorded as: name-c-decisis)",
+        "- **Postgres** (chosen; recorded as: pick-a-postgres)",
+        "- Sqlite (recorded as: pick-b-sqlite)",
+        "- Cockroach (recorded as: pick-c-cockroach)",
     ] {
         assert!(
             recorded.contains(expected),

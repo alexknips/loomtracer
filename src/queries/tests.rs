@@ -1451,11 +1451,11 @@ fn fluent_search_puts_a_close_match_about_the_question_before_a_decision_that_on
             // Says all three words, in its rationale, and none in its title (hivemind-eral).
             "d:aaa-collector",
             "Triage gate runs on a local model",
-            "The product was called Upheld in the first demos, and it is still called that in the pitch.",
+            "The service was called Atlas in the first demos, and it is still called that in the pitch.",
         ),
         (
             "d:zzz-name",
-            "Name the product Upheld",
+            "Name the service Atlas",
             "A short name that says what the record does.",
         ),
         (
@@ -1465,7 +1465,7 @@ fn fluent_search_puts_a_close_match_about_the_question_before_a_decision_that_on
         ),
     ])?;
 
-    let (items, _) = fluent_answer(&scenario, "product called upheld", 10)?;
+    let (items, _) = fluent_answer(&scenario, "service called atlas", 10)?;
 
     // The decision that names the product lacks "called" and still comes first: its title carries
     // more of the question than the decision that holds every word in a rationale, which comes

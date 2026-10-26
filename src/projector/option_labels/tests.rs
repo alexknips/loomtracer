@@ -39,25 +39,25 @@ fn ordinary_hyphenated_words_get_no_warning() {
 #[test]
 fn a_label_among_others_is_judged_on_its_own() {
     assert_eq!(
-        warned(&["read-only", "name-a-upheld", "Hosted API", "e-mail"]),
-        vec![pair("name-a-upheld", "Name a upheld")]
+        warned(&["read-only", "pick-a-postgres", "Hosted API", "e-mail"]),
+        vec![pair("pick-a-postgres", "Pick a postgres")]
     );
 }
 
 #[test]
 fn slugs_still_get_a_warning_with_the_words() {
     assert_eq!(
-        warned(&["name-a-upheld", "name-b-standing", "name-c-decisis"]),
+        warned(&["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"]),
         vec![
-            pair("name-a-upheld", "Upheld"),
-            pair("name-b-standing", "Standing"),
-            pair("name-c-decisis", "Decisis"),
+            pair("pick-a-postgres", "Postgres"),
+            pair("pick-b-sqlite", "Sqlite"),
+            pair("pick-c-cockroach", "Cockroach"),
         ]
     );
     // Alone there is no lettered set to read the letter from, so it stays in the words.
     assert_eq!(
-        warned(&["name-a-upheld"]),
-        vec![pair("name-a-upheld", "Name a upheld")]
+        warned(&["pick-a-postgres"]),
+        vec![pair("pick-a-postgres", "Pick a postgres")]
     );
     // An underscore is never ordinary English, even between two parts.
     assert_eq!(
@@ -122,9 +122,9 @@ fn no_suggestion_holds_a_stray_letter() {
     );
     // `a` and `I` are words of one letter.
     assert_eq!(
-        warned(&["name-a-upheld", "where-i-stand"]),
+        warned(&["pick-a-postgres", "where-i-stand"]),
         vec![
-            pair("name-a-upheld", "Name a upheld"),
+            pair("pick-a-postgres", "Pick a postgres"),
             pair("where-i-stand", "Where i stand"),
         ]
     );
@@ -138,8 +138,8 @@ fn no_suggestion_holds_a_stray_letter() {
 #[test]
 fn every_suggestion_of_a_warned_label_is_free_of_stray_letters() {
     let labels = [
-        "name-a-upheld",
-        "name-b-standing",
+        "pick-a-postgres",
+        "pick-b-sqlite",
         "q1-a-drop-the-line",
         "e-mail-server",
         "x-ray-tool",

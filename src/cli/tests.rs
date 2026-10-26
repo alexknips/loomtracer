@@ -2575,15 +2575,15 @@ fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Cl
         "emit",
         "decision.proposed",
         "--title",
-        "The new product name",
+        "The ledger database",
         "--rationale",
-        "The name has to hold up against the alternatives we weighed",
+        "The database has to hold up against the alternatives we weighed",
         "--topic-keys",
-        "brand",
+        "storage",
         "--options",
-        "name-a-upheld,name-b-standing",
+        "pick-a-postgres,pick-b-sqlite",
         "--chose",
-        "name-a-upheld",
+        "pick-a-postgres",
     ]))?;
 
     let summary = run(&Cli::parse_from([
@@ -2592,12 +2592,12 @@ fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Cl
         dir,
         "query",
         "why",
-        "the new product name",
+        "the ledger database",
         "--summary",
     ]))?;
     for expected in [
-        "chose: Upheld (recorded as: name-a-upheld)",
-        "rejected: Standing (recorded as: name-b-standing)",
+        "chose: Postgres (recorded as: pick-a-postgres)",
+        "rejected: Sqlite (recorded as: pick-b-sqlite)",
     ] {
         ensure(
             summary.contains(expected),
@@ -2612,22 +2612,22 @@ fn query_why_shows_the_recorded_option_text_beside_the_words_it_reads_as() -> Cl
         dir,
         "query",
         "why",
-        "the new product name",
+        "the ledger database",
     ]))?;
     let json: serde_json::Value = serde_json::from_str(&json)?;
     ensure_json_eq(
         &json["data"]["root"]["chosen_option"]["label"],
-        serde_json::json!("Upheld"),
+        serde_json::json!("Postgres"),
         "the chosen option reads as words",
     )?;
     ensure_json_eq(
         &json["data"]["root"]["chosen_option"]["recorded_as"],
-        serde_json::json!("name-a-upheld"),
+        serde_json::json!("pick-a-postgres"),
         "the chosen option says what was recorded",
     )?;
     ensure_json_eq(
         &json["data"]["root"]["rejected_options"][0]["recorded_as"],
-        serde_json::json!("name-b-standing"),
+        serde_json::json!("pick-b-sqlite"),
         "a rejected option says what was recorded",
     )?;
     Ok(())
@@ -2825,8 +2825,8 @@ fn query_why_answers_a_natural_question_with_the_why() -> CliTestResult {
 #[test]
 fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale_says_every_word(
 ) -> CliTestResult {
-    // hivemind-eral: the triage decision's rationale says product, called and Upheld, so it
-    // matches in full; the decision named after the product lacks "called" but is about the
+    // hivemind-eral: the triage decision's rationale says service, called and Atlas, so it
+    // matches in full; the decision named after the service lacks "called" but is about the
     // question. `recall` and `why` must both name the second, and `why` must say what it lacks.
     let loomtracer_dir = unique_test_dir("query-why-about-the-question");
     let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
@@ -2853,15 +2853,15 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     };
     emit(
         "Triage gate runs on a local model",
-        "The product was called Upheld in the first demos, and it is still called that in the pitch deck",
+        "The service was called Atlas in the first demos, and it is still called that in the pitch deck",
         "triage",
         "Local model",
     )?;
     let name_id = emit(
-        "Name the product Upheld",
+        "Name the service Atlas",
         "A short name that says what the record does",
         "naming",
-        "Upheld",
+        "Atlas",
     )?;
     emit(
         "Adopt async queue for billing",
@@ -2869,7 +2869,7 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
         "billing",
         "Async queue",
     )?;
-    let question = "is the product still called Upheld";
+    let question = "is the service still called Atlas";
 
     let recalled = run(&Cli::parse_from([
         "loomtracer",
@@ -2919,7 +2919,7 @@ fn query_why_answers_the_decision_about_the_question_not_the_one_whose_rationale
     ]))?;
     ensure(
         summary.starts_with("close match: this one has no \"called\"")
-            && summary.contains("decision: Name the product Upheld"),
+            && summary.contains("decision: Name the service Atlas"),
         &format!("the summary opens with what the decision lacks, got:\n{summary}"),
     )?;
 

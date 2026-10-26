@@ -2645,14 +2645,14 @@ fn strings(values: &[&str]) -> Vec<GraphValue> {
 
 #[test]
 fn slug_labels_with_answer_letters_project_as_the_words_after_the_letter() -> Result<()> {
-    // hivemind-hk5z: the product-name decision recorded `name-a-upheld` and friends. The stem
+    // hivemind-hk5z: the product-name decision recorded `pick-a-postgres` and friends. The stem
     // shared by every option (`name`) and the answer letter are not part of the option.
     assert_eq!(
         projected_option_labels(
             &["option:1", "option:2", "option:3"],
-            Some(&["name-a-upheld", "name-b-standing", "name-c-decisis"]),
+            Some(&["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"]),
         )?,
-        strings(&["Upheld", "Standing", "Decisis"])
+        strings(&["Postgres", "Sqlite", "Cockroach"])
     );
     // A question number is part of the shared stem, and the letters may arrive out of order.
     assert_eq!(
@@ -2806,14 +2806,14 @@ fn the_recorded_option_text_stays_in_the_graph_beside_the_readable_label() -> Re
     // hivemind-hk5z: the label is a reading of the ledger; the ledger's own text is not lost
     // to it. Every reader that shows the reading can also show what was recorded.
     let ids = ["option:1", "option:2", "option:3"];
-    let labels = Some(&["name-a-upheld", "name-b-standing", "name-c-decisis"][..]);
+    let labels = Some(&["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"][..]);
     assert_eq!(
         projected_option_labels(&ids, labels)?,
-        strings(&["Upheld", "Standing", "Decisis"])
+        strings(&["Postgres", "Sqlite", "Cockroach"])
     );
     assert_eq!(
         projected_option_property(&ids, labels, "recorded_label")?,
-        strings(&["name-a-upheld", "name-b-standing", "name-c-decisis"])
+        strings(&["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"])
     );
     // A label that was already words is recorded as itself.
     assert_eq!(

@@ -25,7 +25,7 @@ pub struct CaptureWarning {
 }
 
 /// A warning for each option label that is a slug: lowercase words joined by `-` or `_`
-/// (`direct-cli`, `name-a-upheld`). A lone lowercase word (`sqlite`) is a fine label, and so is
+/// (`direct-cli`, `pick-a-postgres`). A lone lowercase word (`sqlite`) is a fine label, and so is
 /// ordinary hyphenated English (`e-mail`, `read-only`): the shape rule is in `option_labels`.
 pub(super) fn option_label_warnings(option_labels: &[String]) -> Vec<CaptureWarning> {
     slug_labels_with_words(option_labels)

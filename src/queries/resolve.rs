@@ -572,8 +572,8 @@ fn thin_sole_full_match(term_count: usize, rows: &[ResolverCandidateRow]) -> boo
 /// terms, and between two that lack the same number, the one whose title or topic keys carry more
 /// of the terms it matched, then the one that matched fewer of them only through a stand-in word
 /// (a decision that says "agent" is closer to a question about an agent than one that says "bot").
-/// A decision about the product's name says "product" and "Upheld" in its title; one that happens
-/// to say "product" and "called" somewhere in a long rationale is not about that, though it lacks
+/// A decision about a service's name says "service" and "Atlas" in its title; one that happens
+/// to say "service" and "called" somewhere in a long rationale is not about that, though it lacks
 /// just as many words. Where the words matched is already in `matched_fields`; nothing is counted
 /// across the ledger and nothing is learned. A full match is 0 on the headline count (its order
 /// is `About`, then the stand-in count and the rank tier), and a verb that writes never reads

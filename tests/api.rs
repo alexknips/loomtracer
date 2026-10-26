@@ -5656,11 +5656,11 @@ async fn graph_option_nodes_carry_what_was_recorded_when_it_reads_differently() 
                 "binds": {"level": "something", "statement": "Later work builds on it"},
                 "undo_cost": {"level": "cheap"},
                 "grounding": [{"kind": "bet"}],
-                "title": "Name the product",
+                "title": "Pick the ledger database",
                 "rationale": "Graph recorded-option fixture: enough words to pass validation",
                 "topic_keys": ["graph-standing"],
-                "options": [{ "label": "name-a-upheld" }, { "label": "name-b-standing" }],
-                "chosen_option_label": "name-a-upheld"
+                "options": [{ "label": "pick-a-postgres" }, { "label": "pick-b-sqlite" }],
+                "chosen_option_label": "pick-a-postgres"
             }),
         ),
     )
@@ -5709,8 +5709,8 @@ async fn graph_option_nodes_carry_what_was_recorded_when_it_reads_differently() 
         [
             ("Direct CLI".to_owned(), None),
             ("MCP server".to_owned(), None),
-            ("Standing".to_owned(), Some("name-b-standing".to_owned())),
-            ("Upheld".to_owned(), Some("name-a-upheld".to_owned())),
+            ("Postgres".to_owned(), Some("pick-a-postgres".to_owned())),
+            ("Sqlite".to_owned(), Some("pick-b-sqlite".to_owned())),
         ],
         "{graph}"
     );

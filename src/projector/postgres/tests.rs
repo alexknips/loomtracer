@@ -1092,8 +1092,8 @@ fn recorded_option_text_ledger() -> Result<InMemoryEventLedger> {
     for (decision_id, title, option_labels) in [
         (
             "decision:slugs",
-            "Name the product",
-            ["name-a-upheld", "name-b-standing"],
+            "Pick the ledger database",
+            ["pick-a-postgres", "pick-b-sqlite"],
         ),
         (
             "decision:words",
@@ -1144,13 +1144,11 @@ fn recorded_option_text_reads_match_memory() -> Result<()> {
             .data
             .expect("decision exists");
         let chosen = slugs.chosen_option.expect("chosen option");
-        if chosen.label != "Upheld" || chosen.recorded_as.as_deref() != Some("name-a-upheld") {
+        if chosen.label != "Postgres" || chosen.recorded_as.as_deref() != Some("pick-a-postgres") {
             return Err(test_error(format!("slug option on Postgres: {chosen:?}")));
         }
         let rejected = &slugs.rejected_options[0];
-        if rejected.label != "Standing"
-            || rejected.recorded_as.as_deref() != Some("name-b-standing")
-        {
+        if rejected.label != "Sqlite" || rejected.recorded_as.as_deref() != Some("pick-b-sqlite") {
             return Err(test_error(format!(
                 "rejected slug option on Postgres: {rejected:?}"
             )));
@@ -1180,7 +1178,7 @@ fn recorded_option_text_reads_match_memory() -> Result<()> {
             return Err(test_error("the export differs between memory and Postgres"));
         }
         let exported_text: String = pg_export.files.values().cloned().collect();
-        if !exported_text.contains("(chosen; recorded as: name-a-upheld)") {
+        if !exported_text.contains("(chosen; recorded as: pick-a-postgres)") {
             return Err(test_error(
                 "the export does not say what the slug option recorded",
             ));

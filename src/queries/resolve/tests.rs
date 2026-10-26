@@ -961,17 +961,17 @@ fn reading_resolves_a_lone_close_candidate_a_writer_only_lists() -> Result<()> {
 #[test]
 fn reading_lists_close_candidates_that_lack_the_same_number_of_words() -> Result<()> {
     let graph = graph_from_events([
-        decision_proposed(1, "d:upheld", "Name the product Upheld", &[]),
-        decision_proposed(2, "d:jev", "Call the product Jev", &[]),
+        decision_proposed(1, "d:atlas", "Name the service Atlas", &[]),
+        decision_proposed(2, "d:jev", "Call the service Jev", &[]),
     ])?;
 
-    // product, called, upheld: each decision lacks exactly one, and each carries the two words it
+    // service, called, atlas: each decision lacks exactly one, and each carries the two words it
     // has in its title, so nothing says which was meant.
-    match reading(&graph, "is the product still called Upheld")?.data {
+    match reading(&graph, "is the service still called Atlas")?.data {
         ResolveOutcome::Ambiguous { candidates } => {
             let mut ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
             ids.sort_unstable();
-            assert_eq!(ids, vec!["d:jev", "d:upheld"]);
+            assert_eq!(ids, vec!["d:atlas", "d:jev"]);
             assert!(candidates.iter().all(|c| c.missing_terms.len() == 1));
         }
         other => panic!("expected both close candidates, got {other:?}"),
@@ -979,22 +979,22 @@ fn reading_lists_close_candidates_that_lack_the_same_number_of_words() -> Result
     Ok(())
 }
 
-/// "is the product still called Upheld": the decision about the product's name lacks "called";
-/// another says "product" and "called" only inside a long rationale and lacks "upheld"
+/// "is the service still called Atlas": the decision about the service's name lacks "called";
+/// another says "service" and "called" only inside a long rationale and lacks "atlas"
 /// (hivemind-3lko). Each lacks one word, so only where the words matched tells them apart.
-fn upheld_graph() -> Result<MemoryGraph> {
+fn atlas_graph() -> Result<MemoryGraph> {
     graph_from_events([
         decision_proposed_because(
             1,
             "d:triage",
             "Triage gate runs on a local model",
-            "The product was called Jev while the gate was built against one shape.",
+            "The service was called Jev while the gate was built against one shape.",
             &[],
         ),
         decision_proposed_because(
             2,
             "d:name",
-            "Name the product Upheld",
+            "Name the service Atlas",
             "A short name that says what the record does.",
             &[],
         ),
@@ -1003,12 +1003,12 @@ fn upheld_graph() -> Result<MemoryGraph> {
 
 #[test]
 fn reading_answers_with_the_candidate_whose_title_carries_the_words() -> Result<()> {
-    let graph = upheld_graph()?;
+    let graph = atlas_graph()?;
 
-    // d:name has product and upheld in its title and lacks "called"; d:triage has product and
-    // called, but only in its rationale, and lacks "upheld". The title is what says which decision
-    // is about the product's name, so that one is the answer, and it names what it lacks.
-    match reading(&graph, "is the product still called Upheld")?.data {
+    // d:name has service and atlas in its title and lacks "called"; d:triage has service and
+    // called, but only in its rationale, and lacks "atlas". The title is what says which decision
+    // is about the service's name, so that one is the answer, and it names what it lacks.
+    match reading(&graph, "is the service still called Atlas")?.data {
         ResolveOutcome::Resolved { candidate } => {
             assert_eq!(candidate.decision_id, "d:name");
             assert_eq!(candidate.missing_terms, vec!["called"]);
@@ -1020,10 +1020,9 @@ fn reading_answers_with_the_candidate_whose_title_carries_the_words() -> Result<
 
 #[test]
 fn a_writer_lists_the_same_candidates_in_the_same_order_and_picks_none() -> Result<()> {
-    let graph = upheld_graph()?;
+    let graph = atlas_graph()?;
 
-    match resolve_decision_by_description(&graph, "is the product still called Upheld", None)?.data
-    {
+    match resolve_decision_by_description(&graph, "is the service still called Atlas", None)?.data {
         ResolveOutcome::Ambiguous { candidates } => {
             let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
             assert_eq!(ids, vec!["d:name", "d:triage"]);
@@ -1163,7 +1162,7 @@ fn the_decision_that_lacks_the_word_the_question_is_about_does_not_lead_the_list
         decision_proposed_because(
             2,
             "d:name",
-            "The product's new name is Upheld",
+            "The service's new name is Atlas",
             "The demo data is checked in the repo instead of fetched.",
             &["naming"],
         ),
@@ -1549,21 +1548,21 @@ fn a_decision_with_the_word_is_not_tied_with_one_that_only_has_a_stand_in() -> R
 // one the question is about when another decision carries the words in its title and topic keys
 // (hivemind-eral). Where the words sit is compared before whether every word is somewhere.
 
-/// "is the product still called Upheld": a triage decision whose rationale happens to say all of
-/// product, called and upheld, and the decision that names the product, which never says "called".
-fn product_name_graph() -> Result<MemoryGraph> {
+/// "is the service still called Atlas": a triage decision whose rationale happens to say all of
+/// service, called and atlas, and the decision that names the service, which never says "called".
+fn service_name_graph() -> Result<MemoryGraph> {
     graph_from_events([
         decision_proposed_because(
             1,
             "d:triage",
             "Triage gate runs on a local model",
-            "The product was called Upheld in the first demos, and it is still called that in the pitch.",
+            "The service was called Atlas in the first demos, and it is still called that in the pitch.",
             &["triage"],
         ),
         decision_proposed_because(
             2,
             "d:name",
-            "Name the product Upheld",
+            "Name the service Atlas",
             "A short name that says what the record does.",
             &["naming"],
         ),
@@ -1574,11 +1573,11 @@ fn product_name_graph() -> Result<MemoryGraph> {
 #[test]
 fn reading_answers_with_the_decision_about_the_question_not_the_one_that_holds_every_word(
 ) -> Result<()> {
-    let graph = product_name_graph()?;
+    let graph = service_name_graph()?;
 
-    // d:triage matches product, called and upheld in full, all in its rationale. d:name has
-    // product and upheld in its title and lacks "called". The full match used to win silently.
-    match reading(&graph, "is the product still called Upheld")?.data {
+    // d:triage matches service, called and atlas in full, all in its rationale. d:name has
+    // service and atlas in its title and lacks "called". The full match used to win silently.
+    match reading(&graph, "is the service still called Atlas")?.data {
         ResolveOutcome::Resolved { candidate } => {
             assert_eq!(candidate.decision_id, "d:name");
             assert_eq!(candidate.missing_terms, vec!["called"]);
@@ -1591,10 +1590,9 @@ fn reading_answers_with_the_decision_about_the_question_not_the_one_that_holds_e
 
 #[test]
 fn a_writer_lists_the_decision_about_the_question_first_and_picks_none() -> Result<()> {
-    let graph = product_name_graph()?;
+    let graph = service_name_graph()?;
 
-    match resolve_decision_by_description(&graph, "is the product still called Upheld", None)?.data
-    {
+    match resolve_decision_by_description(&graph, "is the service still called Atlas", None)?.data {
         ResolveOutcome::Ambiguous { candidates } => {
             let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
             assert_eq!(ids, vec!["d:name", "d:triage"]);
@@ -1614,15 +1612,15 @@ fn a_close_candidate_that_carries_no_more_of_the_question_is_not_ahead_of_a_full
         decision_proposed_because(
             1,
             "d:full",
-            "Name the product Upheld",
-            "Called Upheld since the first demo.",
+            "Name the service Atlas",
+            "Called Atlas since the first demo.",
             &[],
         ),
         // Lacks "called" and has the same two words in its title: nothing more about the question.
-        decision_proposed(2, "d:close", "Rename the product Upheld", &[]),
+        decision_proposed(2, "d:close", "Rename the service Atlas", &[]),
     ])?;
 
-    for outcome in both_askers(&graph, "is the product still called Upheld")? {
+    for outcome in both_askers(&graph, "is the service still called Atlas")? {
         match outcome {
             ResolveOutcome::Resolved { candidate } => {
                 assert_eq!(candidate.decision_id, "d:full");
@@ -1875,9 +1873,9 @@ fn a_decision_whose_title_says_the_question_in_other_words_leads_one_with_a_gene
         decision_proposed_because(
             3,
             "d:name",
-            "The product's new name is Upheld, home domain upheld.sh, replacing the working name (not Standing, not Decisis)",
-            "A, Upheld. Home domain upheld.sh; the domain is bought by the maintainer; nothing is registered or reserved; the rename itself is not planned or started. Why the working name goes: it is overloaded and taken, on the main registries and with dozens of repositories of that exact name. Options: A = Upheld, a decision is upheld or it is not; B = Standing; C = Decisis. The site and the docs move to the new domain at the rename, one word at a time.",
-            &["product-name", "naming", "rename", "domain"],
+            "The service's new name is Atlas, home domain atlas.example, replacing the working name (not Beacon, not Compass)",
+            "A, Atlas. Home domain atlas.example; the domain is bought by the maintainer; nothing is registered or reserved; the rename itself is not planned or started. Why the working name goes: it is overloaded and taken, on the main registries and with dozens of repositories of that exact name. Options: A = Atlas, a decision is mapped or it is not; B = Beacon; C = Compass. The site and the docs move to the new domain at the rename, one word at a time.",
+            &["service-name", "naming", "rename", "domain"],
         ),
         decision_proposed_because(
             4,
@@ -2388,28 +2386,28 @@ fn a_list_shows_at_most_two_promoted_close_candidates_before_the_first_full_matc
 #[test]
 fn a_promoted_close_candidate_with_two_of_three_words_is_listed_among_two_full_matches_on_its_subject(
 ) -> Result<()> {
-    // Two of three words are a lead over one full match (the product name above) and not over
+    // Two of three words are a lead over one full match (the service name above) and not over
     // two that say a word of the question in their own title, as for a full match (hivemind-jis8).
     let graph = graph_from_events([
         decision_proposed_because(
             1,
             "d:deck",
-            "Product deck layout",
-            "The product is called Upheld on the first slide.",
+            "Service deck layout",
+            "The service is called Atlas on the first slide.",
             &[],
         ),
         decision_proposed_because(
             2,
             "d:site",
-            "Product site copy",
-            "The site says the product is called Upheld.",
+            "Service site copy",
+            "The site says the service is called Atlas.",
             &[],
         ),
-        decision_proposed(3, "d:name", "Name the product Upheld", &["naming"]),
+        decision_proposed(3, "d:name", "Name the service Atlas", &["naming"]),
         decision_proposed(4, "d:queue", "Adopt async queue for billing", &["billing"]),
     ])?;
 
-    match reading(&graph, "is the product still called Upheld")?.data {
+    match reading(&graph, "is the service still called Atlas")?.data {
         ResolveOutcome::Ambiguous { candidates } => {
             let ids: Vec<&str> = candidates.iter().map(|c| c.decision_id.as_str()).collect();
             assert!(ids.contains(&"d:name"), "got {ids:?}");
@@ -3088,13 +3086,13 @@ fn a_head_the_words_did_not_match_answers_for_the_records_that_led_to_it() -> Re
         decision_proposed(
             1,
             "d:first",
-            "Rename the product to Upheld after the comparison",
+            "Rename the service to Atlas after the comparison",
             &["naming"],
         ),
         decision_proposed(
             2,
             "d:second",
-            "Rename the product to Upheld after the comparison, before the first listing",
+            "Rename the service to Atlas after the comparison, before the first listing",
             &["naming"],
         ),
         decision_accepted(3, "d:second"),
@@ -3103,7 +3101,7 @@ fn a_head_the_words_did_not_match_answers_for_the_records_that_led_to_it() -> Re
         decision_superseded(6, "d:first", "d:second"),
         decision_superseded(7, "d:second", "d:name"),
     ])?;
-    let question = "rename product Upheld comparison";
+    let question = "rename service Atlas comparison";
 
     match reading(&graph, question)?.data {
         ResolveOutcome::Resolved { candidate } => {
@@ -3114,7 +3112,7 @@ fn a_head_the_words_did_not_match_answers_for_the_records_that_led_to_it() -> Re
             assert_eq!(via_ids(&candidate), ["d:first", "d:second"]);
             assert_eq!(
                 candidate.resolved_via[0].title,
-                "Rename the product to Upheld after the comparison"
+                "Rename the service to Atlas after the comparison"
             );
             let looked_up = match resolve_decision_by_id(&graph, "d:name")?.data {
                 ResolveOutcome::Resolved { candidate } => candidate,
@@ -3286,7 +3284,7 @@ fn the_envelope_names_the_replaced_records_beside_data() {
         also_recorded_as: Vec::new(),
         resolved_via: vec![RecordedCopy {
             decision_id: "d:first".to_owned(),
-            title: "Rename the product to Upheld".to_owned(),
+            title: "Rename the service to Atlas".to_owned(),
         }],
         consequences: Vec::new(),
     };
@@ -3296,7 +3294,7 @@ fn the_envelope_names_the_replaced_records_beside_data() {
     annotate_resolution(&mut envelope, &candidate);
     assert_eq!(
         envelope["resolved_via"],
-        json!([{"decision_id": "d:first", "title": "Rename the product to Upheld"}])
+        json!([{"decision_id": "d:first", "title": "Rename the service to Atlas"}])
     );
     assert!(envelope.get("close_match").is_none());
     assert!(envelope.get("also_recorded_as").is_none());

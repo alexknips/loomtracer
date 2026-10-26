@@ -66,7 +66,7 @@ struct GraphNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
     /// On an Option: what the capture recorded, when that reads differently from its label
-    /// (`name-a-upheld` for `Upheld`). The ledger is immutable and the label is a reading of it.
+    /// (`pick-a-postgres` for `Postgres`). The ledger is immutable and the label is a reading of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     recorded_as: Option<String>,
     /// On a Decision: when the capture event recorded it, ISO-8601 UTC. `None` only for a

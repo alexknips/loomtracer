@@ -21,6 +21,9 @@
 #
 # Ledger copies it was measured on, both taken 2026-10-23: the crew ledger (534 events) and a copy of the live cell
 # (168,131 events).
+# One row was reworded after the freeze (hivemind-4hdwe): 4fzjf:P2 named the product's never-adopted new name and now asks
+# "did the product rebrand go ahead?"; its id, kind, expect and role are as they were,
+# and on the 2026-10-21 cell copy it gets the verdict its old wording got.
 4fzjf:S01	STRAY	none	did the florist rebrand last spring?	guard
 4fzjf:S02	STRAY	none	will the airline rebrand its planes?	fail
 4fzjf:S03	STRAY	none	why did the brewery rebrand?	fail
@@ -59,6 +62,6 @@ dog-183cb447:ST11	STRAY	none	is the alarm clock broken?	guard
 dog-183cb447:ST12	STRAY	none	how much does the plumber charge?	guard
 dog-183cb447:ST13	STRAY	none	which group hikes on Sunday?	guard
 4fzjf:P1	SYNONYM	5174d1df	why does the presentation keep eight slides for investors?	guard
-4fzjf:P2	SYNONYM	a42ca00a|19a98974	did the Upheld rebrand go ahead?	guard
+4fzjf:P2	SYNONYM	a42ca00a|19a98974	did the product rebrand go ahead?	guard
 4fzjf:P3	SYNONYM	83e67825	has any rival moved onto the shelf this month?	guard
 4fzjf:P4	SYNONYM	5174d1df	which slides did the presentation drop for install steps?	guard

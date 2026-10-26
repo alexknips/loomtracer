@@ -1443,7 +1443,7 @@ fn project_decision_proposed(
     // hivemind-hk5z). Events from before `option_labels` existed carry no label at all, but
     // their option ids are a slug of it (e.g. "option-other-rejected-options-<uuid>", from the
     // id scheme that predated opaque ids): `derive_legacy_option_label` recovers that text.
-    // And a recorded label can itself be a slug ("name-a-upheld"). `readable_option_labels`
+    // And a recorded label can itself be a slug ("pick-a-postgres"). `readable_option_labels`
     // turns both into words once, here at projection, looking at the whole option set so a
     // shared stem plus answer letter ("name-a-", "channel a ") is dropped. `None` stays Null
     // (not re-indexed as a second copy of the id) when nothing readable can be recovered.

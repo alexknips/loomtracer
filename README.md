@@ -320,7 +320,7 @@ loomtracer --loomtracer-dir ./loomtracer/ emit decision.capture \
 Options are short human labels (`"Direct CLI"`), never slugs or letter codes:
 `why` and `verify` print them as written, and `--chose` alone says which one won.
 A slug that slips through still reads as words, with what was recorded beside it
-(`chose: Upheld (recorded as: name-a-upheld)`).
+(`chose: Postgres (recorded as: pick-a-postgres)`).
 
 Every capture answers two questions before it is written. What does it rest on
 (a decision we already made, something observed, something assumed, or a declared

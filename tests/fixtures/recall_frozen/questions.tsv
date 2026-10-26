@@ -22,6 +22,11 @@
 # One row was corrected after the freeze (hivemind-k25y8, mayor ruling on the accepted-first order of hivemind-rgv7a):
 # checker:AN1 expects `a42ca00a|19a98974`. a42ca00a, the accepted successor with the same title, is only in the cell
 # copy; the crew copy holds 19a98974 alone, so either one answers.
+# Five rows were reworded after the freeze (hivemind-4hdwe): checker:L5, checker:AL1, checker:AN1, checker:AP1 and
+# tfde:T3 asked about the rename by the new name it was going to get, which the product never took, so the name is out of the
+# question; the id, kind, expect and role of each row are as they were. On the 2026-10-21 cell copy (157,563 events) each
+# reworded row gets the verdict its old wording got (same flags, same kind of one-call answer). A run made before
+# 2026-10-26 asked the old words.
 checker:D1	NEARBY	c2da11a6	why do the website diagrams say replaces instead of supersedes?	guard
 checker:E1	SYNONYM	05695fd8	where does the web app get the address part of a decision link from?	fail
 checker:F2	SYNONYM	05695fd8	does a decision's web address change when someone renames the decision?	fail
@@ -41,7 +46,7 @@ checker:J5	SYNONYM	05695fd8	if I rename a decision, will old links to it break?	
 checker:K1	NEARBY	83e5bdcd	in the Flow search chapter, why doesn't a long answer push the graph aside?	fail
 checker:K3	NEARBY	c2da11a6	how are features that are built but not yet released drawn on the marketing site's graphs?	guard
 checker:K5	NEARBY	cd049fd7	why was the homepage rewritten in plain language?	fail
-checker:L5	NEARBY	19a98974	are we still switching the product's name to Upheld?	fail
+checker:L5	NEARBY	19a98974	are we still switching the product's name?	fail
 checker:M2	NEARBY	6d2c7a02	does a decision's status history get one row for each change or one per day?	guard
 checker:N2	NEARBY	6ab3791e	does the command-line binary get a new name along with the new company?	fail
 checker:O2	NEARBY	6d2c7a02	why do some history entries on a demo decision say No date?	fail
@@ -115,13 +120,13 @@ checker:AK2	SYNONYM	e61bb5e9	what made us run the interface checks inside a genu
 checker:AK3	NEARBY	25005f47	how come ELK gets handed the arrows one by one in a particular sequence?	guard
 checker:AK6	SYNONYM	df474de6	is shadcn what everybody grabs when they need a fresh dropdown or toggle?	fail
 checker:AK7	NEARBY	6ab3791e	how come the Loomtracer switch never touched what people type into their terminal?	fail
-checker:AL1	NEARBY	19a98974	is the switch to the Upheld name on hold for now?	fail
+checker:AL1	NEARBY	19a98974	is the switch of the product's name on hold for now?	fail
 checker:AM2	NEARBY	af1961fc	what happens when the beadline.toml file lists some repos and nobody set a path?	guard
-checker:AN1	SYNONYM	a42ca00a|19a98974	did the Upheld rebrand get shelved?	fail
+checker:AN1	SYNONYM	a42ca00a|19a98974	did the product rebrand get shelved?	fail
 checker:AN2	NEARBY	6cd1dd8f	if the classifier hands us the same choice twice with an identical time, do we keep both?	fail
 checker:AO3	NEARBY	9237423c	how do we know the demo data file was not changed, is there a SHA check?	guard
 checker:AO6	NEARBY	none	did we decide to replace ELK with dagre for the graph layout?	fail
-checker:AP1	SYNONYM	19a98974	are we still going ahead with calling the product Upheld, or is that on ice?	fail
+checker:AP1	SYNONYM	19a98974	are we still going ahead with calling the product by the new name, or is that on ice?	fail
 checker:AQ4	NEARBY	af7c3c02	does the UI say which tool an agent was, like Claude or Codex?	fail
 checker:AQ5	NEARBY	6cde610d	which time zone do we show decision dates in?	guard
 checker:AR3	SYNONYM	1acd70dd	on a small screen, where do the map's buttons go?	fail
@@ -256,7 +261,7 @@ eral:F3	NEARBY	60948a4d	how does the demo load its example data?	fail
 eral:F7	NEARBY	6cd1dd8f	what happens when the classifier repeats a decision?	guard
 eral:F17	NEARBY	6d2c7a02|e487a22a	what does the status history show on the decision page?	guard
 eral:F27	NEARBY	13cb6413	where does the site live and who checks the docs drift?	guard
-tfde:T3	NEARBY	e18c0d34	is the product still called Upheld?	fail
+tfde:T3	NEARBY	e18c0d34	is the product still called by its new name?	fail
 ctrl:C07	NEARBY	none	database migration rollback plan for the orders table	guard
 ctrl:C08	NEARBY	none	how do we cache images on the cdn edge	fail
 ctrl:C13	NEARBY	none	retry policy for failed webhook deliveries with exponential backoff	fail

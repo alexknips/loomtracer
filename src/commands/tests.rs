@@ -8066,7 +8066,7 @@ fn grounded_capture_suggests_the_words_the_readers_will_show_for_a_lettered_set(
     let ledger = InMemoryEventLedger::new();
     let proposal = capture_with_option_labels(
         &ledger,
-        &["name-a-upheld", "name-b-standing", "name-c-decisis"],
+        &["pick-a-postgres", "pick-b-sqlite", "pick-c-cockroach"],
     );
 
     let suggestions: Vec<(&str, &str)> = proposal
@@ -8077,9 +8077,9 @@ fn grounded_capture_suggests_the_words_the_readers_will_show_for_a_lettered_set(
     assert_eq!(
         suggestions,
         vec![
-            ("name-a-upheld", "Upheld"),
-            ("name-b-standing", "Standing"),
-            ("name-c-decisis", "Decisis"),
+            ("pick-a-postgres", "Postgres"),
+            ("pick-b-sqlite", "Sqlite"),
+            ("pick-c-cockroach", "Cockroach"),
         ]
     );
 }

@@ -49,13 +49,13 @@ const DECISIONS: &[(&str, &str, &str, &str)] = &[
         "gate",
         "Triage gate built against the System One shape, local model default, opt-in for the hosted classifier",
         "classifier,triage-gate,privacy,self-hosted",
-        "The triage gate sits in front of the classifier that turns transcripts into decision records. It answers yes or no questions: is there a decision here at all, does it bind something or cost to undo, which existing question does this answer, which project. Today a model call per excerpt is spent to learn that most excerpts hold nothing, capped at 150 calls a day. A local model is the default; the product is still called by its working name in the gate prompts, and nothing is sent to the hosted classifier without opt-in.",
+        "The triage gate sits in front of the classifier that turns transcripts into decision records. It answers yes or no questions: is there a decision here at all, does it bind something or cost to undo, which existing question does this answer, which project. Today a model call per excerpt is spent to learn that most excerpts hold nothing, capped at 150 calls a day. A local model is the default; the service is still called by its working name in the gate prompts, and nothing is sent to the hosted classifier without opt-in.",
     ),
     (
         "name",
-        "The product's new name is Upheld, home domain upheld.sh, replacing the working name (not Standing, not Decisis)",
-        "product-name,naming,rename,domain",
-        "A, Upheld. Home domain upheld.sh; the domain is bought by the maintainer; nothing is registered or reserved; the rename itself is not planned or started. Why the working name goes: it is overloaded and taken, on the main registries and with dozens of repositories of that exact name. Options: A = Upheld, a decision is upheld or it is not; B = Standing; C = Decisis. The site and the docs move to the new domain at the rename, one word at a time.",
+        "The service's new name is Atlas, home domain atlas.example, replacing the working name (not Beacon, not Compass)",
+        "service-name,naming,rename,domain",
+        "A, Atlas. Home domain atlas.example; the domain is bought by the maintainer; nothing is registered or reserved; the rename itself is not planned or started. Why the working name goes: it is overloaded and taken, on the main registries and with dozens of repositories of that exact name. Options: A = Atlas, a decision is mapped or it is not; B = Beacon; C = Compass. The site and the docs move to the new domain at the rename, one word at a time.",
     ),
     (
         "slugs-browser",
@@ -231,7 +231,7 @@ const CASES: &[(&str, &str, Expect)] = &[
     ),
     (
         "verify",
-        "is the product still called Upheld",
+        "is the service still called Atlas",
         Expect::Answers("name"),
     ),
     ("why", "what is the weather on mars", Expect::NoMatch),
