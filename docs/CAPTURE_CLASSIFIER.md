@@ -288,6 +288,13 @@ and the agent-seat `classify-queue` command) apply the same rule:
   reverses what hivemind-u70b ruled for agents): the projector still derives nothing
   from `actor_id`, the rule for people is unchanged, and a decision recorded before
   the rule keeps what it was recorded with.
+- The session agent's own call reads the same whether or not `actor_id` also names it:
+  `review` is `self_accepted` and `why` prints one `decided by:` line. A draft that names
+  no `actor_id` keeps `proposer_id` empty (nothing infers a proposer); its review reads
+  the session agent as the only actor on record, because it is the sole acceptor and took
+  part in the session (`PARTICIPATED_BY`). Another acceptor, a person who accepts the draft
+  later, or an agent that was not in the session makes it `peer_reviewed`
+  (hivemind-26br4).
 
 `tests/fixtures/transcripts/` holds one transcript for each case (decided,
 the session agent deciding alone, the agent carrying out a person's call, proposed

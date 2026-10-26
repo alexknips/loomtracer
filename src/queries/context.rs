@@ -55,7 +55,9 @@ pub enum AuthorshipShape {
 pub enum ReviewShape {
     /// No `ACCEPTED_BY` or `REJECTED_BY` edges — decision was never explicitly reviewed.
     Unreviewed,
-    /// The only `ACCEPTED_BY` actor is the proposer themselves (self-acceptance).
+    /// The only `ACCEPTED_BY` actor is the proposer themselves (self-acceptance), or, on a
+    /// classifier draft that names no proposer, the agent that ran the session: its own call,
+    /// which nobody else reviewed (hivemind-26br4).
     SelfAccepted,
     /// At least one `ACCEPTED_BY` actor is distinct from the proposer.
     PeerReviewed,
@@ -261,8 +263,15 @@ fn derive_context(
     let rejected_count = query_actor_edge_count(graph, decision_id, "REJECTED_BY")?;
 
     let authorship = derive_authorship(proposer_kind, &acceptors);
+    // `proposer_id` and `authorship` stay as recorded: a proposer is never inferred. Only the
+    // review reads the session agent as the one who made the call, because no one else is
+    // on record as having looked at it.
+    let recorder = match &proposer_id {
+        Some(id) => Some(id.clone()),
+        None => session_agent_deciding_alone(graph, decision_id, &acceptors)?,
+    };
     let review = derive_review(
-        proposer_id.as_deref(),
+        recorder.as_deref(),
         &acceptors,
         accepted_count,
         rejected_count,
@@ -305,6 +314,27 @@ fn derive_authorship(proposer_kind: &str, acceptors: &[(String, String)]) -> Aut
         }
         _ => AuthorshipShape::Unknown,
     }
+}
+
+/// The sole acceptor of a decision that names no proposer, when it is an agent that took part in
+/// the conversation the decision was drafted from (`PARTICIPATED_BY`): the session agent made
+/// the call and carried it out, and the draft credits no one else. A person who accepts such a
+/// draft afterwards, or an agent that was not in the session, reviewed it.
+fn session_agent_deciding_alone(
+    graph: &impl GraphView,
+    decision_id: &str,
+    acceptors: &[(String, String)],
+) -> Result<Option<String>> {
+    let [(acceptor_id, kind)] = acceptors else {
+        return Ok(None);
+    };
+    if kind != "agent" {
+        return Ok(None);
+    }
+    let participants = linked_actor_ids(graph, decision_id, "PARTICIPATED_BY")?;
+    Ok(participants
+        .contains(acceptor_id)
+        .then(|| acceptor_id.clone()))
 }
 
 fn derive_review(

@@ -1411,11 +1411,45 @@ fn brief_of_a_classifier_draft_says_where_it_was_drafted_and_why_nobody_decided(
         "{text}"
     );
     assert!(
-        text.contains(
-            "  undecided: a classifier draft is never self-accepted, and the transcript names no one who accepted it\n"
-        ),
+        text.contains("  undecided: the transcript names no one who accepted it\n"),
         "{text}"
     );
+    Ok(())
+}
+
+/// hivemind-26br4: the session agent's own call prints one "decided by" line, whether or not the
+/// classifier also named it as the proposer, and neither says a peer reviewed it.
+#[test]
+fn brief_of_an_agents_own_call_reads_the_same_with_or_without_a_named_proposer() -> Result<()> {
+    let scenario = Scenario::new();
+    scenario.received_batch("batch:1", "sess-1", "2026-06-01T00:00:00Z")?;
+    let captures = vec![
+        crate::queries::test_fixtures::decision_capture(
+            "Unnamed",
+            serde_json::json!({ "actor_id": null, "accepted_by": ["agent:claude:hook"] }),
+        ),
+        crate::queries::test_fixtures::decision_capture(
+            "Named",
+            serde_json::json!({
+                "actor_id": "agent:claude:hook",
+                "accepted_by": ["agent:claude:hook"]
+            }),
+        ),
+    ];
+    let event = scenario.classified_captures(
+        "agent:claude:classifier",
+        "2026-06-01T00:01:00Z",
+        captures,
+    )?;
+    let graph = scenario.graph()?;
+
+    let line = "  decided by: agent:claude:hook (source=cli, review=SelfAccepted)\n";
+    for index in 0..2 {
+        let text = brief_text(&graph, &format!("capture:{event}:{index}"))?;
+        assert!(text.contains(line), "{text}");
+        assert!(!text.contains("recorded by:"), "{text}");
+        assert!(!text.contains("PeerReviewed"), "{text}");
+    }
     Ok(())
 }
 
@@ -1433,7 +1467,10 @@ fn brief_of_a_draft_from_an_unreceived_conversation_does_not_guess_who_was_there
     let text = brief_text(&scenario.graph()?, &draft)?;
 
     assert!(!text.contains("drafted in:"), "{text}");
-    assert!(text.contains("  undecided: a classifier draft"), "{text}");
+    assert!(
+        text.contains("  undecided: the transcript names no one"),
+        "{text}"
+    );
     Ok(())
 }
 

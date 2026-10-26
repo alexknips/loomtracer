@@ -83,6 +83,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   with it. A verb that writes (`disagree`, `supersede`, `ground`, ...) is unchanged: it never acts
   on a decision for the words of another. The classifier's restatement check still shows its judge
   a decision that rests on a nearby one, beside it. (hivemind-zdsh.25)
+- **An agent's own call reads as the agent's own, whether or not the classifier also named it as
+  the proposer.** A draft that lists the session's own agent in `accepted_by` and names no
+  `actor_id` read `review=PeerReviewed` and `recorded by: unknown`: a review by someone else
+  that never happened. The same call with `actor_id` set to that agent read `SelfAccepted`, and
+  a draft nobody accepted said `a classifier draft is never self-accepted`. Now a classifier
+  draft that names no proposer and whose only acceptor is an agent that took part in the
+  session (`PARTICIPATED_BY`) reads `SelfAccepted` and prints one `decided by: <agent>
+  (review=SelfAccepted)` line, as the named-proposer record does. `proposer_id` and
+  `authorship` stay as recorded: nothing infers a proposer. A person who accepts such a draft
+  afterwards, an agent that was not in the session, and a draft the agent and a person both
+  accepted still read `PeerReviewed`. A draft nobody has accepted now says `undecided: the
+  transcript names no one who accepted it`. The change is in how the graph is read, so records
+  already in a ledger read right with no replay and no event is rewritten. (hivemind-26br4)
 - **Updating the capture client before the cell no longer queues the same turns again on every
   hook run.** A shipper that names a project and talks to a cell that predates project filing
   used to send the span first and look for the cell's echo of the project after: the old cell had

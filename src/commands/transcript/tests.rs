@@ -14,7 +14,8 @@ use crate::events::{
 use crate::ledger::{EventLedger, InMemoryEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::{
-    get_decision_brief, get_waiting_requests, DecisionBrief, DecisionStatus, WaitingRequestsRequest,
+    get_decision_brief, get_waiting_requests, DecisionBrief, DecisionStatus, ReviewShape,
+    WaitingRequestsRequest,
 };
 
 const SUBMITTER: &str = "agent:claude:hook";
@@ -691,6 +692,78 @@ fn who_decided_a_call_relayed_without_its_decider_stays_proposed() {
         "nobody is shown deciding: {deciders:?}"
     );
     assert_eq!(proposer.as_deref(), Some("human:sam"));
+}
+
+// --- how an agent's own call reads reviewed (hivemind-26br4) ---
+//
+// The session agent's own call lists it in `accepted_by`; whether the classifier also credits it
+// as `actor_id` (the proposer) is a detail of the worker. The review must not depend on it, and
+// must never claim a review by someone who is not on record.
+
+/// A fixture's first capture, with `edit` applied to it, as the graph reads it once recorded.
+fn first_draft_edited(fixture: &str, edit: impl FnOnce(&mut Value)) -> DecisionBrief {
+    let mut fixture: Value = serde_json::from_str(fixture).expect("fixture parses");
+    edit(&mut fixture["captures"][0]);
+    let ledger = InMemoryEventLedger::new();
+    let recorded = record(&ledger, &fixture.to_string());
+    draft_brief(&ledger, &recorded)
+}
+
+/// The agent's own call reads self-accepted with or without `actor_id`, and a missing one is not
+/// filled in: `proposer_id` stays what the capture said.
+#[test]
+fn an_agents_own_call_reads_self_accepted_with_or_without_a_named_proposer() {
+    let unnamed = first_draft_edited(AGENT_DECIDES_ALONE, |_| {});
+    let named = first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+        capture["actor_id"] = json!(SUBMITTER);
+    });
+
+    for brief in [&unnamed, &named] {
+        assert_eq!(brief.decided_by.review, ReviewShape::SelfAccepted);
+        assert_eq!(brief.decided_by.decider_ids, [SUBMITTER]);
+    }
+    assert_eq!(unnamed.decided_by.proposer_id, None);
+    assert_eq!(named.decided_by.proposer_id.as_deref(), Some(SUBMITTER));
+}
+
+/// Another agent that decided, with no proposer named, was not the session's: the draft's only
+/// decider was not in the conversation, so the call is not read as that agent's own.
+#[test]
+fn an_agent_outside_the_session_deciding_is_not_read_as_its_own_call() {
+    let brief = first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+        capture["accepted_by"] = json!(["agent:claude:planner"]);
+    });
+
+    assert_eq!(brief.decided_by.review, ReviewShape::PeerReviewed);
+}
+
+/// The session agent and a person both accepted it: someone else looked at it.
+#[test]
+fn the_session_agent_and_a_person_deciding_together_read_peer_reviewed() {
+    let brief = first_draft_edited(AGENT_DECIDES_ALONE, |capture| {
+        capture["accepted_by"] = json!([SUBMITTER, "human:sam"]);
+    });
+
+    assert_eq!(brief.decided_by.review, ReviewShape::PeerReviewed);
+}
+
+/// A person who accepts a draft nobody decided has reviewed it, whoever recorded it.
+#[test]
+fn a_person_accepting_a_draft_that_names_no_proposer_is_a_review() {
+    let ledger = InMemoryEventLedger::new();
+    let mut fixture: Value = serde_json::from_str(AGENT_DECIDES_ALONE).expect("parses");
+    fixture["captures"][0]["accepted_by"] = json!(null);
+    let recorded = record(&ledger, &fixture.to_string());
+    let draft = draft_brief(&ledger, &recorded);
+    assert_eq!(draft.decided_by.proposer_id, None);
+
+    commands(&ledger)
+        .accept_decision(&draft.decision_id, ALEX)
+        .expect("a person can accept a draft");
+
+    let brief = brief_of(&ledger, &draft.decision_id);
+    assert_eq!(brief.decided_by.decider_ids, [ALEX]);
+    assert_eq!(brief.decided_by.review, ReviewShape::PeerReviewed);
 }
 
 /// The decision the first capture of `recorded` became, as the graph reads it.

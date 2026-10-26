@@ -1297,11 +1297,14 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
                 recorder, decided_by.source, decided_by.review
             );
         }
-        [only] if only == recorder => {
+        // Self-acceptance: the decider is the one who made the call, even where the ledger names
+        // no recorder (an agent's own call on a classifier draft), so "recorded by: unknown"
+        // would say less than the review does.
+        [only] if only == recorder || decided_by.review == ReviewShape::SelfAccepted => {
             let _ = writeln!(
                 output,
                 "  decided by: {} (source={}, review={:?})",
-                recorder, decided_by.source, decided_by.review
+                only, decided_by.source, decided_by.review
             );
         }
         deciders => {
@@ -1331,8 +1334,8 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
 
 /// Where a classifier-drafted decision was held, as far as the ledger states it, and, while
 /// nobody has accepted it, why it is still open. A draft records what a transcript says and is
-/// never accepted on anyone's behalf, even when it names a chosen option; an unreceived
-/// conversation prints no "drafted in" line rather than a guess.
+/// accepted only by an actor the transcript names, even when it names a chosen option; an
+/// unreceived conversation prints no "drafted in" line rather than a guess.
 fn write_drafted_from(output: &mut String, decided_by: &DecidedBy, drafted: &DraftedFrom) {
     let mut held: Vec<String> = Vec::new();
     if !drafted.session_ids.is_empty() {
@@ -1350,7 +1353,7 @@ fn write_drafted_from(output: &mut String, decided_by: &DecidedBy, drafted: &Dra
     if decided_by.decider_ids.is_empty() && decided_by.review != ReviewShape::Rejected {
         let _ = writeln!(
             output,
-            "  undecided: a classifier draft is never self-accepted, and the transcript names no one who accepted it"
+            "  undecided: the transcript names no one who accepted it"
         );
     }
 }
