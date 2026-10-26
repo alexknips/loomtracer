@@ -949,7 +949,7 @@ fn fold_into_premises(
             let mut roots = premises
                 .iter()
                 .copied()
-                .filter(|at| rests_on[*at].is_empty());
+                .filter(|at| rests_on.get(*at).is_some_and(Vec::is_empty));
             match (roots.next(), roots.next()) {
                 (Some(root), None) => Some(root),
                 _ => None,
@@ -959,8 +959,8 @@ fn fold_into_premises(
 
     let mut led_here: HashMap<usize, Vec<(i64, RecordedCopy)>> = HashMap::new();
     let mut kept: Vec<(usize, ResolverCandidateRow)> = Vec::new();
-    for (at, row) in rows.into_iter().enumerate() {
-        match root_of[at] {
+    for (at, (row, root)) in rows.into_iter().zip(root_of).enumerate() {
+        match root {
             Some(root) => led_here.entry(root).or_default().push((
                 row.event_origin,
                 RecordedCopy {
