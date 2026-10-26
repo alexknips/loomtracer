@@ -37,6 +37,7 @@ src/cli/current_project/tests.rs
 src/cli/project_context/tests.rs
 src/cli/run/beside_cell_tests.rs
 src/commands/tests.rs
+src/commands/batch_project/tests.rs
 src/grounding/tests.rs
 src/supersession_link/tests.rs
 src/floor/tests.rs

@@ -124,40 +124,39 @@ impl<L: EventLedger> Commands<'_, L> {
                 offset,
                 RECEIVED_BATCH_PAGE,
             )?;
-            for row in &rows {
-                let [Some(batch_id), project, source] = row.fields.as_slice() else {
+            let next_offset = rows
+                .last()
+                .filter(|_| rows.len() == RECEIVED_BATCH_PAGE)
+                .map(|last| last.event_id);
+            for row in rows {
+                let Ok([Some(batch_id), project, source]) =
+                    <[Option<String>; 3]>::try_from(row.fields)
+                else {
                     continue;
                 };
-                if !wanted.contains(batch_id.as_str()) || stated.contains_key(batch_id) {
+                if !wanted.contains(batch_id.as_str()) || stated.contains_key(&batch_id) {
                     continue;
                 }
                 // A receipt that states no project says nothing: a later receipt of the same
                 // batch may.
-                let Some((handle, source)) = project
-                    .as_ref()
-                    .zip(source.as_deref().and_then(ProjectSource::parse))
+                let Some((handle, source)) =
+                    project.zip(source.as_deref().and_then(ProjectSource::parse))
                 else {
                     continue;
                 };
-                stated.insert(batch_id.clone(), (handle.clone(), source));
+                stated.insert(batch_id, (handle, source));
             }
-            match rows.last() {
-                Some(last) if rows.len() == RECEIVED_BATCH_PAGE => offset = last.event_id,
-                _ => break,
+            match next_offset {
+                Some(next) => offset = next,
+                None => break,
             }
         }
 
-        let mut named = Vec::new();
-        let mut seen: BTreeSet<&str> = BTreeSet::new();
-        for batch_id in batch_ids {
-            if !seen.insert(batch_id.as_str()) {
-                continue;
-            }
-            if let Some(project) = stated.get(batch_id.as_str()) {
-                named.push(project.clone());
-            }
-        }
-        Ok(named)
+        // Taking each batch's entry out of `stated` also counts a batch named twice once.
+        Ok(batch_ids
+            .iter()
+            .filter_map(|batch_id| stated.remove(batch_id.as_str()))
+            .collect())
     }
 
     /// The nearest project every one of `handles` is part of, following the `part_of` links as
