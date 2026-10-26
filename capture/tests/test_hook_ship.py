@@ -39,6 +39,21 @@ class _StubIngestHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(reply).encode())
 
+    def do_GET(self):
+        self.server.version_requests += 1
+        if self.path != "/v1/version" or not self.server.serves_version:
+            self.send_response(404)
+            self.end_headers()
+            return
+        reply = {"version": "0.8.0+abc", "cargo_version": "0.8.0", "sha": "abc"}
+        # Only a cell that files a batch under its project says so.
+        if self.server.ingest_project:
+            reply["ingest_project"] = True
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(reply).encode())
+
     def log_message(self, *args):  # silence default request logging
         pass
 
@@ -50,6 +65,9 @@ class _StubIngestServer:
         self.httpd = http.server.HTTPServer(("127.0.0.1", 0), _StubIngestHandler)
         self.httpd.requests = []
         self.httpd.echo_project = True
+        self.httpd.ingest_project = True
+        self.httpd.serves_version = True
+        self.httpd.version_requests = 0
         self._statuses = [202]
         self.httpd.next_status_fn = self._next_status
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -65,6 +83,18 @@ class _StubIngestServer:
 
     def set_echo_project(self, echo):
         self.httpd.echo_project = echo
+
+    def set_cell(self, files_projects, serves_version=True):
+        """files_projects False is a cell that predates project filing: it accepts a batch
+        and drops its project, and says nothing of it on /v1/version (or, with
+        serves_version False, has no /v1/version at all)."""
+        self.httpd.echo_project = files_projects
+        self.httpd.ingest_project = files_projects
+        self.httpd.serves_version = serves_version
+
+    @property
+    def version_requests(self):
+        return self.httpd.version_requests
 
     @property
     def url(self):
@@ -310,11 +340,10 @@ class TestHookShipStdinContract(unittest.TestCase):
         with open(cursor_file, encoding="utf-8") as fh:
             self.assertGreater(int(fh.read()), offset_before)
 
-    def test_a_cell_that_does_not_record_the_project_holds_the_span_back(self):
-        """A cell that predates project filing accepts the batch (202) and drops
-        `project`, which would file its decisions in the agent's personal project
-        with nothing said. The client treats a reply without the echo as a failure:
-        cursor untouched, and the span is sent again once the cell is updated."""
+    def _marked_session(self):
+        """A session in a folder marked `loomtracer`, its cursor at the end of one turn.
+
+        Returns (payload, cursor_file, append): append(uuid) adds an assistant turn."""
         repo = os.path.join(self.tmpdir, "repo")
         os.makedirs(repo)
         with open(os.path.join(repo, ".loomtracer-project"), "w", encoding="utf-8") as fh:
@@ -327,6 +356,10 @@ class TestHookShipStdinContract(unittest.TestCase):
                 "message": {"role": role, "content": [{"type": "text", "text": uuid}]},
             }
 
+        def append(uuid):
+            with open(self.transcript_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record(uuid, "assistant")) + "\n")
+
         self._write_transcript([record("u0", "user")])
         payload = {
             "session_id": self.session_id,
@@ -335,26 +368,75 @@ class TestHookShipStdinContract(unittest.TestCase):
             "hook_event_name": "Stop",
         }
         self.assertEqual(self._run_hook(payload).returncode, 0)  # cursor to EOF
-        with open(self.transcript_path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record("a1", "assistant")) + "\n")
         cursor_file = os.path.join(
             self.cursor_home, ".loomtracer", "cursors", f"{self.session_id}.offset"
         )
+        return payload, cursor_file, append
+
+    def _cursor(self, cursor_file):
         with open(cursor_file, encoding="utf-8") as fh:
-            offset_before = int(fh.read())
+            return int(fh.read())
+
+    def test_a_cell_that_predates_project_filing_is_sent_nothing(self):
+        """A cell that predates project filing accepts the batch (202), drops `project`
+        and queues it with no project, and would queue the same span again under a new
+        batch_id on every run, to be filed in the agent's personal project. The client
+        asks the cell first (/v1/version): an old cell is sent nothing at all, the
+        cursor stays, and once the cell is updated the span is sent once
+        (hivemind-8fbto)."""
+        payload, cursor_file, append = self._marked_session()
+        offset_before = self._cursor(cursor_file)
+
+        self.server.set_cell(files_projects=False)
+        for uuid in ("a1", "a2", "a3"):  # a hook run per tool use, the transcript growing
+            append(uuid)
+            result = self._run_hook(payload)
+            self.assertEqual(result.returncode, 0, "the hook never fails")
+            self.assertIn(b"predates project filing", result.stderr)
+            self.assertEqual(self._cursor(cursor_file), offset_before)
+        self.assertEqual(self.server.requests, [], "an old cell queues every batch it gets")
+        self.assertEqual(self.server.version_requests, 3)
+
+        self.server.set_cell(files_projects=True)
+        self.assertEqual(self._run_hook(payload).returncode, 0)
+        self.assertEqual(len(self.server.requests), 1, "the span is sent once")
+        request = self.server.requests[0]
+        self.assertEqual(request["project"], "loomtracer")
+        self.assertEqual([t["turn_id"] for t in request["turns"]], ["a1", "a2", "a3"])
+        self.assertGreater(self._cursor(cursor_file), offset_before)
+
+    def test_a_cell_with_no_version_endpoint_is_sent_nothing(self):
+        """A cell older than /v1/version answers 404: that is no answer either, so the
+        span is held back before anything is sent."""
+        payload, cursor_file, append = self._marked_session()
+        offset_before = self._cursor(cursor_file)
+        append("a1")
+
+        self.server.set_cell(files_projects=False, serves_version=False)
+        result = self._run_hook(payload)
+        self.assertEqual(result.returncode, 0, "the hook never fails")
+        self.assertIn(b"HTTP 404", result.stderr)
+        self.assertEqual(self.server.requests, [])
+        self.assertEqual(self._cursor(cursor_file), offset_before)
+
+    def test_a_cell_that_files_projects_but_does_not_echo_one_holds_the_span_back(self):
+        """The reply is checked as well: a cell that says it files projects and then
+        answers a batch without the project (a proxy in front of an older cell) leaves
+        the cursor, and the span is sent again."""
+        payload, cursor_file, append = self._marked_session()
+        offset_before = self._cursor(cursor_file)
+        append("a1")
 
         self.server.set_echo_project(False)
         result = self._run_hook(payload)
         self.assertEqual(result.returncode, 0, "the hook never fails")
-        self.assertIn(b"predates project filing", result.stderr)
-        with open(cursor_file, encoding="utf-8") as fh:
-            self.assertEqual(int(fh.read()), offset_before)
+        self.assertIn(b"without recording project loomtracer", result.stderr)
+        self.assertEqual(self._cursor(cursor_file), offset_before)
 
         self.server.set_echo_project(True)
         self.assertEqual(self._run_hook(payload).returncode, 0)
         self.assertEqual(len(self.server.requests), 2, "the same span is sent again")
-        with open(cursor_file, encoding="utf-8") as fh:
-            self.assertGreater(int(fh.read()), offset_before)
+        self.assertGreater(self._cursor(cursor_file), offset_before)
 
     def test_falls_back_to_env_when_stdin_has_no_payload(self):
         """No stdin payload (manual invocation): falls back to

@@ -947,11 +947,21 @@ every passive capture landed in the recording agent's personal project
   another project meanwhile, and nothing is lost. (Recording the batch as personal
   with a notice was the other choice. The clients never read the reply, so the notice
   would reach nobody, and a batch recorded as personal stays there.) A personal
-  address is refused too; `project_source` without `project` is a 400. The reply of a cell
-that recorded the project echoes it (`project`, `project_source`); a client that sent one
-and gets no echo (a cell that predates this and dropped the field) holds the span back too,
-so deploy order never files a session's decisions in the personal project unseen. A batch
-sent again after that counts under the first receipt that named a project.
+  address is refused too; `project_source` without `project` is a 400. A batch sent again
+after that counts under the first receipt that named a project.
+- A cell that predates this records a batch and drops its `project`, so the clients ask
+  before they send. Before the first batch of a span that names a project, they read
+  `GET /v1/version` (open, like `/v1/health`), which a cell that files a batch under its
+  project answers with `ingest_project: true`. A cell that does not say so (one that predates
+  this, one with no `/v1/version`, a build between that change and `ingest_project`) or that
+  cannot be reached is sent nothing: the client logs `it predates project filing, so the
+  span is held back`, keeps its cursor, asks again on its next run, and sends the span once,
+  as one batch under the project, after the cell is updated. So deploy order never files a
+  session's decisions in the personal project unseen, and an old cell never queues a span
+  again on every run. A span that names no project does not ask. The reply of a cell that
+  recorded the project echoes it (`project`, `project_source`); a client that sent one and
+  gets no echo holds the rest of the span back too. Batches an old cell queued before the
+  client asked stay in the queue, with no project.
 - The classifier is never asked and cannot change it. When a classification is
   recorded, the write layer reads the batches it covers and records the project on
   the `ingest.batch_classified` event, and the projector files each decision there:

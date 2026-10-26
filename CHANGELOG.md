@@ -63,6 +63,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Updating the capture client before the cell no longer queues the same turns again on every
+  hook run.** A shipper that names a project and talks to a cell that predates project filing
+  used to send the span first and look for the cell's echo of the project after: the old cell had
+  already queued the batch with no project, the shipper held the span back (cursor untouched) and
+  sent it again under a new `batch_id` on the next run, and the old cell queued that too. The
+  classifier filed those batches in the agent's personal project, and once the cell was updated
+  the span shipped one more time, so the same decision was recorded twice, once there and once
+  under the project (on the live cell one session had 60 batches queued, 59 of them from one
+  offset). Now the shipper asks first. Before the first batch of a span that names a project
+  (a marker, or `LOOMTRACER_PROJECT`), it reads `GET /v1/version`, which a cell that files an
+  ingest batch under its project answers with `ingest_project: true`. A cell that says nothing of
+  it (one that predates project filing, or one with no `/v1/version`, or a build between that
+  change and this one) and a cell that cannot be asked receive nothing: the shipper logs `the
+  cell does not file batches under a project: it predates project filing, so the span is held
+  back` and keeps its cursor, and the span ships once, as one batch under the project, after the
+  cell is updated. A span that names no project is sent as before and does not ask. The echo of
+  the reply stays as a second check. Batches an old cell queued before this stay in the queue;
+  the classifier files them in the personal project like any batch that names none. (hivemind-8fbto)
 - **A decision classified from a transcript is filed under the project of the session it came
   from, where every one used to land in the recording agent's personal project.** The passive
   path (the capture shipper → `POST /v1/ingest` → classify queue → `classify-queue submit`)
@@ -78,10 +96,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     handle nobody registered (a personal address too) the way `capture --project` does: a 4xx
     naming `loomtracer project register <handle>`, nothing recorded. The shipper keeps its cursor
     on a refusal and sends the span again once the project exists, so nothing is filed under
-    another project and nothing is lost meanwhile. The reply echoes the recorded `project`; a
-    shipper that sent one and gets no echo (a cell that predates this change accepts the batch and
-    drops the field) holds the span back as well, so the order of cell and shipper updates cannot
-    file a session's decisions in the personal project unseen.
+    another project and nothing is lost meanwhile. The reply echoes the recorded `project`, and
+    `GET /v1/version` says `ingest_project: true`; a shipper asks the cell that before it sends a
+    span that names a project, and sends a cell that does not say so nothing, so the order of cell
+    and shipper updates cannot file a session's decisions in the personal project unseen.
   - The classifier is not asked and cannot change it: when a classification is recorded, the
     write layer reads the batches it covers and records `project` and `project_source` on the
     `ingest.batch_classified` event, and the projector files each decision there. Batches that name

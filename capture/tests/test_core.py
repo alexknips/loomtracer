@@ -6,11 +6,14 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.error
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core import (
     _extract_turn,
+    _require_cell_files_projects,
     _write_cursor,
     cursor_path_for_session,
     jsonl_path_for_session,
@@ -439,11 +442,16 @@ class TestProjectOfBatches(unittest.TestCase):
         core_module.cursor_path_for_session = lambda sid: os.path.join(
             self.cursor_dir, f"{sid}.offset"
         )
+        # No cell here: the one that is asked whether it files projects says yes.
+        self._orig_probe = core_module._require_cell_files_projects
+        self.asked_cell = []
+        core_module._require_cell_files_projects = self.asked_cell.append
         self._orig_env = os.environ.pop("LOOMTRACER_PROJECT", None)
 
     def tearDown(self):
         import core as core_module
         core_module.cursor_path_for_session = self._orig_cursor_path
+        core_module._require_cell_files_projects = self._orig_probe
         os.environ.pop("LOOMTRACER_PROJECT", None)
         if self._orig_env is not None:
             os.environ["LOOMTRACER_PROJECT"] = self._orig_env
@@ -564,10 +572,91 @@ class TestProjectOfBatches(unittest.TestCase):
         self.assertEqual([env["project"] for env in posted], ["loomtracer"])
         self.assertEqual(self._cursor_offset(), os.path.getsize(self.jsonl_path))
 
+    def test_the_cell_is_asked_once_before_a_span_that_names_a_project(self):
+        self._marker(self.repo, "loomtracer")
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(len(posted), 1)
+        self.assertEqual(self.asked_cell, ["http://localhost:8080"])
+
+    def test_a_span_naming_no_project_does_not_ask_the_cell(self):
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(len(posted), 1)
+        self.assertEqual(self.asked_cell, [])
+
+    def test_a_cell_that_does_not_file_projects_is_sent_nothing(self):
+        """The cell is asked before the first POST: a cell that predates project
+        filing records the batch and drops the project, so nothing is sent to it and
+        the cursor stays where the span begins (hivemind-8fbto)."""
+        import core as core_module
+
+        def refuse(api_url):
+            raise RuntimeError("the cell does not file batches under a project")
+
+        core_module._require_cell_files_projects = refuse
+        self._marker(self.repo, "loomtracer")
+        posted = self._ship_new_turn(self.repo)
+        self.assertEqual(posted, [])
+        self.assertLess(self._cursor_offset(), os.path.getsize(self.jsonl_path))
+
     def test_an_empty_marker_is_refused_too(self):
         self._marker(self.repo, "  \n")
         with self.assertRaises(ValueError):
             project_for_session(self.repo, self.jsonl_path)
+
+
+def _version_reply(body):
+    """What urlopen returns for GET /v1/version: a context manager over the reply."""
+    reply = mock.MagicMock()
+    reply.__enter__.return_value.read.return_value = body
+    return reply
+
+
+class TestCellFilesProjects(unittest.TestCase):
+    """The cell is asked, on /v1/version, whether it files a batch under its project."""
+
+    def test_a_cell_that_says_it_files_projects_is_accepted(self):
+        with mock.patch(
+            "urllib.request.urlopen",
+            return_value=_version_reply(b'{"sha": "abc", "ingest_project": true}'),
+        ) as urlopen:
+            _require_cell_files_projects("http://cell.example:8080")
+        self.assertEqual(
+            urlopen.call_args.args[0], "http://cell.example:8080/v1/version"
+        )
+
+    def test_a_cell_that_does_not_say_so_is_refused(self):
+        for reply in (
+            b'{"sha": "abc", "version": "0.8.0+abc"}',
+            b'{"ingest_project": false}',
+            b'{"ingest_project": "yes"}',
+            b"{}",
+            b"",
+            b"not json",
+            b"[]",
+        ):
+            with self.subTest(reply=reply):
+                with mock.patch(
+                    "urllib.request.urlopen", return_value=_version_reply(reply)
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "predates project filing"):
+                        _require_cell_files_projects("http://cell.example:8080")
+
+    def test_a_cell_with_no_version_answer_is_refused_naming_the_status(self):
+        for code in (404, 503):
+            with self.subTest(code=code):
+                error = urllib.error.HTTPError(
+                    "http://cell.example:8080/v1/version", code, "no", {}, None
+                )
+                with mock.patch("urllib.request.urlopen", side_effect=error):
+                    with self.assertRaisesRegex(RuntimeError, f"HTTP {code}"):
+                        _require_cell_files_projects("http://cell.example:8080")
+
+    def test_a_cell_that_cannot_be_reached_raises_like_a_failed_post(self):
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("refused")
+        ):
+            with self.assertRaises(urllib.error.URLError):
+                _require_cell_files_projects("http://cell.example:8080")
 
 
 class TestProjectEcho(unittest.TestCase):

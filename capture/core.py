@@ -14,7 +14,10 @@ from it are filed under that project instead of the agent's personal one: the
 `project_source: folder_marker`), else the LOOMTRACER_PROJECT setting
 (`project_source: stated`), else none. The cell refuses a handle nobody
 registered; the cursor stays put on any refusal, so the span is sent again once
-the project exists and nothing is filed anywhere else meanwhile.
+the project exists and nothing is filed anywhere else meanwhile. A cell that
+predates project filing would record the batch and drop the project, so before a
+span that names one is sent the cell is asked (`GET /v1/version`, `ingest_project`)
+and a cell that does not say so is sent nothing.
 
 Dependencies: stdlib only (json, os, urllib.request).
 """
@@ -234,6 +237,11 @@ def _ship_impl(
     # Worked out before anything is sent, so a broken marker stops the whole span
     # (cursor untouched) rather than shipping some of it under no project.
     project = project_for_session(session_dir, jsonl_path)
+    if project is not None:
+        # Asked before the first POST: a cell that predates project filing records
+        # the batch and drops the project, and a span held back after that is sent
+        # again under a new batch_id on every run.
+        _require_cell_files_projects(api_url)
     for n, start in enumerate(range(0, len(turns), _MAX_BATCH_TURNS)):
         envelope = {
             "batch_id": f"{session_id}:{cursor}-{new_cursor}:{n}",
@@ -358,14 +366,44 @@ def _post(api_url: str, api_key: str, envelope: dict) -> None:
     _require_project_recorded(envelope, reply)
 
 
+def _require_cell_files_projects(api_url: str) -> None:
+    """Raise unless the cell says it files a batch under the project the batch names.
+
+    A cell that predates project filing accepts the batch (202), drops the field and
+    queues the batch with no project, so the check after the POST (the echo, below)
+    holds the span back too late: the next run sends it again under a new batch_id, the
+    old cell queues that too, and once the cell is updated the span ships a last time
+    and its decision is recorded twice. So the cell is asked first, on `GET /v1/version`
+    (open like `/v1/health`), and a cell that does not say `ingest_project` receives
+    nothing. The cursor stays put, and the span is sent once the cell is updated.
+    """
+    try:
+        with urllib.request.urlopen(f"{api_url}/v1/version", timeout=_POST_TIMEOUT) as resp:
+            reply = resp.read()
+    except urllib.error.HTTPError as exc:
+        # A cell older than /v1/version answers 404; any other status is no answer either.
+        raise RuntimeError(
+            f"cannot tell whether the cell files batches under a project: GET /v1/version "
+            f"answered HTTP {exc.code}, so the span is held back and sent again once the "
+            "cell is updated"
+        ) from exc
+    try:
+        files_projects = json.loads(reply).get("ingest_project") is True
+    except (ValueError, AttributeError):
+        files_projects = False
+    if not files_projects:
+        raise RuntimeError(
+            "the cell does not file batches under a project: it predates project filing, "
+            "so the span is held back and sent again once the cell is updated"
+        )
+
+
 def _require_project_recorded(envelope: dict, reply: bytes) -> None:
     """Raise unless the cell says it recorded the project the batch names.
 
-    A cell that predates project filing accepts the batch (202) and drops the
-    field, so its decisions would land in the agent's personal project with
-    nothing said. A cell that records it echoes the handle back; anything else
-    holds the span back (cursor untouched), and the span is sent again once the
-    cell is updated, when the batch counts under its project.
+    The cell was already asked (_require_cell_files_projects), so this is the second
+    check, on the reply itself: a cell that records the project echoes the handle back,
+    and anything else holds the rest of the span back (cursor untouched).
     """
     project = envelope.get("project")
     if not project:

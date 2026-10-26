@@ -105,7 +105,10 @@
 //!   projects appear once a decision is filed in them; read only
 //! - `GET  /v1/health`                             — liveness probe; the server opens its port only
 //!   after it has built every tenant's graph, so the first answer means reads are warm
-//! - `GET  /v1/version`                            — build version + commit sha
+//! - `GET  /v1/version`                            — build version + commit sha, and
+//!   `ingest_project: true` (this cell files a `POST /v1/ingest` batch under the `project` it
+//!   names; a capture client asks before it sends one, and a cell without the field is one that
+//!   would record the batch and drop the project)
 //! - `GET  /v1/whoami`                             — the bearer credential's `actor_id` and
 //!   `tenant_id` (401 like every authenticated route); a shared `LOOMTRACER_API_KEY` is
 //!   `service:api`

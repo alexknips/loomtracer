@@ -153,6 +153,17 @@ async fn health_returns_ok() {
     assert_eq!(body["status"], "ok"); // ubs:ignore
 }
 
+/// hivemind-8fbto: a capture client asks the cell, before it sends a span that names a project,
+/// whether the cell files a batch under it; `/v1/version` answers without a token.
+#[tokio::test]
+async fn version_says_the_cell_files_ingest_batches_under_a_project() {
+    let dir = test_ledger_dir();
+    let (status, body) = call(app(dir), get_req("/v1/version")).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["ingest_project"], true, "{body}"); // ubs:ignore
+    assert!(body["sha"].is_string(), "{body}"); // ubs:ignore
+}
+
 // ---------------------------------------------------------------------------
 // Capture decision and query it back
 // ---------------------------------------------------------------------------

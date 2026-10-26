@@ -51,12 +51,15 @@ Verify:
 curl http://localhost:8080/v1/health
 # {"status":"ok"}
 curl http://localhost:8080/v1/version
-# {"version":"0.6.0+d2d203d1a2b3","cargo_version":"0.6.0","sha":"d2d203d1a2b3"}
+# {"version":"0.8.0+d2d203d1a2b3","cargo_version":"0.8.0","sha":"d2d203d1a2b3","ingest_project":true}
 ```
 
 `/v1/health` and `/v1/version` are both unauthenticated liveness/build probes.
 Like `loomtracer --version` locally, `/v1/version`'s `sha` is what the running
 container was actually built from, not what a tag or `:latest` claims.
+`ingest_project: true` says the cell files a `POST /v1/ingest` batch under the project it
+names; the capture shippers read it before they send a span that names one, and send a cell
+without it nothing (`docs/AGENT_DECISION_CAPTURE.md`).
 
 > **Search note:** `GET /v1/decisions/search` and `GET /v1/decisions/recall` work on both
 > backends — SQLite goes through FTS5, Postgres goes through a portable in-memory term

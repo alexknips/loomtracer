@@ -393,11 +393,16 @@ fn backend_healthy(backend: &ApiBackend) -> bool {
 /// Unauthenticated like `/v1/health`: the deployed build is not tenant data,
 /// and the whole point is letting a freshness check confirm what's running
 /// without first needing a token (hivemind-zdsh.7).
+///
+/// `ingest_project` tells a capture client that `POST /v1/ingest` files a batch under the project
+/// it names. A cell that predates that records the batch and drops the project, so a client asks
+/// before it sends a span that names one: the answer comes too late from the reply (hivemind-8fbto).
 pub(super) async fn version_handler() -> impl IntoResponse {
     Json(serde_json::json!({
         "version": crate::VERSION,
         "cargo_version": env!("CARGO_PKG_VERSION"),
         "sha": crate::BUILD_SHA,
+        "ingest_project": true,
     }))
 }
 
