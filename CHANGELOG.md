@@ -80,6 +80,35 @@ This project adheres to [Semantic Versioning](https://semver.org/).
     compiling that hides a broken artifact. Without `--from-ci` both scripts behave exactly as
     before.
   - `docs/SELF_HOSTING.md` has the steps ("Deploying a commit without compiling"). (hivemind-b3my9)
+- **`loomtracer dispute-attribution`: a person an agent recorded as a decider can say the call
+  was never theirs. A new ledger event, `decision.attribution_disputed`: upgrade the server
+  (the cell image) before any client records one.** A decision's decider comes from an
+  acceptance, and an agent recording a person's call can put that person's name there; the person
+  could not `disagree` (they are the one who accepted, so it was refused) and the suggested
+  `supersede` did not fit, because the acceptance itself was wrong. `loomtracer --actor
+  human:alex dispute-attribution --decision <id> --reason "..."` appends
+  `decision.attribution_disputed {decision_id, reason}` beside the acceptance. Nothing is
+  rewritten or removed, the decision's status does not change, and it is not a rejection.
+  `why`, `verify` and `brief` read `decided by: human:alex (..., disputed by human:alex:
+  <reason>)`; JSON carries `decided_by.attribution_disputes` (`disputed_by`, `reason`,
+  `disputed_at`, each actor's latest) while `decider_ids` still names them, and `timeline` and
+  `history` show it as its own `attribution disputed` entry and `attribution_disputed` change
+  kind. The statement is the actor's own: the event takes no target, and only an actor the
+  ledger names as a decider (a `decision.accepted` of its own, or an id a classifier draft lists
+  in `accepted_by`) can write it, for itself. Anyone else, an agent that recorded the decision
+  included, is refused with the reason and a pointer to `disagree` (CLI exit 3, REST 400), and
+  nothing is written. `disagree`'s refusal of an actor that accepted now names this verb.
+  On the cell it is `POST /v1/decisions/{id}/attribution-disputes` with `{reason}`, and the
+  actor is the credential's own, never a body field; there is **no MCP tool**, because an MCP
+  session under a person's credential is an agent working in that person's name. A local ledger
+  believes a typed `--actor` like every other verb. Readers hard-fail on an event type they do
+  not know, so a server or CLI older than this release stops replaying a ledger that holds one:
+  run this release on the cell first, then on every client. The graph gains one node kind,
+  `AttributionDispute` (id: the event's uuid; `decision_id`, `reason`, `disputed_by`,
+  `disputed_at`), no edge and no relation kind; `GET /v1/graph` lists it as a node with no line
+  to its decision. `Commands::dispute_attribution` and `dispute_attribution_with_uuid` (library
+  callers) append exactly one event; its invariants are in the `commands` module header.
+  (hivemind-purmd)
 
 ### Changed
 

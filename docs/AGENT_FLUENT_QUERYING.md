@@ -1093,6 +1093,26 @@ The hint changes nothing: the event the verb appends is the same as before, the 
 never dropped or replaced by the premise's, and nothing is written for the premise unless the
 caller then runs `disagree` or `supersede` on it.
 
+**`dispute-attribution` is how a person says "I never decided this"** (hivemind-purmd). A
+decision names its decider from an acceptance, and an agent that records a person's call (a
+relayed default, a scribe's note) can write that person's name there. The person cannot
+`disagree`: they are the one who accepted, and the refusal says so. `loomtracer
+--actor human:alex dispute-attribution --decision <id> --reason "<what was recorded in my
+name>"` appends one `decision.attribution_disputed` beside the acceptance, which is neither
+rewritten nor removed, and the decision's status does not change; it is not a rejection.
+`why`, `verify` and `brief` then read `decided by: human:alex (source=..., review=..., disputed
+by human:alex: <reason>)`, and `decided_by.attribution_disputes` in JSON lists each disputing
+actor's latest `{disputed_by, reason, disputed_at}` while `decider_ids` still names them. The
+statement is the actor's own, so the verb takes no target: only an actor the ledger names as a
+decider (a `decision.accepted` of its own, or an id a classifier draft lists in `accepted_by`)
+can dispute, and only for itself; any other actor, an agent that recorded the decision
+included, is refused (CLI exit 3, REST 400) with nothing written. On the cell it is `POST
+/v1/decisions/{id}/attribution-disputes` with `{reason}`, and the actor is the credential's
+own, never a body field or an `actor_id` argument. There is deliberately **no MCP tool**: an MCP
+session under a person's credential is an agent working in that person's name, which is the
+case this verb exists to answer. A local ledger believes a typed `--actor` like every other
+verb, so what holds there is the rule on who may write the event, not who is at the keyboard.
+
 ### 3.1 The `review` naming collision
 
 The bead lists `review` among the verbs to make fluent, glossing it as
@@ -1273,7 +1293,7 @@ pub struct DecisionBrief {
     pub chosen_option: Option<OptionLabel>,
     pub rejected_options: Vec<OptionLabel>,   // label-resolved, rationale shared not per-option; empty while no option is chosen
     pub open_options: Vec<OptionLabel>,       // the options when no choice is recorded: still on the table, never listed as rejected; omitted from JSON when empty
-    pub decided_by: DecidedBy,                // proposer_id, decider_ids, source, source_ref, delegated_by, review shape
+    pub decided_by: DecidedBy,                // proposer_id, decider_ids, source, source_ref, delegated_by, review shape, attribution_disputes (omitted when empty)
     pub rests_on: Vec<GroundingItem>,         // what it rests on: prior decision / evidence / assumption / bet, each with state + provenance
     pub grounding_state: GroundingState,      // grounded | bet | nothing_declared ("never asked")
     pub expressed_confidence: Option<String>, // low | medium | high, the decider's words at capture
@@ -1361,7 +1381,8 @@ established pattern of a per-verb `render_*_summary(&T) -> String` closure
 (e.g. `render_neighborhood_summary`, `render.rs:342`) — but as short
 labeled paragraphs (decision / rationale / rejected options, or open options when no choice is recorded / recorded by
 and decided by, shown as one line on self-acceptance or two when the
-recorder and decider differ / still holds), not the tab-cell table style
+recorder and decider differ, with any decider's dispute of the attribution in the same
+parenthesis / still holds), not the tab-cell table style
 used by list-shaped commands
 (`summary_cell`, `render.rs:456`), since a `DecisionBrief` is a single
 record meant to be read, not a row in a list. IDs appear only in a trailing

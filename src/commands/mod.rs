@@ -207,6 +207,32 @@
 //! - Never: `supersede`, `disagree`, a link or any other command writes a `decision.reaffirmed`.
 //!   Closing an item is always an explicit act of an actor, and no command supersedes a dependent.
 //!
+//! # Attribution dispute (`dispute_attribution`, hivemind-purmd)
+//!
+//! "I never decided this": the actor a decision names as its decider says the call was not
+//! theirs, because someone recorded their name against it (an agent relaying a default, a scribe
+//! writing down a conversation). `dispute_attribution` appends one `decision.attribution_disputed
+//! {decision_id, reason}` and nothing else. Enforced by `dispute_attribution_with_uuid`, tested in
+//! `commands/dispute/tests.rs`:
+//!
+//! - The actor id is valid and not a bare UUID, and is recorded as given. The reason is required
+//!   and must contain words.
+//! - The decision must exist in the tenant (a classified capture counts).
+//! - Only an actor the ledger names as a decider may dispute: one with a `decision.accepted` of
+//!   its own on the decision, or, for a classifier draft, an id listed in the capture's
+//!   `accepted_by`. The dispute is about the event's own actor and takes no target, so nobody
+//!   can write one for someone else. Any other actor is refused with the reason and a pointer to
+//!   `disagree`, and nothing is written.
+//! - It is not a rejection. The acceptance stays as recorded, the decision's status is unchanged,
+//!   and `disagree` keeps refusing an actor that accepted. Nothing is deleted or rewritten; the
+//!   read side shows the attribution and the dispute of it side by side.
+//! - A retry is deduplicated by the event uuid the caller passes
+//!   (`dispute_attribution_with_uuid`). A second dispute by the same actor is a new statement
+//!   and is kept; the read side shows each actor's latest.
+//! - The server takes the actor from the caller's credential, never from an argument, and there
+//!   is no MCP tool for it: an agent working in a person's session must not be able to speak for
+//!   them.
+//!
 //! # Restatements (`restatement` module, hivemind-83cj)
 //!
 //! A decision stated again is one decision, not two. The classifier (layer 3) judges that a
@@ -350,6 +376,7 @@ use uuid::Uuid;
 mod batch_project;
 mod capture_labels;
 mod capture_warning;
+mod dispute;
 mod ground_later;
 mod grounding;
 mod project_rename;
@@ -4734,7 +4761,9 @@ fn already_accepted_refusal(actor_id: &str, decision_id: &str) -> CommandError {
         "{actor_id} already accepted decision {decision_id}, so it cannot also reject it. \
          To change your own decision, record the replacement with `loomtracer supersede --old {decision_id} \
          --title ... --rationale ... --chose ...`. If only the wording or the project is wrong, \
-         use `loomtracer retitle` or `loomtracer move`."
+         use `loomtracer retitle` or `loomtracer move`. If the call was never yours and someone \
+         else recorded your name against it, say so with `loomtracer dispute-attribution \
+         --decision {decision_id} --reason ...`: it is kept beside the acceptance, which stays."
     ))
 }
 

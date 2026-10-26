@@ -507,6 +507,18 @@ fn every_write_path_event_validates_against_its_schema() {
         })
         .expect("reaffirm decision");
 
+    // -- decision.attribution_disputed (hivemind-purmd): a decider says the call was not theirs --
+    commands
+        .accept_decision(&retitled_decision_id, "human:disputer")
+        .expect("name a decider");
+    commands
+        .dispute_attribution(
+            "human:disputer",
+            &retitled_decision_id,
+            "contract test exercising decision.attribution_disputed",
+        )
+        .expect("dispute attribution");
+
     // -- grounding (hivemind-gwhr.1): a bet hypothesis with kind/check_by/would_change_if, a
     // decision that follows from a premise at capture (relation.added FOLLOWS_FROM with
     // causation), later grounding without causation, and a standalone FOLLOWS_FROM link --
@@ -624,6 +636,7 @@ fn every_write_path_event_validates_against_its_schema() {
         EventType::DecisionMoved,
         EventType::DecisionRetitled,
         EventType::DecisionReaffirmed,
+        EventType::DecisionAttributionDisputed,
         EventType::ProjectRegistered,
         EventType::ProjectLinked,
         EventType::ProjectUnlinked,
@@ -727,6 +740,7 @@ fn schema_file_stem(event_type: EventType) -> &'static str {
         EventType::DecisionMoved => "decision.moved",
         EventType::DecisionRetitled => "decision.retitled",
         EventType::DecisionReaffirmed => "decision.reaffirmed",
+        EventType::DecisionAttributionDisputed => "decision.attribution_disputed",
         EventType::ProjectRegistered => "project.registered",
         EventType::ProjectLinked => "project.linked",
         EventType::ProjectUnlinked => "project.unlinked",

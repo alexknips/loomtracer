@@ -121,6 +121,11 @@ pub enum EventType {
     /// reopens it (hivemind-ottw.1).
     #[serde(rename = "decision.reaffirmed")]
     DecisionReaffirmed,
+    /// The actor a decision names as its decider says the call was never theirs: someone else
+    /// recorded their name against it. Appended beside the acceptance, which is not rewritten or
+    /// removed; the read side shows both (hivemind-purmd).
+    #[serde(rename = "decision.attribution_disputed")]
+    DecisionAttributionDisputed,
     #[serde(rename = "project.registered")]
     ProjectRegistered,
     #[serde(rename = "project.linked")]
@@ -1382,6 +1387,20 @@ pub struct DecisionReaffirmedPayload {
     pub reason: String,
 }
 
+/// `decision.attribution_disputed` (hivemind-purmd). The actor on the envelope is the one
+/// disputing: a person (or agent) the decision names as its decider, saying the call was not
+/// theirs. `reason` is their own statement of it. There is no verdict field and no target
+/// actor: the dispute is about the envelope's own actor, and that the actor is a recorded
+/// decider of `decision_id` is enforced by `commands::dispute_attribution`, not here; the event
+/// schema only shapes the wire format. Nothing here is ever edited in place, and the acceptance
+/// it disputes is neither rewritten nor removed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionAttributionDisputedPayload {
+    pub decision_id: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectRegisteredPayload {
@@ -1449,6 +1468,7 @@ pub enum EventPayload {
     DecisionMoved(DecisionMovedPayload),
     DecisionRetitled(DecisionRetitledPayload),
     DecisionReaffirmed(DecisionReaffirmedPayload),
+    DecisionAttributionDisputed(DecisionAttributionDisputedPayload),
     ProjectRegistered(ProjectRegisteredPayload),
     ProjectLinked(ProjectLinkPayload),
     ProjectUnlinked(ProjectLinkPayload),
@@ -1483,6 +1503,7 @@ impl EventPayload {
             Self::DecisionMoved(_) => EventType::DecisionMoved,
             Self::DecisionRetitled(_) => EventType::DecisionRetitled,
             Self::DecisionReaffirmed(_) => EventType::DecisionReaffirmed,
+            Self::DecisionAttributionDisputed(_) => EventType::DecisionAttributionDisputed,
             Self::ProjectRegistered(_) => EventType::ProjectRegistered,
             Self::ProjectLinked(_) => EventType::ProjectLinked,
             Self::ProjectUnlinked(_) => EventType::ProjectUnlinked,
@@ -1518,6 +1539,7 @@ impl EventPayload {
             Self::DecisionMoved(payload) => serde_json::to_value(payload),
             Self::DecisionRetitled(payload) => serde_json::to_value(payload),
             Self::DecisionReaffirmed(payload) => serde_json::to_value(payload),
+            Self::DecisionAttributionDisputed(payload) => serde_json::to_value(payload),
             Self::ProjectRegistered(payload) => serde_json::to_value(payload),
             Self::ProjectLinked(payload) => serde_json::to_value(payload),
             Self::ProjectUnlinked(payload) => serde_json::to_value(payload),
@@ -2050,6 +2072,12 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             require_non_empty("payload.premise_id", &payload.premise_id)?;
             require_non_empty("payload.reason", &payload.reason)?;
             Ok(EventPayload::DecisionReaffirmed(payload))
+        }
+        EventType::DecisionAttributionDisputed => {
+            let payload: DecisionAttributionDisputedPayload = parse_payload(event)?;
+            require_non_empty("payload.decision_id", &payload.decision_id)?;
+            require_non_empty("payload.reason", &payload.reason)?;
+            Ok(EventPayload::DecisionAttributionDisputed(payload))
         }
         EventType::ProjectRegistered => {
             let payload: ProjectRegisteredPayload = parse_payload(event)?;

@@ -121,6 +121,13 @@ pub(super) struct DisagreeRequest {
     reason: String,
 }
 
+/// `POST /v1/decisions/{id}/attribution-disputes` (hivemind-purmd). The caller is the credential's
+/// own actor, never a body field: there is nothing to name a different person with.
+#[derive(Debug, Deserialize)]
+pub(super) struct DisputeAttributionRequest {
+    reason: String,
+}
+
 /// `POST /v1/decisions/{id}/reaffirmations` (hivemind-ottw.4). The premise is named by its id:
 /// a REST caller states what it means, where the CLI and MCP also accept one open item implied.
 #[derive(Debug, Deserialize)]
@@ -716,6 +723,54 @@ pub(super) async fn disagree_handler(
             "decision_status": decision_status,
             "rests_on": upstream.rests_on,
             "raise_upstream": upstream.raise_upstream,
+        }))
+    })
+    .await;
+
+    respond(result, StatusCode::OK)
+}
+
+/// Say that the decision names the caller as its decider and the call was never theirs
+/// (hivemind-purmd). The actor is the credential's: a person's own token disputes for that
+/// person, and an agent token, which no decision names as a decider unless the agent decided it,
+/// is refused with 400 and nothing written, like a person who is not a decider. The acceptance
+/// is neither removed nor rewritten and the decision's status is unchanged.
+pub(super) async fn dispute_attribution_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(decision_id): Path<String>,
+    payload: std::result::Result<Json<DisputeAttributionRequest>, JsonRejection>,
+) -> Response {
+    let ctx = match extract_ctx(&state, &headers).await {
+        Ok(c) => c,
+        Err(e) => return e.into_response(),
+    };
+    let req = match payload {
+        Ok(Json(r)) => r,
+        Err(e) => return ApiError::validation(e.to_string()).into_response(),
+    };
+
+    let backend = Arc::clone(&state.backend);
+    let result = tokio::task::spawn_blocking(move || {
+        if req.reason.trim().is_empty() {
+            return Err(ApiError::validation("reason must not be empty"));
+        }
+        let ledger = backend.open_ledger_for_tenant(&ctx.tenant_id)?;
+        let commands = Commands::new_with_context(
+            &ledger,
+            CommandContext::new(
+                ctx.tenant_id.clone(),
+                EventProvenance::api(Some(ctx.actor_id.clone())),
+            ),
+        );
+        let event_id = commands
+            .dispute_attribution(&ctx.actor_id, &decision_id, &req.reason)
+            .map_err(to_api_error)?;
+
+        Ok(serde_json::json!({
+            "decision_id": decision_id,
+            "event_id": event_id,
+            "disputed_by": ctx.actor_id,
         }))
     })
     .await;

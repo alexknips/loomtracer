@@ -112,7 +112,8 @@ a reader needs without reconstructing them from edges:
   option is a node labelled with the recorded words, with a `CHOSE` edge and no `HAS_OPTION`.
 - **`nodes[]` with `kind: "Question"`, `"Ask"`, `"Blocker"` or `"DecisionRequest"`** carry a
   `label`: the words that were asked for a question and an ask (`text`), the one-line `reason`
-  for a blocker and a decision request. A `Reaffirmation` reads as its `reason` the same way.
+  for a blocker and a decision request. A `Reaffirmation` and an `AttributionDispute` read as their
+  `reason` the same way.
   None of these has a title, so without the label a page can only call the node untitled.
 
 Both are pure reads: three bulk edge scans (`SUPERSEDES`, `ACCEPTED_BY`, `REJECTED_BY`), no
@@ -279,6 +280,16 @@ A reaffirmation is recorded after both ends exist, so each line runs from it, ne
 like every arrow. `GET /v1/graph` marks them `"derived": true`; a stored edge carries no such
 key. They are not edges: no query returns them, `RelationKind` has no variant for them, and a
 line is left out when the node it names is not in the graph.
+
+An `AttributionDispute` node is created by `decision.attribution_disputed` ("I never decided
+this"): its id is the event's uuid, and it carries `decision_id`, `reason`, `disputed_by` (the
+event's actor, always one the decision names as a decider) and `disputed_at`, plus the usual
+`event_origin`. It has no edges, for the reason a `Reaffirmation` has none, and one more: the
+acceptance it disputes keeps its `ACCEPTED_BY` edge and its actor exactly as recorded, so the
+graph holds the attribution and the dispute of it side by side and nothing is rewritten. The
+decision's status is untouched (a dispute is not a rejection). A reader takes the nodes in bulk
+and matches `decision_id`; `decided_by.attribution_disputes` of a decision brief is the latest
+node of each `disputed_by`. The graph views draw the node without a line to its decision.
 
 A `Notification` node is created by `notification.sent` (about a blocker, with a
 `NOTIFICATION_FOR_BLOCKER` edge) or by `suggestion.surfaced` (about a finding: it carries

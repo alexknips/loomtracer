@@ -7715,3 +7715,88 @@ async fn classify_queue_submit_names_a_capture_with_a_bucket_label_and_records_t
     .await;
     assert_eq!(pending["batches"].as_array().unwrap().len(), 0, "{pending}"); // ubs:ignore
 }
+
+// ---------------------------------------------------------------------------
+// Attribution disputes (hivemind-purmd)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn only_the_named_decider_disputes_an_acceptance_and_why_shows_both() {
+    use loomtracer::events::EventType;
+    use loomtracer::ledger::EventLedger as _;
+
+    let dir = test_ledger_dir();
+    // `post_json` is the agent `agent:test:session-1`, who records the decision and names the
+    // person as its decider.
+    let decision_id = capture_for_graph(
+        &dir,
+        "The product has a new name",
+        Some("Option one"),
+        Some("human:alex"),
+    )
+    .await;
+    let uri = format!("/v1/decisions/{decision_id}/attribution-disputes");
+    let reason = "I never agreed to this name; an agent relayed a default in my name";
+
+    // The agent holds the credential, so the actor is the agent's, which the decision does not
+    // name as its decider: refused with a reason, nothing written.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(&uri, serde_json::json!({ "reason": reason })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("is not recorded as a decider"),
+        "{body}"
+    ); // ubs:ignore
+    let appended = |dir: &Path| {
+        loomtracer::ledger::SqliteEventLedger::open(dir)
+            .unwrap()
+            .read(0, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::DecisionAttributionDisputed)
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        appended(&dir).is_empty(),
+        "a refused dispute writes nothing"
+    );
+
+    // The reason is the person's statement, and a blank one is no statement.
+    let (status, _) = call(
+        app(dir.clone()),
+        post_json_as_actor(&uri, serde_json::json!({ "reason": "  " }), "human:alex"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST); // ubs:ignore
+
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json_as_actor(&uri, serde_json::json!({ "reason": reason }), "human:alex"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["disputed_by"], "human:alex"); // ubs:ignore
+    let disputes = appended(&dir);
+    assert_eq!(disputes.len(), 1);
+    assert_eq!(disputes[0].actor_id, "human:alex");
+
+    let (status, body) = call(
+        app(dir),
+        get_req(&format!("/v1/decisions/why?id={decision_id}")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    let decided_by = &body["data"]["root"]["decided_by"];
+    assert_eq!(decided_by["decider_ids"], serde_json::json!(["human:alex"])); // ubs:ignore
+    assert_eq!(
+        decided_by["attribution_disputes"][0]["disputed_by"],
+        "human:alex"
+    ); // ubs:ignore
+    assert_eq!(decided_by["attribution_disputes"][0]["reason"], reason); // ubs:ignore
+}

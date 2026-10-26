@@ -34,8 +34,9 @@ use super::reexamine::{
     propagation_of_decision, Propagation, ReexamineEntry, DEFAULT_PROPAGATION_WINDOW_DAYS,
 };
 use super::shared::{
-    neighbor_edges_with_time, node_row, optional_datetime, optional_string, optional_string_list,
-    query_error, query_timer_start, Direction,
+    neighbor_edges_with_time, node_row, node_rows, optional_datetime, optional_int,
+    optional_string, optional_string_list, query_error, query_timer_start, required_string,
+    Direction,
 };
 use super::status::DecisionStatus;
 use super::QueryResponse;
@@ -92,6 +93,55 @@ pub struct DecidedBy {
     /// a draft (a `capture:<offset>:<index>` node), whatever it can say about the conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drafted_from: Option<DraftedFrom>,
+    /// Actors the decision names as deciders who said the call was not theirs
+    /// (`decision.attribution_disputed`), one per actor with their latest statement. The
+    /// acceptance stays in `decider_ids` as recorded: a dispute sits beside it, never replaces it
+    /// (hivemind-purmd).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attribution_disputes: Vec<AttributionDispute>,
+}
+
+/// One actor's statement that a decision names them as its decider and the call was not theirs.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AttributionDispute {
+    pub disputed_by: String,
+    pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disputed_at: Option<DateTime<Utc>>,
+}
+
+/// The attribution disputes recorded against `decision_id`: each disputing actor's latest
+/// statement, in the order those statements were recorded. One bulk read of the (few) dispute
+/// nodes: they have no edges, so the decision is matched on the node's `decision_id` property.
+fn attribution_disputes(
+    graph: &impl GraphView,
+    decision_id: &str,
+) -> Result<Vec<AttributionDispute>> {
+    let mut disputes: Vec<(i64, AttributionDispute)> = Vec::new();
+    for (_, row) in node_rows(graph, NodeKind::AttributionDispute)? {
+        if required_string(&row, "decision_id")? != decision_id {
+            continue;
+        }
+        let origin = optional_int(&row, "event_origin").unwrap_or(i64::MAX);
+        let dispute = AttributionDispute {
+            disputed_by: optional_string(&row, "disputed_by").unwrap_or_default(),
+            reason: optional_string(&row, "reason").unwrap_or_default(),
+            disputed_at: optional_datetime(&row, "disputed_at")?,
+        };
+        match disputes
+            .iter_mut()
+            .find(|(_, seen)| seen.disputed_by == dispute.disputed_by)
+        {
+            Some((seen_origin, _)) if *seen_origin > origin => {}
+            Some(slot) => *slot = (origin, dispute),
+            None => disputes.push((origin, dispute)),
+        }
+    }
+    disputes.sort_by(|(a, left), (b, right)| {
+        a.cmp(b)
+            .then_with(|| left.disputed_by.cmp(&right.disputed_by))
+    });
+    Ok(disputes.into_iter().map(|(_, dispute)| dispute).collect())
 }
 
 /// The conversation a classifier drafted a decision from, as the ledger's received batches state
@@ -255,6 +305,7 @@ pub(crate) fn get_decision_brief_with_labels(
         .ok_or_else(|| query_error("decision exists but has no outcome"))?;
     let (occurred_at, expressed_confidence, slug, session_ids) =
         decision_capture_facts(graph, decision_id)?;
+    let attribution_disputes = attribution_disputes(graph, decision_id)?;
     let rejecter_ids = if context.rejected_count > 0 {
         linked_actor_ids(graph, decision_id, "REJECTED_BY")?
     } else {
@@ -328,6 +379,7 @@ pub(crate) fn get_decision_brief_with_labels(
             review: context.review,
             rejecter_ids,
             drafted_from,
+            attribution_disputes,
         },
         rests_on: grounding.items,
         grounding_state: grounding.state,

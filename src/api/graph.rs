@@ -399,11 +399,15 @@ fn graph_entry(
         .or_else(|| string_field("handle"))
         // A question and an ask read as the words that were asked.
         .or_else(|| string_field("text"))
-        // A reaffirmation, a blocker and a decision request read as their one-line reason.
+        // A reaffirmation, an attribution dispute, a blocker and a decision request read as
+        // their one-line reason.
         .or_else(|| {
             matches!(
                 kind,
-                NodeKind::Reaffirmation | NodeKind::Blocker | NodeKind::DecisionRequest
+                NodeKind::Reaffirmation
+                    | NodeKind::AttributionDispute
+                    | NodeKind::Blocker
+                    | NodeKind::DecisionRequest
             )
             .then(|| string_field("reason"))
             .flatten()
@@ -510,6 +514,7 @@ fn graph_node_projection(kind: NodeKind) -> &'static str {
         NodeKind::Project => "node.id AS id, node.handle AS handle, node.display_name AS display_name",
         NodeKind::Ask => "node.id AS id, node.text AS text, node.question_id AS question_id",
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
+        NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at",
     }
 }
 

@@ -6354,6 +6354,14 @@ pub(super) fn every_event_scenario() -> Result<InMemoryEventLedger> {
             }),
         ),
         event(
+            EventType::DecisionAttributionDisputed,
+            "human:alice",
+            json!({
+                "decision_id": "decision:2",
+                "reason": "an agent recorded my name against a call I did not make"
+            }),
+        ),
+        event(
             EventType::BlockerResolved,
             "agent:release-bot",
             json!({
@@ -6495,6 +6503,83 @@ fn two_reaffirmations_of_one_pair_are_two_nodes_on_the_memory_graph() -> Result<
     use crate::queries::test_fixtures::{assert_reaffirmation_nodes, reaffirmation_scenario};
 
     assert_reaffirmation_nodes(&reaffirmation_scenario()?.graph()?)
+}
+
+// ── Attribution disputes (hivemind-purmd): a "not my call" is a node beside the acceptance ──
+
+#[test]
+fn decision_attribution_disputed_projects_one_node_and_leaves_the_acceptance_alone() -> Result<()> {
+    let disputed = event(
+        EventType::DecisionAttributionDisputed,
+        "human:alice",
+        json!({
+            "decision_id": "decision:named",
+            "reason": "An agent relayed a default in my name"
+        }),
+    );
+    let node_id = disputed.event_uuid.to_string();
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(event(
+        EventType::DecisionProposed,
+        "agent:claude:scribe",
+        json!({
+            "decision_id": "decision:named",
+            "title": "The product has a new name",
+            "rationale": "A default, relayed",
+            "topic_keys": ["naming"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+    ))?;
+    ledger.append(event(
+        EventType::DecisionAccepted,
+        "human:alice",
+        json!({"decision_id": "decision:named"}),
+    ))?;
+    ledger.append(disputed)?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let edges = graph.edges();
+    assert!(
+        edges
+            .keys()
+            .any(|(kind, from, to)| *kind == RelationKind::AcceptedBy
+                && from == "decision:named"
+                && to == "human:alice"),
+        "the acceptance keeps its ACCEPTED_BY edge: {edges:?}"
+    );
+    let nodes = graph.nodes();
+    let props = nodes
+        .get(&(NodeKind::AttributionDispute, node_id))
+        .expect("the node is id'd by the event's uuid");
+    for (key, expected) in [
+        ("decision_id", "decision:named"),
+        ("reason", "An agent relayed a default in my name"),
+        ("disputed_by", "human:alice"),
+    ] {
+        assert_eq!(
+            props.get(key),
+            Some(&GraphValue::String(expected.to_owned())),
+            "{key}"
+        );
+    }
+    assert!(matches!(
+        props.get("disputed_at"),
+        Some(GraphValue::String(_))
+    ));
+    assert_eq!(
+        edges
+            .keys()
+            .filter(|(kind, _, _)| *kind == RelationKind::AcceptedBy)
+            .count(),
+        1,
+        "the dispute adds no edge of its own"
+    );
+    Ok(())
 }
 
 // ── Arrow orientation (hivemind-ku1x): every arrow runs newer -> older ──

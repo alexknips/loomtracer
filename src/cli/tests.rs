@@ -14889,3 +14889,135 @@ fn a_classified_batch_leaves_out_a_capture_with_a_bucket_label_and_records_the_r
     )?;
     Ok(())
 }
+
+// hivemind-purmd: a person an agent recorded as a decider can say the call was never theirs. The
+// dispute lands beside the acceptance (which stays), `why` shows both, an actor the decision does
+// not name as decider is refused, and `disagree` keeps refusing the acceptor.
+#[test]
+fn a_named_decider_disputes_an_acceptance_recorded_in_their_name_and_why_shows_both() {
+    let loomtracer_dir = unique_test_dir("dispute-attribution");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let scribe = "agent:claude:scribe";
+    let person = "human:alex";
+    let reason = "I never agreed to this name; an agent relayed a default in my name";
+    let decision_id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "The product has a new name",
+        "--rationale",
+        "A default the agent relayed",
+        "--topic-keys",
+        "naming",
+        "--options",
+        "Upheld",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        person,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("the acceptance recorded in the person's name");
+
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+    let refused = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "dispute-attribution",
+        "--decision",
+        &decision_id,
+        "--reason",
+        reason,
+    ]))
+    .expect_err("the scribe is not the decider, so it cannot dispute for the person");
+    let printed = format_error(false, &refused);
+    assert!(
+        printed.contains(&format!("{scribe} is not recorded as a decider")),
+        "{printed}"
+    );
+    assert_eq!(exit_code_for_error(&refused).code(), 3, "{printed}");
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused dispute writes nothing"
+    );
+
+    let recorded: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            person,
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "dispute-attribution",
+            "--decision",
+            &decision_id,
+            "--reason",
+            reason,
+        ]))
+        .expect("the person disputes their own attribution"),
+    )
+    .expect("valid dispute json");
+    assert_eq!(recorded["disputed_by"], person);
+    assert_eq!(recorded["decision_id"], decision_id.as_str());
+
+    let why = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        dir,
+        "query",
+        "why",
+        "The product has a new name",
+        "--summary",
+    ]))
+    .expect("why answers");
+    let decided_by = why
+        .lines()
+        .find(|line| line.trim_start().starts_with("decided by: "))
+        .unwrap_or_else(|| panic!("why names who decided: {why}"));
+    assert!(
+        decided_by.contains(person)
+            && decided_by.contains(&format!("disputed by {person}: {reason}")),
+        "the acceptance and the dispute of it read side by side: {decided_by}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "query",
+            "why",
+            "The product has a new name",
+        ]))
+        .expect("why json"),
+    )
+    .expect("valid why json");
+    let decided_by = &json["data"]["root"]["decided_by"];
+    assert_eq!(decided_by["decider_ids"], serde_json::json!([person]));
+    assert_eq!(
+        decided_by["attribution_disputes"][0]["disputed_by"], person,
+        "{decided_by}"
+    );
+    assert_eq!(decided_by["attribution_disputes"][0]["reason"], reason);
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}

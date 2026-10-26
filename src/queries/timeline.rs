@@ -109,6 +109,12 @@ pub enum TimelineFact {
         premise_id: String,
         reason: String,
     },
+    /// The actor the decision names as its decider said the call was not theirs
+    /// (`decision.attribution_disputed`), and why. The actor is the entry's own. The decision's
+    /// standing is unchanged, so it is not a revision (hivemind-purmd).
+    AttributionDisputed {
+        reason: String,
+    },
 }
 
 impl TimelineFact {
@@ -319,6 +325,7 @@ const FACT_EVENT_TYPES: &[EventType] = &[
     EventType::DecisionRetitled,
     EventType::DecisionMoved,
     EventType::DecisionReaffirmed,
+    EventType::DecisionAttributionDisputed,
     EventType::RelationAdded,
 ];
 
@@ -551,6 +558,12 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
                 TimelineFact::Reaffirmed {
                     premise_id: reaffirmed.premise_id,
                     reason: reaffirmed.reason,
+                },
+            ),
+            EventPayload::DecisionAttributionDisputed(disputed) => push(
+                &disputed.decision_id,
+                TimelineFact::AttributionDisputed {
+                    reason: disputed.reason,
                 },
             ),
             EventPayload::RelationAdded(relation) => match relation.relation {

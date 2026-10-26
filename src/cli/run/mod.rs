@@ -81,15 +81,16 @@ use crate::{LoomtracerError, Result};
 use super::args::{
     ClassifyQueueArgs, ClassifyQueueCommand, ClassifyQueueListArgs, ClassifyQueueSubmitArgs, Cli,
     Command, ConnectorArgs, ConnectorAuthArgs, ConnectorCommand, DecisionCaptureSource, DigestArgs,
-    DisagreeArgs, DumpArgs, DumpFormat, EmitArgs, EmitCaptureProvenanceArgs, EmitCommand,
-    EmitDecisionProposedArgs, EmitHypothesisKind, EmitRelationKind, ExportArgs, GraphBackend,
-    ImportArgs, ImportCommand, ImportConnectorCommand, ImportDocumentsArgs, IngestArgs,
-    IngestCommand, IngestSlackThreadArgs, MapArgs, McpArgs, MoveArgs, OptionLabelArgs,
-    ProjectAnchorArgs, ProjectArgs, ProjectCommand, ProjectDecisionsArgs, ProjectDeclareTopicArgs,
-    ProjectLinkArgs, ProjectListArgs, ProjectRegisterArgs, ProjectRenameArgs, ProjectShowArgs,
-    ProjectSourceArg, ProjectUseArgs, QualityScanArgs, QueryAddedSinceArgs, QueryArgs,
-    QueryBlockerPriority, QueryChangedDecisionsArgs, QueryChangedSinceArgs, QueryCommand,
-    QueryDecisionStatus, QueryExportKind, QueryExportReadOnlySummaryArgs, QueryHistoryFilterArgs,
+    DisagreeArgs, DisputeAttributionArgs, DumpArgs, DumpFormat, EmitArgs,
+    EmitCaptureProvenanceArgs, EmitCommand, EmitDecisionProposedArgs, EmitHypothesisKind,
+    EmitRelationKind, ExportArgs, GraphBackend, ImportArgs, ImportCommand, ImportConnectorCommand,
+    ImportDocumentsArgs, IngestArgs, IngestCommand, IngestSlackThreadArgs, MapArgs, McpArgs,
+    MoveArgs, OptionLabelArgs, ProjectAnchorArgs, ProjectArgs, ProjectCommand,
+    ProjectDecisionsArgs, ProjectDeclareTopicArgs, ProjectLinkArgs, ProjectListArgs,
+    ProjectRegisterArgs, ProjectRenameArgs, ProjectShowArgs, ProjectSourceArg, ProjectUseArgs,
+    QualityScanArgs, QueryAddedSinceArgs, QueryArgs, QueryBlockerPriority,
+    QueryChangedDecisionsArgs, QueryChangedSinceArgs, QueryCommand, QueryDecisionStatus,
+    QueryExportKind, QueryExportReadOnlySummaryArgs, QueryHistoryFilterArgs,
     QueryRankDecisionsByImportanceArgs, QueryRecentActivityArgs, QueryRecentDecisionsArgs,
     QueryRelationKind, QueryScanDecisionQualityArgs, QuerySearchDecisionsArgs,
     QuerySituationalArgs, QuickstartArgs, RestatementsArgs, RestatementsCommand, RetitleArgs,
@@ -101,12 +102,12 @@ use super::project_context::{resolve_project_in_ledger, ProjectContextEnv, Resol
 use super::render::{
     append_truncation_notice, decision_status_label, format_capture_output,
     format_close_matched_response, format_current_project_output, format_disagree_output,
-    format_export_output, format_import_output, format_json_value, format_move_output,
-    format_output, format_prepare_documents_output, format_project_anchor_output,
-    format_project_decisions_output, format_project_declare_topic_output,
-    format_project_link_output, format_project_list_output, format_project_register_output,
-    format_project_rename_output, format_project_show_output, format_query_response,
-    format_retitle_output, format_review_output, format_supersede_output,
+    format_dispute_attribution_output, format_export_output, format_import_output,
+    format_json_value, format_move_output, format_output, format_prepare_documents_output,
+    format_project_anchor_output, format_project_decisions_output,
+    format_project_declare_topic_output, format_project_link_output, format_project_list_output,
+    format_project_register_output, format_project_rename_output, format_project_show_output,
+    format_query_response, format_retitle_output, format_review_output, format_supersede_output,
     render_active_blockers_summary, render_added_since_summary, render_applied_links,
     render_blocker_notifications_summary, render_changed_decisions_summary,
     render_changed_since_summary, render_compact_view_summary, render_contested_decisions_summary,
@@ -117,9 +118,10 @@ use super::render::{
     render_recent_decisions_summary, render_resolve_outcome_summary, render_restatement_proposals,
     render_scan_report_summary, render_score_report_summary, render_search_summary,
     render_situational_summary, render_supersession_summary, render_waiting_requests_summary,
-    CaptureCommandOutput, CurrentProjectOutput, DisagreeCommandOutput, ExportReport,
-    OutputEnvelope, ProjectAnchorOutput, ProjectDeclareTopicOutput, ProjectLinkOutput,
-    ProjectRegisterOutput, ReviewActionOutput, ReviewCommandOutput, SupersedeCommandOutput,
+    CaptureCommandOutput, CurrentProjectOutput, DisagreeCommandOutput, DisputeAttributionOutput,
+    ExportReport, OutputEnvelope, ProjectAnchorOutput, ProjectDeclareTopicOutput,
+    ProjectLinkOutput, ProjectRegisterOutput, ReviewActionOutput, ReviewCommandOutput,
+    SupersedeCommandOutput,
 };
 
 pub fn run(cli: &Cli) -> Result<String> {
@@ -204,6 +206,7 @@ enum CellBesideVerb {
     Review,
     Emit,
     Disagree,
+    DisputeAttribution,
     Supersede,
     Move,
     Retitle,
@@ -263,6 +266,7 @@ impl CellBesideVerb {
             Command::Quickstart(_) => return None,
             Command::Emit(_) => Self::Emit,
             Command::Disagree(_) => Self::Disagree,
+            Command::DisputeAttribution(_) => Self::DisputeAttribution,
             Command::Supersede(_) => Self::Supersede,
             Command::Move(_) => Self::Move,
             Command::Retitle(_) => Self::Retitle,
@@ -351,6 +355,7 @@ impl CellBesideVerb {
             Self::Review => "review",
             Self::Emit => "emit",
             Self::Disagree => "disagree",
+            Self::DisputeAttribution => "dispute-attribution",
             Self::Supersede => "supersede",
             Self::Move => "move",
             Self::Retitle => "retitle",
@@ -416,6 +421,7 @@ impl CellBesideVerb {
             // submit` finds the batches it classifies the same way.
             Self::ClassifyQueueSubmit
             | Self::Disagree
+            | Self::DisputeAttribution
             | Self::Supersede
             | Self::Move
             | Self::Retitle
@@ -524,6 +530,7 @@ impl LocalLedgerBesideCell {
             }
             // These act on decisions a ledger already holds, so a ledger made empty would not help.
             CellBesideVerb::Disagree
+            | CellBesideVerb::DisputeAttribution
             | CellBesideVerb::Supersede
             | CellBesideVerb::Move
             | CellBesideVerb::Retitle
@@ -633,6 +640,11 @@ impl LocalLedgerBesideCell {
                 "To disagree in the cell, call its HTTP API (POST \
                  {url}/v1/decisions/{{id}}/disagreements) or its MCP tool disagree_decision (POST \
                  {url}/mcp)"
+            ),
+            CellBesideVerb::DisputeAttribution => format!(
+                "To dispute an attribution in the cell, call its HTTP API with your own token \
+                 (POST {url}/v1/decisions/{{id}}/attribution-disputes); it has no MCP tool, so an \
+                 agent cannot do it for you"
             ),
             CellBesideVerb::Supersede => format!(
                 "To supersede in the cell, call its HTTP API (POST \
@@ -763,6 +775,7 @@ fn dispatch(cli: &Cli) -> Result<String> {
         Command::Quickstart(args) => run_quickstart(cli, args),
         Command::Emit(command) => run_emit(cli, command),
         Command::Disagree(args) => run_disagree(cli, args),
+        Command::DisputeAttribution(args) => run_dispute_attribution(cli, args),
         Command::Supersede(args) => run_supersede(cli, args),
         Command::Move(args) => run_move(cli, args),
         Command::Retitle(args) => run_retitle(cli, args),
@@ -2150,6 +2163,42 @@ fn run_disagree(cli: &Cli, args: &DisagreeArgs) -> Result<String> {
     )
 }
 
+fn run_dispute_attribution(cli: &Cli, args: &DisputeAttributionArgs) -> Result<String> {
+    let tenant_id = cli_tenant(cli)?;
+    let ledger = open_ledger(cli)?;
+
+    let graph = MemoryGraph::default();
+    rebuild_graph_for_tenant(&ledger, &tenant_id, &graph)?;
+    let target = resolve_fluent_target(
+        &cli.loomtracer_dir,
+        !cli.json,
+        &graph,
+        args.decision_id.as_deref(),
+        args.description.as_deref(),
+        args.pick,
+        args.topic.as_deref(),
+    )?;
+    let decision_id = match target {
+        FluentResolution::Id(decision_id) => decision_id,
+        FluentResolution::Output(output) => return Ok(output),
+    };
+
+    let commands = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(tenant_id, fluent_write_provenance(&cli.actor)),
+    );
+    let event_id = commands.dispute_attribution(&cli.actor, &decision_id, &args.reason)?;
+
+    format_dispute_attribution_output(
+        cli.json,
+        &DisputeAttributionOutput {
+            decision_id,
+            event_id,
+            disputed_by: cli.actor.clone(),
+        },
+    )
+}
+
 fn run_move(cli: &Cli, args: &MoveArgs) -> Result<String> {
     let tenant_id = cli_tenant(cli)?;
     let ledger = open_ledger(cli)?;
@@ -3227,6 +3276,7 @@ fn reviewed_decision_ids_by_actor(
             | EventPayload::DecisionMoved(_)
             | EventPayload::DecisionRetitled(_)
             | EventPayload::DecisionReaffirmed(_)
+            | EventPayload::DecisionAttributionDisputed(_)
             | EventPayload::ProjectRegistered(_)
             | EventPayload::ProjectLinked(_)
             | EventPayload::ProjectUnlinked(_)
@@ -3281,6 +3331,7 @@ impl ReviewLedgerContext {
                 | EventPayload::DecisionMoved(_)
                 | EventPayload::DecisionRetitled(_)
                 | EventPayload::DecisionReaffirmed(_)
+                | EventPayload::DecisionAttributionDisputed(_)
                 | EventPayload::ProjectRegistered(_)
                 | EventPayload::ProjectLinked(_)
                 | EventPayload::ProjectUnlinked(_)

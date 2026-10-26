@@ -190,6 +190,26 @@ pub enum Command {
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Disagree(DisagreeArgs),
+    /// Say that a decision names you as its decider and the call was never yours, and why:
+    /// someone else (an agent relaying a default, a scribe) recorded your name against it.
+    ///
+    /// Writes a `decision.attribution_disputed` event with `--reason` from `--actor`, beside the
+    /// acceptance, which is neither removed nor rewritten: `why`, `verify` and `brief` then read
+    /// `decided by: <you> (..., disputed by <you>: <reason>)`. It is not a rejection and does not
+    /// change the decision's status; to say you disagree with the decision itself, use
+    /// `disagree`. Only an actor the decision names as a decider can dispute, and only for
+    /// itself: `--actor` is the one disputing, so there is no way to dispute for someone else,
+    /// and any other actor is refused, exit 3, with nothing recorded. A description that matches
+    /// more than one decision lists the candidates and writes nothing; pick one with --pick N,
+    /// or name the decision with --decision.
+    ///
+    /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
+    /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
+    /// --loomtracer-dir holds no ledger. For the cell, call `POST
+    /// /v1/decisions/{id}/attribution-disputes` with your own token: the cell takes the actor
+    /// from the token, and there is no MCP tool for it, so an agent in your session cannot speak
+    /// for you.
+    DisputeAttribution(DisputeAttributionArgs),
     /// Replace a decision with a new one, found by describing it: the replacement is captured
     /// with its own title, rationale and options, and the old decision is marked superseded by
     /// it.
@@ -1092,6 +1112,28 @@ pub struct DisagreeArgs {
     #[arg(long = "topic")]
     pub topic: Option<String>,
 
+    #[arg(long)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DisputeAttributionArgs {
+    /// Free-text description to resolve to a decision (fluent alternative to --decision).
+    /// A bare `#N` refers to candidate N from the previous ambiguous resolver output.
+    pub description: Option<String>,
+
+    #[arg(long = "decision")]
+    pub decision_id: Option<String>,
+
+    /// Select candidate N when a description resolves ambiguously.
+    #[arg(long = "pick")]
+    pub pick: Option<usize>,
+
+    /// Narrow resolution to decisions carrying this topic key.
+    #[arg(long = "topic")]
+    pub topic: Option<String>,
+
+    /// In your own words: what was recorded in your name that you did not decide.
     #[arg(long)]
     pub reason: String,
 }

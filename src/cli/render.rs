@@ -1274,8 +1274,23 @@ fn write_quality_lines(output: &mut String, quality: &QualityProfile) {
 /// they're the same actor; an unreviewed decision says so honestly instead of implying the
 /// recorder decided, and a rejected one names who turned it down rather than reading as
 /// unreviewed.
+///
+/// The acceptance is printed as recorded. A decider who said the call was never theirs
+/// (`decision.attribution_disputed`) is shown in the same parenthesis as `disputed by <actor>:
+/// <reason>`: the dispute sits beside the attribution, it does not remove it (hivemind-purmd).
 fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
     let recorder = decided_by.proposer_id.as_deref().unwrap_or("unknown");
+    let disputed = decided_by
+        .attribution_disputes
+        .iter()
+        .map(|dispute| {
+            format!(
+                ", disputed by {}: {}",
+                dispute.disputed_by,
+                summary_cell(&dispute.reason)
+            )
+        })
+        .collect::<String>();
     match decided_by.decider_ids.as_slice() {
         [] if decided_by.review == ReviewShape::Rejected => {
             let _ = writeln!(
@@ -1303,8 +1318,8 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
         [only] if only == recorder || decided_by.review == ReviewShape::SelfAccepted => {
             let _ = writeln!(
                 output,
-                "  decided by: {} (source={}, review={:?})",
-                only, decided_by.source, decided_by.review
+                "  decided by: {} (source={}, review={:?}{})",
+                only, decided_by.source, decided_by.review, disputed
             );
         }
         deciders => {
@@ -1315,9 +1330,22 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
             );
             let _ = writeln!(
                 output,
-                "  decided by: {} (review={:?})",
+                "  decided by: {} (review={:?}{})",
                 deciders.join(", "),
-                decided_by.review
+                decided_by.review,
+                disputed
+            );
+        }
+    }
+    // A dispute on a decision that lists no decider (a raw `emit` can write one) has no decided-by
+    // line to sit in, so it gets its own.
+    if decided_by.decider_ids.is_empty() {
+        for dispute in &decided_by.attribution_disputes {
+            let _ = writeln!(
+                output,
+                "  attribution disputed by: {}: {}",
+                dispute.disputed_by,
+                summary_cell(&dispute.reason)
             );
         }
     }
@@ -2054,6 +2082,10 @@ fn timeline_fact_summary(fact: &TimelineFact) -> (&'static str, String) {
                 summary_cell(reason)
             ),
         ),
+        TimelineFact::AttributionDisputed { reason } => (
+            "attribution disputed",
+            format!("says the call was not theirs: {}", summary_cell(reason)),
+        ),
     }
 }
 
@@ -2223,6 +2255,7 @@ fn event_type_label(event_type: EventType) -> &'static str {
         EventType::DecisionMoved => "decision.moved",
         EventType::DecisionRetitled => "decision.retitled",
         EventType::DecisionReaffirmed => "decision.reaffirmed",
+        EventType::DecisionAttributionDisputed => "decision.attribution_disputed",
         EventType::ProjectRegistered => "project.registered",
         EventType::ProjectLinked => "project.linked",
         EventType::ProjectUnlinked => "project.unlinked",
@@ -2242,6 +2275,7 @@ fn change_kind_label(kind: HistoryChangeKind) -> &'static str {
         HistoryChangeKind::ProjectMoved => "project_moved",
         HistoryChangeKind::TitleChanged => "title_changed",
         HistoryChangeKind::Reaffirmed => "reaffirmed",
+        HistoryChangeKind::AttributionDisputed => "attribution_disputed",
         HistoryChangeKind::ContextChange => "context_change",
     }
 }
@@ -2311,6 +2345,20 @@ pub(crate) fn format_disagree_output(
     );
     write_raise_upstream(&mut rendered, &output.raise_upstream);
     Ok(rendered)
+}
+
+pub(crate) fn format_dispute_attribution_output(
+    as_json: bool,
+    output: &DisputeAttributionOutput,
+) -> Result<String> {
+    if as_json {
+        return format_json_value(true, output);
+    }
+
+    Ok(format!(
+        "event_id={} decision_id={} disputed_by={}",
+        output.event_id, output.decision_id, output.disputed_by
+    ))
 }
 
 /// One line per prior decision the acted-on decision rests on that still stands. A hint: the
@@ -2679,6 +2727,9 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
             NodeKind::Reaffirmation => graph_property_string(properties, "reason")
                 .map(|reason| prefixed_dot_lines("Still holds", reason))
                 .unwrap_or_else(|| vec![id.clone()]),
+            NodeKind::AttributionDispute => graph_property_string(properties, "reason")
+                .map(|reason| prefixed_dot_lines("Disputed attribution", reason))
+                .unwrap_or_else(|| vec![id.clone()]),
             NodeKind::Notification => graph_property_string(properties, "channel")
                 .map(|channel| prefixed_dot_lines("Notification", channel))
                 .unwrap_or_else(|| vec![id.clone()]),
@@ -2784,6 +2835,7 @@ fn node_dump_query(kind: NodeKind) -> String {
         }
         NodeKind::Ask => "node.id AS id, node.question_id AS question_id, node.text AS text, node.asked_at AS asked_at",
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
+        NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at",
     };
     format!(
         "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",
@@ -2857,6 +2909,12 @@ fn node_properties_from_row(kind: NodeKind, row: &GraphRow) -> GraphProperties {
             insert_if_present(&mut properties, row, "reaffirmed_by");
             insert_if_present(&mut properties, row, "reaffirmed_at");
         }
+        NodeKind::AttributionDispute => {
+            insert_if_present(&mut properties, row, "decision_id");
+            insert_if_present(&mut properties, row, "reason");
+            insert_if_present(&mut properties, row, "disputed_by");
+            insert_if_present(&mut properties, row, "disputed_at");
+        }
     }
     properties
 }
@@ -2892,6 +2950,7 @@ fn node_color(kind: NodeKind) -> &'static str {
         NodeKind::Project => "#aed6f1",
         NodeKind::Ask => "#a9dfbf",
         NodeKind::Reaffirmation => "#abebc6",
+        NodeKind::AttributionDispute => "#e6b0aa",
     }
 }
 
@@ -3019,6 +3078,15 @@ pub(crate) struct DisagreeCommandOutput {
     pub(crate) rests_on: Vec<UpstreamPremise>,
     /// Prior decisions it rests on that still stand: the disagreement may be with one of them.
     pub(crate) raise_upstream: Vec<RaiseUpstream>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DisputeAttributionOutput {
+    pub(crate) decision_id: String,
+    pub(crate) event_id: EventId,
+    /// The actor who disputed: the one the decision names as its decider. The acceptance stays
+    /// as recorded.
+    pub(crate) disputed_by: String,
 }
 
 #[derive(Debug, Serialize)]

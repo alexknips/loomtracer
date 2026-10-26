@@ -12,10 +12,10 @@ use serde_json::{json, Value};
 use crate::commands::personal_project_handle;
 use crate::error::QueryError;
 use crate::events::{
-    self, DecisionAcceptedPayload, DecisionMovedPayload, DecisionProposedPayload,
-    DecisionReaffirmedPayload, DecisionRejectedPayload, DecisionRetitledPayload,
-    DecisionSupersededPayload, Event, EventId, EventPayload, EventSource, EventType,
-    RelationAddedPayload, RelationKind as EventRelationKind,
+    self, DecisionAcceptedPayload, DecisionAttributionDisputedPayload, DecisionMovedPayload,
+    DecisionProposedPayload, DecisionReaffirmedPayload, DecisionRejectedPayload,
+    DecisionRetitledPayload, DecisionSupersededPayload, Event, EventId, EventPayload, EventSource,
+    EventType, RelationAddedPayload, RelationKind as EventRelationKind,
 };
 use crate::floor::RecordedFloor;
 use crate::ledger::EventLedger;
@@ -146,6 +146,11 @@ pub enum HistoryChangeKind {
     /// is never dropped by compaction and is always distinguishable in history without
     /// inspecting the raw event (mirrors `ProjectMoved` and `TitleChanged`; hivemind-ottw.3).
     Reaffirmed,
+    /// The actor a decision names as its decider said the call was not theirs
+    /// (`decision.attribution_disputed`). Its own kind, not folded into `ContextChange`, so a
+    /// dispute is never dropped by compaction and is always distinguishable in history without
+    /// inspecting the raw event (hivemind-purmd).
+    AttributionDisputed,
     ContextChange,
 }
 
@@ -1674,6 +1679,7 @@ const FEED_EVENT_TYPES: &[EventType] = &[
     EventType::DecisionMoved,
     EventType::DecisionRetitled,
     EventType::DecisionReaffirmed,
+    EventType::DecisionAttributionDisputed,
     EventType::ProjectRegistered,
     EventType::ProjectLinked,
     EventType::ProjectUnlinked,
@@ -1696,6 +1702,7 @@ const DECISION_EVENT_TYPES: &[EventType] = &[
     EventType::DecisionMoved,
     EventType::DecisionRetitled,
     EventType::DecisionReaffirmed,
+    EventType::DecisionAttributionDisputed,
     EventType::ProjectRegistered,
 ];
 
@@ -1949,7 +1956,8 @@ impl DecisionIndex {
                 | EventPayload::ProjectAnchored(_)
                 | EventPayload::ProjectUnanchored(_)
                 | EventPayload::ProjectTopicDeclared(_)
-                | EventPayload::DecisionReaffirmed(_) => {}
+                | EventPayload::DecisionReaffirmed(_)
+                | EventPayload::DecisionAttributionDisputed(_) => {}
                 EventPayload::DecisionMoved(payload) => {
                     index
                         .decisions
@@ -2231,6 +2239,7 @@ fn change_kind_for_payload(payload: &EventPayload) -> HistoryChangeKind {
         EventPayload::DecisionMoved(_) => HistoryChangeKind::ProjectMoved,
         EventPayload::DecisionRetitled(_) => HistoryChangeKind::TitleChanged,
         EventPayload::DecisionReaffirmed(_) => HistoryChangeKind::Reaffirmed,
+        EventPayload::DecisionAttributionDisputed(_) => HistoryChangeKind::AttributionDisputed,
         EventPayload::EvidenceRecorded(_) => HistoryChangeKind::NewEvidence,
         EventPayload::RelationAdded(payload) => match payload.relation {
             EventRelationKind::BasedOn | EventRelationKind::Supports => {
@@ -2297,6 +2306,12 @@ fn decision_ids_for_payload(payload: &EventPayload, index: &DecisionIndex) -> Ve
             ids.insert(decision_id.clone());
         }
         EventPayload::DecisionReaffirmed(DecisionReaffirmedPayload { decision_id, .. }) => {
+            ids.insert(decision_id.clone());
+        }
+        EventPayload::DecisionAttributionDisputed(DecisionAttributionDisputedPayload {
+            decision_id,
+            ..
+        }) => {
             ids.insert(decision_id.clone());
         }
         EventPayload::DecisionRequested(payload) => {
@@ -2416,6 +2431,13 @@ fn affected_nodes_for_event(event: &Event, payload: &EventPayload) -> Vec<Affect
             nodes.insert(affected_node(
                 &event.event_uuid.to_string(),
                 NodeKind::Reaffirmation,
+            ));
+            nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
+        }
+        EventPayload::DecisionAttributionDisputed(payload) => {
+            nodes.insert(affected_node(
+                &event.event_uuid.to_string(),
+                NodeKind::AttributionDispute,
             ));
             nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
         }

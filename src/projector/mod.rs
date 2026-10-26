@@ -9,13 +9,14 @@ use crate::commands::{normalize_topic_key, personal_project_handle};
 use crate::error::ProjectorError;
 use crate::events::{
     self, classified_batch_ids, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem,
-    DecisionMovedPayload, DecisionProposedPayload, DecisionReaffirmedPayload,
-    DecisionRequestedPayload, DecisionRetitledPayload, DecisionScoredPayload, Event, EventId,
-    EventPayload, EventType, EvidenceRecordedPayload, HypothesisRecordedPayload,
-    IngestBatchClassifiedPayload, NotificationAcknowledgedPayload, NotificationSentPayload,
-    ProjectAnchorKind, ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload,
-    ProjectSource, QuestionAskedPayload, QuestionRecordedPayload, ReadEvent,
-    RelationKind as EventRelationKind, SuggestionSurfacedPayload, TenantId, UnreadableAnnotation,
+    DecisionAttributionDisputedPayload, DecisionMovedPayload, DecisionProposedPayload,
+    DecisionReaffirmedPayload, DecisionRequestedPayload, DecisionRetitledPayload,
+    DecisionScoredPayload, Event, EventId, EventPayload, EventType, EvidenceRecordedPayload,
+    HypothesisRecordedPayload, IngestBatchClassifiedPayload, NotificationAcknowledgedPayload,
+    NotificationSentPayload, ProjectAnchorKind, ProjectAnchorPayload, ProjectLinkKind,
+    ProjectRegisteredPayload, ProjectSource, QuestionAskedPayload, QuestionRecordedPayload,
+    ReadEvent, RelationKind as EventRelationKind, SuggestionSurfacedPayload, TenantId,
+    UnreadableAnnotation,
 };
 use crate::ledger::EventLedger;
 use crate::Result;
@@ -80,10 +81,16 @@ pub enum NodeKind {
     /// hypothesis, which one Kuzu relation table cannot span. The read layer reads these nodes
     /// in bulk and matches on `decision_id` and `premise_id` (hivemind-ottw.1).
     Reaffirmation,
+    /// One `decision.attribution_disputed` event: an actor a decision names as its decider says
+    /// the call was not theirs. A node with no edges, id'd by the event's own uuid, like
+    /// [`Self::Reaffirmation`]: an `ACCEPTED_BY` edge is unique per (decision, actor) and the
+    /// acceptance it disputes must stay as recorded, so the dispute sits beside it. The read
+    /// layer reads these nodes in bulk and matches on `decision_id` (hivemind-purmd).
+    AttributionDispute,
 }
 
 impl NodeKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Decision,
         Self::DecisionRequest,
         Self::Actor,
@@ -96,6 +103,7 @@ impl NodeKind {
         Self::Project,
         Self::Ask,
         Self::Reaffirmation,
+        Self::AttributionDispute,
     ];
 
     pub const fn table_name(self) -> &'static str {
@@ -112,6 +120,7 @@ impl NodeKind {
             Self::Project => "Project",
             Self::Ask => "Ask",
             Self::Reaffirmation => "Reaffirmation",
+            Self::AttributionDispute => "AttributionDispute",
         }
     }
 }
@@ -489,6 +498,9 @@ fn project_event_reporting(
         EventPayload::DecisionReaffirmed(payload) => {
             project_decision_reaffirmed(graph, event, &payload, &origin_properties)?;
         }
+        EventPayload::DecisionAttributionDisputed(payload) => {
+            project_decision_attribution_disputed(graph, event, &payload, &origin_properties)?;
+        }
         EventPayload::ProjectRegistered(payload) => {
             project_project_registered(graph, &payload, &origin_properties)?
         }
@@ -824,11 +836,13 @@ fn capture_node_text(kind: NodeKind, id: &str, props: &GraphProperties) -> Strin
         // Actor nodes have no text property; use the ID as a scoring proxy so
         // gold_as_captures() IDs (e.g. "mia") match the produced Actor node ID.
         NodeKind::Actor => return id.to_owned(),
-        // No capture kind ever produces a Project, Ask or Reaffirmation node (see
-        // `project_capture`'s match); this arm exists only for exhaustiveness.
-        NodeKind::Notification | NodeKind::Project | NodeKind::Ask | NodeKind::Reaffirmation => {
-            return String::new()
-        }
+        // No capture kind ever produces a Project, Ask, Reaffirmation or AttributionDispute node
+        // (see `project_capture`'s match); this arm exists only for exhaustiveness.
+        NodeKind::Notification
+        | NodeKind::Project
+        | NodeKind::Ask
+        | NodeKind::Reaffirmation
+        | NodeKind::AttributionDispute => return String::new(),
     };
     match props.get(key) {
         Some(GraphValue::String(s)) => s.clone(),
@@ -2320,6 +2334,35 @@ fn project_decision_reaffirmed(
     );
     graph.upsert_node(
         NodeKind::Reaffirmation,
+        &event.event_uuid.to_string(),
+        &props,
+    )
+}
+
+/// `decision.attribution_disputed` becomes one `AttributionDispute` node id'd by the event's own
+/// uuid, carrying the decision, the reason, who disputed and when. It touches no other node: the
+/// acceptance it disputes keeps its `ACCEPTED_BY` edge and its actor, so the graph shows both
+/// the attribution and the dispute of it (hivemind-purmd).
+fn project_decision_attribution_disputed(
+    graph: &impl GraphView,
+    event: &Event,
+    payload: &DecisionAttributionDisputedPayload,
+    origin_properties: &GraphProperties,
+) -> Result<()> {
+    let props = props_extend(
+        origin_properties,
+        [
+            (
+                "decision_id",
+                GraphValue::String(payload.decision_id.clone()),
+            ),
+            ("reason", GraphValue::String(payload.reason.clone())),
+            ("disputed_by", GraphValue::String(event.actor_id.clone())),
+            ("disputed_at", event_timestamp(event)),
+        ],
+    );
+    graph.upsert_node(
+        NodeKind::AttributionDispute,
         &event.event_uuid.to_string(),
         &props,
     )

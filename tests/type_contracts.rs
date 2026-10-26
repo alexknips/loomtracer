@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 
 use loomtracer::events::{
     self, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem, DecisionAcceptedPayload,
-    DecisionAssessedPayload, DecisionBlockerPriority, DecisionMetadataDerivedPayload,
-    DecisionMovedPayload, DecisionProposedPayload, DecisionReaffirmedPayload,
-    DecisionRejectedPayload, DecisionRequestedPayload, DecisionRetitledPayload,
-    DecisionScoredPayload, DecisionSupersededPayload, Event, EventBuilder, EventEnvelope,
-    EventPayload, EventSource, EventType, EventValidationError, EvidenceRecordedPayload,
-    HypothesisKind, HypothesisRecordedPayload, ImportanceFactors, IngestBatchClassifiedPayload,
-    IngestBatchReceivedPayload, IngestTurn, ModelDimension, ModelDimensions,
-    NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
+    DecisionAssessedPayload, DecisionAttributionDisputedPayload, DecisionBlockerPriority,
+    DecisionMetadataDerivedPayload, DecisionMovedPayload, DecisionProposedPayload,
+    DecisionReaffirmedPayload, DecisionRejectedPayload, DecisionRequestedPayload,
+    DecisionRetitledPayload, DecisionScoredPayload, DecisionSupersededPayload, Event, EventBuilder,
+    EventEnvelope, EventPayload, EventSource, EventType, EventValidationError,
+    EvidenceRecordedPayload, HypothesisKind, HypothesisRecordedPayload, ImportanceFactors,
+    IngestBatchClassifiedPayload, IngestBatchReceivedPayload, IngestTurn, ModelDimension,
+    ModelDimensions, NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
     ProjectAnchorPayload, ProjectLinkKind, ProjectLinkPayload, ProjectRegisteredPayload,
     ProjectSource, ProjectTopicDeclaredPayload, QualityDim, QualityDims, QualityLevel,
     QuestionAskedPayload, QuestionRecordedPayload, RelationAddedPayload,
@@ -26,7 +26,7 @@ use loomtracer::{
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-const EVENT_TYPES: [EventType; 29] = [
+const EVENT_TYPES: [EventType; 30] = [
     EventType::DecisionProposed,
     EventType::DecisionRequested,
     EventType::DecisionAccepted,
@@ -50,6 +50,7 @@ const EVENT_TYPES: [EventType; 29] = [
     EventType::DecisionMoved,
     EventType::DecisionRetitled,
     EventType::DecisionReaffirmed,
+    EventType::DecisionAttributionDisputed,
     EventType::ProjectRegistered,
     EventType::ProjectLinked,
     EventType::ProjectUnlinked,
@@ -70,7 +71,7 @@ const EVENT_RELATION_KINDS: [EventRelationKind; 9] = [
     EventRelationKind::Answers,
 ];
 
-const NODE_KINDS: [NodeKind; 12] = [
+const NODE_KINDS: [NodeKind; 13] = [
     NodeKind::Decision,
     NodeKind::DecisionRequest,
     NodeKind::Actor,
@@ -83,6 +84,7 @@ const NODE_KINDS: [NodeKind; 12] = [
     NodeKind::Project,
     NodeKind::Ask,
     NodeKind::Reaffirmation,
+    NodeKind::AttributionDispute,
 ];
 
 const PROJECTOR_RELATION_KINDS: [ProjectorRelationKind; 31] = [
@@ -469,6 +471,7 @@ fn event_type_name(event_type: EventType) -> &'static str {
         EventType::DecisionMoved => "decision.moved",
         EventType::DecisionRetitled => "decision.retitled",
         EventType::DecisionReaffirmed => "decision.reaffirmed",
+        EventType::DecisionAttributionDisputed => "decision.attribution_disputed",
         EventType::ProjectRegistered => "project.registered",
         EventType::ProjectLinked => "project.linked",
         EventType::ProjectUnlinked => "project.unlinked",
@@ -505,6 +508,7 @@ fn payload_variant_type(payload: &EventPayload) -> EventType {
         EventPayload::DecisionMoved(_) => EventType::DecisionMoved,
         EventPayload::DecisionRetitled(_) => EventType::DecisionRetitled,
         EventPayload::DecisionReaffirmed(_) => EventType::DecisionReaffirmed,
+        EventPayload::DecisionAttributionDisputed(_) => EventType::DecisionAttributionDisputed,
         EventPayload::ProjectRegistered(_) => EventType::ProjectRegistered,
         EventPayload::ProjectLinked(_) => EventType::ProjectLinked,
         EventPayload::ProjectUnlinked(_) => EventType::ProjectUnlinked,
@@ -583,6 +587,9 @@ fn typed_payload_from_value(
         }
         EventType::DecisionReaffirmed => {
             EventPayload::DecisionReaffirmed(serde_json::from_value(payload)?)
+        }
+        EventType::DecisionAttributionDisputed => {
+            EventPayload::DecisionAttributionDisputed(serde_json::from_value(payload)?)
         }
         EventType::ProjectRegistered => {
             EventPayload::ProjectRegistered(serde_json::from_value(payload)?)
@@ -911,6 +918,13 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             }),
         ),
         (
+            EventType::DecisionAttributionDisputed,
+            EventPayload::DecisionAttributionDisputed(DecisionAttributionDisputedPayload {
+                decision_id: "decision:minimal".to_owned(),
+                reason: "Contract tests need one valid attribution dispute payload".to_owned(),
+            }),
+        ),
+        (
             EventType::ProjectRegistered,
             EventPayload::ProjectRegistered(ProjectRegisteredPayload {
                 handle: "contract-test".to_owned(),
@@ -986,6 +1000,9 @@ fn payload_json(payload: &EventPayload) -> Value {
         EventPayload::DecisionMoved(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::DecisionRetitled(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::DecisionReaffirmed(payload) => serde_json::to_value(payload).unwrap(),
+        EventPayload::DecisionAttributionDisputed(payload) => {
+            serde_json::to_value(payload).unwrap()
+        }
         EventPayload::ProjectRegistered(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::ProjectLinked(payload) => serde_json::to_value(payload).unwrap(),
         EventPayload::ProjectUnlinked(payload) => serde_json::to_value(payload).unwrap(),
@@ -1033,6 +1050,11 @@ fn shape_compatible(left: EventType, right: EventType) -> bool {
             // decision_id/from/to/reason shape (hivemind-ydmp).
             | (EventType::DecisionMoved, EventType::DecisionRetitled)
             | (EventType::DecisionRetitled, EventType::DecisionMoved)
+            // decision.attribution_disputed and a decision.rejected that states its reason share
+            // the identical decision_id/reason shape; the event type, not the payload, says
+            // which it is (hivemind-purmd).
+            | (EventType::DecisionAttributionDisputed, EventType::DecisionRejected)
+            | (EventType::DecisionRejected, EventType::DecisionAttributionDisputed)
     )
 }
 
@@ -1096,6 +1118,7 @@ fn node_kind_contract(kind: NodeKind) -> &'static str {
         NodeKind::Project => "Project",
         NodeKind::Ask => "Ask",
         NodeKind::Reaffirmation => "Reaffirmation",
+        NodeKind::AttributionDispute => "AttributionDispute",
     }
 }
 

@@ -23,6 +23,11 @@
 //! - `POST /v1/evidence`                           — capture evidence
 //! - `POST /v1/hypotheses`                         — capture hypothesis
 //! - `POST /v1/decisions/{id}/disagreements`        — disagree
+//! - `POST /v1/decisions/{id}/attribution-disputes` — say the call `{id}` names the caller as
+//!   its decider for was never theirs, with a `reason`: the caller is the credential's own actor
+//!   (the body names nobody), and only an actor the decision names as a decider may do it. The
+//!   acceptance stays as recorded and the status is unchanged; there is no MCP tool, so an agent
+//!   in a person's session cannot do it for them (hivemind-purmd)
 //! - `POST /v1/decisions/{id}/supersessions`        — supersede
 //! - `POST /v1/decisions/{id}/supersession-links`   — record that `{id}` (already recorded)
 //!   supersedes the body's `supersedes_id` (already recorded), as the caller, without creating
@@ -655,6 +660,13 @@ fn to_api_error(error: LoomtracerError) -> ApiError {
         {
             ApiError::not_found(msg)
         }
+        // A dispute by an actor the decision does not name as its decider is a request to fix,
+        // not a server fault: the message says whose it is to make.
+        LoomtracerError::Command(CommandError::Invariant(msg))
+            if msg.contains("is not recorded as a decider") =>
+        {
+            ApiError::Validation(msg)
+        }
         // A request that names a project nobody registered is a request to fix, with the
         // register command in the message, as `capture --project` refuses it.
         LoomtracerError::Command(CommandError::Invariant(msg))
@@ -774,6 +786,10 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/v1/decisions/{id}/disagreements",
             post(handlers::disagree_handler),
+        )
+        .route(
+            "/v1/decisions/{id}/attribution-disputes",
+            post(handlers::dispute_attribution_handler),
         )
         .route(
             "/v1/decisions/{id}/supersessions",
