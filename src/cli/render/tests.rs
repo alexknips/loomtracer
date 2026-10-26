@@ -1836,6 +1836,7 @@ fn listed_candidate(
         also_recorded_as: Vec::new(),
         resolved_via: Vec::new(),
         consequences: Vec::new(),
+        also_matches: Vec::new(),
     }
 }
 
@@ -1919,5 +1920,36 @@ fn a_candidate_names_the_decisions_that_rest_on_it() {
     assert!(
         summary.ends_with("\tstatus: accepted\tconsequences: decision-remove"),
         "{summary}"
+    );
+}
+
+#[test]
+fn an_answer_names_the_full_matches_it_out_ranked_on_one_line() {
+    let mut root = listed_candidate(
+        "decision-split",
+        "Split the frontend into its own repository",
+        DecisionStatus::Accepted,
+        &[],
+    );
+    assert_eq!(render_resolution_notices(&root), "");
+
+    root.also_matches = vec![
+        crate::queries::AlsoMatch {
+            decision_id: "decision-mirror".to_owned(),
+            title: "Keep a read-only mirror of the code".to_owned(),
+            ranked_lower_because:
+                "it says less of the question in its title, topic keys and recorded question"
+                    .to_owned(),
+        },
+        crate::queries::AlsoMatch {
+            decision_id: "decision-draft".to_owned(),
+            title: "Frontend repository split, first draft".to_owned(),
+            ranked_lower_because: "it is a proposed draft and the answer is accepted".to_owned(),
+        },
+    ];
+
+    assert_eq!(
+        render_resolution_notices(&root),
+        "also matches: decision-mirror \"Keep a read-only mirror of the code\" (ranked lower: it says less of the question in its title, topic keys and recorded question); decision-draft \"Frontend repository split, first draft\" (ranked lower: it is a proposed draft and the answer is accepted)"
     );
 }

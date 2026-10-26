@@ -327,10 +327,10 @@ pub(crate) fn format_query_response<T: Serialize>(
 
 /// `format_query_response` for a read verb that resolved its target from a description. When the
 /// description named a word the decision lacks, or the decision was recorded more than once, the
-/// answer says so: `close match:` / `also recorded as:` / `resolved via:` / `consequences:` lines
-/// ahead of `--summary` output, `close_match` / `also_recorded_as` / `resolved_via` /
-/// `consequences` beside `data` in `--json` (hivemind-3lko, hivemind-83cj, hivemind-am6rp,
-/// hivemind-zdsh.25). A
+/// answer says so: `close match:` / `also recorded as:` / `resolved via:` / `consequences:` /
+/// `also matches:` lines ahead of `--summary` output, `close_match` / `also_recorded_as` /
+/// `resolved_via` / `consequences` / `also_matches` beside `data` in `--json` (hivemind-3lko,
+/// hivemind-83cj, hivemind-am6rp, hivemind-zdsh.25, hivemind-701nb). A
 /// full match of a decision recorded once (`None`) prints exactly what `format_query_response`
 /// does.
 pub(crate) fn format_close_matched_response<T: Serialize>(
@@ -353,8 +353,8 @@ pub(crate) fn format_close_matched_response<T: Serialize>(
 }
 
 /// The lines that tell a reader how the decision below was resolved: the words it lacks, the
-/// other records of the same decision, the replaced records the description matched, and the
-/// matched decisions that rest on it.
+/// other records of the same decision, the replaced records the description matched, the
+/// matched decisions that rest on it, and the full matches it out-ranked.
 fn render_resolution_notices(candidate: &ResolvedCandidate) -> String {
     let mut lines: Vec<String> = Vec::new();
     if !candidate.missing_terms.is_empty() {
@@ -397,6 +397,19 @@ fn render_resolution_notices(candidate: &ResolvedCandidate) -> String {
             "consequences: {} (rest on this decision)",
             records.join("; ")
         ));
+    }
+    if !candidate.also_matches.is_empty() {
+        let matches: Vec<String> = candidate
+            .also_matches
+            .iter()
+            .map(|other| {
+                format!(
+                    "{} \"{}\" (ranked lower: {})",
+                    other.decision_id, other.title, other.ranked_lower_because
+                )
+            })
+            .collect();
+        lines.push(format!("also matches: {}", matches.join("; ")));
     }
     lines.join("\n")
 }

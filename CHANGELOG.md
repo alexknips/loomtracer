@@ -163,6 +163,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   hivemind-zdsh.25. The repro of hivemind-zdsh.25 and its paraphrases still answer the split of
   the frontend with the decisions that rest on it in `consequences`. No ledger or wire shape
   changes. (hivemind-6imih)
+- **`why`, `verify`, `chain` and `compact-view` by description name the other decisions that hold
+  every word when they answer one decision alone.** A question that several decisions hold in
+  full is answered with the one that leads the rest, and the others were on no list: once
+  hivemind-zdsh.25 folded a decision's consequences into it, "triage gate model" answered the Jev
+  decision with its `consequences` and showed a second full match nowhere, where before it was
+  listed. The answer does not change. It now carries `also_matches: [{decision_id, title,
+  ranked_lower_because}]` beside `data` on REST, MCP and the CLI (`--json`), and one `also
+  matches:` line ahead of `--summary` output: each decision that holds every word and ranked
+  below the answer, best ranked first, with the first key of the order a list is sorted by that
+  tells it from the answer ("it says less of the question in its title, topic keys and recorded
+  question", "it is a proposed draft and the answer is accepted", and so on). A close decision
+  that is answered over decisions holding every word names them too, so it no longer hides them.
+  The key is absent when no other decision holds every word, a list names nothing (it already
+  shows every full match), and a verb that writes is unchanged: it lists every full match instead
+  of answering. No ledger change; the new key is optional. (hivemind-701nb)
 - **An agent's own call reads as the agent's own, whether or not the classifier also named it as
   the proposer.** A draft that lists the session's own agent in `accepted_by` and names no
   `actor_id` read `review=PeerReviewed` and `recorded by: unknown`: a review by someone else

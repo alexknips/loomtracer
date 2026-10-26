@@ -1261,6 +1261,7 @@ fn a_close_match_is_named_in_the_envelope_and_a_full_match_is_not() {
         also_recorded_as: Vec::new(),
         resolved_via: Vec::new(),
         consequences: Vec::new(),
+        also_matches: Vec::new(),
     };
     let full = ResolvedCandidate {
         missing_terms: Vec::new(),
@@ -1465,6 +1466,7 @@ fn the_envelope_names_the_other_records_beside_data() {
         }],
         resolved_via: Vec::new(),
         consequences: Vec::new(),
+        also_matches: Vec::new(),
     };
     let mut envelope = json!({"data": {}});
     annotate_resolution(&mut envelope, &candidate);
@@ -3287,6 +3289,7 @@ fn the_envelope_names_the_replaced_records_beside_data() {
             title: "Rename the service to Atlas".to_owned(),
         }],
         consequences: Vec::new(),
+        also_matches: Vec::new(),
     };
     assert!(candidate.needs_annotation());
 
@@ -3747,6 +3750,7 @@ fn the_envelope_names_the_consequences_beside_data() {
             decision_id: "d:first".to_owned(),
             title: "Remove the frontend from the main repository".to_owned(),
         }],
+        also_matches: Vec::new(),
     };
     assert!(candidate.needs_annotation());
 
@@ -3772,6 +3776,248 @@ fn the_envelope_names_the_consequences_beside_data() {
     assert!(serde_json::to_value(&alone)
         .expect("serializes")
         .get("consequences")
+        .is_none());
+    assert!(!alone.needs_annotation());
+}
+
+// ---------------------------------------------------------------------------
+// An answer names the full matches it out-ranked (hivemind-701nb)
+// ---------------------------------------------------------------------------
+
+/// The ids of the full matches an answer names, in the order it names them.
+fn also_match_ids(candidate: &ResolvedCandidate) -> Vec<&str> {
+    candidate
+        .also_matches
+        .iter()
+        .map(|other| other.decision_id.as_str())
+        .collect()
+}
+
+const SAYS_LESS: &str =
+    "it says less of the question in its title, topic keys and recorded question";
+
+#[test]
+fn a_clear_leader_names_the_full_matches_it_out_ranks() -> Result<()> {
+    // d:listing says both words in its title and the other two one each, so it is answered alone
+    // (`three_full_matches_leave_the_leader_answered`); the two it out-ranks are not hidden.
+    let graph = graph_from_events(ordering_events(false))?;
+
+    match reading(&graph, "what order is the decision list in?")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:listing");
+            let mut named = also_match_ids(&candidate);
+            named.sort_unstable();
+            assert_eq!(named, ["d:labels", "d:options"], "{candidate:?}");
+            for other in &candidate.also_matches {
+                assert_eq!(other.ranked_lower_because, SAYS_LESS, "{other:?}");
+                assert!(!other.title.is_empty(), "{other:?}");
+            }
+            assert!(candidate.needs_annotation());
+            assert!(candidate.missing_terms.is_empty());
+            assert!(candidate.consequences.is_empty());
+        }
+        other => panic!("the leader is still answered, not listed: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn the_only_decision_that_holds_every_word_names_no_other() -> Result<()> {
+    // Only d:second holds "ruleset" and "check"; the decisions that hold "frontend" alone are
+    // close candidates, which a list leaves out once a full match is there and which are not
+    // full matches to name.
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+    ])?;
+    match reading(&graph, "frontend ruleset check")?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:second");
+            assert!(candidate.also_matches.is_empty(), "{candidate:?}");
+        }
+        other => panic!("one decision holds those words: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_root_with_consequences_still_names_the_full_match_it_out_ranks() -> Result<()> {
+    // The shape the sweep of hivemind-6imih found: the root takes the two decisions that rest on
+    // it, leads what is left by what its title says, and a decision that holds the words only in
+    // its rationale was shown nowhere. It is named beside the consequences, not among them.
+    let graph = frontend_split(vec![
+        follows_from(5, "d:first", "d:root"),
+        follows_from(6, "d:second", "d:root"),
+        decision_proposed_because(
+            7,
+            "d:mirror",
+            "Keep a read-only mirror of the code on a second host",
+            "The mirror carries the frontend repository as it was before the split, so a reader can still find it.",
+            &["mirror"],
+        ),
+    ])?;
+
+    match reading(&graph, SPLIT_QUESTION)?.data {
+        ResolveOutcome::Resolved { candidate } => {
+            assert_eq!(candidate.decision_id, "d:root");
+            assert_eq!(consequence_ids(&candidate), ["d:first", "d:second"]);
+            assert_eq!(also_match_ids(&candidate), ["d:mirror"]);
+            let named = candidate.also_matches.first().expect("one is named");
+            assert_eq!(
+                named.title,
+                "Keep a read-only mirror of the code on a second host"
+            );
+            assert_eq!(named.ranked_lower_because, SAYS_LESS);
+        }
+        other => panic!("the root is answered with what it out-ranked named: {other:?}"),
+    }
+    Ok(())
+}
+
+#[test]
+fn a_list_and_a_verb_that_writes_name_no_out_ranked_match() -> Result<()> {
+    // Four full matches that share the words are listed, each as itself.
+    let graph = graph_from_events(ordering_events(true))?;
+    let candidates = listed(reading(&graph, "what order is the decision list in?")?.data);
+    assert_eq!(candidates.len(), 4);
+    assert!(candidates.iter().all(|c| c.also_matches.is_empty()));
+
+    // A writer lists every full match instead of answering with a leader.
+    let graph = graph_from_events(ordering_events(false))?;
+    let candidates = listed(
+        resolve_decision_by_description(&graph, "what order is the decision list in?", None)?.data,
+    );
+    assert_eq!(candidates.len(), 3);
+    assert!(candidates.iter().all(|c| c.also_matches.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn a_full_match_says_which_key_of_the_list_put_it_below_the_answer() {
+    let mut leader = headline_candidate("d:leader", 0b111, 0b111);
+    leader.accepted = true;
+    leader.event_origin = 10;
+    let rival = || {
+        let mut row = headline_candidate("d:rival", 0b111, 0b111);
+        row.accepted = true;
+        row.event_origin = 10;
+        row
+    };
+
+    // The keys are read in the order a list sorts by them: the first that differs is the reason,
+    // however many of the later ones differ too.
+    let mut row = rival();
+    row.stand_in_terms = 1;
+    row.rank = 2;
+    row.accepted = false;
+    row.event_origin = 9;
+    assert_eq!(
+        ranked_lower_because(&leader, &row),
+        "it holds more of the words only through stand-in words"
+    );
+    row.stand_in_terms = 0;
+    assert_eq!(
+        ranked_lower_because(&leader, &row),
+        "it matches in a lower tier"
+    );
+    row.rank = 1;
+    assert_eq!(
+        ranked_lower_because(&leader, &row),
+        "it is a proposed draft and the answer is accepted"
+    );
+    row.accepted = true;
+    assert_eq!(
+        ranked_lower_because(&leader, &row),
+        "it was recorded before the answer"
+    );
+    row.event_origin = 10;
+    assert_eq!(
+        ranked_lower_because(&leader, &row),
+        "it sorts after the answer by id"
+    );
+
+    // A close candidate promoted over the full matches is why they rank below it.
+    leader.promoted = true;
+    assert_eq!(
+        ranked_lower_because(&leader, &rival()),
+        "the answer says more of the question in its title and topic keys, though it lacks a word"
+    );
+}
+
+#[test]
+fn a_close_candidate_is_not_named_as_a_full_match() {
+    let mut close = headline_candidate("d:close", 0b001, 0b001);
+    close.missing_terms = vec!["split".to_owned()];
+    let mut opposite = headline_candidate("d:opposite", 0b111, 0b111);
+    opposite.polarity_mismatch = true;
+    let full = headline_candidate("d:full", 0b011, 0b011);
+
+    let rows = [
+        headline_candidate("d:leader", 0b111, 0b111),
+        close,
+        opposite,
+        full,
+    ];
+    let named = out_ranked_full_matches(&rows);
+    assert_eq!(
+        named
+            .iter()
+            .map(|other| other.decision_id.as_str())
+            .collect::<Vec<_>>(),
+        ["d:full"]
+    );
+    assert!(out_ranked_full_matches(&[]).is_empty());
+}
+
+#[test]
+fn the_envelope_names_the_out_ranked_matches_beside_data() {
+    let candidate = ResolvedCandidate {
+        decision_id: "d:root".to_owned(),
+        title: "Split the frontend into its own repository".to_owned(),
+        rank: 1,
+        event_origin: 1,
+        status: DecisionStatus::Accepted,
+        superseded_by: Vec::new(),
+        matched_fields: vec!["title".to_owned()],
+        missing_terms: Vec::new(),
+        polarity_mismatch: false,
+        also_recorded_as: Vec::new(),
+        resolved_via: Vec::new(),
+        consequences: Vec::new(),
+        also_matches: vec![AlsoMatch {
+            decision_id: "d:mirror".to_owned(),
+            title: "Keep a read-only mirror of the code on a second host".to_owned(),
+            ranked_lower_because: SAYS_LESS.to_owned(),
+        }],
+    };
+    assert!(candidate.needs_annotation());
+
+    let mut envelope = json!({"data": {}});
+    annotate_resolution(&mut envelope, &candidate);
+    assert_eq!(
+        envelope["also_matches"],
+        json!([{
+            "decision_id": "d:mirror",
+            "title": "Keep a read-only mirror of the code on a second host",
+            "ranked_lower_because": SAYS_LESS
+        }])
+    );
+    assert!(envelope.get("close_match").is_none());
+    assert!(envelope.get("consequences").is_none());
+
+    // The key is only there when there is something to say, and the `#N` continuation file
+    // keeps it.
+    let written = serde_json::to_value(&candidate).expect("serializes");
+    assert!(written.get("also_matches").is_some());
+    let kept: ResolvedCandidate = serde_json::from_value(written).expect("reads back");
+    assert_eq!(kept, candidate);
+    let alone = ResolvedCandidate {
+        also_matches: Vec::new(),
+        ..candidate
+    };
+    assert!(serde_json::to_value(&alone)
+        .expect("serializes")
+        .get("also_matches")
         .is_none());
     assert!(!alone.needs_annotation());
 }

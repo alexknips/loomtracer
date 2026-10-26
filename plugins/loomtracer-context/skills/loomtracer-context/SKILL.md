@@ -321,6 +321,10 @@ under `resolved_via` (a `resolved via:` line in `--summary` output). Likewise, w
 the decisions your words matched rest on one of them (they follow from it), the
 answer is that decision, and the others come back under `consequences` (a
 `consequences:` line in `--summary` output): they are what it led to, not rivals.
+When your words matched several decisions in full and one leads the rest by what its title
+says, the answer is that one and the others come back under `also_matches`, each with why it
+ranked lower (an `also matches:` line in `--summary` output): they hold your words too, so read
+them before you rely on the answer for a question one of them may answer better.
 
 This mirrors AGENTS.md's honesty standard: no invented confidence. A wrong
 guess on a write verb is worse than asking again.

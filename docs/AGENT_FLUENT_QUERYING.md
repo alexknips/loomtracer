@@ -513,6 +513,23 @@ candidate that does not fold stays listed. A verb that writes does not fold. The
 consequences beside the decision they rest on, since a capture can restate one without restating
 the other.
 
+**An answer names the full matches it out-ranked** (hivemind-701nb). A verb that only reads
+answers a clear leader alone, and the other decisions that hold every word of the question were on
+no list: once the fold gave a root its consequences, "triage gate model" answered the root and
+showed a second full match nowhere, where before it was listed. The answer is the same, and it
+names those decisions in `also_matches: [{decision_id, title, ranked_lower_because}]`, best ranked
+first (an `also matches:` line ahead of `--summary` output, the key beside `data` in `--json`, the
+HTTP routes and MCP). `ranked_lower_because` is the first key of the order a list is sorted by
+that tells the decision from the answer, as a clause: a close candidate promoted over the full
+matches ("the answer says more of the question in its title and topic keys, though it lacks a
+word"), what its title, topic keys and recorded question say of the question (`About`), how many
+of the words it holds only through stand-ins, its rank tier, an accepted decision before a
+proposed draft, recency, then the id. No score stands behind it. The key is absent when no other
+decision holds every word. It is a sibling of `consequences`, not the same list: those rest on
+the answer, these ranked below it. A close candidate is not named (a list leaves it out once a
+full match is there), a list names nothing since it shows every full match, and a verb that
+writes is unchanged: it lists every full match instead of answering.
+
 **`recall` asks the same way.** `recall_decisions` (Layer 3) drops the question
 words ("what did we decide about projects" searches for `projects`) before it
 searches (the same list, decision verbs and framing adverbs included), reports

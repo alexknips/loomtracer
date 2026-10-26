@@ -109,6 +109,13 @@
 //! nothing in common stay apart, as does one that rests on two roots; a loop of decisions that
 //! rest on each other has no root and stays as it is. A description that already resolves keeps
 //! its answer, and a verb that writes folds nothing.
+//!
+//! An answer does not hide what it chose between either (hivemind-701nb). A verb that only reads
+//! answers a clear leader alone, and the other decisions that hold every word of the question are
+//! on no list it shows. The answer names them in `also_matches`, each with the first key of the
+//! order a list is sorted by that put it below the answer (`ranked_lower_because`): where the
+//! words sit, never a score. The answer itself is what it was. A verb that writes is not answered
+//! this way: it lists every full match instead (hivemind-293q).
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{HashMap, HashSet};
@@ -246,6 +253,24 @@ pub struct ResolvedCandidate {
     /// the others follow from and these are the ones the description also matched, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub consequences: Vec<RecordedCopy>,
+    /// Other decisions that hold every word of the question and ranked below this one
+    /// (hivemind-701nb): a verb that only reads answers a clear leader alone, so these are named
+    /// beside the answer instead of being shown nowhere, best ranked first. Empty for a verb that
+    /// writes, which lists every full match, and for a list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_matches: Vec<AlsoMatch>,
+}
+
+/// A decision that holds every word of the question and ranked below the one a read answered with
+/// (hivemind-701nb), and which key of the order a list is sorted by put it there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlsoMatch {
+    pub decision_id: String,
+    pub title: String,
+    /// The first key that tells it from the answer, as a clause that starts with the subject
+    /// (`it says less of the question in its title, topic keys and recorded question`): where
+    /// the words sit and how the records stand, so the basis of the order is the one a list shows.
+    pub ranked_lower_because: String,
 }
 
 impl ResolvedCandidate {
@@ -257,12 +282,13 @@ impl ResolvedCandidate {
 
     /// Whether an answer resolved to this candidate has something to say about how it was
     /// resolved: words it lacks, other records of the same decision, the replaced records it
-    /// was reached through, or the decisions that rest on it.
+    /// was reached through, the decisions that rest on it, or the full matches it out-ranked.
     pub fn needs_annotation(&self) -> bool {
         !self.missing_terms.is_empty()
             || !self.also_recorded_as.is_empty()
             || !self.resolved_via.is_empty()
             || !self.consequences.is_empty()
+            || !self.also_matches.is_empty()
     }
 }
 
@@ -270,6 +296,9 @@ impl ResolvedCandidate {
 /// list the caller must disambiguate via `--pick N` / `#N` or the `--id` escape hatch.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
+// A call returns one of these once, and the list variant holds the same candidates behind a
+// `Vec`: boxing the answer would touch every caller to move a size nobody pays for (hivemind-701nb).
+#[allow(clippy::large_enum_variant)]
 pub enum ResolveOutcome {
     Resolved { candidate: ResolvedCandidate },
     Ambiguous { candidates: Vec<ResolvedCandidate> },
@@ -316,6 +345,10 @@ pub fn resolve_decision_by_description(
 /// the root naming them in `consequences` (hivemind-zdsh.25). A candidate folds only into a root
 /// that is at least as much about the question, and a full match never into a close one
 /// (hivemind-6imih).
+///
+/// When that answers one decision while other decisions hold every word too, the answer names
+/// them in `also_matches`, each with why it ranked lower: a clear leader is answered alone, and
+/// what it out-ranked is not shown nowhere (hivemind-701nb).
 ///
 /// And for a description one decision alone matches in full, when that decision says fewer than two
 /// of the words in its title and topic keys and close candidates exist: it is `Ambiguous`, listed
@@ -453,6 +486,13 @@ fn settle(
     let full_leader_is_about_it = !sole_match_is_thin && full_match_leads(asker, term_count, &rows);
 
     let leader_promoted = rows.first().is_some_and(|leader| leader.promoted);
+    // The leader of a verb that only reads is answered alone, so the decisions that hold every
+    // word and rank below it are named beside it rather than dropped with the list.
+    let out_ranked = if asker == Asker::Reader {
+        out_ranked_full_matches(&rows)
+    } else {
+        Vec::new()
+    };
     let mut candidates: Vec<ResolvedCandidate> = rows
         .into_iter()
         .map(|row| ResolvedCandidate {
@@ -470,23 +510,24 @@ fn settle(
             polarity_mismatch: row.polarity_mismatch,
             resolved_via: row.resolved_via,
             consequences: row.consequences,
+            also_matches: Vec::new(),
         })
         .collect();
 
     let result_count = candidates.len();
     let outcome = if only_close_candidates || leader_promoted {
         if leader_is_clear {
-            ResolveOutcome::Resolved {
-                candidate: candidates.remove(0),
-            }
+            let mut answer = candidates.remove(0);
+            answer.also_matches = out_ranked;
+            ResolveOutcome::Resolved { candidate: answer }
         } else {
             ResolveOutcome::Ambiguous { candidates }
         }
     } else if !candidates.is_empty() {
         if leader_ties == 1 && full_leader_is_about_it {
-            ResolveOutcome::Resolved {
-                candidate: candidates.remove(0),
-            }
+            let mut answer = candidates.remove(0);
+            answer.also_matches = out_ranked;
+            ResolveOutcome::Resolved { candidate: answer }
         } else {
             ResolveOutcome::Ambiguous { candidates }
         }
@@ -725,6 +766,46 @@ fn full_match_leads(asker: Asker, term_count: usize, rows: &[ResolverCandidateRo
                     && (full_match_count(rows) < FULL_MATCHES_THAT_MAKE_WORDS_COMMON
                         || leader_names_a_word_alone(rows)))
         }
+    }
+}
+
+/// The decisions that hold every word of the question and rank below the first of `rows`, in the
+/// order of the list, each with why (hivemind-701nb). The first is what a read answers with when
+/// it is a clear leader. A close candidate is not named: a list leaves it out once a full match is
+/// there.
+fn out_ranked_full_matches(rows: &[ResolverCandidateRow]) -> Vec<AlsoMatch> {
+    let Some((leader, rest)) = rows.split_first() else {
+        return Vec::new();
+    };
+    rest.iter()
+        .filter(|row| !row.is_close())
+        .map(|row| AlsoMatch {
+            decision_id: row.decision_id.clone(),
+            title: row.title.clone(),
+            ranked_lower_because: ranked_lower_because(leader, row).to_owned(),
+        })
+        .collect()
+}
+
+/// Why `row` ranks below `leader`: the first key of the order a list is sorted by
+/// (`standing_before_recency`, then `by_standing`) that tells them apart. Nothing is weighed that
+/// the list does not already order by, so the reason is the list's own and no score stands behind
+/// it.
+fn ranked_lower_because(leader: &ResolverCandidateRow, row: &ResolverCandidateRow) -> &'static str {
+    if leader.promoted && !row.promoted {
+        "the answer says more of the question in its title and topic keys, though it lacks a word"
+    } else if row.about.cmp_about(&leader.about).is_lt() {
+        "it says less of the question in its title, topic keys and recorded question"
+    } else if row.stand_in_terms > leader.stand_in_terms {
+        "it holds more of the words only through stand-in words"
+    } else if row.rank > leader.rank {
+        "it matches in a lower tier"
+    } else if leader.accepted && !row.accepted {
+        "it is a proposed draft and the answer is accepted"
+    } else if row.event_origin < leader.event_origin {
+        "it was recorded before the answer"
+    } else {
+        "it sorts after the answer by id"
     }
 }
 
@@ -1050,6 +1131,7 @@ pub fn resolve_decision_by_id(
                 also_recorded_as: Vec::new(),
                 resolved_via: Vec::new(),
                 consequences: Vec::new(),
+                also_matches: Vec::new(),
             },
         },
         None => ResolveOutcome::NotFound,
@@ -1068,8 +1150,10 @@ pub fn resolve_decision_by_id(
 /// matched all but some of the words asked, `also_recorded_as: [{decision_id, title}]` for the
 /// other records of a decision recorded more than once, `resolved_via: [{decision_id, title}]`
 /// for the replaced records the description matched that led to the decision that stands, and
-/// `consequences: [{decision_id, title}]` for the matched decisions that rest on it. A
-/// description that matched in full a decision recorded once adds nothing, so a key's presence is
+/// `consequences: [{decision_id, title}]` for the matched decisions that rest on it, and
+/// `also_matches: [{decision_id, title, ranked_lower_because}]` for the other decisions that held
+/// every word and ranked below it (hivemind-701nb). A description that matched in full a decision
+/// recorded once, with no other decision holding every word, adds nothing, so a key's presence is
 /// the whole signal. Shared by the CLI's `--json`, the HTTP API and MCP so the three cannot name
 /// it differently.
 pub fn annotate_resolution(envelope: &mut serde_json::Value, candidate: &ResolvedCandidate) {
@@ -1102,6 +1186,12 @@ pub fn annotate_resolution(envelope: &mut serde_json::Value, candidate: &Resolve
         envelope.insert(
             "consequences".to_owned(),
             serde_json::json!(candidate.consequences),
+        );
+    }
+    if !candidate.also_matches.is_empty() {
+        envelope.insert(
+            "also_matches".to_owned(),
+            serde_json::json!(candidate.also_matches),
         );
     }
 }

@@ -142,7 +142,7 @@ pub(crate) use reexamine::{is_past_window, is_sole_superseder, OpenSupersession,
 pub use relevant::{get_relevant_decisions, RelevantDecision};
 pub use resolve::{
     annotate_resolution, resolve_decision_by_description, resolve_decision_by_id,
-    resolve_decision_for_reading, ResolveOutcome, ResolvedCandidate, POLARITY_REASON,
+    resolve_decision_for_reading, AlsoMatch, ResolveOutcome, ResolvedCandidate, POLARITY_REASON,
 };
 pub use same_as::{
     decision_headings, same_as_groups, supersession_pairs, DecisionHeading, RecordedCopy,

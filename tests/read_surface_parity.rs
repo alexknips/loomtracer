@@ -1188,3 +1188,85 @@ async fn a_decision_that_rests_on_the_answer_is_named_as_its_consequence_through
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
+
+/// hivemind-701nb: a question that one decision answers alone while another holds every word too
+/// is answered with the first, and the answer names the other and why it ranked lower, through
+/// every surface. Before, the other was shown nowhere.
+#[tokio::test]
+async fn an_answer_names_the_full_match_it_out_ranked_through_every_surface() -> TestResult<()> {
+    let dir = unique_temp_dir("read-surface-parity-also-matches");
+    let path = dir.to_str().ok_or("the ledger path is utf-8")?;
+    let leader = propose_decision(
+        path,
+        "Split the frontend into its own repository",
+        "The web UI ships on its own cadence",
+        "frontend",
+    )?;
+    let other = propose_decision(
+        path,
+        "Keep a read-only mirror of the code on a second host",
+        "The mirror carries the frontend repository as it was before the split",
+        "mirror",
+    )?;
+    let mut mcp = McpServer::start(&dir)?;
+
+    for verb in ["why", "verify"] {
+        let question = "frontend repository split";
+        let cli = without_latency(via_cli(&dir, verb, question)?);
+        let plugin = without_latency(via_plugin(&dir, verb, question)?);
+        let from_mcp = without_latency(mcp.call(mcp_tool(verb), question)?);
+        let (status, http) = via_http(&dir, verb, question).await?;
+
+        assert_ne!(cli["data"]["outcome"], "ambiguous", "{verb}: {cli}");
+        let answered = cli["data"]["root"]["id"]
+            .as_str()
+            .or_else(|| cli["data"]["decision_id"].as_str())
+            .ok_or_else(|| format!("{verb}: an answer names its decision: {cli}"))?;
+        assert_eq!(answered, leader, "{verb}: {cli}");
+        let named = cli["also_matches"]
+            .as_array()
+            .ok_or_else(|| format!("{verb}: the answer names what it out-ranked: {cli}"))?;
+        assert_eq!(named.len(), 1, "{verb}: {cli}");
+        assert_eq!(named[0]["decision_id"], other.as_str(), "{verb}: {cli}");
+        assert_eq!(
+            named[0]["title"], "Keep a read-only mirror of the code on a second host",
+            "{verb}: {cli}"
+        );
+        assert_eq!(
+            named[0]["ranked_lower_because"],
+            "it says less of the question in its title, topic keys and recorded question",
+            "{verb}: {cli}"
+        );
+
+        assert_eq!(plugin, cli, "{verb}: the plugin's reply differs");
+        assert_eq!(from_mcp, cli, "{verb}: the MCP reply differs");
+        assert_eq!(status, StatusCode::OK, "{verb}: {http}");
+        assert_eq!(without_latency(http), cli, "{verb}: the HTTP reply differs");
+
+        let summary = run(&Cli::parse_from([
+            "loomtracer",
+            "--loomtracer-dir",
+            path,
+            "query",
+            verb,
+            question,
+            "--summary",
+        ]))?;
+        let line = summary
+            .lines()
+            .find(|line| line.starts_with("also matches:"))
+            .ok_or_else(|| format!("{verb}: no `also matches:` line: {summary}"))?;
+        assert!(line.contains(&other), "{verb}: {line}");
+        assert_eq!(
+            summary
+                .lines()
+                .filter(|line| line.starts_with("also matches:"))
+                .count(),
+            1,
+            "{verb}: one line names them all: {summary}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
