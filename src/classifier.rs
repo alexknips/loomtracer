@@ -16,8 +16,8 @@ use tracing::{debug, info, warn};
 
 use crate::commands::{CommandContext, Commands};
 use crate::events::{
-    classified_batch_ids, normalize_question_text, CaptureItem, EventId, EventProvenance,
-    EventType, TenantId,
+    classified_batch_ids, normalize_question_text, session_agent_actor, CaptureItem, EventId,
+    EventProvenance, EventType, TenantId,
 };
 use crate::ledger::{EventLedger, SqliteEventLedger};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
@@ -29,6 +29,8 @@ const ACTOR_ID: &str = "agent:loomtracer:classifier";
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
 const HAIKU_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TOKENS: u32 = 1200;
+/// What the first line of a rendered batch says before the session agent's id.
+const SESSION_AGENT_LABEL: &str = "Session agent:";
 
 // Classifier prompt from CAPTURE_CLASSIFIER.md
 const CLASSIFIER_PROMPT: &str = r#"You are the Loomtracer capture classifier.
@@ -109,15 +111,24 @@ person stating the choice themselves ("we'll go with X", "I'm going with X"),
 or any actor approving, accepting or rejecting a choice ("approved", "yes, do
 it" in answer to a proposal). When the text reports someone's call ("Priya
 approved X"), list Priya, not whoever reports it. Proposing, recommending,
-carrying out, reporting or relaying a choice is not deciding it: an actor who
-only suggests X ("I suggest X", "we could use X"), only implements it, only says
-it was decided, or passes on a call without saying who made it is not listed,
-and a proposal nobody has accepted stays empty however firmly it is worded. An
-agent narrating or carrying out its own choice is proposing it, so the decision
-stays unaccepted until a person is shown deciding it. A speaker the text does
-not name gives no one to list. Never inferred and never taken from actor_id;
-list every actor the text shows deciding, never deduplicated to one. Empty array
-if none.
+reporting or relaying a choice is not deciding it, and neither is carrying out a
+call somebody else made: an actor who only suggests X ("I suggest X", "we could
+use X"), only implements X, only says it was decided, or passes on a call without
+saying who made it is not listed, and a proposal nobody has accepted stays empty
+however firmly it is worded. The one agent that decides for itself
+is the session agent, named on the first line of the input ("Session agent:
+<id>"): when its own turn shows it making a call that nobody else made, and
+carrying it out ("I'm keeping the retry count at three", "went with X and pushed
+it"), the call was its to make, so list that id, copied exactly, in accepted_by.
+A call a person or another actor made is theirs, not the session agent's, however
+the session agent carried it out: list them, never the session agent. A
+recommendation, a suggestion or a proposal that waits for someone ("I recommend
+X, your call", "should we use X?", "put on a branch for review") stays empty, and
+so does a call the session agent only reports from someone else. Any other agent
+named in the text that only narrates or carries out its own choice is proposing
+it and is not listed. A speaker the text does not name gives no one to list.
+Never taken from actor_id; list every actor the text shows deciding, never
+deduplicated to one. Empty array if none.
 
 evidence_ids: For decisions. Evidence ids (per the cross-reference rule above)
 this decision is explicitly based on. Empty array if none.
@@ -137,6 +148,9 @@ decision_id: For blockers. The decision being blocked, IF its ID appears in
 the input. Both null if not explicitly stated.
 
 SOURCE TURN AND QUESTION — populate only from explicit text, never infer:
+
+The input may open with a line `Session agent: <id>`: the agent whose session this
+is, who spoke its assistant turns. It is not a turn and not a capture.
 
 Each turn in the batch starts with a header like `[user turn <id>]`.
 
@@ -947,6 +961,11 @@ fn batch_info_from_event(event: &crate::events::Event) -> Option<BatchInfo> {
 /// turn (`[<role>] <text>` for a turn with no id). The turn id is what a capture's
 /// `source_turn_id` names; the turn's time is not shown, because the write path reads it from
 /// the received turn rather than from the model.
+///
+/// A batch with turns opens with `Session agent: <id>` and a blank line: the agent whose session
+/// it is ([`session_agent_actor`], the id the projector credits as the session's agent). It is
+/// how a classifier names the one agent that may decide for itself in `accepted_by`, in the
+/// words of the id and never from the text.
 fn render_batch_text(event: &crate::events::Event) -> String {
     let turns = event
         .payload
@@ -956,6 +975,14 @@ fn render_batch_text(event: &crate::events::Event) -> String {
         .unwrap_or_default();
 
     let mut out = String::new();
+    if let Some(agent) = session_agent_actor(
+        &event.actor_id,
+        &payload_string(&event.payload, "agent_tool"),
+    ) {
+        if !turns.is_empty() {
+            let _ = write!(out, "{SESSION_AGENT_LABEL} {agent}\n\n");
+        }
+    }
     for turn in &turns {
         let role = turn
             .get("role")

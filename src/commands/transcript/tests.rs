@@ -42,6 +42,8 @@ const CALL_REPORTED_BY_ANOTHER: &str =
     include_str!("../../../tests/fixtures/transcripts/call_reported_by_another.json");
 const CALL_RELAYED_UNATTRIBUTED: &str =
     include_str!("../../../tests/fixtures/transcripts/call_relayed_unattributed.json");
+const AGENT_CARRIES_OUT_PERSONS_CALL: &str =
+    include_str!("../../../tests/fixtures/transcripts/agent_carries_out_persons_call.json");
 
 fn moment(timestamp: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(timestamp)
@@ -595,13 +597,14 @@ fn a_decision_dropped_as_the_same_moment_seen_again_writes_no_link() {
     assert_eq!(events_of(&ledger, EventType::QuestionAsked).len(), 1);
 }
 
-// --- who decided (hivemind-u70b) ---
+// --- who decided (hivemind-u70b, hivemind-zdsh.23) ---
 //
 // A classified decision is accepted only when the capture names an acceptor, and the classifier
-// names one only when the text shows that actor deciding (`CLASSIFIER_PROMPT` and
-// `plugins/loomtracer-capture/commands/classify-queue.md` carry the rule). Each fixture below is a
-// transcript with the answer that rule gives; replaying it through the write path and the status
-// read shows the status and decider it lands in.
+// names one only when the text shows that actor deciding, or the session agent making and
+// carrying out a call of its own (`CLASSIFIER_PROMPT` and
+// `plugins/loomtracer-capture/commands/classify-queue.md` carry the rule). Each fixture below is
+// a transcript with the answer that rule gives; replaying it through the write path and the
+// status read shows the status and decider it lands in.
 
 /// A recorded fixture's one decision as `why` and `verify` read it: its status, who decided it,
 /// and who the capture credits as its proposer.
@@ -630,9 +633,31 @@ fn who_decided_a_person_who_states_the_choice_is_its_decider() {
     assert_eq!(proposer.as_deref(), Some("human:dana"));
 }
 
-/// An agent narrates and carries out its own choice: it proposed it, nobody has decided it.
+/// The session agent makes a call mid-task and carries it out: the call was its own to make, so
+/// it is the decider, as the submitter of the batch (`Session agent:` on the classifier's input).
 #[test]
-fn who_decided_an_agents_own_choice_stays_proposed() {
+fn who_decided_the_session_agent_deciding_alone_is_its_own_decider() {
+    let (status, deciders, proposer) = who_decided(AGENT_DECIDES_ALONE);
+
+    assert_eq!(status, DecisionStatus::Accepted);
+    assert_eq!(deciders, vec![SUBMITTER.to_owned()]);
+    assert_eq!(proposer, None, "who proposed it is still not inferred");
+}
+
+/// A person makes the call and the session agent carries it out: the person is the decider, and
+/// the agent that implemented it is not made one.
+#[test]
+fn who_decided_an_agent_carrying_out_a_persons_call_leaves_the_person_its_decider() {
+    let (status, deciders, proposer) = who_decided(AGENT_CARRIES_OUT_PERSONS_CALL);
+
+    assert_eq!(status, DecisionStatus::Accepted);
+    assert_eq!(deciders, vec!["human:sam".to_owned()]);
+    assert_eq!(proposer.as_deref(), Some("human:sam"));
+}
+
+/// An agent puts a call up for review: it proposed it, nobody has decided it.
+#[test]
+fn who_decided_an_agents_proposal_awaiting_review_stays_proposed() {
     let (status, deciders, proposer) = who_decided(PROPOSED_ONLY);
 
     assert_eq!(status, DecisionStatus::Proposed);

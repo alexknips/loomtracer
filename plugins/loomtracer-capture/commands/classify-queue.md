@@ -78,15 +78,23 @@ shows that actor deciding: a person stating the choice themselves ("we'll go wit
 "I'm going with X"), or any actor approving, accepting or rejecting a choice
 ("approved", "yes, do it" in answer to a proposal). When the text reports someone's
 call ("Priya approved X"), list Priya, not whoever reports it. Proposing,
-recommending, carrying out, reporting or relaying a choice is not deciding it: an
-actor who only suggests X ("I suggest X", "we could use X"), only implements it, only
-says it was decided, or passes on a call without saying who made it is not listed, and
-a proposal nobody has accepted stays empty however firmly it is worded. An agent
-narrating or carrying out its own choice is proposing it, so the decision stays
-unaccepted until a person is shown deciding it. A speaker the text does not name gives
-no one to list. Never infer an acceptor, and never copy `actor_id` into `accepted_by`;
-list every actor the text shows deciding. A decision left with no acceptor is recorded
-as proposed, which is the honest state until someone is shown deciding it.
+recommending, reporting or relaying a choice is not deciding it, and neither is carrying
+out a call somebody else made: an actor who only suggests X ("I suggest X", "we could use
+X"), only implements X, only says it was decided, or passes on a call without saying who
+made it is not listed, and a proposal nobody has accepted stays empty however firmly it
+is worded. The one agent that decides for itself is the session agent, named on the first
+line of `batch_text` ("Session agent: <id>"): when its own turn shows it making a call that
+nobody else made, and carrying it out ("I'm keeping the retry count at three", "went with X
+and pushed it"), the call was its to make, so list that id, copied exactly, in
+`accepted_by`. A call a person or another actor made is theirs, not the session agent's,
+however the session agent carried it out: list them, never the session agent. A
+recommendation, a suggestion or a proposal that waits for someone ("I recommend X, your
+call", "should we use X?", "put on a branch for review") stays empty, and so does a call
+the session agent only reports from someone else. Any other agent named in the text that
+only narrates or carries out its own choice is proposing it and is not listed. A speaker
+the text does not name gives no one to list. Never copy `actor_id` into `accepted_by`; list
+every actor the text shows deciding. A decision left with no acceptor is recorded as
+proposed, which is the honest state until someone is shown deciding it.
 
 **Step 2b: Check each decision against what is already recorded**
 

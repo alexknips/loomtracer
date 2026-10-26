@@ -105,6 +105,44 @@ fn render_batch_text_unknown_role_defaults_to_unknown() {
     assert_eq!(render_batch_text(&event), "[unknown] no role field\n");
 }
 
+/// A received batch from `actor_id`, shipped by `agent_tool`, with one user turn.
+fn batch_event_from(actor_id: &str, agent_tool: &str, turns: serde_json::Value) -> Event {
+    let mut event = batch_event(turns);
+    event.actor_id = actor_id.to_owned();
+    event.payload["agent_tool"] = serde_json::json!(agent_tool);
+    event
+}
+
+#[test]
+fn render_batch_text_opens_with_the_session_agent_the_projector_credits() {
+    let turns = serde_json::json!([{ "role": "user", "text": "hello", "truncated": false }]);
+
+    let own_identity = batch_event_from("agent:claude:gastown.furiosa", "claude", turns.clone());
+    assert_eq!(
+        render_batch_text(&own_identity),
+        "Session agent: agent:claude:gastown.furiosa\n\n[user] hello\n"
+    );
+
+    let beside_a_human = batch_event_from("human:alex@example.com", "claude", turns.clone());
+    assert_eq!(
+        render_batch_text(&beside_a_human),
+        "Session agent: agent:claude:hook\n\n[user] hello\n"
+    );
+
+    let no_agent_named = batch_event_from("human:alex@example.com", "", turns);
+    assert_eq!(render_batch_text(&no_agent_named), "[user] hello\n");
+}
+
+#[test]
+fn render_batch_text_of_a_batch_with_no_turns_names_no_session_agent() {
+    let event = batch_event_from(
+        "agent:claude:gastown.furiosa",
+        "claude",
+        serde_json::json!([]),
+    );
+    assert_eq!(render_batch_text(&event), "");
+}
+
 // --- pending-batch filter ---
 
 #[test]
@@ -321,15 +359,22 @@ fn a_question_the_write_path_would_refuse_is_dropped_before_submission() {
     assert_eq!(captures[2].question, None);
 }
 
-// --- who decided (hivemind-u70b) ---
+// --- who decided (hivemind-u70b, hivemind-zdsh.23) ---
 
 /// The words the two classify workers share about who decided: the server-side prompt and the
 /// agent-seat command (Worker A), which is read from the plugin so a drift in either shows here.
+/// The town runner of the cell (`hivemind-classify-runner.py`) takes the same words by hand.
 const DECIDER_RULE: &[&str] = &[
     "a person stating the choice themselves",
     "list priya, not whoever reports it",
     "a proposal nobody has accepted stays empty however firmly it is worded",
-    "an agent narrating or carrying out its own choice is proposing it",
+    "the one agent that decides for itself is the session agent",
+    "making a call that nobody else made",
+    "list that id, copied exactly,",
+    "a call a person or another actor made is theirs, not the session agent's",
+    "a recommendation, a suggestion or a proposal that waits for someone",
+    "only narrates or carries out its own choice is proposing it",
+    "session agent: <id>",
 ];
 
 fn one_line(text: &str) -> String {

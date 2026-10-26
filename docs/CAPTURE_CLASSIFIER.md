@@ -267,15 +267,34 @@ and the agent-seat `classify-queue` command) apply the same rule:
   accepting it ("approved"), or rejecting it.
 - When the text reports someone's call ("Priya approved X"), the acceptor is
   Priya, and the one reporting it is `actor_id` at most.
-- Proposing, recommending, carrying out, reporting or relaying a choice is not
-  deciding it. A proposal nobody has accepted, a call passed on without saying who
-  made it, and a speaker the text does not name all leave `accepted_by` empty, so
-  the decision stays `proposed`.
+- Proposing, recommending, reporting or relaying a choice is not deciding it, and
+  neither is carrying out a call somebody else made. A proposal nobody has
+  accepted, a call passed on without saying who made it, and a speaker the text
+  does not name all leave `accepted_by` empty, so the decision stays `proposed`.
+- One agent decides for itself: the session agent. A batch's text opens with
+  `Session agent: <id>` (the agent the projector credits for the session: the
+  batch's submitter when it is an `agent:` id, else `agent:<agent_tool>:hook`;
+  `classify-queue list` shows the line as the first line of each `batch_text`).
+  When the session agent's own turn shows it making a call that nobody else made,
+  and carrying it out ("I'm keeping the retry count at three", "went with X and
+  pushed it"), the call was its to make: that id, copied exactly, goes in
+  `accepted_by`, and the decision reads `accepted`, decided by that agent. A call a
+  person or another actor made is theirs however the agent carried it out: they are
+  listed, never the session agent. A recommendation, a suggestion or a proposal that
+  waits for someone ("I recommend X, your call", "should we use X?", "put on a
+  branch for review") stays empty, as does a call the session agent only reports
+  from someone else, and another agent named in the text that only narrates or
+  carries out its own choice is proposing it. This is the whole of the exception (hivemind-zdsh.23
+  reverses what hivemind-u70b ruled for agents): the projector still derives nothing
+  from `actor_id`, the rule for people is unchanged, and a decision recorded before
+  the rule keeps what it was recorded with.
 
 `tests/fixtures/transcripts/` holds one transcript for each case (decided,
-proposed only, reported by someone else, relayed) with the answer the rule gives and
-the status it lands in; `cargo test who_decided` replays each answer through
-the write path and the status read.
+the session agent deciding alone, the agent carrying out a person's call, proposed
+only, reported by someone else, relayed) with the answer the rule gives and the status it lands in;
+`cargo test who_decided` replays each answer through the write path and the
+status read. The fixtures are the answers the rule gives, not what a model
+answers: a change to the wording is probed against a model before it ships.
 
 For API structured outputs, use a JSON Schema equivalent to the object above
 with `additionalProperties: false`. Keep all fields required; nullable values

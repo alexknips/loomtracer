@@ -2921,6 +2921,19 @@ the migration under Unreleased above.
   `proposed`, even when a human is credited as the one who proposed it. The change is in how a
   classified batch projects, so a ledger already holding captures reads right after the graph
   is rebuilt from it; no event is rewritten. (hivemind-s0ra)
+- **A decision the session's own agent made and carried out reads `accepted`, no longer
+  `proposed` for good.** Both classify workers, the server-side classifier and the
+  `classify-queue` command, now list the session agent in `accepted_by` when its own turn
+  shows it making a call that nobody else made and carrying it out ("I'm keeping the retry count
+  at three"), where hivemind-u70b left every agent's own call without an acceptor. A call a
+  person made and the agent carried out lists the person, as before. A recommendation, a
+  suggestion or a proposal that waits for someone still has no acceptor and stays `proposed`,
+  and the rule for people is unchanged. The session agent's id is the first line of each batch's text
+  (`Session agent: <id>`, the agent the projector already credits for the session), so
+  `classify-queue list` shows it in `batch_text`. The projector still derives nothing from
+  `actor_id` (hivemind-s0ra). The rule applies to classifications made from now on; captures
+  already on the ledger are unchanged. The plugin manifests are 0.1.4 so installed copies
+  update. (hivemind-zdsh.23)
 - **The classifier names a decision's acceptor only when the text shows that actor deciding.**
   Both classify workers, the server-side classifier and the `classify-queue` command, now
   separate who proposed, made or reported a call (`actor_id`) from who decided it

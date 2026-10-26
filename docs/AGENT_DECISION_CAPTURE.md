@@ -978,12 +978,15 @@ choice binds something or is costly to undo; a request goes to your tracker) and
 no longer produces `decision-request`. See
 [`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md) for the classifier design.
 
-**Who decided** (hivemind-u70b): both classify workers, this one and the agent-seat
-`classify-queue` command, fill `accepted_by` and `rejected_by` only for an actor the text
-shows deciding, and `actor_id` only for who proposed, made or reported the item. A proposal,
-a report of a call, a call relayed without its decider, or an agent carrying out its own
-choice leaves no acceptor, so the decision reads `proposed` until a person is shown deciding
-it. The rule and its fixtures are in [`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md).
+**Who decided** (hivemind-u70b, hivemind-zdsh.23): both classify workers, this one and the
+agent-seat `classify-queue` command, fill `accepted_by` and `rejected_by` only for an actor the
+text shows deciding, and `actor_id` only for who proposed, made or reported the item. A proposal,
+a report of a call, or a call relayed without its decider leaves no acceptor, so the decision
+reads `proposed` until someone is shown deciding it. The one agent that decides for itself is the
+session agent, named on the first line of each batch's text (`Session agent: <id>`): a call its
+own turn shows it making and carrying out lists that id in `accepted_by`; a recommendation or a
+proposal that waits for someone does not. The rule and its fixtures are in
+[`CAPTURE_CLASSIFIER.md`](CAPTURE_CLASSIFIER.md).
 
 **Restatements** (hivemind-83cj): every session that relays or re-reads a ruling
 can classify it into a fresh decision. After extracting a decision, the worker

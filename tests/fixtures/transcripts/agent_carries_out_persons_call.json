@@ -1,0 +1,45 @@
+{
+  "batch": {
+    "batch_id": "batch-carries-out",
+    "agent_tool": "claude",
+    "session_id": "session-carries-out",
+    "turns": [
+      {
+        "turn_id": "t-1",
+        "role": "user",
+        "truncated": false,
+        "ts": "2026-09-06T14:00:00Z",
+        "text": "Sam: Use cursor pagination for the list endpoint. Offsets skip rows when the data changes underneath a reader."
+      },
+      {
+        "turn_id": "t-2",
+        "role": "assistant",
+        "truncated": false,
+        "ts": "2026-09-06T14:05:00Z",
+        "text": "Understood, cursor pagination it is. I've implemented it and the tests pass."
+      }
+    ]
+  },
+  "captures": [
+    {
+      "kind": "decision",
+      "title": "Paginate the list endpoint with cursors",
+      "rationale": "Offsets skip rows when the data changes underneath a reader.",
+      "topic_keys": [
+        "api"
+      ],
+      "evidence_ids": [],
+      "options": [
+        "Cursor pagination",
+        "Offset pagination"
+      ],
+      "chosen_option": "Cursor pagination",
+      "extraction_confidence": 0.85,
+      "source_turn_id": "t-1",
+      "actor_id": "human:sam",
+      "accepted_by": [
+        "human:sam"
+      ]
+    }
+  ]
+}

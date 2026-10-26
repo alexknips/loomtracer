@@ -28,7 +28,10 @@
       ],
       "chosen_option": "Three retries",
       "extraction_confidence": 0.8,
-      "source_turn_id": "t-1"
+      "source_turn_id": "t-1",
+      "accepted_by": [
+        "agent:claude:hook"
+      ]
     }
   ]
 }
