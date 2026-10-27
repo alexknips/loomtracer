@@ -18,16 +18,18 @@
 //! Pair with `DecisionOutcome` from `outcome.rs` for causal attribution: context is the
 //! independent variable, outcome is the dependent variable.
 
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::projector::{GraphParams, GraphValue, GraphView};
+use crate::projector::{GraphParams, GraphValue, GraphView, NodeKind};
 use crate::Result;
 
 use super::shared::{
-    optional_int, optional_string, query_error, query_timer_start, required_string,
-    MAX_QUERY_RESULTS,
+    node_rows, optional_datetime, optional_int, optional_string, query_error, query_timer_start,
+    relayer_of, required_string, MAX_QUERY_RESULTS,
 };
 use super::QueryResponse;
 
@@ -97,6 +99,21 @@ pub struct DecisionContext {
     pub delegated_by: Option<String>,
     /// Review depth: was the decision examined by a peer?
     pub review: ReviewShape,
+    /// Actors the decision names as deciders who said the call was not theirs
+    /// (`decision.attribution_disputed`), one per actor with their latest statement. The
+    /// acceptance stays in `accepted_by`, and `authorship` and `review` stay as recorded: a
+    /// dispute sits beside the acceptance, never replaces it (hivemind-purmd, hivemind-1sanf).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attribution_disputes: Vec<AttributionDispute>,
+    /// `authorship` reads `AgentProposedHumanAccepted`, but every human who accepted it has
+    /// disputed that acceptance, so no human is left standing behind the call. The failure-mode
+    /// report groups such a decision apart rather than with the human-accepted ones.
+    #[serde(skip)]
+    pub(crate) human_acceptance_disputed: bool,
+    /// `review` reads `PeerReviewed`, but every acceptor other than the recorder has disputed
+    /// that acceptance, so nobody else is left having reviewed the call.
+    #[serde(skip)]
+    pub(crate) peer_review_disputed: bool,
     /// Number of actors who accepted the decision.
     pub accepted_count: i64,
     /// Number of actors who rejected the decision.
@@ -109,6 +126,26 @@ pub struct DecisionContext {
     pub options_count: i64,
     /// Character count of the decision rationale (proxy for context richness).
     pub rationale_chars: i64,
+}
+
+/// One actor's statement that a decision names them as its decider and the call was not theirs.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AttributionDispute {
+    pub disputed_by: String,
+    /// What they said: their own words, typed with their credential or, when `relayed_by` is
+    /// present, the verbatim quote their agent recorded.
+    pub reason: String,
+    /// The agent that recorded the statement for the person (hivemind-f9xgu): the event's
+    /// `agent` source reference when it is not the disputing actor itself. Absent when the actor
+    /// disputed with their own credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relayed_by: Option<String>,
+    /// Where they said it (a session, thread or message), as the relaying agent stated it.
+    /// Absent when nobody did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disputed_at: Option<DateTime<Utc>>,
 }
 
 /// Request for the bulk context-candidates query.
@@ -147,6 +184,9 @@ pub fn get_decision_context(
         let rationale_chars = optional_string(row, "rationale")
             .map(|r| r.len() as i64)
             .unwrap_or(0);
+        let attribution_disputes = attribution_disputes_by_decision(graph)?
+            .remove(&id)
+            .unwrap_or_default();
         Some(derive_context(
             graph,
             &id,
@@ -154,6 +194,7 @@ pub fn get_decision_context(
             source_ref,
             optional_string(row, "delegated_by"),
             rationale_chars,
+            attribution_disputes,
         )?)
     } else {
         None
@@ -215,6 +256,8 @@ pub fn get_decision_context_candidates(
     let truncated = paged.len() > limit;
     let window = paged.get(..paged.len().min(limit)).unwrap_or(&[]);
 
+    // One read of the (few) dispute nodes for the whole page, not one per decision.
+    let mut disputes_by_decision = attribution_disputes_by_decision(graph)?;
     let mut contexts = Vec::with_capacity(window.len());
     for row in window {
         let id = required_string(row, "id")?;
@@ -223,6 +266,7 @@ pub fn get_decision_context_candidates(
         let rationale_chars = optional_string(row, "rationale")
             .map(|r| r.len() as i64)
             .unwrap_or(0);
+        let attribution_disputes = disputes_by_decision.remove(&id).unwrap_or_default();
         contexts.push(derive_context(
             graph,
             &id,
@@ -230,6 +274,7 @@ pub fn get_decision_context_candidates(
             source_ref,
             optional_string(row, "delegated_by"),
             rationale_chars,
+            attribution_disputes,
         )?);
     }
 
@@ -252,6 +297,7 @@ fn derive_context(
     source_ref: Option<String>,
     delegated_by: Option<String>,
     rationale_chars: i64,
+    attribution_disputes: Vec<AttributionDispute>,
 ) -> Result<DecisionContext> {
     let proposer = query_proposer(graph, decision_id)?;
     let proposer_id = proposer.as_ref().map(|(id, _)| id.clone());
@@ -283,6 +329,28 @@ fn derive_context(
 
     let accepted_by: Vec<String> = acceptors.iter().map(|(id, _)| id.clone()).collect();
 
+    // The acceptances that still stand: the recorded ones less those their own actor disputed.
+    // `authorship` and `review` stay as recorded, so these two flags say only that the reading
+    // they would give without the disputed acceptances is a weaker one.
+    let disputers: HashSet<&str> = attribution_disputes
+        .iter()
+        .map(|dispute| dispute.disputed_by.as_str())
+        .collect();
+    let standing: Vec<(String, String)> = acceptors
+        .iter()
+        .filter(|(id, _)| !disputers.contains(id.as_str()))
+        .cloned() // ubs:ignore: owned pairs required; the acceptors list is borrowed
+        .collect();
+    let human_acceptance_disputed = authorship == AuthorshipShape::AgentProposedHumanAccepted
+        && derive_authorship(proposer_kind, &standing) != authorship;
+    let peer_review_disputed = review == ReviewShape::PeerReviewed
+        && derive_review(
+            recorder.as_deref(),
+            &standing,
+            standing.len() as i64,
+            rejected_count,
+        ) != review;
+
     Ok(DecisionContext {
         decision_id: decision_id.to_owned(),
         authorship,
@@ -292,6 +360,9 @@ fn derive_context(
         source_ref,
         delegated_by,
         review,
+        attribution_disputes,
+        human_acceptance_disputed,
+        peer_review_disputed,
         accepted_count,
         rejected_count,
         evidence_count,
@@ -299,6 +370,55 @@ fn derive_context(
         options_count,
         rationale_chars,
     })
+}
+
+/// The attribution disputes recorded in the ledger, by the decision they dispute: each
+/// disputing actor's latest statement, in the order those statements were recorded. One bulk
+/// read of the (few) dispute nodes: they have no edges, so a decision is matched on the node's
+/// `decision_id` property.
+fn attribution_disputes_by_decision(
+    graph: &impl GraphView,
+) -> Result<HashMap<String, Vec<AttributionDispute>>> {
+    let mut recorded: HashMap<String, Vec<(i64, AttributionDispute)>> = HashMap::new();
+    for (_, row) in node_rows(graph, NodeKind::AttributionDispute)? {
+        let decision_id = required_string(&row, "decision_id")?;
+        let origin = optional_int(&row, "event_origin").unwrap_or(i64::MAX);
+        let disputed_by = optional_string(&row, "disputed_by").unwrap_or_default();
+        let relayed_by = relayer_of(
+            optional_string(&row, "source").as_deref(),
+            optional_string(&row, "source_ref"),
+            &disputed_by,
+        );
+        let dispute = AttributionDispute {
+            disputed_by,
+            reason: optional_string(&row, "reason").unwrap_or_default(),
+            relayed_by,
+            said_in: optional_string(&row, "said_in"),
+            disputed_at: optional_datetime(&row, "disputed_at")?,
+        };
+        let disputes = recorded.entry(decision_id).or_default();
+        match disputes
+            .iter_mut()
+            .find(|(_, seen)| seen.disputed_by == dispute.disputed_by)
+        {
+            Some((seen_origin, _)) if *seen_origin > origin => {}
+            Some(slot) => *slot = (origin, dispute),
+            None => disputes.push((origin, dispute)),
+        }
+    }
+    Ok(recorded
+        .into_iter()
+        .map(|(decision_id, mut disputes)| {
+            disputes.sort_by(|(a, left), (b, right)| {
+                a.cmp(b)
+                    .then_with(|| left.disputed_by.cmp(&right.disputed_by))
+            });
+            (
+                decision_id,
+                disputes.into_iter().map(|(_, dispute)| dispute).collect(),
+            )
+        })
+        .collect())
 }
 
 fn derive_authorship(proposer_kind: &str, acceptors: &[(String, String)]) -> AuthorshipShape {
@@ -485,3 +605,6 @@ pub fn context_next_cursor(skip: usize, window_len: usize) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests;

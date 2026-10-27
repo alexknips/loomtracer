@@ -221,6 +221,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **After a person disputes an attribution, `get_decision_context` and `analyze_failure_modes`
+  no longer report them as the one who accepted.** `why`, `verify` and `brief` already read
+  `decided by: <person> (..., disputed by <person>: <reason>)`, but the MCP `get_decision_context`
+  returned the same `accepted_by`, `authorship` and `review` as for a call the person really
+  accepted, and `analyze_failure_modes` counted the call among the ones people accepted. Both
+  read the dispute now: `get_decision_context` and `decision_context_candidates` carry
+  `attribution_disputes` (`disputed_by`, `reason`, `disputed_at`, each actor's latest, and
+  `relayed_by` and `said_in` when their agent recorded it for them, as `why` reads it) beside
+  `accepted_by`, which still names them, and leave `authorship` and `review` as recorded; a
+  decision whose every human acceptor disputed is its own group in the failure-mode report,
+  `agent_proposed_acceptance_disputed` under `by_authorship` and `acceptance_disputed` under
+  `by_review`, and no longer part of `agent_proposed_human_accepted` or `peer_reviewed`. A call
+  with a second acceptor who did not dispute stays where it was. The field is absent on a
+  decision nobody disputed, so those answers are unchanged. The acceptance and the decision's
+  status stay as recorded.
 - **`why`, `verify`, `chain` and `compact-view` by description answer with a decision when the
   other decisions the words matched rest on it, where they answered `ambiguous`.** A decision and
   the decisions that follow from it say the same words ("Remove web/ from loomtracer now" follows

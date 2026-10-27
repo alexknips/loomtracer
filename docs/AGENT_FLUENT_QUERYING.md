@@ -1132,9 +1132,15 @@ rewritten nor removed, and the decision's status does not change; it is not a re
 `why`, `verify` and `brief` then read `decided by: human:alex (source=..., review=..., disputed
 by human:alex: <reason>)`, and `decided_by.attribution_disputes` in JSON lists each disputing
 actor's latest `{disputed_by, reason, disputed_at}` while `decider_ids` still names them. The
-statement is the actor's own, so the verb takes no target: only an actor the ledger names as a
-decider (a `decision.accepted` of its own, or an id a classifier draft lists in `accepted_by`)
-can dispute, for itself or, through its agent, as below; any other actor, an agent that recorded
+other two read surfaces that name who decided say the same (hivemind-1sanf): the MCP tools
+`get_decision_context` and `decision_context_candidates` list the same `attribution_disputes`
+beside `accepted_by`, `relayed_by` and `said_in` included, with `authorship` and `review` left as
+recorded, and `analyze_failure_modes` counts a decision whose every human acceptor disputed apart
+from the calls people accepted, in its own `agent_proposed_acceptance_disputed` group under
+`by_authorship` and `acceptance_disputed` under `by_review` (one acceptor of two disputing leaves
+the other behind the call, so the groups do not change). The statement is the actor's own, so the
+verb takes no target: only an actor the ledger names as a decider (a `decision.accepted` of its
+own, or an id a classifier draft lists in `accepted_by`) can dispute, for itself or, through its agent, as below; any other actor, an agent that recorded
 the decision included, is refused (CLI exit 3, REST 400) with nothing written. On the cell it is `POST
 /v1/decisions/{id}/attribution-disputes` with `{reason}`, and the actor is the credential's
 own, never a body field or an `actor_id` argument. People work through their agents, so the agent
@@ -1291,7 +1297,10 @@ separate query functions:
   `source`, `source_ref`, `review: ReviewShape` (unreviewed / self_accepted /
   peer_reviewed / disputed / rejected), and `delegated_by` (the human whose delegated
   scope an agent's self-acceptance fell within; absent when the agent decided
-  alone — hivemind-zdsh.6) — this is "who decided."
+  alone — hivemind-zdsh.6), and `attribution_disputes` (each decider who said the
+  call was not theirs, and the agent that relayed it, beside `accepted_by`; omitted when none —
+  hivemind-1sanf)
+  — this is "who decided."
 - `get_decision_outcome` (`outcome.rs:94`) → `DecisionOutcome`: `held_up`
   plus structured `reasons` (superseded / stale premises / contested / rejected) — this is
   "STILL-HOLDS." How the decision was made (options weighed, what it rests on)

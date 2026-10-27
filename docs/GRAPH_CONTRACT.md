@@ -305,8 +305,9 @@ and its `source_ref` is the relaying agent, and `reason` is the person's verbati
 acceptance it disputes keeps its `ACCEPTED_BY` edge and its actor exactly as recorded, so the
 graph holds the attribution and the dispute of it side by side and nothing is rewritten. The
 decision's status is untouched (a dispute is not a rejection). A reader takes the nodes in bulk
-and matches `decision_id`; `decided_by.attribution_disputes` of a decision brief is the latest
-node of each `disputed_by`. The graph views draw the node without a line to its decision.
+and matches `decision_id`; `decided_by.attribution_disputes` of a decision brief and
+`attribution_disputes` of a decision context are the latest node of each `disputed_by`, read by
+one rule. The graph views draw the node without a line to its decision.
 
 A `Notification` node is created by `notification.sent` (about a blocker, with a
 `NOTIFICATION_FOR_BLOCKER` edge) or by `suggestion.surfaced` (about a finding: it carries

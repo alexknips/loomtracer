@@ -62,8 +62,8 @@ pub use attribution::{
     SignalBreakdown,
 };
 pub use brief::{
-    get_decision_brief, get_decision_brief_at, option_label_unit, AttributionDispute, DecidedBy,
-    DecisionBrief, DraftedFrom, OptionLabel, RelayedRejection, StillHolds,
+    get_decision_brief, get_decision_brief_at, option_label_unit, DecidedBy, DecisionBrief,
+    DraftedFrom, OptionLabel, RelayedRejection, StillHolds,
 };
 pub use capture_facts::{decision_capture_facts, recorded_decision_links, CaptureFact};
 pub use compact_view::{
@@ -75,8 +75,8 @@ pub use contested::{
     ContestedDecisionsResults,
 };
 pub use context::{
-    context_next_cursor, get_decision_context, get_decision_context_candidates, AuthorshipShape,
-    DecisionContext, DecisionContextRequest, ReviewShape,
+    context_next_cursor, get_decision_context, get_decision_context_candidates, AttributionDispute,
+    AuthorshipShape, DecisionContext, DecisionContextRequest, ReviewShape,
 };
 pub use decision::{
     get_decision, get_evidence_content, get_hypothesis_statement, DecisionView, HypothesisContext,

@@ -147,9 +147,13 @@ pub struct AttributionFinding {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct FailureModeReport {
     pub corpus_stats: CorpusStats,
-    /// Failure rates broken down by who authored the decision.
+    /// Failure rates broken down by who authored the decision. An agent's proposal whose every
+    /// human acceptor has disputed the acceptance is its own group, `agent_proposed_acceptance_disputed`
+    /// (hivemind-1sanf).
     pub by_authorship: Vec<AttributionGroup>,
-    /// Failure rates broken down by how substantively the decision was reviewed.
+    /// Failure rates broken down by how substantively the decision was reviewed. A decision whose
+    /// every reviewer disputed their acceptance is its own group, `acceptance_disputed`, not
+    /// `peer_reviewed` (hivemind-1sanf).
     pub by_review: Vec<AttributionGroup>,
     /// Failure rates for decisions an agent made for itself, split by whether a human had
     /// delegated the scope (`delegated`) or not (`agent_alone`) — the two cases that
@@ -282,11 +286,9 @@ pub(crate) fn attribute_in_pages(
 
     // 5. Dimensional breakdowns.
     let by_authorship = breakdown_by(&pairs, baseline, "authorship", |_, c| {
-        Some(authorship_label(c.authorship))
+        Some(authorship_label(c))
     });
-    let by_review = breakdown_by(&pairs, baseline, "review", |_, c| {
-        Some(review_label(c.review))
-    });
+    let by_review = breakdown_by(&pairs, baseline, "review", |_, c| Some(review_label(c)));
     let by_delegation = breakdown_by(&pairs, baseline, "delegation", |_, c| delegation_label(c));
     let by_source = breakdown_by(&pairs, baseline, "source", |_, c| Some(c.source.clone())); // ubs:ignore: owned String required by F: Fn(…) -> Option<String>
     let by_context_richness = context_richness_breakdown(&pairs, baseline);
@@ -533,8 +535,16 @@ fn context_richness_breakdown(
 // Label helpers
 // ---------------------------------------------------------------------------
 
-fn authorship_label(shape: AuthorshipShape) -> String {
-    match shape {
+/// The `authorship` group a decision falls in. A decision an agent proposed whose every human
+/// acceptor has since disputed that acceptance is `agent_proposed_acceptance_disputed`, not
+/// `agent_proposed_human_accepted`: the person says the call was never theirs, so it is not
+/// counted among the calls people accepted (hivemind-1sanf). `get_decision_context` keeps
+/// `authorship` as recorded and lists the dispute beside it.
+fn authorship_label(context: &DecisionContext) -> String {
+    if context.human_acceptance_disputed {
+        return "agent_proposed_acceptance_disputed".to_owned();
+    }
+    match context.authorship {
         AuthorshipShape::HumanAuthored => "human_authored".to_owned(),
         AuthorshipShape::AgentProposedHumanAccepted => "agent_proposed_human_accepted".to_owned(),
         AuthorshipShape::AgentOnly => "agent_only".to_owned(),
@@ -571,8 +581,14 @@ fn an_agent_accepted_its_own_call(context: &DecisionContext) -> bool {
         && (context.authorship == AuthorshipShape::AgentOnly || context.proposer_id.is_none())
 }
 
-fn review_label(shape: ReviewShape) -> String {
-    match shape {
+/// The `review` group a decision falls in. A decision every acceptor other than its recorder has
+/// disputed is `acceptance_disputed`, not `peer_reviewed`: nobody who reviewed it still stands
+/// behind it (hivemind-1sanf). It is not `disputed`, which is an acceptance beside a rejection.
+fn review_label(context: &DecisionContext) -> String {
+    if context.peer_review_disputed {
+        return "acceptance_disputed".to_owned();
+    }
+    match context.review {
         ReviewShape::Unreviewed => "unreviewed".to_owned(),
         ReviewShape::SelfAccepted => "self_accepted".to_owned(),
         ReviewShape::PeerReviewed => "peer_reviewed".to_owned(),
