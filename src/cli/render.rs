@@ -1285,18 +1285,26 @@ fn write_quality_lines(output: &mut String, quality: &QualityProfile) {
 /// agent:claude:mayor, said in session-1)` when their agent recorded their words for them
 /// (hivemind-f9xgu). Nothing is added for a person who disputed with their own credential.
 fn disputing_actor(dispute: &AttributionDispute) -> String {
-    let mut notes = Vec::new();
-    if let Some(relayed_by) = &dispute.relayed_by {
-        notes.push(format!("relayed by {relayed_by}"));
-    }
-    if let Some(said_in) = &dispute.said_in {
-        notes.push(format!("said in {}", summary_cell(said_in)));
-    }
+    let notes = relay_notes(dispute.relayed_by.as_deref(), dispute.said_in.as_deref());
     if notes.is_empty() {
         dispute.disputed_by.clone()
     } else {
-        format!("{} ({})", dispute.disputed_by, notes.join(", "))
+        format!("{} ({notes})", dispute.disputed_by)
     }
+}
+
+/// `relayed by agent:claude:mayor, said in session-1`, or the part of it that was recorded; empty
+/// when the person disputed with their own credential and named no place (hivemind-f9xgu). The
+/// one wording `why` and the timeline both use.
+fn relay_notes(relayed_by: Option<&str>, said_in: Option<&str>) -> String {
+    let mut notes = Vec::new();
+    if let Some(relayed_by) = relayed_by {
+        notes.push(format!("relayed by {relayed_by}"));
+    }
+    if let Some(said_in) = said_in {
+        notes.push(format!("said in {}", summary_cell(said_in)));
+    }
+    notes.join(", ")
 }
 
 /// Recorder and decider are distinct actors (hivemind-zdsh.9): the recorder is whoever
@@ -2113,10 +2121,25 @@ fn timeline_fact_summary(fact: &TimelineFact) -> (&'static str, String) {
                 summary_cell(reason)
             ),
         ),
-        TimelineFact::AttributionDisputed { reason } => (
-            "attribution disputed",
-            format!("says the call was not theirs: {}", summary_cell(reason)),
-        ),
+        TimelineFact::AttributionDisputed {
+            reason,
+            relayed_by,
+            said_in,
+        } => {
+            let notes = relay_notes(relayed_by.as_deref(), said_in.as_deref());
+            let relay = if notes.is_empty() {
+                String::new()
+            } else {
+                format!(" ({notes})")
+            };
+            (
+                "attribution disputed",
+                format!(
+                    "says the call was not theirs{relay}: {}",
+                    summary_cell(reason)
+                ),
+            )
+        }
     }
 }
 

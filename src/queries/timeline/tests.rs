@@ -23,6 +23,11 @@ const QUESTION: &str = "Which storage engine should the prototype use?";
 const ACTOR: &str = "actor:alice";
 const OTHER: &str = "actor:bob";
 const ASKER: &str = "actor:carol";
+/// The agent that recorded a decision for the person, and the agent that relays their dispute.
+const SCRIBE: &str = "agent:claude:scribe";
+const RELAY: &str = "agent:claude:mayor";
+const PERSON: &str = "human:alex";
+const QUOTE: &str = "upheld was your idea and I never agreed to it";
 
 /// A captured decision that chose `chose`, accepted by `ACTOR` at capture.
 fn capture(
@@ -221,6 +226,90 @@ fn a_rejection_a_retitle_and_a_supersession_are_dated_entries() -> Result<()> {
         new_timeline.entries[2].fact,
         TimelineFact::Supersedes { replaces_id: old }
     );
+    Ok(())
+}
+
+/// A decision the agent `SCRIBE` recorded and accepted for the person `PERSON` (`decided_by`).
+fn decided_for_person(commands: &Commands<'_, InMemoryEventLedger>) -> Result<String> {
+    let option_id = commands.record_option(SCRIBE, "Upheld", "The new name")?;
+    commands.propose_decision(DecisionProposalInput {
+        grounding: Grounding::NotAsked,
+        expressed_confidence: None,
+        actor_id: SCRIBE,
+        title: "The product has a new name",
+        rationale: "Rationale text long enough for the readable floor",
+        topic_keys: &["naming".to_owned()],
+        option_ids: std::slice::from_ref(&option_id),
+        option_labels: &["Upheld".to_owned()],
+        chosen_option_id: Some(option_id.as_str()),
+        decided_by: Some(PERSON),
+        still_proposed: false,
+        hypothesis_ids: &[],
+        evidence_ids: &[],
+        quote: None,
+        question: None,
+        delegated_by: None,
+        project: None,
+        floor: FloorInput::NotAsked,
+    })
+}
+
+#[test]
+fn a_dispute_a_persons_agent_relayed_names_the_relay_and_where_it_was_said() -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands)?;
+    commands.dispute_attribution(PERSON, &decision_id, "mine, in my own credential")?;
+    commands.relay_attribution_dispute(RELAY, PERSON, &decision_id, QUOTE, Some("session-7"))?;
+    commands.relay_attribution_dispute(RELAY, PERSON, &decision_id, QUOTE, None)?;
+
+    let timeline = timeline(&ledger, &decision_id)?;
+    let disputes: Vec<_> = timeline
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry.fact, TimelineFact::AttributionDisputed { .. }))
+        .collect();
+    assert_eq!(disputes.len(), 3);
+    // The entry's actor is the person each time; the relay is on the fact, not the actor.
+    assert!(disputes
+        .iter()
+        .all(|entry| entry.actor_id.as_deref() == Some(PERSON)));
+    assert_eq!(
+        disputes[0].fact,
+        TimelineFact::AttributionDisputed {
+            reason: "mine, in my own credential".to_owned(),
+            relayed_by: None,
+            said_in: None,
+        },
+        "a person's own credential names no relay"
+    );
+    assert_eq!(
+        disputes[1].fact,
+        TimelineFact::AttributionDisputed {
+            reason: QUOTE.to_owned(),
+            relayed_by: Some(RELAY.to_owned()),
+            said_in: Some("session-7".to_owned()),
+        }
+    );
+    assert_eq!(
+        disputes[2].fact,
+        TimelineFact::AttributionDisputed {
+            reason: QUOTE.to_owned(),
+            relayed_by: Some(RELAY.to_owned()),
+            said_in: None,
+        },
+        "a place the agent did not state is not guessed"
+    );
+    // On the wire the fields appear only when there is something to say.
+    let wire: Vec<_> = disputes
+        .iter()
+        .map(|entry| serde_json::to_value(entry).expect("serializes"))
+        .collect();
+    assert!(wire[0].get("relayed_by").is_none() && wire[0].get("said_in").is_none());
+    assert_eq!(wire[1]["relayed_by"], RELAY);
+    assert_eq!(wire[1]["said_in"], "session-7");
+    assert_eq!(wire[1]["actor_id"], PERSON);
+    assert!(wire[2].get("said_in").is_none());
     Ok(())
 }
 

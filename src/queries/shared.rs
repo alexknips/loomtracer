@@ -576,6 +576,21 @@ pub(crate) fn optional_string(row: &GraphRow, key: &str) -> Option<String> {
     }
 }
 
+/// The agent that recorded a statement for the actor who made it (hivemind-f9xgu): the event's
+/// `agent` source reference when it names someone other than the actor. `None` when the actor
+/// spoke with their own credential. One rule for every surface that shows a relayed dispute, so
+/// `why` and the timeline cannot read the same event two ways.
+pub(crate) fn relayer_of(
+    source: Option<&str>,
+    source_ref: Option<String>,
+    actor_id: &str,
+) -> Option<String> {
+    (source == Some("agent"))
+        .then_some(source_ref)
+        .flatten()
+        .filter(|relayer| relayer != actor_id)
+}
+
 /// The floor answers of a decision row: `binds_level`, `binds`, `undo_cost_level` and
 /// `undo_cost` as the node stores them. A row without them (a decision recorded before the
 /// answers existed, a bare stub node) reads as never asked.

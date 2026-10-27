@@ -340,7 +340,8 @@ loomtracer --actor agent:claude:mayor dispute-attribution --decision <id> \
 Over MCP it is `dispute_attribution` with `disputed_by`, `quote` and `said_in`. The event is the
 person's: they are its actor, its `source` is `agent` and its `source_ref` is the relaying agent, so
 `why`, `verify` and `brief` read `disputed by human:alex (relayed by agent:claude:mayor, said in
-...): <quote>`. The `quote` is what they said, as they said it, never your summary; if they have
+...): <quote>`, and so does the dated story (`says the call was not theirs (relayed by ..., said in
+...): <quote>`). The `quote` is what they said, as they said it, never your summary; if they have
 not said it in this conversation there is nothing to record. Only an actor the decision names as
 its decider can be disputed for, and a dispute is not a rejection: the acceptance and the
 decision's status stay as recorded (use `disagree_decision` to say the decision itself is wrong).

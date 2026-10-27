@@ -143,6 +143,7 @@ pub(super) fn creations(graph: &impl GraphView) -> Result<Vec<Step>> {
             origin,
             ts: None,
             actor_id: None,
+            relayed_by: None,
             payload: EventPayload::DecisionProposed(DecisionProposedPayload {
                 decision_id,
                 title: optional_string(&row, "title").unwrap_or_default(),
@@ -235,6 +236,7 @@ fn relation_step(
         origin,
         ts: None,
         actor_id: None,
+        relayed_by: None,
         payload: EventPayload::RelationAdded(RelationAddedPayload {
             relation,
             from_id,
@@ -266,6 +268,7 @@ fn acceptances(
             origin: cited(recorded.offset, decision_id)?,
             ts: recorded.at,
             actor_id: Some(actor_id),
+            relayed_by: None,
             payload: EventPayload::DecisionAccepted(DecisionAcceptedPayload {
                 decision_id: decision_id.to_owned(), // ubs:ignore: each step owns its decision id
                 delegated_by: None,
@@ -295,6 +298,7 @@ fn rejections(graph: &impl GraphView, stated: &Stated<'_>) -> Result<Vec<Step>> 
             )?,
             ts: recorded.at,
             actor_id: Some(actor_id),
+            relayed_by: None,
             payload: EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id,
                 reason: None,
@@ -324,6 +328,7 @@ fn supersessions(graph: &impl GraphView, stated: &Stated<'_>) -> Result<Vec<Step
             origin: cited(newer.offset.or_else(|| edge_offset(edge_origin)), &newer_id)?,
             ts: newer.at,
             actor_id: proposer_of(graph, &newer_id)?,
+            relayed_by: None,
             payload: EventPayload::DecisionSuperseded(DecisionSupersededPayload {
                 old_decision_id: older_id,
                 new_decision_id: newer_id,
@@ -360,6 +365,7 @@ fn refutations(
             origin,
             ts,
             actor_id,
+            relayed_by: None,
             payload: EventPayload::RelationAdded(RelationAddedPayload {
                 relation: EventRelationKind::Refutes,
                 from_id: evidence_id,

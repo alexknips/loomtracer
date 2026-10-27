@@ -66,7 +66,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `source` is `agent` and its `source_ref` is the relaying agent, and `reason` is the quote.
   `why`, `verify` and `brief` read `decided by: human:alex (..., disputed by human:alex (relayed by
   agent:claude:mayor, said in session-1): <quote>)`, and `decided_by.attribution_disputes` in JSON
-  gains `relayed_by` and `said_in` (each absent when not recorded). The rule on who may be
+  gains `relayed_by` and `said_in` (each absent when not recorded). The dated story of a decision
+  (`why`'s timeline lines and `timeline` in JSON, `GET /v1/decisions/{id}/timeline`) says it the
+  same way: its `attribution_disputed` entry reads `says the call was not theirs (relayed by
+  agent:claude:mayor, said in session-1): <quote>` and carries `relayed_by` and `said_in`, each
+  absent when not recorded; the history rows of `get_recent_activity` and
+  `get_decisions_changed_since` already name the relay as the row's `source_ref` beside the person
+  as its `actor_id`. The rule on who may be
   disputed for is unchanged: the person has to be an actor the decision names as its decider (a
   `decision.accepted` of their own, including one an agent recorded in their name, or an id a
   classifier draft lists in `accepted_by`), so an agent cannot put a dispute under a name the

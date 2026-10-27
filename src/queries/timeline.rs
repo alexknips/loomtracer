@@ -48,7 +48,7 @@ use super::question::{asks_for_question, earliest_ask, question_id_of};
 use super::shared::{
     decision_node_exists, neighbor_pairs, node_row, node_rows, normalized_limit, normalized_query,
     optional_datetime, optional_int, optional_string, query_error, query_timer_start,
-    recorded_floor_of, Direction,
+    recorded_floor_of, relayer_of, Direction,
 };
 use super::status::{DecisionStandings, DecisionStatus};
 use super::QueryResponse;
@@ -111,9 +111,15 @@ pub enum TimelineFact {
     },
     /// The actor the decision names as its decider said the call was not theirs
     /// (`decision.attribution_disputed`), and why. The actor is the entry's own. The decision's
-    /// standing is unchanged, so it is not a revision (hivemind-purmd).
+    /// standing is unchanged, so it is not a revision (hivemind-purmd). When their agent recorded
+    /// it for them, `reason` is their verbatim quote, `relayed_by` the agent and `said_in` where
+    /// they said it (hivemind-f9xgu).
     AttributionDisputed {
         reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        relayed_by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        said_in: Option<String>,
     },
 }
 
@@ -336,6 +342,9 @@ struct Step {
     origin: EventId,
     ts: Option<DateTime<Utc>>,
     actor_id: Option<String>,
+    /// The agent that recorded this step for `actor_id`; only a dispute a person's agent relayed
+    /// has one (hivemind-f9xgu).
+    relayed_by: Option<String>,
     payload: EventPayload,
 }
 
@@ -415,10 +424,19 @@ fn step_of(event: &Event) -> Result<Step> {
         .ok_or_else(|| query_error("event_id is required for timeline queries"))?;
     let payload = events::validate(event)
         .map_err(|error| query_error(format!("invalid event {origin}: {error}")))?;
+    let relayed_by = match payload {
+        EventPayload::DecisionAttributionDisputed(_) => relayer_of(
+            Some(event.source.as_str()),
+            event.source_ref.clone(), // ubs:ignore: the step owns its relay
+            &event.actor_id,
+        ),
+        _ => None,
+    };
     Ok(Step {
         origin,
         ts: event.ts,
         actor_id: Some(event.actor_id.clone()), // ubs:ignore: the step owns its actor id
+        relayed_by,
         payload,
     })
 }
@@ -464,6 +482,7 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
         origin,
         ts,
         actor_id,
+        relayed_by,
         payload,
     } in steps
     {
@@ -564,6 +583,8 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
                 &disputed.decision_id,
                 TimelineFact::AttributionDisputed {
                     reason: disputed.reason,
+                    relayed_by,
+                    said_in: disputed.said_in,
                 },
             ),
             EventPayload::RelationAdded(relation) => match relation.relation {

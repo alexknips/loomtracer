@@ -15154,6 +15154,16 @@ fn an_agent_records_a_persons_dispute_in_their_words_and_why_names_the_relay() {
         )),
         "the dispute names the person, the relay and their words: {decided_by}"
     );
+    let dated = why
+        .lines()
+        .find(|line| line.contains("attribution disputed"))
+        .unwrap_or_else(|| panic!("why's dated story holds the dispute: {why}"));
+    assert!(
+        dated.contains(&format!(
+            "says the call was not theirs (relayed by {mayor}, said in session-7): {quote}"
+        )),
+        "the dated entry names the relay and their words as well: {dated}"
+    );
 
     let json: serde_json::Value = serde_json::from_str(
         &run(&Cli::parse_from([

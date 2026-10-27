@@ -1132,6 +1132,11 @@ records a dispute for them (hivemind-f9xgu): the `dispute_attribution` MCP tool,
 words as the statement and the agent recorded as the relay (`source=agent`,
 `source_ref=<agent>`); `why` reads `disputed by human:alex (relayed by agent:claude:mayor, said in
 <where>): <their words>`, and `attribution_disputes[]` carries `relayed_by` and `said_in`. The
+dated story reads the same: the `attribution_disputed` entry of `why`'s timeline (and of `GET
+/v1/decisions/{id}/timeline`) says `says the call was not theirs (relayed by agent:claude:mayor,
+said in <where>): <their words>` and carries `relayed_by` and `said_in`, each absent when not
+recorded; the history rows of `get_recent_activity` and `get_decisions_changed_since` name the
+relay as the row's `source_ref`. The
 person still has to be a recorded decider, and only an agent relays. A local ledger believes a
 typed `--actor` like every other verb, so what holds there is the rule on who may write the
 event, not who is at the keyboard.

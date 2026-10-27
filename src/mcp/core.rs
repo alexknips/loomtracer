@@ -1455,8 +1455,8 @@ pub(crate) fn dispute_attribution<P: LedgerProvider>(
         "relayed_by": args.actor_id,
         "decision_status": decision_status,
     });
-    if let Some(said_in) = args.said_in.as_deref() {
-        reply["said_in"] = json!(said_in.trim());
+    if let (Some(said_in), Some(reply)) = (args.said_in.as_deref(), reply.as_object_mut()) {
+        reply.insert("said_in".to_owned(), json!(said_in.trim()));
     }
     Ok(ToolOutput(reply))
 }

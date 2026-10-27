@@ -35,8 +35,8 @@ use super::reexamine::{
 };
 use super::shared::{
     neighbor_edges_with_time, node_row, node_rows, optional_datetime, optional_int,
-    optional_string, optional_string_list, query_error, query_timer_start, required_string,
-    Direction,
+    optional_string, optional_string_list, query_error, query_timer_start, relayer_of,
+    required_string, Direction,
 };
 use super::status::DecisionStatus;
 use super::QueryResponse;
@@ -135,10 +135,11 @@ fn attribution_disputes(
         }
         let origin = optional_int(&row, "event_origin").unwrap_or(i64::MAX);
         let disputed_by = optional_string(&row, "disputed_by").unwrap_or_default();
-        let relayed_by = (optional_string(&row, "source").as_deref() == Some("agent"))
-            .then(|| optional_string(&row, "source_ref"))
-            .flatten()
-            .filter(|relayer| *relayer != disputed_by);
+        let relayed_by = relayer_of(
+            optional_string(&row, "source").as_deref(),
+            optional_string(&row, "source_ref"),
+            &disputed_by,
+        );
         let dispute = AttributionDispute {
             disputed_by,
             reason: optional_string(&row, "reason").unwrap_or_default(),
