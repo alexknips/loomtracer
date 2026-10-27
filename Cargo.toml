@@ -111,3 +111,9 @@ path = "tests/api.rs"
 name = "migrate"
 path = "tests/migrate.rs"
 required-features = ["shared-backend-postgres"]
+
+# Dev and test builds (`test` inherits `dev`) keep file:line in panics and backtraces but not the
+# variable and type debug info, which is most of the size of a debug test binary (hivemind-xrsm6).
+# To step through values in a debugger, build once with `CARGO_PROFILE_DEV_DEBUG=true`.
+[profile.dev]
+debug = "line-tables-only"

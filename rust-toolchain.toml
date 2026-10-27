@@ -4,8 +4,9 @@
 # `tests/toolchain_pin.rs` fails when they differ or when the channel stops being an exact version.
 #
 # An exact version, not `stable` and not `nightly`: a floating default moves under every host
-# separately, so a local build stops matching CI, and a nightly keeps every build's directory
-# under target/debug/build instead of reusing it (hivemind-yqv18).
+# separately, so a local build stops matching CI. That is all the pin is for: one compiler for CI,
+# local builds and Docker. It does not bound target/; what a build directory weighs comes from the
+# profile (`[profile.dev]` in Cargo.toml). (hivemind-yqv18, hivemind-xrsm6)
 [toolchain]
 channel = "1.99.1"
 components = ["rustfmt", "clippy"]

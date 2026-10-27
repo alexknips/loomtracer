@@ -3,8 +3,8 @@
 //! `rust-toolchain.toml` names the toolchain a local `cargo` builds with, the polecats' and the
 //! refinery's included. CI installs the same one through `.github/actions/setup-rust` and the
 //! Docker image builds with the `FROM rust:` tag in `Dockerfile`. A floating channel (`stable`,
-//! `nightly`) is how a host's build drifted from CI's, and a nightly kept every build's
-//! directory under `target/debug/build` instead of reusing it until the disk filled.
+//! `nightly`) is how a host's build drifted from CI's. The pin is for that and nothing else; it
+//! does not bound `target/`.
 
 use std::fs;
 use std::path::Path;

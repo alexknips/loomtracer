@@ -121,6 +121,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   a floating channel. Run `rustup toolchain install` in the repository once to get the pinned
   toolchain (rustup also installs it on the first `cargo` run, with a deprecation warning). To
   bump it, change `channel` and the Dockerfile tag together. (hivemind-yqv18)
+- **Dev and test builds keep line tables instead of full debug info, which halves the target of a
+  `cargo test` build.** `[profile.dev] debug = "line-tables-only"` (the `test` profile inherits it)
+  keeps `file:line` in panics and backtraces, in the library's frames as well as the test's, and
+  drops the variable and type information only a debugger reads. From a clean directory the target
+  of one full `cargo test` build went from 15.8 GB to 7.3 GB and the build's CPU time (user plus
+  system) from 2945 s to 2723 s; all 2737 tests pass in both. Release builds and the Docker image
+  are unchanged. To step through values in a debugger, build once with
+  `CARGO_PROFILE_DEV_DEBUG=true`. The comment in `rust-toolchain.toml` no longer says a nightly
+  keeps every build's directory instead of reusing it: that was not reproduced, and the pin is for
+  one compiler across CI, local builds and Docker. (hivemind-xrsm6)
 - **The web UI moved to its own repository,
   [`alexknips/loomtracer-web`](https://github.com/alexknips/loomtracer-web), with its history.**
   `web/`, `packages/reasoning/` and the npm workspace files at the root (`package.json`,
