@@ -24,20 +24,20 @@ use crate::quality_profile::{
 };
 use crate::queries::{
     annotate_resolution, derive_decision_status, derive_hypothesis_status, option_label_unit,
-    oriented_edges, reaffirmation_arrows, AttributionDispute, BlockerNotificationCandidates,
-    ChangedDecisionsResults, CompactView, Contest, ContestedDecisionsResults, DecidedBy,
-    DecisionBlockerResults, DecisionBrief, DecisionOutcome, DecisionSearchResults, DecisionStatus,
-    DecisionTimeline, DecisionView, DecisionsAddedSinceResults, DecisionsChangedSinceResults,
-    DraftedFrom, GroundingAdded, GroundingItem, GroundingItemState, GroundingKind, GroundingState,
-    HistoryChangeKind, HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults,
-    OpenWhyView, OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage,
-    ProjectListResults, ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse,
-    QuestionAnswer, RaiseUpstream, ReadOnlyExport,
-    ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind, ReaffirmedPremise,
-    RecentActivityResults, RecentDecisionsResults, ReexamineEntry, ReexamineMarker,
-    ReexamineStatus, RelevantDecision, ResolveOutcome, ResolvedCandidate, ReviewShape,
-    SituationalResults, StillHolds, SupersessionChainView, TimelineEntry, TimelineFact,
-    TitleChange, UpstreamPremise, WaitingRequestsResults, POLARITY_REASON,
+    oriented_edges, reaffirmation_arrows, AcceptanceStatement, AttributionDispute,
+    BlockerNotificationCandidates, ChangedDecisionsResults, CompactView, Contest,
+    ContestedDecisionsResults, DecidedBy, DecisionBlockerResults, DecisionBrief, DecisionOutcome,
+    DecisionSearchResults, DecisionStatus, DecisionTimeline, DecisionView,
+    DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom, GroundingAdded,
+    GroundingItem, GroundingItemState, GroundingKind, GroundingState, HistoryChangeKind,
+    HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults, OpenWhyView,
+    OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage, ProjectListResults,
+    ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse, QuestionAnswer, RaiseUpstream,
+    ReadOnlyExport, ReadOnlyExportFormat as QueryReadOnlyExportFormat, ReadOnlyExportQueryKind,
+    ReaffirmedPremise, RecentActivityResults, RecentDecisionsResults, ReexamineEntry,
+    ReexamineMarker, ReexamineStatus, RelevantDecision, ResolveOutcome, ResolvedCandidate,
+    ReviewShape, SituationalResults, StillHolds, SupersessionChainView, TimelineEntry,
+    TimelineFact, TitleChange, UpstreamPremise, WaitingRequestsResults, POLARITY_REASON,
 };
 use crate::restatement::{AppliedLink, RestatementProposals};
 use crate::{LoomtracerError, Result};
@@ -1316,6 +1316,23 @@ fn relay_clause(relayed_by: Option<&str>, said_in: Option<&str>) -> String {
     }
 }
 
+/// What a person said in accepting, and through whom: `said by human:alex (relayed by
+/// agent:claude:mayor, said in session-1), asked "Should the cell run on Postgres?": yes, go
+/// with that` (hivemind-fsxx9). Part of the decided-by line, beside the acceptance it was made in.
+fn acceptance_said(statement: &AcceptanceStatement) -> String {
+    let who = relayed_person(
+        &statement.accepted_by,
+        statement.relayed_by.as_deref(),
+        statement.said_in.as_deref(),
+    );
+    let asked = statement
+        .question
+        .as_deref()
+        .map(|question| format!(", asked \"{}\"", summary_cell(question)))
+        .unwrap_or_default();
+    format!("said by {who}{asked}: {}", summary_cell(&statement.quote))
+}
+
 /// `relayed by agent:claude:mayor, said in session-1`, or the part of it that was recorded; empty
 /// when the person disputed with their own credential and named no place (hivemind-f9xgu). The
 /// one wording `why` and the timeline both use.
@@ -1342,6 +1359,11 @@ fn relay_notes(relayed_by: Option<&str>, said_in: Option<&str>) -> String {
 /// <reason>`: the dispute sits beside the attribution, it does not remove it (hivemind-purmd).
 fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
     let recorder = decided_by.proposer_id.as_deref().unwrap_or("unknown");
+    let said = decided_by
+        .acceptances
+        .iter()
+        .map(|statement| format!(", {}", acceptance_said(statement)))
+        .collect::<String>();
     let disputed = decided_by
         .attribution_disputes
         .iter()
@@ -1380,7 +1402,7 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
         [only] if only == recorder || decided_by.review == ReviewShape::SelfAccepted => {
             let _ = writeln!(
                 output,
-                "  decided by: {} (source={}, review={:?}{})",
+                "  decided by: {} (source={}, review={:?}{said}{})",
                 only, decided_by.source, decided_by.review, disputed
             );
         }
@@ -1392,7 +1414,7 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
             );
             let _ = writeln!(
                 output,
-                "  decided by: {} (review={:?}{})",
+                "  decided by: {} (review={:?}{said}{})",
                 deciders.join(", "),
                 decided_by.review,
                 disputed
@@ -2104,7 +2126,23 @@ fn timeline_fact_summary(fact: &TimelineFact) -> (&'static str, String) {
     match fact {
         TimelineFact::Asked { request_id, .. } => ("asked", format!("request {request_id}")),
         TimelineFact::Recorded => ("recorded", String::new()),
-        TimelineFact::Accepted => ("accepted", String::new()),
+        TimelineFact::Accepted {
+            quote: Some(quote),
+            question,
+            relayed_by,
+            said_in,
+        } => {
+            let relay = relay_clause(relayed_by.as_deref(), said_in.as_deref());
+            let asked = question
+                .as_deref()
+                .map(|question| format!(", asked \"{}\"", summary_cell(question)))
+                .unwrap_or_default();
+            (
+                "accepted",
+                format!("in their own words{relay}{asked}: {}", summary_cell(quote)),
+            )
+        }
+        TimelineFact::Accepted { .. } => ("accepted", String::new()),
         TimelineFact::Rejected {
             reason,
             relayed_by,
@@ -2849,6 +2887,9 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
             NodeKind::Rejection => graph_property_string(properties, "reason")
                 .map(|reason| prefixed_dot_lines("Disagrees", reason))
                 .unwrap_or_else(|| vec![id.clone()]),
+            NodeKind::Acceptance => graph_property_string(properties, "quote")
+                .map(|quote| prefixed_dot_lines("Accepted", quote))
+                .unwrap_or_else(|| vec![id.clone()]),
             NodeKind::Notification => graph_property_string(properties, "channel")
                 .map(|channel| prefixed_dot_lines("Notification", channel))
                 .unwrap_or_else(|| vec![id.clone()]),
@@ -2956,6 +2997,7 @@ fn node_dump_query(kind: NodeKind) -> String {
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at, node.said_in AS said_in",
         NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at, node.said_in AS said_in",
         NodeKind::Rejection => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.rejected_by AS rejected_by, node.rejected_at AS rejected_at, node.said_in AS said_in",
+        NodeKind::Acceptance => "node.id AS id, node.decision_id AS decision_id, node.accepted_by AS accepted_by, node.quote AS quote, node.question AS question, node.accepted_at AS accepted_at, node.said_in AS said_in",
     };
     format!(
         "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",
@@ -3044,6 +3086,14 @@ fn node_properties_from_row(kind: NodeKind, row: &GraphRow) -> GraphProperties {
             insert_if_present(&mut properties, row, "disputed_at");
             insert_if_present(&mut properties, row, "said_in");
         }
+        NodeKind::Acceptance => {
+            insert_if_present(&mut properties, row, "decision_id");
+            insert_if_present(&mut properties, row, "accepted_by");
+            insert_if_present(&mut properties, row, "quote");
+            insert_if_present(&mut properties, row, "question");
+            insert_if_present(&mut properties, row, "accepted_at");
+            insert_if_present(&mut properties, row, "said_in");
+        }
     }
     properties
 }
@@ -3081,6 +3131,7 @@ fn node_color(kind: NodeKind) -> &'static str {
         NodeKind::Reaffirmation => "#abebc6",
         NodeKind::AttributionDispute => "#e6b0aa",
         NodeKind::Rejection => "#d98880",
+        NodeKind::Acceptance => "#a3e4d7",
     }
 }
 

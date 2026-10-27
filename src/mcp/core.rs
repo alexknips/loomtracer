@@ -33,8 +33,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Map, Value};
 
 use crate::commands::{
-    insert_warnings_into, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
-    DeterminedProject, FloorInput, Grounding, Relay, SupersedeInput,
+    insert_warnings_into, AcceptanceInput, CommandContext, Commands, DecisionPlacement,
+    DecisionProposalInput, DeterminedProject, FloorInput, Grounding, Relay, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, LoomtracerError};
 use crate::events::{AckAction, CaptureItem, EventProvenance, ProjectSource, TenantId};
@@ -241,6 +241,7 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("capture_decision", ToolKind::Write),
     ("capture_evidence", ToolKind::Write),
     ("capture_hypothesis", ToolKind::Write),
+    ("accept_decision", ToolKind::Write),
     ("disagree_decision", ToolKind::Write),
     ("dispute_attribution", ToolKind::Write),
     ("supersede_decision", ToolKind::Write),
@@ -1520,6 +1521,101 @@ pub(crate) fn dispute_attribution<P: LedgerProvider>(
         "decision_id": decision_id,
         "event_id": event_id,
         "disputed_by": args.disputed_by,
+        "relayed_by": args.actor_id,
+        "decision_status": decision_status,
+    });
+    if let (Some(said_in), Some(reply)) = (args.said_in.as_deref(), reply.as_object_mut()) {
+        reply.insert("said_in".to_owned(), json!(said_in.trim()));
+    }
+    Ok(ToolOutput(reply))
+}
+
+/// Parsed, validated arguments for the `accept_decision` tool (hivemind-fsxx9): a person's agent
+/// recording, in the person's words, that they accept a decision. The target resolves the way
+/// `disagree_decision`'s does. `actor_id` is the relaying agent, `accepted_by` the person,
+/// `quote` their verbatim words and `question` what they answered: all four are always required,
+/// and the person is never inferred from the credential. `said_in` is where they said it, when the
+/// agent knows.
+pub(crate) struct AcceptDecisionArgs {
+    pub(crate) actor_id: String,
+    pub(crate) decision_id: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) topic: Option<String>,
+    pub(crate) accepted_by: String,
+    pub(crate) quote: String,
+    pub(crate) question: String,
+    pub(crate) said_in: Option<String>,
+}
+
+impl AcceptDecisionArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            actor_id,
+            decision_id: optional_string(args, "decision_id")?,
+            description: optional_string(args, "description")?,
+            topic: optional_string(args, "topic")?,
+            accepted_by: require_string(args, "accepted_by")?.trim().to_owned(),
+            quote: require_string(args, "quote")?,
+            question: require_string(args, "question")?,
+            said_in: optional_string(args, "said_in")?,
+        })
+    }
+}
+
+/// The core for the `accept_decision` MCP tool: one implementation consumed by both transports.
+/// Resolves its target via [`resolve_target`] first (an ambiguous or unmatched description is
+/// returned as-is and nothing is written), then records one `decision.accepted` as
+/// `accepted_by`, relayed by `actor_id` (`Commands::relay_acceptance`). The reply returns the
+/// decision's status as it now stands: a person's acceptance of an open proposal makes it
+/// `accepted`, and one beside another actor's rejection leaves it `contested`.
+pub(crate) fn accept_decision<P: LedgerProvider>(
+    provider: &P,
+    args: AcceptDecisionArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let target = resolve_target(
+        &handle,
+        args.decision_id.as_deref(),
+        args.description.as_deref(),
+        args.topic.as_deref(),
+        "decision_id",
+    )?;
+    let decision_id = match target {
+        ResolvedTarget::Id(id) => id,
+        ResolvedTarget::Ambiguous(output) => return Ok(output),
+        ResolvedTarget::NotFound(output) => return Ok(output),
+    };
+
+    let commands = Commands::new_with_context(
+        &handle.ledger,
+        CommandContext::new(
+            handle.tenant_id.clone(),
+            EventProvenance::agent(args.actor_id.clone()),
+        ),
+    );
+    let event_id = commands
+        .relay_acceptance(
+            &args.actor_id,
+            args.said_in.as_deref(),
+            AcceptanceInput {
+                accepted_by: &args.accepted_by,
+                decision_id: &decision_id,
+                quote: &args.quote,
+                question: &args.question,
+            },
+        )
+        .map_err(CoreError::from)?;
+
+    let graph = handle.graph().map_err(CoreError::from)?;
+    let decision_status = derive_decision_status(&graph, &decision_id).map_err(CoreError::from)?;
+
+    let mut reply = json!({
+        "decision_id": decision_id,
+        "event_id": event_id,
+        "accepted_by": args.accepted_by,
         "relayed_by": args.actor_id,
         "decision_status": decision_status,
     });

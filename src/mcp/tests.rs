@@ -123,7 +123,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
     );
     assert_eq!(responses.len(), 1); // ubs:ignore: test-only; index guaranteed by test setup
     let tools = responses[0]["result"]["tools"].as_array().expect("array"); // ubs:ignore: test-only; panicking is correct in tests
-    assert_eq!(tools.len(), 39, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
+    assert_eq!(tools.len(), 40, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
     let names: Vec<&str> = tools
         .iter()
         .map(|tool| tool["name"].as_str().expect("string name")) // ubs:ignore: test-only; panicking is correct in tests
@@ -132,6 +132,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
         "capture_decision",
         "capture_evidence",
         "capture_hypothesis",
+        "accept_decision",
         "disagree_decision",
         "dispute_attribution",
         "supersede_decision",
@@ -280,6 +281,7 @@ fn the_write_tools_are_the_tools_that_append_events() {
             "capture_decision",
             "capture_evidence",
             "capture_hypothesis",
+            "accept_decision",
             "disagree_decision",
             "dispute_attribution",
             "supersede_decision",
@@ -2029,6 +2031,245 @@ fn dispute_attribution_tool_refuses_what_it_cannot_attribute_and_writes_nothing(
         ledger.latest_offset().expect("offset after"),
         before,
         "every refusal writes nothing"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// hivemind-fsxx9: a person accepts an open recommendation through their agent. The tool records the
+// acceptance as the person's (their verbatim words and the question they answered), with the
+// calling agent as the relay, the way `capture_decision` with `decided_by` and `quote` records a
+// call they made.
+fn capture_open_proposal(config: &McpConfig) -> String {
+    let capture = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "capture_decision",
+            "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Run the hosted cell on Postgres",
+                "rationale": "One server for every tenant, recorded as an open recommendation",
+                "topic_keys": ["storage"],
+                "options": [{"label": "Postgres"}],
+                "chosen_option_label": "Postgres",
+                "still_proposed": true,
+            }
+        }
+    })
+    .to_string();
+    let responses = drive(config, &[capture.as_str()]);
+    responses[0]["result"]["structuredContent"]["decision_id"]
+        .as_str()
+        .expect("decision id")
+        .to_owned()
+}
+
+#[test]
+fn accept_decision_tool_records_the_persons_words_with_the_agent_as_the_relay() {
+    let dir = unique_dir("accept-decision");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("relay-session");
+    let person = "human:alex.knips@gmail.com";
+    let relay = "agent:claude:relay-session";
+    let quote = "yes, go with that";
+    let question = "Should the hosted cell run on Postgres?";
+    let decision_id = capture_open_proposal(&config);
+
+    let response = call_tool(
+        &config,
+        2,
+        "accept_decision",
+        json!({
+            "decision_id": decision_id,
+            "accepted_by": person,
+            "quote": quote,
+            "question": question,
+            "said_in": "session-2026-10-27",
+        }),
+    );
+    let result = &response["result"];
+    assert_eq!(result["isError"], false, "{result:?}");
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["decision_id"], decision_id.as_str());
+    assert_eq!(structured["accepted_by"], person);
+    assert_eq!(structured["relayed_by"], relay, "the calling agent");
+    assert_eq!(structured["said_in"], "session-2026-10-27");
+    assert_eq!(
+        structured["decision_status"], "accepted",
+        "the open recommendation is now decided"
+    );
+    let event_id = structured["event_id"].as_u64().expect("event id");
+
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = ledger.read(0, 50).expect("events read");
+    let accepted = events
+        .iter()
+        // ubs:ignore: event IDs are public ledger offsets, not secrets.
+        .find(|event| event.event_id == Some(event_id))
+        .expect("the acceptance event");
+    assert_eq!(
+        accepted.event_type,
+        crate::events::EventType::DecisionAccepted
+    );
+    assert_eq!(accepted.actor_id, person, "the event is the person's");
+    assert_eq!(accepted.source, crate::events::EventSource::Agent);
+    assert_eq!(accepted.source_ref.as_deref(), Some(relay));
+    assert_eq!(accepted.payload["quote"], quote);
+    assert_eq!(accepted.payload["question"], question);
+    assert_eq!(accepted.payload["said_in"], "session-2026-10-27");
+
+    // The read side names the person as the decider, with their words and the relay.
+    let graph = crate::projector::memory::MemoryGraph::default();
+    crate::projector::project_from_ledger(&ledger, &graph, 0).expect("project");
+    let brief = crate::queries::get_decision_brief(&graph, &decision_id)
+        .expect("brief reads")
+        .data
+        .expect("the decision has a brief");
+    assert_eq!(brief.decided_by.decider_ids, [person]);
+    let said = &brief.decided_by.acceptances;
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(said[0].accepted_by, person);
+    assert_eq!(said[0].quote, quote);
+    assert_eq!(said[0].question.as_deref(), Some(question));
+    assert_eq!(said[0].relayed_by.as_deref(), Some(relay));
+    assert_eq!(said[0].said_in.as_deref(), Some("session-2026-10-27"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn accept_decision_tool_resolves_a_description_and_asks_before_it_guesses() {
+    let dir = unique_dir("accept-decision-description");
+    let config = McpConfig::new(&dir).with_session_id("relay-session");
+    let person = "human:alex";
+    let decision_id = capture_open_proposal(&config);
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let before = ledger.latest_offset().expect("offset before");
+
+    let unmatched = call_tool(
+        &config,
+        2,
+        "accept_decision",
+        json!({
+            "description": "a decision nobody recorded", "accepted_by": person,
+            "quote": "yes", "question": "Do you accept it?",
+        }),
+    );
+    assert_eq!(unmatched["result"]["isError"], false, "{unmatched:?}");
+    assert_eq!(
+        unmatched["result"]["structuredContent"]["data"]["outcome"], "not_found",
+        "{unmatched:?}"
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("offset"),
+        before,
+        "nothing written"
+    );
+
+    let resolved = call_tool(
+        &config,
+        3,
+        "accept_decision",
+        json!({
+            "description": "Run the hosted cell on Postgres", "accepted_by": person,
+            "quote": "yes", "question": "Do you accept it?",
+        }),
+    );
+    assert_eq!(resolved["result"]["isError"], false, "{resolved:?}");
+    assert_eq!(
+        resolved["result"]["structuredContent"]["decision_id"],
+        decision_id.as_str()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn accept_decision_tool_refuses_what_it_cannot_attribute_and_writes_nothing() {
+    let dir = unique_dir("accept-decision-refused");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("relay-session");
+    let person = "human:alex";
+    let decision_id = capture_open_proposal(&config);
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let before = ledger.latest_offset().expect("offset before");
+
+    let refused = |arguments: Value| {
+        let response = call_tool(&config, 9, "accept_decision", arguments);
+        let result = &response["result"];
+        assert_eq!(result["isError"], true, "{result:?}");
+        result["content"][0]["text"]
+            .as_str()
+            .expect("error text")
+            .to_owned()
+    };
+    // An agent is not a person to relay for.
+    let text = refused(json!({
+        "decision_id": decision_id, "accepted_by": "agent:claude:other",
+        "quote": "yes", "question": "Do you accept it?",
+    }));
+    assert!(text.contains("is not a person"), "{text}");
+    // A person does not relay: the tool's caller is an agent.
+    let text = refused(json!({
+        "actor_id": person, "decision_id": decision_id, "accepted_by": person,
+        "quote": "yes", "question": "Do you accept it?",
+    }));
+    assert!(
+        text.contains("only an agent records a person's words"),
+        "{text}"
+    );
+    // The words, the question they answer and the person are all required.
+    let text = refused(json!({
+        "decision_id": decision_id, "accepted_by": person, "question": "Do you accept it?",
+    }));
+    assert!(text.contains("quote"), "{text}");
+    let text = refused(json!({
+        "decision_id": decision_id, "accepted_by": person, "quote": "yes",
+    }));
+    assert!(text.contains("question"), "{text}");
+    let text = refused(json!({
+        "decision_id": decision_id, "quote": "yes", "question": "Do you accept it?",
+    }));
+    assert!(text.contains("accepted_by"), "{text}");
+    // Blank words are not words.
+    refused(json!({
+        "decision_id": decision_id, "accepted_by": person,
+        "quote": "   ", "question": "Do you accept it?",
+    }));
+    // A decision that does not exist.
+    refused(json!({
+        "decision_id": "decision-nope", "accepted_by": person,
+        "quote": "yes", "question": "Do you accept it?",
+    }));
+    assert_eq!(
+        ledger.latest_offset().expect("offset after"),
+        before,
+        "every refusal writes nothing"
+    );
+
+    // A person who rejected the decision cannot also accept it.
+    let rejected = call_tool(
+        &config,
+        10,
+        "disagree_decision",
+        json!({"actor_id": person, "decision_id": decision_id, "reason": "I would rather run SQLite"}),
+    );
+    assert_eq!(rejected["result"]["isError"], false, "{rejected:?}");
+    let after_rejection = ledger.latest_offset().expect("offset after the rejection");
+    let text = refused(json!({
+        "decision_id": decision_id, "accepted_by": person,
+        "quote": "yes", "question": "Do you accept it?",
+    }));
+    assert!(text.contains("already rejected decision"), "{text}");
+    assert_eq!(
+        ledger.latest_offset().expect("offset"),
+        after_rejection,
+        "the refused acceptance wrote nothing"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -4915,6 +5156,44 @@ mod transport_parity {
             assert_eq!(content["disputed_by"], json!("human:alex"), "{name}"); // ubs:ignore: test-only assertion
             assert_eq!(content["relayed_by"], json!("agent:claude:relay"), "{name}"); // ubs:ignore: test-only assertion
             assert_eq!(content["said_in"], json!("thread-1"), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(content["decision_status"], json!("accepted"), "{name}"); // ubs:ignore: test-only assertion
+            assert!(content["event_id"].is_number(), "{name}: event_id"); // ubs:ignore: test-only assertion
+        }
+    }
+
+    #[tokio::test]
+    async fn accept_decision_relays_the_persons_words_across_transports() {
+        let (stdio, http) = run_after_with_id(
+            "capture_decision",
+            json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Run the hosted cell on Postgres",
+                "rationale": "One server for every tenant, recorded as an open recommendation",
+                "topic_keys": ["storage"],
+                "options": [{"label": "Postgres"}],
+                "chosen_option_label": "Postgres",
+                "still_proposed": true,
+            }),
+            "accept_decision",
+            "accept-decision",
+            |decision_id| {
+                json!({
+                    "actor_id": "agent:claude:relay",
+                    "decision_id": decision_id,
+                    "accepted_by": "human:alex",
+                    "quote": "yes, go with that",
+                    "question": "Should the hosted cell run on Postgres?",
+                })
+            },
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "{name}: expected success"); // ubs:ignore: test-only assertion
+            let content = &result["structuredContent"];
+            assert_eq!(content["accepted_by"], json!("human:alex"), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(content["relayed_by"], json!("agent:claude:relay"), "{name}"); // ubs:ignore: test-only assertion
             assert_eq!(content["decision_status"], json!("accepted"), "{name}"); // ubs:ignore: test-only assertion
             assert!(content["event_id"].is_number(), "{name}: event_id"); // ubs:ignore: test-only assertion
         }

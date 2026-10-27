@@ -24,6 +24,7 @@ use crate::floor::RecordedFloor;
 use crate::projector::{GraphRow, GraphView, NodeKind, RelationKind};
 use crate::Result;
 
+use super::acceptance::{acceptance_statements, AcceptanceStatement};
 use super::context::{get_decision_context, linked_actor_ids, AttributionDispute, ReviewShape};
 use super::decision::get_decision_with_labels;
 use super::grounding::{grounding_of_at, GroundingItem, GroundingState, UncheckedBet};
@@ -104,6 +105,11 @@ pub struct DecidedBy {
     /// own credential has no entry here, because there is nothing more to say about it than that.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub relayed_rejections: Vec<RelayedRejection>,
+    /// What deciders said when their agent recorded their acceptance in their own words
+    /// (hivemind-fsxx9), in the order recorded. The acceptance itself is in `decider_ids`; these
+    /// are the words it was made in, and the agent that relayed them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub acceptances: Vec<AcceptanceStatement>,
 }
 
 /// One person's disagreement with a decision, as their agent recorded it.
@@ -328,6 +334,7 @@ pub(crate) fn get_decision_brief_with_labels(
         .ok_or_else(|| query_error("decision exists but has no outcome"))?;
     let (occurred_at, expressed_confidence, slug, session_ids) =
         decision_capture_facts(graph, decision_id)?;
+    let acceptances = acceptance_statements(graph, decision_id)?;
     let rejecter_ids = if context.rejected_count > 0 {
         linked_actor_ids(graph, decision_id, "REJECTED_BY")?
     } else {
@@ -408,6 +415,7 @@ pub(crate) fn get_decision_brief_with_labels(
             drafted_from,
             attribution_disputes: context.attribution_disputes,
             relayed_rejections,
+            acceptances,
         },
         rests_on: grounding.items,
         grounding_state: grounding.state,

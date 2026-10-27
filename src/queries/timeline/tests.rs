@@ -2,7 +2,9 @@
 #[cfg(test)]
 use chrono::{Duration, Utc};
 
-use crate::commands::{Commands, DecisionProposalInput, FloorInput, GroundInput, Grounding};
+use crate::commands::{
+    AcceptanceInput, Commands, DecisionProposalInput, FloorInput, GroundInput, Grounding,
+};
 use crate::events::{RelationKind, TenantId};
 use crate::floor::{BindsAnswer, FloorAnswers, FloorVerdict, UndoCostAnswer};
 use crate::ledger::InMemoryEventLedger;
@@ -310,6 +312,65 @@ fn a_dispute_a_persons_agent_relayed_names_the_relay_and_where_it_was_said() -> 
     assert_eq!(wire[1]["said_in"], "session-7");
     assert_eq!(wire[1]["actor_id"], PERSON);
     assert!(wire[2].get("said_in").is_none());
+    Ok(())
+}
+
+#[test]
+fn an_acceptance_in_a_persons_words_names_the_relay_and_one_without_words_reads_as_before(
+) -> Result<()> {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands)?;
+    commands.relay_acceptance(
+        RELAY,
+        Some("session-7"),
+        AcceptanceInput {
+            accepted_by: "human:sam",
+            decision_id: &decision_id,
+            quote: "fine by me",
+            question: "Do you agree with the name?",
+        },
+    )?;
+
+    let timeline = timeline(&ledger, &decision_id)?;
+    let accepted: Vec<_> = timeline
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry.fact, TimelineFact::Accepted { .. }))
+        .collect();
+    assert_eq!(
+        accepted.len(),
+        2,
+        "the capture's acceptance and the relayed one"
+    );
+    // The capture's own acceptance has no words, so it names no relay and serializes as before.
+    assert_eq!(
+        accepted[0].fact,
+        TimelineFact::Accepted {
+            quote: None,
+            question: None,
+            relayed_by: None,
+            said_in: None,
+        }
+    );
+    let wire = serde_json::to_value(accepted[0]).expect("serializes");
+    assert_eq!(wire["kind"], "accepted");
+    assert!(wire.get("quote").is_none() && wire.get("relayed_by").is_none());
+    // The relayed one is the person's entry, with their words and the agent that recorded them.
+    assert_eq!(accepted[1].actor_id.as_deref(), Some("human:sam"));
+    assert_eq!(
+        accepted[1].fact,
+        TimelineFact::Accepted {
+            quote: Some("fine by me".to_owned()),
+            question: Some("Do you agree with the name?".to_owned()),
+            relayed_by: Some(RELAY.to_owned()),
+            said_in: Some("session-7".to_owned()),
+        }
+    );
+    let wire = serde_json::to_value(accepted[1]).expect("serializes");
+    assert_eq!(wire["quote"], "fine by me");
+    assert_eq!(wire["relayed_by"], RELAY);
+    assert_eq!(wire["said_in"], "session-7");
     Ok(())
 }
 

@@ -412,6 +412,12 @@ fn graph_entry(
             )
             .then(|| string_field("reason"))
             .flatten()
+        })
+        // An acceptance a person's agent recorded reads as the person's words.
+        .or_else(|| {
+            (kind == NodeKind::Acceptance)
+                .then(|| string_field("quote"))
+                .flatten()
         });
     // The capture event's timestamp (`occurred_at` on the projected node) read
     // under the response's `decided_at` name (docs/GRAPH_CONTRACT.md).
@@ -517,6 +523,7 @@ fn graph_node_projection(kind: NodeKind) -> &'static str {
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at, node.said_in AS said_in",
         NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at, node.said_in AS said_in",
         NodeKind::Rejection => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.rejected_by AS rejected_by, node.rejected_at AS rejected_at, node.said_in AS said_in",
+        NodeKind::Acceptance => "node.id AS id, node.decision_id AS decision_id, node.accepted_by AS accepted_by, node.quote AS quote, node.question AS question, node.accepted_at AS accepted_at, node.said_in AS said_in",
     }
 }
 

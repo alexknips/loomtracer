@@ -64,7 +64,20 @@ pub enum TimelineFact {
     },
     /// The decision was recorded. Its own time is the answer time.
     Recorded,
-    Accepted,
+    /// The actor accepted the decision. When their agent recorded their words for them
+    /// (hivemind-fsxx9), `quote` is their verbatim answer, `question` what it answered,
+    /// `relayed_by` the agent and `said_in` where they said it; all are absent for an acceptance
+    /// made without words.
+    Accepted {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        quote: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        question: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        relayed_by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        said_in: Option<String>,
+    },
     /// Someone disagreed with the decision, and why. When their agent recorded it for them,
     /// `reason` is their verbatim quote, `relayed_by` the agent and `said_in` where they said it
     /// (hivemind-efo6x).
@@ -77,13 +90,9 @@ pub enum TimelineFact {
         said_in: Option<String>,
     },
     /// A newer decision replaced this one.
-    Superseded {
-        by_id: String,
-    },
+    Superseded { by_id: String },
     /// This decision replaced an older one.
-    Supersedes {
-        replaces_id: String,
-    },
+    Supersedes { replaces_id: String },
     Retitled {
         from: String,
         to: String,
@@ -102,14 +111,9 @@ pub enum TimelineFact {
         evidence_id: String,
     },
     /// A decision this one follows from was superseded.
-    PremiseSuperseded {
-        decision_id: String,
-        by_id: String,
-    },
+    PremiseSuperseded { decision_id: String, by_id: String },
     /// A decision this one follows from was rejected.
-    PremiseRejected {
-        decision_id: String,
-    },
+    PremiseRejected { decision_id: String },
     /// Someone said this decision still holds after the premise (a decision or a hypothesis)
     /// changed (`decision.reaffirmed`), and why. The actor is the entry's own. When their agent
     /// recorded it for them, `reason` is their verbatim quote, `relayed_by` the agent and `said_in`
@@ -355,8 +359,9 @@ struct Step {
     origin: EventId,
     ts: Option<DateTime<Utc>>,
     actor_id: Option<String>,
-    /// The agent that recorded this step for `actor_id`; only a dispute, a disagreement or a
-    /// reaffirmation a person's agent relayed has one (hivemind-f9xgu, hivemind-efo6x).
+    /// The agent that recorded this step for `actor_id`; only a dispute, a disagreement, a
+    /// reaffirmation or an acceptance in a person's own words that their agent relayed has one
+    /// (hivemind-f9xgu, hivemind-efo6x, hivemind-fsxx9).
     relayed_by: Option<String>,
     payload: EventPayload,
 }
@@ -437,10 +442,17 @@ fn step_of(event: &Event) -> Result<Step> {
         .ok_or_else(|| query_error("event_id is required for timeline queries"))?;
     let payload = events::validate(event)
         .map_err(|error| query_error(format!("invalid event {origin}: {error}")))?;
-    let relayed_by = match payload {
+    let relayed_by = match &payload {
         EventPayload::DecisionAttributionDisputed(_)
         | EventPayload::DecisionRejected(_)
         | EventPayload::DecisionReaffirmed(_) => relayer_of(
+            Some(event.source.as_str()),
+            event.source_ref.clone(), // ubs:ignore: the step owns its relay
+            &event.actor_id,
+        ),
+        // Only an acceptance that carries words names a relay: every other acceptance reads as
+        // it always did, whoever recorded it.
+        EventPayload::DecisionAccepted(accepted) if accepted.quote.is_some() => relayer_of(
             Some(event.source.as_str()),
             event.source_ref.clone(), // ubs:ignore: the step owns its relay
             &event.actor_id,
@@ -524,9 +536,15 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
                         .insert(proposed.decision_id.clone()); // ubs:ignore: ids are owned by the index
                 }
             }
-            EventPayload::DecisionAccepted(accepted) => {
-                push(&accepted.decision_id, TimelineFact::Accepted);
-            }
+            EventPayload::DecisionAccepted(accepted) => push(
+                &accepted.decision_id,
+                TimelineFact::Accepted {
+                    quote: accepted.quote,
+                    question: accepted.question,
+                    relayed_by,
+                    said_in: accepted.said_in,
+                },
+            ),
             EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id,
                 reason,

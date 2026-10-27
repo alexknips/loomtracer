@@ -1159,6 +1159,26 @@ person still has to be a recorded decider, and only an agent relays. A local led
 typed `--actor` like every other verb, so what holds there is the rule on who may write the
 event, not who is at the keyboard.
 
+**`accept_decision` is how a person's "yes" to an open recommendation reaches the record**
+(hivemind-fsxx9). A decision an agent recorded with `still_proposed` has no decider; when the
+person says "yes, go with that" to their agent, the agent calls the `accept_decision` MCP tool with
+`accepted_by` (the person, `human:<name>`), `quote` (their verbatim words), `question` (what they
+answered) and, when it knows it, `said_in` (where they said it), naming the decision by
+`decision_id` or `description`. It writes the person's
+`decision.accepted` with the agent as the relay (`source=agent`, `source_ref=<agent>`): `why`,
+`verify` and `brief` read `decided by: human:alex (review=..., said by human:alex (relayed by
+agent:claude:mayor, said in ...), asked "<question>": <their words>)`, `decided_by.decider_ids`
+names the person, `decided_by.acceptances[]` in JSON lists each `{accepted_by, quote, question,
+relayed_by, said_in, accepted_at}` (the last four absent when not recorded), and the decision's
+status becomes `accepted`. The dated story says it the same way: the `accepted` entry of `why`'s timeline (and of
+`GET /v1/decisions/{id}/timeline`) reads `in their own words (relayed by agent:claude:mayor, said in ...),
+asked "<question>": <their words>` and carries `quote`, `question`, `relayed_by` and `said_in`, which
+are absent on an acceptance made without words; the history rows already name the relay as `source_ref` beside the
+person as `actor_id`. Only an agent relays and only a person is relayed; the person is never taken
+from the credential; a person who already rejected the decision cannot also accept it. It does not
+ask whether the decision is still open: a second person's acceptance keeps its own words beside the
+first's. Rejecting stays `disagree_decision`.
+
 ### 3.1 The `review` naming collision
 
 The bead lists `review` among the verbs to make fluent, glossing it as

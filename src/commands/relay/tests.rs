@@ -1,6 +1,8 @@
 // Parent module gates this file with #[cfg(test)]; repeat the marker so UBS can filter test-only assertions.
 #[cfg(test)]
-use crate::commands::{Commands, DecisionProposalInput, FloorInput, Grounding, ReaffirmInput};
+use crate::commands::{
+    AcceptanceInput, Commands, DecisionProposalInput, FloorInput, Grounding, ReaffirmInput,
+};
 use crate::error::{CommandError, LoomtracerError};
 use crate::events::{Event, EventSource, EventType};
 use crate::ledger::{EventLedger, InMemoryEventLedger};
@@ -10,6 +12,7 @@ const RELAY: &str = "agent:claude:relay";
 const PERSON: &str = "human:pat@example.com";
 const PROPOSER: &str = "agent:claude:scribe";
 const QUOTE: &str = "A per-tenant cap is wrong for us, and that still holds";
+const QUESTION: &str = "Should the hosted cell cap requests per tenant?";
 
 fn propose(commands: &Commands<'_, InMemoryEventLedger>, title: &str) -> String {
     let option_id = commands
@@ -273,4 +276,273 @@ fn a_relayed_reaffirmation_needs_an_agent_a_person_and_the_persons_words() {
         );
     }
     assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+// ── A person's acceptance through their agent (hivemind-fsxx9) ──
+
+fn acceptance<'a>(
+    accepted_by: &'a str,
+    decision_id: &'a str,
+    quote: &'a str,
+    question: &'a str,
+) -> AcceptanceInput<'a> {
+    AcceptanceInput {
+        accepted_by,
+        decision_id,
+        quote,
+        question,
+    }
+}
+
+#[test]
+fn an_agent_records_the_persons_acceptance_as_theirs_with_their_words_and_the_relay() {
+    let ledger = InMemoryEventLedger::new();
+    // A `Commands` built with another provenance (the CLI default): the relay is recorded anyway,
+    // because it is part of what the event says.
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    assert!(
+        of_type(&ledger, EventType::DecisionAccepted).is_empty(),
+        "the proposal is open: nobody has accepted it"
+    );
+    let before = events(&ledger).len();
+
+    let event_id = commands
+        .relay_acceptance(
+            RELAY,
+            Some("session-7"),
+            acceptance(PERSON, &decision_id, QUOTE, QUESTION),
+        )
+        .expect("the agent records the person's acceptance");
+
+    let appended: Vec<Event> = events(&ledger).into_iter().skip(before).collect();
+    assert_eq!(appended.len(), 1, "one event, nothing else touched");
+    let event = &appended[0];
+    assert_eq!(event.event_id, Some(event_id));
+    assert_eq!(event.event_type, EventType::DecisionAccepted);
+    assert_eq!(event.actor_id, PERSON, "the event is the person's");
+    assert_eq!(event.source, EventSource::Agent);
+    assert_eq!(event.source_ref.as_deref(), Some(RELAY), "who relayed it");
+    assert_eq!(payload_str(event, "decision_id"), decision_id);
+    assert_eq!(payload_str(event, "quote"), QUOTE, "their verbatim words");
+    assert_eq!(payload_str(event, "question"), QUESTION);
+    assert_eq!(payload_str(event, "said_in"), "session-7");
+    assert!(
+        event.payload.get("delegated_by").is_none(),
+        "a person's acceptance carries no delegation: {}",
+        event.payload
+    );
+}
+
+#[test]
+fn where_the_person_said_their_acceptance_is_left_out_when_the_agent_does_not_say() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+
+    commands
+        .relay_acceptance(
+            RELAY,
+            None,
+            acceptance(PERSON, &decision_id, QUOTE, QUESTION),
+        )
+        .expect("recorded without a place");
+
+    let accepted = of_type(&ledger, EventType::DecisionAccepted);
+    assert!(
+        accepted[0].payload.get("said_in").is_none(),
+        "a place nobody stated is not guessed: {}",
+        accepted[0].payload
+    );
+}
+
+#[test]
+fn the_refusals_accept_decision_has_hold_for_a_relayed_acceptance() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+
+    assert!(
+        matches!(
+            commands.relay_acceptance(
+                RELAY,
+                None,
+                acceptance(PERSON, "decision-nope", QUOTE, QUESTION)
+            ),
+            Err(LoomtracerError::Command(CommandError::Invariant(_)))
+        ),
+        "a decision that does not exist"
+    );
+    commands
+        .disagree(PERSON, &decision_id, "I would rather run without a cap")
+        .expect("the person rejects it first");
+    let before_relay = events(&ledger).len();
+    let refused = commands
+        .relay_acceptance(
+            RELAY,
+            None,
+            acceptance(PERSON, &decision_id, QUOTE, QUESTION),
+        )
+        .expect_err("a person who rejected a decision cannot also accept it");
+    match refused {
+        LoomtracerError::Command(CommandError::Invariant(message)) => assert!(
+            message.contains(&format!("{PERSON} already rejected decision {decision_id}")),
+            "{message}"
+        ),
+        other => panic!("expected an invariant refusal, got {other:?}"),
+    }
+    assert_eq!(
+        events(&ledger).len(),
+        before_relay,
+        "the refused acceptance wrote nothing"
+    );
+}
+
+#[test]
+fn only_an_agent_relays_an_acceptance_and_only_a_person_is_relayed() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    let before = events(&ledger).len();
+
+    for (relayed_by, accepted_by) in [
+        (RELAY, PROPOSER),
+        (RELAY, "someone"),
+        (RELAY, "human:"),
+        (PERSON, PERSON),
+        ("human:bystander", PERSON),
+    ] {
+        assert!(
+            matches!(
+                commands.relay_acceptance(
+                    relayed_by,
+                    None,
+                    acceptance(accepted_by, &decision_id, QUOTE, QUESTION)
+                ),
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
+            ),
+            "{relayed_by} relaying for {accepted_by}"
+        );
+    }
+    assert!(commands
+        .relay_acceptance(
+            RELAY,
+            None,
+            acceptance(
+                "018f5d8a-03fb-7df0-8e36-64d7410cfe26",
+                &decision_id,
+                QUOTE,
+                QUESTION
+            )
+        )
+        .is_err());
+    assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+#[test]
+fn the_words_and_the_question_they_answer_are_both_required_and_a_blank_place_is_refused() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    let before = events(&ledger).len();
+
+    for blank in ["", "   ", "\n\t"] {
+        assert!(
+            matches!(
+                commands.relay_acceptance(
+                    RELAY,
+                    None,
+                    acceptance(PERSON, &decision_id, blank, QUESTION)
+                ),
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
+            ),
+            "{blank:?} is not their words"
+        );
+        assert!(
+            matches!(
+                commands.relay_acceptance(
+                    RELAY,
+                    None,
+                    acceptance(PERSON, &decision_id, QUOTE, blank)
+                ),
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
+            ),
+            "{blank:?} is not a question"
+        );
+        assert!(
+            matches!(
+                commands.relay_acceptance(
+                    RELAY,
+                    Some(blank),
+                    acceptance(PERSON, &decision_id, QUOTE, QUESTION)
+                ),
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
+            ),
+            "{blank:?} is not a place"
+        );
+    }
+    assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+#[test]
+fn a_person_may_accept_what_an_agent_accepted_alone_and_a_second_person_what_a_first_did() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    commands
+        .accept_decision(&decision_id, PROPOSER)
+        .expect("the agent accepts its own proposal alone");
+
+    commands
+        .relay_acceptance(
+            RELAY,
+            None,
+            acceptance(PERSON, &decision_id, QUOTE, QUESTION),
+        )
+        .expect("the person accepts what the agent accepted alone");
+    commands
+        .relay_acceptance(
+            RELAY,
+            None,
+            acceptance(
+                "human:sam",
+                &decision_id,
+                "fine by me",
+                "Do you agree with a per-tenant cap?",
+            ),
+        )
+        .expect("a second person accepts, each in their own words");
+
+    let acceptances = of_type(&ledger, EventType::DecisionAccepted);
+    assert_eq!(acceptances.len(), 3, "the ledger keeps every acceptance");
+    assert_eq!(payload_str(&acceptances[1], "quote"), QUOTE);
+    assert_eq!(payload_str(&acceptances[2], "quote"), "fine by me");
+}
+
+#[test]
+fn a_retried_acceptance_relay_with_the_same_uuid_lands_once() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    let uuid = uuid::Uuid::new_v4();
+
+    let first = commands
+        .relay_acceptance_with_uuid(
+            RELAY,
+            None,
+            acceptance(PERSON, &decision_id, QUOTE, QUESTION),
+            uuid,
+        )
+        .expect("first");
+    let retried = commands
+        .relay_acceptance_with_uuid(
+            RELAY,
+            None,
+            acceptance(PERSON, &decision_id, QUOTE, QUESTION),
+            uuid,
+        )
+        .expect("retry");
+
+    assert_eq!(retried, first, "the ledger hands back the existing event");
+    assert_eq!(of_type(&ledger, EventType::DecisionAccepted).len(), 1);
 }

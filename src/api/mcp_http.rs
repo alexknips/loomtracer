@@ -20,11 +20,11 @@ use axum::response::{IntoResponse, Response};
 
 use crate::events::TenantId;
 use crate::mcp::core::{
-    AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CaptureEvidenceArgs,
-    CaptureHypothesisArgs, ClassifyQueueListArgs, ClassifyQueueSubmitArgs, CompactViewArgs,
-    CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
-    DisputeAttributionArgs, GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionArgs,
-    GetDecisionContextArgs, GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs,
+    AcceptDecisionArgs, AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs,
+    CaptureEvidenceArgs, CaptureHypothesisArgs, ClassifyQueueListArgs, ClassifyQueueSubmitArgs,
+    CompactViewArgs, CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs,
+    DisagreeArgs, DisputeAttributionArgs, GetChangedDecisionsArgs, GetContestedDecisionsArgs,
+    GetDecisionArgs, GetDecisionContextArgs, GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs,
     GetOpenWhyDecisionsArgs, GetReexamineItemsArgs, GetRelevantDecisionsArgs,
     GetSituationalDecisionsArgs, GetSuggestionsArgs, GetSupersessionChainArgs,
     GetWaitingRequestsArgs, GraphSource, GroundDecisionArgs, LedgerHandle, LedgerProvider,
@@ -218,6 +218,7 @@ fn mcp_tools_call_blocking(
         "capture_decision" => mcp_capture_decision(backend, ctx, &actor_id, args, cache),
         "capture_evidence" => mcp_capture_evidence(backend, ctx, &actor_id, args),
         "capture_hypothesis" => mcp_capture_hypothesis(backend, ctx, &actor_id, args),
+        "accept_decision" => mcp_accept_decision(backend, ctx, &actor_id, args, cache),
         "disagree_decision" => mcp_disagree(backend, ctx, &actor_id, args, cache),
         "dispute_attribution" => mcp_dispute_attribution(backend, ctx, &actor_id, args, cache),
         "supersede_decision" => mcp_supersede(backend, ctx, &actor_id, args, cache),
@@ -450,6 +451,23 @@ fn mcp_capture_hypothesis(
         graph_cache: None,
     };
     let output = crate::mcp::core::capture_hypothesis(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn mcp_accept_decision(
+    backend: &ApiBackend,
+    ctx: &ApiRequestCtx,
+    actor_id: &str,
+    args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
+) -> McpToolResult {
+    let core_args = AcceptDecisionArgs::from_json(&args, actor_id.to_owned())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
+    };
+    let output = crate::mcp::core::accept_decision(&provider, core_args)?;
     Ok(output.into_value())
 }
 

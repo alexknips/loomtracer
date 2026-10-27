@@ -1,5 +1,6 @@
 //! Query layer entry point: pure deterministic reads over the projected graph; no LLMs, no writes.
 
+mod acceptance;
 mod active_blockers;
 mod arrows;
 mod attribution;
@@ -49,6 +50,7 @@ use crate::events::TenantId;
 pub(crate) use shared::query_error;
 pub(crate) use shared::{EdgeStamp, MAX_QUERY_RESULTS};
 
+pub use acceptance::AcceptanceStatement;
 pub use active_blockers::{
     get_active_decision_blockers, get_blocker_notification_candidates,
     ActiveDecisionBlockersRequest, BlockerNotificationCandidate, BlockerNotificationCandidates,

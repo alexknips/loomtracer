@@ -297,6 +297,20 @@ something you observed, and the record loses who decided.
   `answered_at`. `--answers` takes a request id; `loomtracer ground --answers` takes
   the question's text.
 
+### When the person says "yes" to a recommendation you left open
+
+A recommendation nobody decided is captured with `still_proposed`. When the person then tells you
+to go with it ("yes, go with that"), record their acceptance for them: the `accept_decision` tool
+with `accepted_by` (`human:<name>`), `quote` (their words, as they said them), `question` (what
+they answered, in your words, so the quote reads once the conversation is gone) and, when you
+know it, `said_in` (the session, thread or message).
+
+- It is recorded as their acceptance with you as the relay: `why` reads `decided by:
+  human:alex (review=..., said by human:alex (relayed by agent:claude:mayor, said in ...), asked "...": <quote>)`
+  and the decision becomes `accepted`. Never paraphrase, and never record an acceptance the person
+  did not give in this conversation.
+- To say they disagree, use `disagree_decision`, not this.
+
 ### When the person says a decision was never theirs
 
 A decision names its decider from an acceptance, and you or another agent may have

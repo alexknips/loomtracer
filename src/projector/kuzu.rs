@@ -72,6 +72,8 @@ const NODE_DDL: &[(NodeKind, &str)] = &[
     (
         NodeKind::Rejection,
         "CREATE NODE TABLE IF NOT EXISTS `Rejection` (id STRING, decision_id STRING, reason STRING, rejected_by STRING, rejected_at STRING, said_in STRING, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, PRIMARY KEY(id));",
+        NodeKind::Acceptance,
+        "CREATE NODE TABLE IF NOT EXISTS `Acceptance` (id STRING, decision_id STRING, accepted_by STRING, quote STRING, question STRING, accepted_at STRING, said_in STRING, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, PRIMARY KEY(id));",
     ),
 ];
 

@@ -6362,6 +6362,15 @@ pub(super) fn every_event_scenario() -> Result<InMemoryEventLedger> {
             }),
         ),
         event(
+            EventType::DecisionAccepted,
+            "human:alice",
+            json!({
+                "decision_id": "decision:2",
+                "quote": "yes, go with that",
+                "question": "Should the plan go ahead?"
+            }),
+        ),
+        event(
             EventType::BlockerResolved,
             "agent:release-bot",
             json!({
@@ -6723,6 +6732,90 @@ fn a_reaffirmation_node_carries_where_it_was_said() -> Result<()> {
         node.get("source_ref").cloned(),
         Some(GraphValue::String("agent:claude:mayor".to_owned()))
     );
+    Ok(())
+}
+
+// ── Acceptance in a person's words (hivemind-fsxx9): a node beside the ACCEPTED_BY edge ──
+
+#[test]
+fn an_acceptance_with_words_projects_one_node_and_every_acceptance_keeps_its_edge() -> Result<()> {
+    let mut words = event(
+        EventType::DecisionAccepted,
+        "human:alice",
+        json!({
+            "decision_id": "decision:open",
+            "quote": "yes, go with that",
+            "question": "Should the cell run on Postgres?",
+            "said_in": "session-7"
+        }),
+    );
+    words.source = EventSource::Agent;
+    words.source_ref = Some("agent:claude:mayor".to_owned());
+    let node_id = words.event_uuid.to_string();
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(event(
+        EventType::DecisionProposed,
+        "agent:claude:polecat",
+        json!({
+            "decision_id": "decision:open",
+            "title": "The cell runs on Postgres",
+            "rationale": "An open recommendation",
+            "topic_keys": ["storage"],
+            "option_ids": [],
+            "chosen_option_id": null,
+            "hypothesis_ids": [],
+            "evidence_ids": []
+        }),
+    ))?;
+    ledger.append(words)?;
+    // An acceptance without words: the edge as before, and no node.
+    ledger.append(event(
+        EventType::DecisionAccepted,
+        "human:bob",
+        json!({"decision_id": "decision:open"}),
+    ))?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let edges = graph.edges();
+    for decider in ["human:alice", "human:bob"] {
+        assert!(
+            edges
+                .keys()
+                .any(|(kind, from, to)| *kind == RelationKind::AcceptedBy
+                    && from == "decision:open"
+                    && to == decider),
+            "{decider} keeps their ACCEPTED_BY edge: {edges:?}"
+        );
+    }
+    let nodes = graph.nodes();
+    let acceptances: Vec<_> = nodes
+        .keys()
+        .filter(|(kind, _)| *kind == NodeKind::Acceptance)
+        .collect();
+    assert_eq!(
+        acceptances.len(),
+        1,
+        "only the acceptance with words: {acceptances:?}"
+    );
+    let props = &nodes[&(NodeKind::Acceptance, node_id)];
+    let string = |value: &str| Some(GraphValue::String(value.to_owned()));
+    for (key, expected) in [
+        ("decision_id", "decision:open"),
+        ("accepted_by", "human:alice"),
+        ("quote", "yes, go with that"),
+        ("question", "Should the cell run on Postgres?"),
+        ("said_in", "session-7"),
+        ("source", "agent"),
+        ("source_ref", "agent:claude:mayor"),
+    ] {
+        assert_eq!(props.get(key).cloned(), string(expected), "{key}");
+    }
+    assert!(matches!(
+        props.get("accepted_at"),
+        Some(GraphValue::String(_))
+    ));
     Ok(())
 }
 

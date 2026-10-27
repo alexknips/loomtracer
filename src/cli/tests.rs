@@ -15598,3 +15598,125 @@ fn an_agent_records_a_persons_reaffirmation_in_their_words_and_reexamine_names_t
 
     let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
+
+// hivemind-fsxx9: a person accepts an open proposal through their agent. The agent's call records
+// the person's verbatim words and the question they answered as the person's acceptance, naming
+// itself as the relay; `why` reads "decided by: <person> (..., said by <person> (relayed by
+// <agent>, said in <where>), asked "<question>": <quote>)" and its dated story says it the same
+// way, and `verify` lists it in `decided_by.acceptances` while `decider_ids` names the person.
+#[test]
+fn a_persons_acceptance_their_agent_recorded_reads_in_why_and_verify_with_the_relay() {
+    let loomtracer_dir = unique_test_dir("accept-relayed");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let polecat = "agent:claude:polecat";
+    let mayor = "agent:claude:mayor";
+    let person = "human:alex";
+    let quote = "yes, go with that";
+    let question = "Should the hosted cell run on Postgres?";
+    let decision_id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        polecat,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "The hosted cell runs on Postgres",
+        "--rationale",
+        "One server for every tenant, an open recommendation",
+        "--topic-keys",
+        "storage",
+        "--options",
+        "Postgres",
+    ]))
+    .expect("decision proposed");
+
+    let why_before = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        dir,
+        "query",
+        "why",
+        "The hosted cell runs on Postgres",
+        "--summary",
+    ]))
+    .expect("why answers");
+    assert!(
+        why_before.contains("not yet decided"),
+        "nobody has decided it yet: {why_before}"
+    );
+
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    crate::commands::Commands::new(&ledger)
+        .relay_acceptance(
+            mayor,
+            Some("session-7"),
+            crate::commands::AcceptanceInput {
+                accepted_by: person,
+                decision_id: &decision_id,
+                quote,
+                question,
+            },
+        )
+        .expect("the mayor records Alex's acceptance in his words");
+
+    let why = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        dir,
+        "query",
+        "why",
+        "The hosted cell runs on Postgres",
+        "--summary",
+    ]))
+    .expect("why answers");
+    let decided_by = why
+        .lines()
+        .find(|line| line.trim_start().starts_with("decided by: "))
+        .unwrap_or_else(|| panic!("why names who decided: {why}"));
+    assert!(
+        decided_by.starts_with(&format!("  decided by: {person} (")),
+        "the person is the decider: {decided_by}"
+    );
+    assert!(
+        decided_by.contains(&format!(
+            "said by {person} (relayed by {mayor}, said in session-7), asked \"{question}\": {quote}"
+        )),
+        "the acceptance names the person, the relay, the question and their words: {decided_by}"
+    );
+    let dated = why
+        .lines()
+        .find(|line| line.contains("in their own words"))
+        .unwrap_or_else(|| panic!("why's dated story holds the acceptance: {why}"));
+    assert!(
+        dated.contains(&format!(
+            "in their own words (relayed by {mayor}, said in session-7), asked \"{question}\": {quote}"
+        )),
+        "the dated entry names the relay and their words as well: {dated}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "query",
+            "verify",
+            "The hosted cell runs on Postgres",
+        ]))
+        .expect("verify json"),
+    )
+    .expect("valid verify json");
+    let decided_by = &json["data"]["decided_by"];
+    assert_eq!(decided_by["decider_ids"], serde_json::json!([person]));
+    let said = &decided_by["acceptances"][0];
+    assert_eq!(said["accepted_by"], person, "{decided_by}");
+    assert_eq!(said["quote"], quote, "{decided_by}");
+    assert_eq!(said["question"], question, "{decided_by}");
+    assert_eq!(said["relayed_by"], mayor, "{decided_by}");
+    assert_eq!(said["said_in"], "session-7", "{decided_by}");
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}

@@ -113,7 +113,7 @@ a reader needs without reconstructing them from edges:
 - **`nodes[]` with `kind: "Question"`, `"Ask"`, `"Blocker"` or `"DecisionRequest"`** carry a
   `label`: the words that were asked for a question and an ask (`text`), the one-line `reason`
   for a blocker and a decision request. A `Reaffirmation`, an `AttributionDispute` and a `Rejection`
-  read as their `reason` the same way.
+  read as their `reason` the same way, and an `Acceptance` as the person's `quote`.
   None of these has a title, so without the label a page can only call the node untitled.
 
 Both are pure reads: three bulk edge scans (`SUPERSEDES`, `ACCEPTED_BY`, `REJECTED_BY`), no
@@ -308,6 +308,21 @@ decision's status is untouched (a dispute is not a rejection). A reader takes th
 and matches `decision_id`; `decided_by.attribution_disputes` of a decision brief and
 `attribution_disputes` of a decision context are the latest node of each `disputed_by`, read by
 one rule. The graph views draw the node without a line to its decision.
+
+An `Acceptance` node is created by a `decision.accepted` that carries a person's words
+(hivemind-fsxx9), and only by one: its id is the event's uuid, and it carries `decision_id`,
+`accepted_by` (the event's actor, the person), `quote` (their verbatim words), `question` (what they
+answered), `accepted_at`, `said_in` (where they said it, null when not stated), plus the usual
+`event_origin`, `source` and `source_ref`. The node's
+`source` is `agent` and its `source_ref` is the agent that relayed the words;
+`decided_by.acceptances` reads that as `relayed_by`. An acceptance without words (every one before
+this node existed, and any `emit decision.accepted` or capture with `decided_by` that states none)
+projects exactly as it did: the `ACCEPTED_BY` edge and no node. It has no edges, for the reason an
+`AttributionDispute` has none: `ACCEPTED_BY` is unique per decision and actor and is what names the
+decider, and the words are one more statement beside it. That is also why a second person's
+acceptance of the same decision keeps its own node. A reader takes the nodes in bulk and matches
+`decision_id`; `decided_by.acceptances` of a decision brief lists every node, in the order recorded.
+The graph views draw the node without a line to its decision.
 
 A `Notification` node is created by `notification.sent` (about a blocker, with a
 `NOTIFICATION_FOR_BLOCKER` edge) or by `suggestion.surfaced` (about a finding: it carries

@@ -51,6 +51,36 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A person accepts an open recommendation through their agent, in their own words: the
+  `accept_decision` MCP tool. `decision.accepted` gains optional `quote`, `question` and `said_in`,
+  and a quoted acceptance projects an `Acceptance` node: upgrade the server (the cell image)
+  before any client records one.** A decision an agent recorded as `still_proposed` had no path to a decider
+  on the cell: a decision was accepted only at capture (`capture_decision` with `chosen_option_label`,
+  `decided_by` and `quote`) or by `loomtracer emit decision.accepted --actor` on a local ledger,
+  and there was no MCP tool or REST route that accepted an existing proposal. So when the person
+  later said "yes, go with that", their agent could not record it as the person's call (Alex,
+  2026-10-27, cell decision-6df7d5d8: a person acts through their agent, recorded as theirs with
+  their own words and the relaying agent named). The agent now calls `accept_decision` with
+  `accepted_by` (the person, `human:<name>`), `quote` (their verbatim words), `question` (what they
+  answered; a quote needs its question, as on a proposal), `said_in` (where they said it, when
+  the agent knows) and the decision by `decision_id` or `description`. The event is the person's, its `source` is `agent` and its `source_ref` is the
+  relaying agent. `why`, `verify` and `brief` read `decided by: human:alex (review=..., said by
+  human:alex (relayed by agent:claude:mayor, said in ...), asked "<question>": <quote>)`, and
+  `decided_by.acceptances` in JSON lists each `{accepted_by, quote, question, relayed_by,
+  said_in, accepted_at}`; the dated story's `accepted` entry says it the same way and carries
+  `quote`, `question`, `relayed_by` and `said_in` (each absent for an acceptance made without
+  words, which reads and serializes exactly as before). The rules `accept_decision` already had hold: the decision must
+  exist and the person must not have rejected it. Only an agent relays and only a `human:` actor is
+  relayed; blank words are refused; nothing asks whether the decision is still open, so a person may
+  accept what an agent accepted alone and a second person what a first did, each with their own
+  words listed. Rejecting stays `disagree_decision`. Stored as one `Acceptance` node per quoted
+  acceptance (`decision_id`, `accepted_by`, `quote`, `question`, `accepted_at`, `said_in`, `source`,
+  `source_ref`), with no edges, beside the unchanged `ACCEPTED_BY` edge, so the Kuzu schema gains
+  one node table and the Postgres and in-memory graphs need nothing. Old events replay unchanged
+  (`#[serde(default)]`); an older server or CLI that reads a ledger holding one fails the strict
+  payload check, so deploy the cell first. There is no REST route and no CLI flag for the relay:
+  MCP over HTTP is the agent path on the cell, and the CLI's `emit decision.accepted` still records
+  an acceptance without words.
 - **A person disputes an attribution through their agent, in their own words: the
   `dispute_attribution` MCP tool, and `--disputed-by` / `--quote` on `loomtracer
   dispute-attribution`. `decision.attribution_disputed` gains an optional `said_in`: upgrade the

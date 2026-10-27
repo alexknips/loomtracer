@@ -272,6 +272,9 @@ fn acceptances(
             payload: EventPayload::DecisionAccepted(DecisionAcceptedPayload {
                 decision_id: decision_id.to_owned(), // ubs:ignore: each step owns its decision id
                 delegated_by: None,
+                quote: None,
+                question: None,
+                said_in: None,
             }),
         });
     }

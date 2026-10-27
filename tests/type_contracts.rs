@@ -71,7 +71,7 @@ const EVENT_RELATION_KINDS: [EventRelationKind; 9] = [
     EventRelationKind::Answers,
 ];
 
-const NODE_KINDS: [NodeKind; 14] = [
+const NODE_KINDS: [NodeKind; 15] = [
     NodeKind::Decision,
     NodeKind::DecisionRequest,
     NodeKind::Actor,
@@ -86,6 +86,7 @@ const NODE_KINDS: [NodeKind; 14] = [
     NodeKind::Reaffirmation,
     NodeKind::AttributionDispute,
     NodeKind::Rejection,
+    NodeKind::Acceptance,
 ];
 
 const PROJECTOR_RELATION_KINDS: [ProjectorRelationKind; 31] = [
@@ -165,6 +166,9 @@ fn event_builder_derives_event_type_from_payload_variant() {
             EventPayload::DecisionAccepted(DecisionAcceptedPayload {
                 decision_id: "decision-accepted".to_owned(),
                 delegated_by: None,
+                quote: None,
+                question: None,
+                said_in: None,
             }),
         ),
         (
@@ -654,6 +658,9 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             EventPayload::DecisionAccepted(DecisionAcceptedPayload {
                 decision_id: "decision:minimal".to_owned(),
                 delegated_by: None,
+                quote: None,
+                question: None,
+                said_in: None,
             }),
         ),
         (
@@ -1125,6 +1132,7 @@ fn node_kind_contract(kind: NodeKind) -> &'static str {
         NodeKind::Reaffirmation => "Reaffirmation",
         NodeKind::AttributionDispute => "AttributionDispute",
         NodeKind::Rejection => "Rejection",
+        NodeKind::Acceptance => "Acceptance",
     }
 }
 

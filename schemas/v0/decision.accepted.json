@@ -19,9 +19,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["decision_id"],
+      "dependentRequired": { "quote": ["question"], "said_in": ["quote"] },
       "properties": {
         "decision_id": { "type": "string", "minLength": 1 },
-        "delegated_by": { "type": "string", "pattern": "^human:.*\\S" }
+        "delegated_by": { "type": "string", "pattern": "^human:.*\\S" },
+        "quote": { "type": "string", "minLength": 1 },
+        "question": { "type": "string", "minLength": 1 },
+        "said_in": { "type": "string", "minLength": 1 }
       }
     }
   }

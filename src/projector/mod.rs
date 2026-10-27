@@ -9,14 +9,14 @@ use crate::commands::{normalize_topic_key, personal_project_handle};
 use crate::error::ProjectorError;
 use crate::events::{
     self, classified_batch_ids, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem,
-    DecisionAttributionDisputedPayload, DecisionMovedPayload, DecisionProposedPayload,
-    DecisionReaffirmedPayload, DecisionRejectedPayload, DecisionRequestedPayload,
-    DecisionRetitledPayload, DecisionScoredPayload, Event, EventId, EventPayload, EventType,
-    EvidenceRecordedPayload, HypothesisRecordedPayload, IngestBatchClassifiedPayload,
-    NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
-    ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload, ProjectSource,
-    QuestionAskedPayload, QuestionRecordedPayload, ReadEvent, RelationKind as EventRelationKind,
-    SuggestionSurfacedPayload, TenantId, UnreadableAnnotation,
+    DecisionAcceptedPayload, DecisionAttributionDisputedPayload, DecisionMovedPayload,
+    DecisionProposedPayload, DecisionReaffirmedPayload, DecisionRejectedPayload,
+    DecisionRequestedPayload, DecisionRetitledPayload, DecisionScoredPayload, Event, EventId,
+    EventPayload, EventType, EvidenceRecordedPayload, HypothesisRecordedPayload,
+    IngestBatchClassifiedPayload, NotificationAcknowledgedPayload, NotificationSentPayload,
+    ProjectAnchorKind, ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload,
+    ProjectSource, QuestionAskedPayload, QuestionRecordedPayload, ReadEvent,
+    RelationKind as EventRelationKind, SuggestionSurfacedPayload, TenantId, UnreadableAnnotation,
 };
 use crate::ledger::EventLedger;
 use crate::Result;
@@ -95,10 +95,17 @@ pub enum NodeKind {
     /// relayed them (the node's `source_ref`) have no other place in the graph. The read layer
     /// reads these nodes in bulk and matches on `decision_id` (hivemind-efo6x).
     Rejection,
+    /// One `decision.accepted` that carries a person's words (hivemind-fsxx9): their verbatim
+    /// quote and the question it answers, recorded by their agent. A node with no edges, id'd by
+    /// the event's own uuid, like [`Self::AttributionDispute`]: the acceptance itself stays the
+    /// `ACCEPTED_BY` edge (unique per decision and actor), and a person's words are one more
+    /// statement beside it, so a second person's acceptance of the same decision keeps its own.
+    /// The read layer reads these nodes in bulk and matches on `decision_id`.
+    Acceptance,
 }
 
 impl NodeKind {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Decision,
         Self::DecisionRequest,
         Self::Actor,
@@ -113,6 +120,7 @@ impl NodeKind {
         Self::Reaffirmation,
         Self::AttributionDispute,
         Self::Rejection,
+        Self::Acceptance,
     ];
 
     pub const fn table_name(self) -> &'static str {
@@ -131,6 +139,7 @@ impl NodeKind {
             Self::Reaffirmation => "Reaffirmation",
             Self::AttributionDispute => "AttributionDispute",
             Self::Rejection => "Rejection",
+            Self::Acceptance => "Acceptance",
         }
     }
 }
@@ -387,6 +396,7 @@ fn project_event_reporting(
                 &event.actor_id,
                 &origin_properties,
             )?;
+            project_decision_acceptance(graph, event, &payload, &origin_properties)?;
             // Delegation marker (hivemind-zdsh.6): a property on the Decision node, not on
             // the ACCEPTED_BY edge and not a new node/edge kind — orthogonal to the
             // authorship/review shapes derived from those edges. Only the marker is
@@ -849,14 +859,16 @@ fn capture_node_text(kind: NodeKind, id: &str, props: &GraphProperties) -> Strin
         // Actor nodes have no text property; use the ID as a scoring proxy so
         // gold_as_captures() IDs (e.g. "mia") match the produced Actor node ID.
         NodeKind::Actor => return id.to_owned(),
-        // No capture kind ever produces a Project, Ask, Reaffirmation, AttributionDispute or
-        // Rejection node (see `project_capture`'s match); this arm exists only for exhaustiveness.
+        // No capture kind ever produces a Project, Ask, Reaffirmation, AttributionDispute,
+        // Rejection or Acceptance node (see `project_capture`'s match); this arm exists only for
+        // exhaustiveness.
         NodeKind::Notification
         | NodeKind::Project
         | NodeKind::Ask
         | NodeKind::Reaffirmation
         | NodeKind::AttributionDispute
-        | NodeKind::Rejection => return String::new(),
+        | NodeKind::Rejection
+        | NodeKind::Acceptance => return String::new(),
     };
     match props.get(key) {
         Some(GraphValue::String(s)) => s.clone(),
@@ -2417,6 +2429,42 @@ fn project_decision_attribution_disputed(
         &event.event_uuid.to_string(),
         &props,
     )
+}
+
+/// A `decision.accepted` that carries a person's words becomes one `Acceptance` node id'd by the
+/// event's own uuid, carrying the decision, who accepted, their quote, the question it answers,
+/// when, and where they said it (`said_in`, null when not stated). The node's `source` and
+/// `source_ref` say who recorded it: the agent that relayed the person's words. It touches no
+/// other node: the acceptance keeps its `ACCEPTED_BY` edge and
+/// its actor whether or not it has words, so an acceptance without a quote (every one before
+/// hivemind-fsxx9) projects exactly as it did (hivemind-fsxx9).
+fn project_decision_acceptance(
+    graph: &impl GraphView,
+    event: &Event,
+    payload: &DecisionAcceptedPayload,
+    origin_properties: &GraphProperties,
+) -> Result<()> {
+    let Some(quote) = &payload.quote else {
+        return Ok(());
+    };
+    let props = props_extend(
+        origin_properties,
+        [
+            (
+                "decision_id",
+                GraphValue::String(payload.decision_id.clone()),
+            ),
+            ("accepted_by", GraphValue::String(event.actor_id.clone())),
+            ("quote", GraphValue::String(quote.clone())),
+            (
+                "question",
+                optional_string_value(payload.question.as_deref()),
+            ),
+            ("accepted_at", event_timestamp(event)),
+            ("said_in", optional_string_value(payload.said_in.as_deref())),
+        ],
+    );
+    graph.upsert_node(NodeKind::Acceptance, &event.event_uuid.to_string(), &props)
 }
 
 /// Who recorded a classification, and the project it filed its decisions under.

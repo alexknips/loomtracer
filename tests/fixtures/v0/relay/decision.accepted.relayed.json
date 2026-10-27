@@ -1,0 +1,17 @@
+{
+  "event_id": 2,
+  "event_uuid": "018f5d8a-03fb-7df0-8e36-64d7410cfe31",
+  "correlation_id": "session-1",
+  "causation_event_id": 1,
+  "type": "decision.accepted",
+  "actor_id": "human:alex",
+  "source": "agent",
+  "source_ref": "agent:claude:mayor",
+  "payload": {
+    "decision_id": "dec-1",
+    "quote": "yes, go with Postgres",
+    "question": "Should the hosted cell run on Postgres?",
+    "said_in": "mayor pane, 2026-10-27"
+  },
+  "ts": "2026-05-17T20:41:43Z"
+}

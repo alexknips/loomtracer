@@ -1,24 +1,27 @@
-//! A person's act recorded by their agent (hivemind-f9xgu, hivemind-efo6x).
+//! A person's act recorded by their agent (hivemind-f9xgu, hivemind-efo6x, hivemind-fsxx9).
 //!
 //! People use Loomtracer through their agents, so an agent that hears a person say something
-//! about a decision (the call was never theirs, they disagree, it still holds) records it as the
-//! person's own, the way `decided_by` and a quote record a decision they made: the event's actor
-//! is the person, its provenance is `agent` with the relaying agent as `source_ref` (whatever
-//! provenance the `Commands` carries, so a relayed act can never be recorded without the relay),
-//! and the person's verbatim words are the event's `reason`, with `said_in` saying where they
-//! said them. This module holds what the verbs that do it share: who may be relayed and by whom,
-//! and how the event is built.
+//! about a decision (the call was never theirs, they disagree, it still holds, yes go with that)
+//! records it as the person's own, the way `decided_by` and a quote record a decision they made:
+//! the event's actor is the person, its provenance is `agent` with the relaying agent as
+//! `source_ref` (whatever provenance the `Commands` carries, so a relayed act can never be
+//! recorded without the relay), and the person's verbatim words are in the event (the `reason` of
+//! a dispute, disagreement or reaffirmation, the `quote` of an acceptance), with `said_in` saying
+//! where they said them. This module holds what the verbs that do it share: who may be relayed
+//! and by whom, and how the event is built.
 
 use chrono::Utc;
 use uuid::Uuid;
 
 use crate::error::CommandError;
-use crate::events::{Event, EventBuilder, EventPayload, EventProvenance};
+use crate::events::{
+    DecisionAcceptedPayload, Event, EventBuilder, EventId, EventPayload, EventProvenance, EventType,
+};
 use crate::ledger::EventLedger;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
 
-use super::Commands;
+use super::{already_rejected_refusal, Commands};
 
 /// The agent that heard a person say something and records it for them.
 #[derive(Debug, Clone, Copy)]
@@ -82,7 +85,82 @@ impl<'a> Relay<'a> {
     }
 }
 
+/// What a person accepted and what they said: `accepted_by` is the person (`human:<name>`),
+/// `decision_id` the decision they accepted, `quote` their verbatim words and `question` what
+/// they were answering.
+#[derive(Debug, Clone, Copy)]
+pub struct AcceptanceInput<'a> {
+    pub accepted_by: &'a str,
+    pub decision_id: &'a str,
+    pub quote: &'a str,
+    pub question: &'a str,
+}
+
 impl<L: EventLedger> Commands<'_, L> {
+    /// Record that `input.accepted_by`, a person, accepted `input.decision_id` in the words
+    /// `input.quote`, said in answer to `input.question`, as their agent `relayed_by` heard it
+    /// (hivemind-fsxx9): "yes, go with that" about a decision that was left open. `said_in` is
+    /// the session, thread or message they said it in, when the agent knows.
+    pub fn relay_acceptance(
+        &self,
+        relayed_by: &str,
+        said_in: Option<&str>,
+        input: AcceptanceInput<'_>,
+    ) -> Result<EventId> {
+        self.relay_acceptance_with_uuid(relayed_by, said_in, input, Uuid::new_v4())
+    }
+
+    /// `relay_acceptance` with the event's uuid chosen by the caller, so a transport that
+    /// retries gets the existing event id back from the ledger instead of a second event.
+    ///
+    /// The event is a `decision.accepted` whose actor is the person and whose provenance is
+    /// `agent` with `relayed_by` as the source reference, whatever provenance this `Commands`
+    /// was built with. Only a person may be relayed (a `human:` actor) and only by an agent (an
+    /// `agent:` actor); their words and the question they answered are required. The rules
+    /// `accept_decision` enforces hold unchanged: the decision exists and the person has not
+    /// rejected it. Nothing here asks whether the decision is still open: a person may accept
+    /// what an agent accepted alone, and a second person may accept what a first did, each with
+    /// their own words.
+    pub fn relay_acceptance_with_uuid(
+        &self,
+        relayed_by: &str,
+        said_in: Option<&str>,
+        input: AcceptanceInput<'_>,
+        event_uuid: Uuid,
+    ) -> Result<EventId> {
+        let AcceptanceInput {
+            accepted_by,
+            decision_id,
+            quote,
+            question,
+        } = input;
+        let relay = Relay::new(relayed_by, said_in);
+        relay.require_valid(accepted_by, quote, "acceptance")?;
+        require_non_empty("decision_id", decision_id)?;
+        // Words with no stated question are unreadable once the conversation is gone;
+        // `events::validate` pairs them again on read.
+        require_non_empty("question", question)?;
+        self.require_decision_exists(decision_id)?;
+        if self.actor_has_decision_event(decision_id, accepted_by, EventType::DecisionRejected)? {
+            return Err(already_rejected_refusal(accepted_by, decision_id).into());
+        }
+
+        let event = self.relayed_event(
+            &relay,
+            accepted_by,
+            EventPayload::DecisionAccepted(DecisionAcceptedPayload {
+                decision_id: decision_id.to_owned(),
+                delegated_by: None,
+                quote: Some(quote.to_owned()),
+                question: Some(question.to_owned()),
+                said_in: relay.recorded_said_in(),
+            }),
+            event_uuid,
+        )?;
+
+        self.append_event(event)
+    }
+
     /// The event as `person` said it and `relay.by` recorded it: the person is the actor and the
     /// relaying agent is the provenance, not the `Commands`' own.
     pub(super) fn relayed_event(

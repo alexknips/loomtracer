@@ -60,6 +60,12 @@ const FIXTURES: &[(&str, &str, EventType)] = &[
         include_str!("../../tests/fixtures/v0/delegation/decision.accepted.delegated.json"),
         EventType::DecisionAccepted,
     ),
+    // A person's acceptance their agent recorded, with their words and the question they answered.
+    (
+        include_str!("../../schemas/v0/decision.accepted.json"),
+        include_str!("../../tests/fixtures/v0/relay/decision.accepted.relayed.json"),
+        EventType::DecisionAccepted,
+    ),
     (
         include_str!("../../schemas/v0/decision.rejected.json"),
         include_str!("../../tests/fixtures/v0/decision.rejected.json"),
@@ -421,6 +427,9 @@ fn decision_accepted_carries_delegated_by_through_validation() {
         EventPayload::DecisionAccepted(DecisionAcceptedPayload {
             decision_id: "dec-1".to_owned(),
             delegated_by: Some("human:alex".to_owned()),
+            quote: None,
+            question: None,
+            said_in: None,
         })
     );
 }
@@ -436,6 +445,9 @@ fn decision_accepted_without_delegated_by_still_parses_and_omits_it_on_write() {
     let expected = DecisionAcceptedPayload {
         decision_id: "dec-1".to_owned(),
         delegated_by: None,
+        quote: None,
+        question: None,
+        said_in: None,
     };
     assert_eq!(
         validate(&event).unwrap(),

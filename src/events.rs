@@ -294,6 +294,23 @@ pub struct DecisionAcceptedPayload {
     /// so every event predating this field still parses and replays unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegated_by: Option<String>,
+    /// A person's verbatim words accepting the decision, recorded by their agent
+    /// (hivemind-fsxx9): the envelope's actor is the person, its `source` is `agent` and its
+    /// `source_ref` names the relaying agent, the shape a decision recorded with `decided_by`
+    /// and a quote already has. Always paired with `question` (`validate` refuses a quote
+    /// without it). Absent on every acceptance a decider made without words, which is every
+    /// event predating this field: `#[serde(default)]` so those still parse and replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<String>,
+    /// The question `quote` answers, in the relaying agent's own words. Always paired with
+    /// `quote`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
+    /// The session, thread or message the person's words come from, as the relaying agent states
+    /// it (the `said_in` of a relayed disagreement, hivemind-efo6x). Present only beside `quote`;
+    /// absent when nobody said: it is never guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1916,6 +1933,24 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             require_optional_non_empty("payload.delegated_by", payload.delegated_by.as_deref())?;
             if let Some(delegated_by) = payload.delegated_by.as_deref() {
                 require_delegation_shape(&event.actor_id, delegated_by)?;
+            }
+            require_optional_non_empty("payload.quote", payload.quote.as_deref())?;
+            require_optional_non_empty("payload.question", payload.question.as_deref())?;
+            require_optional_non_empty("payload.said_in", payload.said_in.as_deref())?;
+            // The pairing a proposal's quote has: words with no stated question are unreadable
+            // once the conversation they came from is gone.
+            if payload.quote.is_some() && payload.question.is_none() {
+                return Err(EventValidationError::RequiresPairedField(
+                    "payload.quote",
+                    "payload.question",
+                ));
+            }
+            // Where the words were said means nothing without the words.
+            if payload.said_in.is_some() && payload.quote.is_none() {
+                return Err(EventValidationError::RequiresPairedField(
+                    "payload.said_in",
+                    "payload.quote",
+                ));
             }
             Ok(EventPayload::DecisionAccepted(payload))
         }

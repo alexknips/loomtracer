@@ -33,17 +33,18 @@ use crate::ledger::{AnyLedger, LedgerConfig};
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::Result;
 use core::{
-    AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CaptureEvidenceArgs,
-    CaptureHypothesisArgs, CompactViewArgs, CoreError, DecisionContextCandidatesArgs,
-    DecisionQualityCandidatesArgs, DisagreeArgs, DisputeAttributionArgs, GetChangedDecisionsArgs,
-    GetContestedDecisionsArgs, GetDecisionArgs, GetDecisionContextArgs,
-    GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
-    GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
-    GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GroundDecisionArgs,
-    LedgerHandle, LedgerProvider, LinkSupersessionArgs, MoveDecisionArgs,
-    RankDecisionsByImportanceArgs, ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs,
-    RequestDecisionArgs, RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs,
-    ScoreDecisionArgs, SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
+    AcceptDecisionArgs, AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs,
+    CaptureEvidenceArgs, CaptureHypothesisArgs, CompactViewArgs, CoreError,
+    DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
+    DisputeAttributionArgs, GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionArgs,
+    GetDecisionContextArgs, GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs,
+    GetOpenWhyDecisionsArgs, GetReexamineItemsArgs, GetRelevantDecisionsArgs,
+    GetSituationalDecisionsArgs, GetSuggestionsArgs, GetSupersessionChainArgs,
+    GetWaitingRequestsArgs, GroundDecisionArgs, LedgerHandle, LedgerProvider, LinkSupersessionArgs,
+    MoveDecisionArgs, RankDecisionsByImportanceArgs, ReaffirmDecisionArgs, RecallDecisionsArgs,
+    RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs, ScanDecisionQualityArgs,
+    ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SearchDecisionsArgs, SummarizeDecisionsArgs,
+    SupersedeDecisionArgs,
 };
 
 /// MCP protocol revision this server speaks. Aligns with the modelcontextprotocol.io
@@ -385,6 +386,7 @@ fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, R
         "capture_decision" => tool_capture_decision(arguments, config),
         "capture_evidence" => tool_capture_evidence(arguments, config),
         "capture_hypothesis" => tool_capture_hypothesis(arguments, config),
+        "accept_decision" => tool_accept_decision(arguments, config),
         "disagree_decision" => tool_disagree_decision(arguments, config),
         "dispute_attribution" => tool_dispute_attribution(arguments, config),
         "supersede_decision" => tool_supersede_decision(arguments, config),
@@ -611,6 +613,24 @@ pub fn tool_definitions() -> Vec<Value> {
                 "properties": {
                     "actor_id": { "type": "string", "description": "Optional capturing actor override. Defaults to `agent:<tool>:<name>` (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`)." },
                     "statement": { "type": "string" }
+                }
+            }
+        }),
+        json!({
+            "name": "accept_decision",
+            "description": "Record, for a person, that they accept a decision that was left open: use it when a person tells you in conversation \"yes, go with that\" about a recommendation someone recorded as still proposed (`capture_decision` with `still_proposed`). The event is the person's: `accepted_by` is the actor, you are recorded as the agent that relayed it (`actor_id`), `quote` is their verbatim words and `question` is what they answered, so `why`, `verify` and `brief` read `decided by: human:alex (review=..., said by human:alex (relayed by agent:claude:mayor, said in ...), asked \"<question>\": <quote>)` and the decision's status becomes `accepted`. Their words are the acceptance: never paraphrase them, never record an acceptance the person did not give, and never record one for a person who has not said it in this conversation. Pass `said_in` (the session, thread or message they said it in) when you know it. Rejecting is `disagree_decision`, not this. Resolves the decision by `decision_id` or a free-text `description` (+ optional `topic`) — exactly one is required. An ambiguous description returns a successful result shaped `{outcome: \"ambiguous\", candidates: [...]}`, not an error, and no event is appended; re-call with decision_id from that list. A description matching nothing is also a successful result, shaped `{outcome: \"not_found\"}`, and no event is appended. Refused as an error, with nothing written, when the decision does not exist, `accepted_by` is not a person (`human:<name>`), you are not an agent, `quote` or `question` is blank, or the person already rejected the decision (a person cannot both reject and accept it). Nothing asks whether the decision is still open: a person may accept what an agent accepted alone, and a second person what a first did, each with their own words. The reply is `{decision_id, event_id, accepted_by, relayed_by, decision_status}` and `said_in` when you gave it. To record a decision a person made in one step, use `capture_decision` with `decided_by` and `quote`.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["accepted_by", "quote", "question"],
+                "properties": {
+                    "actor_id": { "type": "string", "description": "The agent relaying the person's words (you). Defaults to `agent:<tool>:<name>` when omitted (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`). Must be an agent: a person accepts with their own credential." },
+                    "decision_id": { "type": "string", "description": "The decision the person accepts. Provide this or `description`, not both." },
+                    "description": { "type": "string", "description": "Free-text description to resolve to a decision when the id is not known." },
+                    "topic": { "type": "string", "description": "Narrows description resolution to decisions carrying this topic key." },
+                    "accepted_by": { "type": "string", "description": "The person who accepts: a human actor, e.g. `human:alex.knips@gmail.com`. They are recorded as the one who decided; you are recorded as relaying." },
+                    "quote": { "type": "string", "description": "The person's verbatim words, as they said them, self-contained (not a reference like \"1a\" into a list)." },
+                    "question": { "type": "string", "description": "The question their words answer, spelled out in your own words, so the quote is readable once the conversation is gone." },
+                    "said_in": { "type": "string", "description": "Where the person said it: the session, thread or message. Optional; leave it out when you do not know, it is never guessed." }
                 }
             }
         }),
@@ -1408,6 +1428,15 @@ fn tool_capture_hypothesis(
     let core_args = CaptureHypothesisArgs::from_json(&args, actor_id)?;
     let provider = StdioLedgerProvider { config };
     let output = core::capture_hypothesis(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn tool_accept_decision(args: Value, config: &McpConfig) -> std::result::Result<Value, RpcError> {
+    let args = args.as_object().cloned().unwrap_or_default();
+    let actor_id = mcp_actor_id(&args, config)?;
+    let core_args = AcceptDecisionArgs::from_json(&args, actor_id)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::accept_decision(&provider, core_args)?;
     Ok(output.into_value())
 }
 

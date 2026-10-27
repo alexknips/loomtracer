@@ -371,12 +371,37 @@ person's name and a `reason` beside them. Without the person's name the call is 
 as before. A person who accepted a decision cannot also disagree with it; the refusal points at
 `dispute_attribution`.
 
+A person's "yes" to a recommendation that was left open is recorded the same way (hivemind-fsxx9).
+When you record a recommendation nobody decided, capture it with `still_proposed`; when the person
+then says "yes, go with that", call `accept_decision` with `accepted_by`, their verbatim `quote`, the
+`question` they answered and, when you know it, `said_in`:
+
+```text
+accept_decision {decision_id | description, accepted_by: "human:alex", quote: "yes, go with that",
+                 question: "Should the hosted cell run on Postgres?", said_in: "<session or thread>"}
+```
+
+The event is `decision.accepted` with the person as its actor, `source` `agent` and `source_ref`
+the relaying agent, so `why`, `verify` and `brief` read `decided by: human:alex (review=..., said
+by human:alex (relayed by agent:claude:mayor, said in ...), asked "<question>": <quote>)` and the
+dated story reads `accepted: in their own words (relayed by ..., said in ..., asked "<question>"):
+<quote>`; the decision's status becomes `accepted`. Both `quote` and `question` are required, and
+the person is never inferred from your credential. It is refused, with nothing written, when you
+are not an agent, the person is not a `human:` actor, either text is blank, the
+decision does not exist, or the person already rejected it. It does not ask whether the decision
+is still open: a person may accept what an agent accepted alone, and a second person what a
+first did, each with their own words, and each is listed. To say you disagree, use
+`disagree_decision`, not this. There is no CLI flag or REST route for the relay: on a cell an
+agent calls the tool (MCP over HTTP is the agent path), and `emit decision.accepted --actor` on a
+local ledger records the acceptance without words.
+
 Which agent path each person-facing write has:
 
 | What the person says | Agent path | Their words and the relay on the record |
 |---|---|---|
 | "I decided X" | `capture_decision` / `emit decision.capture` with `decided_by` | `quote` + `question`; the relay is the capture's `source_ref` |
 | "X replaces Y", from their own answer | capture their answer with `decided_by`, then `link_supersession` | the replacement keeps its decider and quote |
+| "Yes, go with that" (a recommendation left open) | `accept_decision` | `quote` + `question`, `said_in`; the relay is the event's `source_ref` |
 | "I never decided this" | `dispute_attribution` / `dispute-attribution --disputed-by` | `quote`, `said_in`; the relay is the event's `source_ref` |
 | "I disagree with X" | `disagree_decision` / `disagree --disagreed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `disagreed_by` it is the calling agent's own disagreement (`reason`) |
 | "X still holds" | `reaffirm_decision` / `reaffirm --reaffirmed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `reaffirmed_by` it is the calling agent's own (`reason`) |

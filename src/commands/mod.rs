@@ -259,6 +259,29 @@
 //!   actor, and a person's own answer is captured with `decided_by` and a quote and linked with
 //!   `link_supersession`.
 //!
+//! # A person's acceptance through their agent (`relay` module, hivemind-fsxx9)
+//!
+//! "Yes, go with that": a person accepts a decision that was left open (an agent's
+//! `still_proposed` recommendation), in words their agent heard. `relay_acceptance` appends one
+//! `decision.accepted` carrying the person's verbatim `quote` and the `question` it answers, with
+//! the same shape `relay_attribution_dispute` has. Enforced by `relay_acceptance_with_uuid`
+//! (`commands/relay.rs`), tested in `commands/relay/tests.rs`:
+//!
+//! - The event's actor is the person (`human:<name>`), its provenance is `agent` with the relaying
+//!   agent (an `agent:` actor) as `source_ref`, whatever provenance the `Commands` carries, and
+//!   `said_in`, when given, says where they said it (blank is refused, never guessed). A person's
+//!   own acceptance is `accept_decision` (no words), an agent's own is `accept_decision` too, and
+//!   a `human:` relay, an agent as the person and a blank quote are refused with nothing written.
+//! - The question is required as well as the quote, and must contain words (a quote with no stated
+//!   question is unreadable once the conversation is gone; `events::validate` pairs them again on
+//!   read).
+//! - The rules `accept_decision` enforces hold unchanged: the decision must exist in the tenant
+//!   (a classified capture counts) and the person must not already have rejected it.
+//! - Nothing asks whether the decision is still open. A person may accept what an agent accepted
+//!   alone, and a second person what a first did; every acceptance is kept with its own words
+//!   (each projects to its own `Acceptance` node beside the `ACCEPTED_BY` edge).
+//! - A retry is deduplicated by the event uuid the caller passes (`relay_acceptance_with_uuid`).
+//!
 //! # Restatements (`restatement` module, hivemind-83cj)
 //!
 //! A decision stated again is one decision, not two. The classifier (layer 3) judges that a
@@ -429,7 +452,7 @@ pub use question::{
     AnsweredQuestion, AskPlan, AskRecorded, AskedRequest, QuestionAnswerPlan, QuestionId,
 };
 pub use reaffirm::ReaffirmInput;
-pub use relay::Relay;
+pub use relay::{AcceptanceInput, Relay};
 pub use restatement::{ClassifiedBatchRecorded, RestatedCapture, RestatementOutcome};
 use transcript::captured_answers;
 
@@ -2583,6 +2606,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             EventPayload::DecisionAccepted(DecisionAcceptedPayload {
                 decision_id: decision_id.to_owned(),
                 delegated_by: delegated_by.map(str::to_owned),
+                quote: None,
+                question: None,
+                said_in: None,
             }),
             None,
             event_uuid,
