@@ -15220,3 +15220,381 @@ fn an_agent_records_a_persons_dispute_in_their_words_and_why_names_the_relay() {
 
     let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
+
+// hivemind-efo6x: a person disagrees through their agent. The agent records the person's verbatim
+// words (`--quote`) as the person's disagreement, naming itself as the relay and where they said it;
+// `why` reads "disagreed by <person> (relayed by <agent>, said in <where>): <quote>". The flags that
+// make a relay cannot be mixed with the person's own `--reason`, and a name without words is refused.
+#[test]
+fn an_agent_records_a_persons_disagreement_in_their_words_and_why_names_the_relay() {
+    let loomtracer_dir = unique_test_dir("disagree-relayed");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let scribe = "agent:claude:scribe";
+    let mayor = "agent:claude:mayor";
+    let decider = "human:alex";
+    let person = "human:bob";
+    let quote = "I would not have named it that either";
+    let title = "The product has a new name";
+    let decision_id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        title,
+        "--rationale",
+        "A default the agent relayed",
+        "--topic-keys",
+        "naming",
+        "--options",
+        "Upheld",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        decider,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("the acceptance");
+
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+    let relay = |actor: &str, disagreed_by: &str, extra: &[&str]| {
+        let mut argv = vec![
+            "loomtracer",
+            "--actor",
+            actor,
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "disagree",
+            "--decision",
+            &decision_id,
+            "--disagreed-by",
+            disagreed_by,
+            "--quote",
+            quote,
+        ];
+        argv.extend_from_slice(extra);
+        run(&Cli::parse_from(argv))
+    };
+
+    let by_a_person = relay(person, person, &[]).expect_err("only an agent relays");
+    assert!(
+        format_error(false, &by_a_person).contains("only an agent records a person's words"),
+        "{}",
+        format_error(false, &by_a_person)
+    );
+    let for_an_agent =
+        relay(mayor, scribe, &[]).expect_err("an agent is not a person to relay for");
+    assert!(
+        format_error(false, &for_an_agent).contains("is not a person"),
+        "{}",
+        format_error(false, &for_an_agent)
+    );
+    let already_accepted = relay(mayor, decider, &[]).expect_err("they accepted it");
+    assert!(
+        format_error(false, &already_accepted).contains("dispute-attribution"),
+        "{}",
+        format_error(false, &already_accepted)
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused relay writes nothing"
+    );
+
+    let recorded: serde_json::Value = serde_json::from_str(
+        &relay(mayor, person, &["--said-in", "session-7"])
+            .expect("the mayor records Bob's disagreement in his words"),
+    )
+    .expect("valid disagree json");
+    assert_eq!(recorded["disagreed_by"], person);
+    assert_eq!(recorded["relayed_by"], mayor);
+    assert_eq!(recorded["decision_status"], "contested");
+
+    let event = ledger
+        .read(latest_before, 10)
+        .expect("events read")
+        .into_iter()
+        .find(|event| event.event_type == crate::events::EventType::DecisionRejected)
+        .expect("the disagreement event");
+    assert_eq!(event.actor_id, person, "the event is the person's");
+    assert_eq!(event.source, crate::events::EventSource::Agent);
+    assert_eq!(event.source_ref.as_deref(), Some(mayor), "the relay");
+    assert_eq!(event.payload["reason"], quote);
+    assert_eq!(event.payload["said_in"], "session-7");
+
+    let why = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        dir,
+        "query",
+        "why",
+        title,
+        "--summary",
+    ]))
+    .expect("why answers");
+    let disagreed_by = why
+        .lines()
+        .find(|line| line.trim_start().starts_with("disagreed by: "))
+        .unwrap_or_else(|| panic!("why names who disagreed: {why}"));
+    assert!(
+        disagreed_by.contains(&format!(
+            "{person} (relayed by {mayor}, said in session-7): {quote}"
+        )),
+        "the disagreement names the person, the relay and their words: {disagreed_by}"
+    );
+    let dated = why
+        .lines()
+        .find(|line| line.contains("rejected") && line.contains("reason"))
+        .unwrap_or_else(|| panic!("why's dated story holds the disagreement: {why}"));
+    assert!(
+        dated.contains(&format!(
+            "reason (relayed by {mayor}, said in session-7): {quote}"
+        )),
+        "the dated entry names the relay and their words as well: {dated}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "query",
+            "verify",
+            title,
+        ]))
+        .expect("verify json"),
+    )
+    .expect("valid verify json");
+    let decided_by = &json["data"]["decided_by"];
+    assert_eq!(decided_by["decider_ids"], serde_json::json!([decider]));
+    assert_eq!(decided_by["rejecter_ids"], serde_json::json!([person]));
+    let rejection = &decided_by["relayed_rejections"][0];
+    assert_eq!(rejection["rejected_by"], person, "{decided_by}");
+    assert_eq!(rejection["relayed_by"], mayor, "{decided_by}");
+    assert_eq!(rejection["said_in"], "session-7", "{decided_by}");
+    assert_eq!(rejection["reason"], quote, "{decided_by}");
+
+    for argv in [
+        // A relay is the quote, never the person's own reason as well.
+        vec![
+            "--reason",
+            "mine",
+            "--disagreed-by",
+            person,
+            "--quote",
+            quote,
+        ],
+        // The person without their words, and words without the person.
+        vec!["--disagreed-by", person],
+        vec!["--quote", quote],
+        vec!["--said-in", "session-7", "--reason", "mine"],
+    ] {
+        let mut full = vec![
+            "loomtracer",
+            "--actor",
+            mayor,
+            "--loomtracer-dir",
+            dir,
+            "disagree",
+            "--decision",
+            &decision_id,
+        ];
+        full.extend(argv.iter().copied());
+        assert!(
+            Cli::try_parse_from(full).is_err(),
+            "the relay flags go together: {argv:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}
+
+// hivemind-efo6x: the same for "it still holds". The reaffirmation is the person's, with their
+// words, where they said them and the agent that relayed them, in the reply and in `reexamine`.
+#[test]
+fn an_agent_records_a_persons_reaffirmation_in_their_words_and_reexamine_names_the_relay() {
+    use crate::commands::{CommandContext, Commands};
+    use crate::events::{EventProvenance, TenantId};
+
+    let loomtracer_dir = unique_test_dir("reaffirm-relayed");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let scribe = "agent:claude:scribe";
+    let mayor = "agent:claude:mayor";
+    let person = "human:pat";
+    let quote = "Sharding never depended on the per-tenant cap";
+    let propose = |title: &str| {
+        run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            scribe,
+            "--loomtracer-dir",
+            dir,
+            "emit",
+            "decision.proposed",
+            "--title",
+            title,
+            "--rationale",
+            "Rationale text long enough for the readable floor",
+            "--topic-keys",
+            "sharding",
+            "--options",
+            "Only option",
+        ]))
+        .expect("decision proposed")
+    };
+    let premise_id = propose("Cap requests per tenant");
+    let decision_id = propose("Shard by tenant");
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    let commands = Commands::new_with_context(
+        &ledger,
+        CommandContext::new(TenantId::local(), EventProvenance::cli()),
+    );
+    commands
+        .link_follows_from(&decision_id, &premise_id, scribe)
+        .expect("the dependent follows from the premise");
+    commands
+        .disagree(
+            "human:dissenter",
+            &premise_id,
+            "Per-user caps fit billing better",
+        )
+        .expect("the premise is rejected");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+
+    let reaffirm = |actor: &str, reaffirmed_by: &str, extra: &[&str]| {
+        let mut argv = vec![
+            "loomtracer",
+            "--actor",
+            actor,
+            "--loomtracer-dir",
+            dir,
+            "reaffirm",
+            "--id",
+            &decision_id,
+            "--reaffirmed-by",
+            reaffirmed_by,
+            "--quote",
+            quote,
+        ];
+        argv.extend_from_slice(extra);
+        run(&Cli::parse_from(argv))
+    };
+    let by_a_person = reaffirm(person, person, &[]).expect_err("only an agent relays");
+    assert!(
+        format_error(false, &by_a_person).contains("only an agent records a person's words"),
+        "{}",
+        format_error(false, &by_a_person)
+    );
+    let for_an_agent = reaffirm(mayor, scribe, &[]).expect_err("an agent is not a person");
+    assert!(
+        format_error(false, &for_an_agent).contains("is not a person"),
+        "{}",
+        format_error(false, &for_an_agent)
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused relay writes nothing"
+    );
+
+    let recorded = reaffirm(mayor, person, &["--said-in", "thread-3"])
+        .expect("the mayor records Pat's reaffirmation in her words");
+    assert!(
+        recorded.contains(&format!(
+            "by {person} (relayed by {mayor}, said in thread-3)"
+        )),
+        "the reply names the person, the relay and where: {recorded}"
+    );
+    assert!(recorded.contains(quote), "and their words: {recorded}");
+
+    let event = ledger
+        .read(latest_before, 10)
+        .expect("events read")
+        .into_iter()
+        .find(|event| event.event_type == crate::events::EventType::DecisionReaffirmed)
+        .expect("the reaffirmation event");
+    assert_eq!(event.actor_id, person, "the event is the person's");
+    assert_eq!(event.source, crate::events::EventSource::Agent);
+    assert_eq!(event.source_ref.as_deref(), Some(mayor), "the relay");
+    assert_eq!(event.payload["reason"], quote);
+    assert_eq!(event.payload["said_in"], "thread-3");
+
+    let reexamine = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        dir,
+        "reexamine",
+        "--all",
+    ]))
+    .expect("reexamine answers");
+    assert!(
+        reexamine.contains(&format!(
+            "reaffirmed by {person} (relayed by {mayor}, said in thread-3) on "
+        )) && reexamine.contains(&format!(": \"{quote}\"")),
+        "{reexamine}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "query",
+            "verify",
+            "Shard by tenant",
+        ]))
+        .expect("verify json"),
+    )
+    .expect("valid verify json");
+    let reaffirmation = &json["data"]["still_holds"]["reexamine"][0]["reaffirmations"][0];
+    assert_eq!(reaffirmation["actor_id"], person, "{json}");
+    assert_eq!(reaffirmation["relayed_by"], mayor, "{json}");
+    assert_eq!(reaffirmation["said_in"], "thread-3", "{json}");
+    assert_eq!(reaffirmation["reason"], quote, "{json}");
+
+    for argv in [
+        vec![
+            "--because",
+            "mine",
+            "--reaffirmed-by",
+            person,
+            "--quote",
+            quote,
+        ],
+        vec!["--reaffirmed-by", person],
+        vec!["--quote", quote],
+        vec!["--said-in", "thread-3", "--because", "mine"],
+    ] {
+        let mut full = vec![
+            "loomtracer",
+            "--actor",
+            mayor,
+            "--loomtracer-dir",
+            dir,
+            "reaffirm",
+            "--id",
+            &decision_id,
+        ];
+        full.extend(argv.iter().copied());
+        assert!(
+            Cli::try_parse_from(full).is_err(),
+            "the relay flags go together: {argv:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}

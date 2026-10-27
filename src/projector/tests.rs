@@ -6630,6 +6630,102 @@ fn a_relayed_attribution_dispute_node_carries_where_it_was_said_and_who_relayed_
     Ok(())
 }
 
+#[test]
+fn a_rejection_node_carries_the_words_where_they_were_said_and_who_relayed_them() -> Result<()> {
+    let mut relayed = event(
+        EventType::DecisionRejected,
+        "human:alice",
+        json!({
+            "decision_id": "decision:named",
+            "reason": "I would not have chosen it",
+            "said_in": "session-7"
+        }),
+    );
+    relayed.source = EventSource::Agent;
+    relayed.source_ref = Some("agent:claude:mayor".to_owned());
+    let direct = event(
+        EventType::DecisionRejected,
+        "human:bob",
+        json!({"decision_id": "decision:named"}),
+    );
+    let (relayed_id, direct_id) = (
+        relayed.event_uuid.to_string(),
+        direct.event_uuid.to_string(),
+    );
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(relayed)?;
+    ledger.append(direct)?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let nodes = graph.nodes();
+    let string = |value: &str| Some(GraphValue::String(value.to_owned()));
+    let relayed = &nodes[&(NodeKind::Rejection, relayed_id)];
+    assert_eq!(
+        relayed.get("decision_id").cloned(),
+        string("decision:named")
+    );
+    assert_eq!(
+        relayed.get("reason").cloned(),
+        string("I would not have chosen it")
+    );
+    assert_eq!(relayed.get("rejected_by").cloned(), string("human:alice"));
+    assert_eq!(relayed.get("said_in").cloned(), string("session-7"));
+    assert_eq!(relayed.get("source").cloned(), string("agent"));
+    assert_eq!(
+        relayed.get("source_ref").cloned(),
+        string("agent:claude:mayor")
+    );
+    let direct = &nodes[&(NodeKind::Rejection, direct_id)];
+    assert_eq!(direct.get("reason"), Some(&GraphValue::Null));
+    assert_eq!(direct.get("said_in"), Some(&GraphValue::Null));
+    assert_eq!(direct.get("rejected_by").cloned(), string("human:bob"));
+    // The edge the status is derived from is still written for each of them.
+    let edges = graph.edges();
+    let rejecters: Vec<&str> = edges
+        .keys()
+        .filter(|(kind, from, _)| *kind == RelationKind::RejectedBy && from == "decision:named")
+        .map(|(_, _, to)| to.as_str())
+        .collect();
+    assert_eq!(rejecters, ["human:alice", "human:bob"]);
+    Ok(())
+}
+
+#[test]
+fn a_reaffirmation_node_carries_where_it_was_said() -> Result<()> {
+    let mut relayed = event(
+        EventType::DecisionReaffirmed,
+        "human:alice",
+        json!({
+            "decision_id": "decision:dependent",
+            "premise_id": "decision:premise",
+            "reason": "It still holds",
+            "said_in": "thread-2"
+        }),
+    );
+    relayed.source = EventSource::Agent;
+    relayed.source_ref = Some("agent:claude:mayor".to_owned());
+    let id = relayed.event_uuid.to_string();
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(relayed)?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let nodes = graph.nodes();
+    let node = &nodes[&(NodeKind::Reaffirmation, id)];
+    assert_eq!(
+        node.get("said_in").cloned(),
+        Some(GraphValue::String("thread-2".to_owned()))
+    );
+    assert_eq!(
+        node.get("source_ref").cloned(),
+        Some(GraphValue::String("agent:claude:mayor".to_owned()))
+    );
+    Ok(())
+}
+
 // ── Arrow orientation (hivemind-ku1x): every arrow runs newer -> older ──
 
 use super::arrow::{orient, Arrow};

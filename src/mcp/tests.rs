@@ -2033,6 +2033,155 @@ fn dispute_attribution_tool_refuses_what_it_cannot_attribute_and_writes_nothing(
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// hivemind-efo6x: a person's disagreement goes through their agent the way their dispute does.
+// The tool records it as the person's (their verbatim words, where they said it), with the
+// calling agent as the relay.
+#[test]
+fn disagree_decision_tool_records_the_persons_words_with_the_agent_as_the_relay() {
+    let dir = unique_dir("disagree-relay");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("relay-session");
+    let decider = "human:alex";
+    let person = "human:bob";
+    let relay = "agent:claude:relay-session";
+    let quote = "I would not have named it that either";
+    let decision_id = capture_decided_by_a_person(&config, decider);
+
+    let response = call_tool(
+        &config,
+        2,
+        "disagree_decision",
+        json!({
+            "decision_id": decision_id,
+            "disagreed_by": person,
+            "quote": quote,
+            "said_in": "session-2026-10-27",
+        }),
+    );
+    let result = &response["result"];
+    assert_eq!(result["isError"], false, "{result:?}");
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["decision_id"], decision_id.as_str());
+    assert_eq!(structured["disagreed_by"], person);
+    assert_eq!(structured["relayed_by"], relay, "the calling agent");
+    assert_eq!(structured["said_in"], "session-2026-10-27");
+    assert_eq!(
+        structured["decision_status"], "contested",
+        "one person accepted it and another disagrees"
+    );
+    let event_id = structured["event_id"].as_u64().expect("event id");
+
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = ledger.read(0, 50).expect("events read");
+    let rejected = events
+        .iter()
+        // ubs:ignore: event IDs are public ledger offsets, not secrets.
+        .find(|event| event.event_id == Some(event_id))
+        .expect("the disagreement event");
+    assert_eq!(
+        rejected.event_type,
+        crate::events::EventType::DecisionRejected
+    );
+    assert_eq!(rejected.actor_id, person, "the event is the person's");
+    assert_eq!(rejected.source, crate::events::EventSource::Agent);
+    assert_eq!(rejected.source_ref.as_deref(), Some(relay));
+    assert_eq!(rejected.payload["reason"], quote);
+    assert_eq!(rejected.payload["said_in"], "session-2026-10-27");
+
+    // The read side names the person, their words and the agent that relayed them.
+    let graph = crate::projector::memory::MemoryGraph::default();
+    crate::projector::project_from_ledger(&ledger, &graph, 0).expect("project");
+    let brief = crate::queries::get_decision_brief(&graph, &decision_id)
+        .expect("brief reads")
+        .data
+        .expect("the decision has a brief");
+    assert_eq!(brief.decided_by.rejecter_ids, [person]);
+    let relayed = &brief.decided_by.relayed_rejections;
+    assert_eq!(relayed.len(), 1, "{relayed:?}");
+    assert_eq!(relayed[0].rejected_by, person);
+    assert_eq!(relayed[0].reason, quote);
+    assert_eq!(relayed[0].relayed_by, relay);
+    assert_eq!(relayed[0].said_in.as_deref(), Some("session-2026-10-27"));
+    assert_eq!(
+        brief.decided_by.decider_ids,
+        [decider],
+        "the acceptance stays"
+    );
+
+    // Saying it again is the same disagreement, as it is for a person who says it directly.
+    let again = call_tool(
+        &config,
+        3,
+        "disagree_decision",
+        json!({"decision_id": decision_id, "disagreed_by": person, "quote": quote}),
+    );
+    assert_eq!(again["result"]["structuredContent"]["event_id"], event_id);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn disagree_decision_tool_refuses_a_persons_name_without_their_words_and_writes_nothing() {
+    let dir = unique_dir("disagree-relay-refused");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("relay-session");
+    let decider = "human:alex";
+    let person = "human:bob";
+    let decision_id = capture_decided_by_a_person(&config, decider);
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let before = ledger.latest_offset().expect("offset before");
+
+    let refused = |arguments: Value| {
+        let response = call_tool(&config, 9, "disagree_decision", arguments);
+        let result = &response["result"];
+        assert_eq!(result["isError"], true, "{result:?}");
+        result["content"][0]["text"]
+            .as_str()
+            .expect("error text")
+            .to_owned()
+    };
+    // A person's name without their words, and words without a person to attribute them to.
+    let text = refused(json!({"decision_id": decision_id, "disagreed_by": person}));
+    assert!(text.contains("quote"), "{text}");
+    let text = refused(json!({"decision_id": decision_id, "quote": "mine"}));
+    assert!(text.contains("disagreed_by"), "{text}");
+    let text =
+        refused(json!({"decision_id": decision_id, "said_in": "thread-1", "reason": "mine"}));
+    assert!(text.contains("disagreed_by"), "{text}");
+    // The person's words are the quote: a `reason` beside them would be the agent's own.
+    let text = refused(json!({
+        "decision_id": decision_id, "disagreed_by": person, "quote": "mine", "reason": "x",
+    }));
+    assert!(text.contains("reason"), "{text}");
+    // An agent is not a person to relay for, and a person does not relay.
+    let text = refused(json!({
+        "decision_id": decision_id, "disagreed_by": "agent:claude:other", "quote": "mine",
+    }));
+    assert!(text.contains("is not a person"), "{text}");
+    let text = refused(json!({
+        "actor_id": person, "decision_id": decision_id, "disagreed_by": person, "quote": "mine",
+    }));
+    assert!(
+        text.contains("only an agent records a person's words"),
+        "{text}"
+    );
+    // A person who accepted the decision cannot also disagree with it; the refusal points at the
+    // dispute of an attribution.
+    let text = refused(json!({
+        "decision_id": decision_id, "disagreed_by": decider, "quote": "mine",
+    }));
+    assert!(text.contains("dispute-attribution"), "{text}");
+
+    assert_eq!(
+        ledger.latest_offset().expect("offset after"),
+        before,
+        "every refusal writes nothing"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn disagree_decision_tool_ambiguous_description_does_not_write() {
     let dir = unique_dir("disagree-ambiguous");
@@ -8608,6 +8757,182 @@ mod transport_parity {
             .into_iter()
             .filter(|event| event.event_type == crate::events::EventType::DecisionReaffirmed)
             .collect()
+    }
+
+    // hivemind-efo6x: a person's disagreement and reaffirmation go through their agent. Both tools
+    // record them as the person's (their verbatim words, where they said it), with the calling agent
+    // as the relay, the same on both transports.
+    const PERSON: &str = "human:pat@example.com";
+    const RELAY: &str = "agent:claude:relay";
+    const PERSON_WORDS: &str = "A per-tenant cap is wrong for us, and that still holds";
+
+    fn events_of_type(
+        dir: &std::path::Path,
+        event_type: crate::events::EventType,
+    ) -> Vec<crate::events::Event> {
+        let ledger = SqliteEventLedger::open(dir).expect("ledger opens"); // ubs:ignore: test-only; panicking is correct in tests
+        ledger
+            .read(0, 1000)
+            .expect("read events") // ubs:ignore: test-only; panicking is correct in tests
+            .into_iter()
+            .filter(|event| event.event_type == event_type)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn disagree_decision_records_a_persons_words_with_the_agent_as_the_relay_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-relay-disagree");
+        let http_dir = unique_dir("parity-http-relay-disagree");
+        seed_premise(&stdio_dir, &http_dir, "Cap requests per tenant").await;
+
+        let args = json!({
+            "actor_id": RELAY,
+            "description": "Cap requests per tenant",
+            "disagreed_by": PERSON,
+            "quote": PERSON_WORDS,
+            "said_in": "thread-1",
+        });
+        let stdio = stdio_call(&stdio_dir, "disagree_decision", args.clone());
+        let http = http_call(&http_dir, "disagree_decision", args).await;
+
+        for (name, response, dir) in [("stdio", &stdio, &stdio_dir), ("http", &http, &http_dir)] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let reply = &result["structuredContent"];
+            assert_eq!(reply["disagreed_by"], PERSON, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["relayed_by"], RELAY, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["said_in"], "thread-1", "{name}"); // ubs:ignore: test-only assertion
+
+            let recorded = events_of_type(dir, crate::events::EventType::DecisionRejected);
+            assert_eq!(recorded.len(), 1, "{name}: {recorded:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].actor_id, PERSON,
+                "{name}: the event is the person's"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].source,
+                crate::events::EventSource::Agent,
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].source_ref.as_deref(), Some(RELAY), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].payload["reason"], PERSON_WORDS, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].payload["said_in"], "thread-1", "{name}"); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_records_a_persons_words_with_the_agent_as_the_relay_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-relay-reaffirm");
+        let http_dir = unique_dir("parity-http-relay-reaffirm");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+
+        let args = json!({
+            "actor_id": RELAY,
+            "description": "Shard by tenant",
+            "reaffirmed_by": PERSON,
+            "quote": PERSON_WORDS,
+            "said_in": "thread-1",
+        });
+        let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+        let http = http_call(&http_dir, "reaffirm_decision", args).await;
+
+        for (name, response, dir) in [("stdio", &stdio, &stdio_dir), ("http", &http, &http_dir)] {
+            let result = &response["result"];
+            assert_eq!(result["isError"], false, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let reply = &result["structuredContent"];
+            assert_eq!(
+                reply["actor_id"], PERSON,
+                "{name}: attributed to the person"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(reply["relayed_by"], RELAY, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["said_in"], "thread-1", "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["reason"], PERSON_WORDS, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(reply["covers"][0]["kind"], "rejected", "{name}"); // ubs:ignore: test-only assertion
+
+            let recorded = reaffirmations_in(dir);
+            assert_eq!(recorded.len(), 1, "{name}: {recorded:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].actor_id, PERSON,
+                "{name}: the event is the person's"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                recorded[0].source,
+                crate::events::EventSource::Agent,
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].source_ref.as_deref(), Some(RELAY), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].payload["reason"], PERSON_WORDS, "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(recorded[0].payload["said_in"], "thread-1", "{name}"); // ubs:ignore: test-only assertion
+        }
+
+        // The re-examine list reads it back with the person, their words and the relay.
+        let listed = stdio_call(
+            &stdio_dir,
+            "get_reexamine_items",
+            json!({"description": "Shard by tenant", "include_closed": true}),
+        )
+        .to_string();
+        for expected in [PERSON, PERSON_WORDS, RELAY, "thread-1"] {
+            assert!(listed.contains(expected), "{expected} in {listed}"); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    #[tokio::test]
+    async fn reaffirm_decision_refuses_a_persons_name_without_their_words_and_writes_nothing_across_transports(
+    ) {
+        let stdio_dir = unique_dir("parity-stdio-relay-reaffirm-refused");
+        let http_dir = unique_dir("parity-http-relay-reaffirm-refused");
+        seed_changed_premise(&stdio_dir, &http_dir).await;
+
+        let refusals = [
+            // A person's name without their words, and words without a person.
+            (json!({"reaffirmed_by": PERSON}), "quote"),
+            (json!({"quote": PERSON_WORDS}), "reaffirmed_by"),
+            (
+                json!({"said_in": "thread-1", "reason": "mine"}),
+                "reaffirmed_by",
+            ),
+            // The person's words are the quote: a `reason` beside them would be the agent's own.
+            (
+                json!({"reaffirmed_by": PERSON, "quote": PERSON_WORDS, "reason": "x"}),
+                "reason",
+            ),
+            // An agent is not a person to relay for.
+            (
+                json!({"reaffirmed_by": "agent:claude:other", "quote": PERSON_WORDS}),
+                "is not a person",
+            ),
+        ];
+        for (extra, expected) in refusals {
+            let mut args = json!({"actor_id": RELAY, "description": "Shard by tenant"});
+            if let (Some(args), Some(extra)) = (args.as_object_mut(), extra.as_object()) {
+                args.extend(extra.clone());
+            }
+            let stdio = stdio_call(&stdio_dir, "reaffirm_decision", args.clone());
+            let http = http_call(&http_dir, "reaffirm_decision", args).await;
+            for (name, response) in [("stdio", &stdio), ("http", &http)] {
+                let result = &response["result"];
+                assert_eq!(result["isError"], true, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+                let text = result["content"][0]["text"].as_str().unwrap_or_default();
+                assert!(text.contains(expected), "{name}: {expected} in {text}");
+                // ubs:ignore: test-only assertion
+            }
+        }
+        for (name, dir) in [("stdio", &stdio_dir), ("http", &http_dir)] {
+            assert!(reaffirmations_in(dir).is_empty(), "{name}: nothing written");
+            // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
     }
 
     #[tokio::test]

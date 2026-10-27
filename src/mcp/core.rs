@@ -34,7 +34,7 @@ use serde_json::{json, Map, Value};
 
 use crate::commands::{
     insert_warnings_into, CommandContext, Commands, DecisionPlacement, DecisionProposalInput,
-    DeterminedProject, FloorInput, Grounding, SupersedeInput,
+    DeterminedProject, FloorInput, Grounding, Relay, SupersedeInput,
 };
 use crate::error::{CliError, CommandError, LoomtracerError};
 use crate::events::{AckAction, CaptureItem, EventProvenance, ProjectSource, TenantId};
@@ -1341,16 +1341,84 @@ impl RecallDecisionsArgs {
 // disagree_decision
 // ---------------------------------------------------------------------------
 
+/// What a person said, as the agent that heard them records it (hivemind-efo6x): `person` is the
+/// `human:` actor the words are attributed to, `quote` their verbatim words, `said_in` where they
+/// said them. The calling agent is recorded as the relay.
+pub(crate) struct RelayedWords {
+    pub(crate) person: String,
+    pub(crate) quote: String,
+    pub(crate) said_in: Option<String>,
+}
+
+/// What the caller of `disagree_decision` or `reaffirm_decision` says: its own `reason`, or, when
+/// `<verb>_by` names a person, that person's words, recorded as theirs with the caller as the
+/// agent that relayed them. A person's name without their words is refused, and so are words
+/// without a person to attribute them to: a statement is never both the agent's and a person's.
+pub(crate) enum Statement {
+    Own { reason: String },
+    Relayed(RelayedWords),
+}
+
+impl Statement {
+    /// `person_key` is the argument naming the person (`disagreed_by`, `reaffirmed_by`).
+    fn from_json(args: &Map<String, Value>, person_key: &str) -> Result<Self, CoreError> {
+        let person = optional_string(args, person_key)?;
+        let reason = optional_string(args, "reason")?;
+        let quote = optional_string(args, "quote")?;
+        let said_in = optional_string(args, "said_in")?;
+        let Some(person) = person else {
+            if quote.is_some() || said_in.is_some() {
+                return Err(CoreError::InvalidArgument(format!(
+                    "`quote` and `said_in` go with `{person_key}`: name the person whose words \
+                     they are, or leave them out and give your own `reason`"
+                )));
+            }
+            return Ok(Self::Own {
+                reason: require_string(args, "reason")?,
+            });
+        };
+        if reason.is_some() {
+            return Err(CoreError::InvalidArgument(format!(
+                "with `{person_key}` the person's words are the `quote`: leave `reason` out, \
+                 which would be your own"
+            )));
+        }
+        let Some(quote) = quote else {
+            return Err(CoreError::InvalidArgument(format!(
+                "`{person_key}` needs `quote`, the person's verbatim words as they said them: \
+                 a person's name without their words is not recorded"
+            )));
+        };
+        Ok(Self::Relayed(RelayedWords {
+            person: person.trim().to_owned(),
+            quote,
+            said_in,
+        }))
+    }
+
+    /// The words of the reply that name who a relayed statement is the person's, and who relayed it.
+    fn insert_relay_into(&self, reply: &mut Value, person_key: &str, relayed_by: &str) {
+        let (Self::Relayed(words), Some(reply)) = (self, reply.as_object_mut()) else {
+            return;
+        };
+        reply.insert(person_key.to_owned(), json!(words.person));
+        reply.insert("relayed_by".to_owned(), json!(relayed_by));
+        if let Some(said_in) = &words.said_in {
+            reply.insert("said_in".to_owned(), json!(said_in.trim()));
+        }
+    }
+}
+
 /// Parsed, validated arguments for the `disagree_decision` tool. Shares the
-/// id/description/topic resolution shape [`resolve_target`] defines; `reason`
-/// is the one field unique to a disagreement, and is always required
-/// regardless of how the target resolves.
+/// id/description/topic resolution shape [`resolve_target`] defines; what the
+/// caller says (`reason`, or a person's `quote`) is the one thing unique to a
+/// disagreement, and is always required regardless of how the target resolves.
 pub(crate) struct DisagreeArgs {
     pub(crate) actor_id: String,
     pub(crate) decision_id: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) topic: Option<String>,
-    pub(crate) reason: String,
+    pub(crate) statement: Statement,
 }
 
 impl DisagreeArgs {
@@ -1361,13 +1429,13 @@ impl DisagreeArgs {
         let decision_id = optional_string(args, "decision_id")?;
         let description = optional_string(args, "description")?;
         let topic = optional_string(args, "topic")?;
-        let reason = require_string(args, "reason")?;
+        let statement = Statement::from_json(args, "disagreed_by")?;
         Ok(Self {
             actor_id,
             decision_id,
             description,
             topic,
-            reason,
+            statement,
         })
     }
 }
@@ -1738,21 +1806,32 @@ pub(crate) fn disagree_decision<P: LedgerProvider>(
             EventProvenance::agent(args.actor_id.clone()),
         ),
     );
-    let event_id = commands
-        .disagree(&args.actor_id, &decision_id, &args.reason)
-        .map_err(CoreError::from)?;
+    let event_id = match &args.statement {
+        Statement::Own { reason } => commands.disagree(&args.actor_id, &decision_id, reason),
+        Statement::Relayed(words) => commands.relay_disagreement(
+            &args.actor_id,
+            &words.person,
+            &decision_id,
+            &words.quote,
+            words.said_in.as_deref(),
+        ),
+    }
+    .map_err(CoreError::from)?;
 
     let graph = handle.graph().map_err(CoreError::from)?;
     let decision_status = derive_decision_status(&graph, &decision_id).map_err(CoreError::from)?;
     let upstream = upstream_of(&graph, &decision_id, None).map_err(CoreError::from)?;
 
-    Ok(ToolOutput(json!({
+    let mut reply = json!({
         "decision_id": decision_id,
         "event_id": event_id,
         "decision_status": decision_status,
         "rests_on": upstream.rests_on,
         "raise_upstream": upstream.raise_upstream,
-    })))
+    });
+    args.statement
+        .insert_relay_into(&mut reply, "disagreed_by", &args.actor_id);
+    Ok(ToolOutput(reply))
 }
 
 // ---------------------------------------------------------------------------
@@ -2225,7 +2304,7 @@ pub(crate) struct ReaffirmDecisionArgs {
     pub(crate) description: Option<String>,
     pub(crate) topic: Option<String>,
     pub(crate) premise_id: Option<String>,
-    pub(crate) reason: String,
+    pub(crate) statement: Statement,
 }
 
 impl ReaffirmDecisionArgs {
@@ -2239,7 +2318,7 @@ impl ReaffirmDecisionArgs {
             description: optional_string(args, "description")?,
             topic: optional_string(args, "topic")?,
             premise_id: optional_string(args, "premise_id")?,
-            reason: require_string(args, "reason")?,
+            statement: Statement::from_json(args, "reaffirmed_by")?,
         })
     }
 }
@@ -2251,7 +2330,9 @@ impl ReaffirmDecisionArgs {
 /// that an open item is named: several open items and no `premise_id` is a success-shaped
 /// `{outcome: "ambiguous"}` listing them, and anything with nothing to re-examine (the premise did
 /// not change, the item was already closed, the decision does not rest on it) is refused as an
-/// invalid argument, with nothing written. What is recorded is attributed to `actor_id`.
+/// invalid argument, with nothing written. What is recorded is attributed to `actor_id`, or, when
+/// the call carries a person's words (`reaffirmed_by` and `quote`), to that person with `actor_id`
+/// recorded as the agent that relayed them.
 pub(crate) fn reaffirm_decision<P: LedgerProvider>(
     provider: &P,
     args: ReaffirmDecisionArgs,
@@ -2276,11 +2357,21 @@ pub(crate) fn reaffirm_decision<P: LedgerProvider>(
         &handle.tenant_id,
         EventProvenance::agent(args.actor_id.clone()),
         &graph,
-        ReaffirmCall {
-            actor_id: &args.actor_id,
-            decision_id: &decision_id,
-            premise: args.premise_id.as_deref(),
-            reason: &args.reason,
+        match &args.statement {
+            Statement::Own { reason } => ReaffirmCall {
+                actor_id: &args.actor_id,
+                decision_id: &decision_id,
+                premise: args.premise_id.as_deref(),
+                reason,
+                relay: None,
+            },
+            Statement::Relayed(words) => ReaffirmCall {
+                actor_id: &words.person,
+                decision_id: &decision_id,
+                premise: args.premise_id.as_deref(),
+                reason: &words.quote,
+                relay: Some(Relay::new(&args.actor_id, words.said_in.as_deref())),
+            },
         },
     )
     .map_err(CoreError::from)?;

@@ -71,7 +71,7 @@ const EVENT_RELATION_KINDS: [EventRelationKind; 9] = [
     EventRelationKind::Answers,
 ];
 
-const NODE_KINDS: [NodeKind; 13] = [
+const NODE_KINDS: [NodeKind; 14] = [
     NodeKind::Decision,
     NodeKind::DecisionRequest,
     NodeKind::Actor,
@@ -85,6 +85,7 @@ const NODE_KINDS: [NodeKind; 13] = [
     NodeKind::Ask,
     NodeKind::Reaffirmation,
     NodeKind::AttributionDispute,
+    NodeKind::Rejection,
 ];
 
 const PROJECTOR_RELATION_KINDS: [ProjectorRelationKind; 31] = [
@@ -171,6 +172,7 @@ fn event_builder_derives_event_type_from_payload_variant() {
             EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id: "decision-rejected".to_owned(),
                 reason: None,
+                said_in: None,
             }),
         ),
     ];
@@ -659,6 +661,7 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id: "decision:minimal".to_owned(),
                 reason: Some("Contract tests need disagreement rationale".to_owned()),
+                said_in: Some("session-1".to_owned()),
             }),
         ),
         (
@@ -915,6 +918,7 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
                 decision_id: "decision:minimal".to_owned(),
                 premise_id: "decision:premise".to_owned(),
                 reason: "Contract tests need one valid reaffirmation payload".to_owned(),
+                said_in: Some("session-1".to_owned()),
             }),
         ),
         (
@@ -1120,6 +1124,7 @@ fn node_kind_contract(kind: NodeKind) -> &'static str {
         NodeKind::Ask => "Ask",
         NodeKind::Reaffirmation => "Reaffirmation",
         NodeKind::AttributionDispute => "AttributionDispute",
+        NodeKind::Rejection => "Rejection",
     }
 }
 

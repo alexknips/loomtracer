@@ -402,7 +402,9 @@ fn why_and_chain_show_who_said_a_decision_still_holds() -> Result<()> {
         .entries
         .iter()
         .filter_map(|entry| match &entry.fact {
-            TimelineFact::Reaffirmed { premise_id, reason } => Some((
+            TimelineFact::Reaffirmed {
+                premise_id, reason, ..
+            } => Some((
                 premise_id.as_str(),
                 reason.as_str(),
                 entry.actor_id.as_deref(),
@@ -425,6 +427,8 @@ fn why_and_chain_show_who_said_a_decision_still_holds() -> Result<()> {
     assert!(TimelineFact::Reaffirmed {
         premise_id: String::new(),
         reason: String::new(),
+        relayed_by: None,
+        said_in: None,
     }
     .is_revision());
     Ok(())

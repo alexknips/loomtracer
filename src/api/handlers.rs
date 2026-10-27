@@ -818,6 +818,7 @@ pub(super) async fn reaffirm_handler(
                 decision_id: &decision_id,
                 premise: Some(&req.premise_id),
                 reason: &req.reason,
+                relay: None,
             },
         )
         .map_err(to_api_error)?;

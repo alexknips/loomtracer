@@ -392,6 +392,8 @@ fn reaffirmation_at(offset: Option<i64>) -> ReaffirmationRecord {
         premise_id: "d:premise".to_owned(),
         reason: "Still holds".to_owned(),
         reaffirmed_by: "human:alice".to_owned(),
+        relayed_by: None,
+        said_in: None,
         reaffirmed_at: None,
         event_origin: offset,
     }

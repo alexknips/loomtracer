@@ -10,13 +10,13 @@ use crate::error::ProjectorError;
 use crate::events::{
     self, classified_batch_ids, BlockerReportedPayload, BlockerResolvedPayload, CaptureItem,
     DecisionAttributionDisputedPayload, DecisionMovedPayload, DecisionProposedPayload,
-    DecisionReaffirmedPayload, DecisionRequestedPayload, DecisionRetitledPayload,
-    DecisionScoredPayload, Event, EventId, EventPayload, EventType, EvidenceRecordedPayload,
-    HypothesisRecordedPayload, IngestBatchClassifiedPayload, NotificationAcknowledgedPayload,
-    NotificationSentPayload, ProjectAnchorKind, ProjectAnchorPayload, ProjectLinkKind,
-    ProjectRegisteredPayload, ProjectSource, QuestionAskedPayload, QuestionRecordedPayload,
-    ReadEvent, RelationKind as EventRelationKind, SuggestionSurfacedPayload, TenantId,
-    UnreadableAnnotation,
+    DecisionReaffirmedPayload, DecisionRejectedPayload, DecisionRequestedPayload,
+    DecisionRetitledPayload, DecisionScoredPayload, Event, EventId, EventPayload, EventType,
+    EvidenceRecordedPayload, HypothesisRecordedPayload, IngestBatchClassifiedPayload,
+    NotificationAcknowledgedPayload, NotificationSentPayload, ProjectAnchorKind,
+    ProjectAnchorPayload, ProjectLinkKind, ProjectRegisteredPayload, ProjectSource,
+    QuestionAskedPayload, QuestionRecordedPayload, ReadEvent, RelationKind as EventRelationKind,
+    SuggestionSurfacedPayload, TenantId, UnreadableAnnotation,
 };
 use crate::ledger::EventLedger;
 use crate::Result;
@@ -87,10 +87,18 @@ pub enum NodeKind {
     /// acceptance it disputes must stay as recorded, so the dispute sits beside it. The read
     /// layer reads these nodes in bulk and matches on `decision_id` (hivemind-purmd).
     AttributionDispute,
+    /// One `decision.rejected` event: an actor disagrees with a decision, with their words
+    /// (`reason`) and, when an agent recorded them for a person, where they said them
+    /// (`said_in`). A node with no edges, id'd by the event's own uuid, like
+    /// [`Self::Reaffirmation`]: the `REJECTED_BY` edge it sits beside is unique per (decision,
+    /// actor), carries no reason, and on Postgres no provenance, so the words and the agent that
+    /// relayed them (the node's `source_ref`) have no other place in the graph. The read layer
+    /// reads these nodes in bulk and matches on `decision_id` (hivemind-efo6x).
+    Rejection,
 }
 
 impl NodeKind {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Decision,
         Self::DecisionRequest,
         Self::Actor,
@@ -104,6 +112,7 @@ impl NodeKind {
         Self::Ask,
         Self::Reaffirmation,
         Self::AttributionDispute,
+        Self::Rejection,
     ];
 
     pub const fn table_name(self) -> &'static str {
@@ -121,6 +130,7 @@ impl NodeKind {
             Self::Ask => "Ask",
             Self::Reaffirmation => "Reaffirmation",
             Self::AttributionDispute => "AttributionDispute",
+            Self::Rejection => "Rejection",
         }
     }
 }
@@ -392,12 +402,15 @@ fn project_event_reporting(
                 )?;
             }
         }
-        EventPayload::DecisionRejected(payload) => graph.upsert_edge(
-            RelationKind::RejectedBy,
-            &payload.decision_id,
-            &event.actor_id,
-            &origin_properties,
-        )?,
+        EventPayload::DecisionRejected(payload) => {
+            graph.upsert_edge(
+                RelationKind::RejectedBy,
+                &payload.decision_id,
+                &event.actor_id,
+                &origin_properties,
+            )?;
+            project_decision_rejected(graph, event, &payload, &origin_properties)?;
+        }
         EventPayload::DecisionSuperseded(payload) => graph.upsert_edge(
             RelationKind::Supersedes,
             &payload.new_decision_id,
@@ -836,13 +849,14 @@ fn capture_node_text(kind: NodeKind, id: &str, props: &GraphProperties) -> Strin
         // Actor nodes have no text property; use the ID as a scoring proxy so
         // gold_as_captures() IDs (e.g. "mia") match the produced Actor node ID.
         NodeKind::Actor => return id.to_owned(),
-        // No capture kind ever produces a Project, Ask, Reaffirmation or AttributionDispute node
-        // (see `project_capture`'s match); this arm exists only for exhaustiveness.
+        // No capture kind ever produces a Project, Ask, Reaffirmation, AttributionDispute or
+        // Rejection node (see `project_capture`'s match); this arm exists only for exhaustiveness.
         NodeKind::Notification
         | NodeKind::Project
         | NodeKind::Ask
         | NodeKind::Reaffirmation
-        | NodeKind::AttributionDispute => return String::new(),
+        | NodeKind::AttributionDispute
+        | NodeKind::Rejection => return String::new(),
     };
     match props.get(key) {
         Some(GraphValue::String(s)) => s.clone(),
@@ -2330,6 +2344,7 @@ fn project_decision_reaffirmed(
             ("reason", GraphValue::String(payload.reason.clone())),
             ("reaffirmed_by", GraphValue::String(event.actor_id.clone())),
             ("reaffirmed_at", event_timestamp(event)),
+            ("said_in", optional_string_value(payload.said_in.as_deref())),
         ],
     );
     graph.upsert_node(
@@ -2337,6 +2352,33 @@ fn project_decision_reaffirmed(
         &event.event_uuid.to_string(),
         &props,
     )
+}
+
+/// `decision.rejected` becomes, beside the `REJECTED_BY` edge, one `Rejection` node id'd by the
+/// event's own uuid, carrying the decision, the reason (null when none was given), who rejected,
+/// when, and where they said it (`said_in`, null when not stated). The node's `source` and
+/// `source_ref` say who recorded it: the agent that relayed a person's words, or the rejecting
+/// actor's own credential. It touches no other node (hivemind-efo6x).
+fn project_decision_rejected(
+    graph: &impl GraphView,
+    event: &Event,
+    payload: &DecisionRejectedPayload,
+    origin_properties: &GraphProperties,
+) -> Result<()> {
+    let props = props_extend(
+        origin_properties,
+        [
+            (
+                "decision_id",
+                GraphValue::String(payload.decision_id.clone()),
+            ),
+            ("reason", optional_string_value(payload.reason.as_deref())),
+            ("rejected_by", GraphValue::String(event.actor_id.clone())),
+            ("rejected_at", event_timestamp(event)),
+            ("said_in", optional_string_value(payload.said_in.as_deref())),
+        ],
+    );
+    graph.upsert_node(NodeKind::Rejection, &event.event_uuid.to_string(), &props)
 }
 
 /// `decision.attribution_disputed` becomes one `AttributionDispute` node id'd by the event's own

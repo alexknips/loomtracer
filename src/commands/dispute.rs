@@ -9,19 +9,15 @@
 //! recorded by an agent for the person, with the person's verbatim words and where they said
 //! them. The invariants are listed in the `commands` module header.
 
-use chrono::Utc;
 use uuid::Uuid;
 
 use crate::error::CommandError;
-use crate::events::{
-    DecisionAttributionDisputedPayload, Event, EventBuilder, EventId, EventPayload,
-    EventProvenance, EventType,
-};
+use crate::events::{DecisionAttributionDisputedPayload, EventId, EventPayload, EventType};
 use crate::ledger::EventLedger;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
 
-use super::{classified_decision_capture, json_string_list, same_identifier, Commands};
+use super::{classified_decision_capture, json_string_list, same_identifier, Commands, Relay};
 
 impl<L: EventLedger> Commands<'_, L> {
     /// Record that `actor_id`, named as a decider of `decision_id`, did not make that call.
@@ -120,37 +116,9 @@ impl<L: EventLedger> Commands<'_, L> {
         said_in: Option<&str>,
         event_uuid: Uuid,
     ) -> Result<EventId> {
-        require_valid_actor_id(relayed_by)?;
-        require_valid_actor_id(disputed_by)?;
         require_non_empty("decision_id", decision_id)?;
-        require_non_empty("quote", quote)?;
-        if said_in.is_some_and(|said_in| said_in.trim().is_empty()) {
-            return Err(CommandError::Validation(
-                "said_in must not be blank: name the session, thread or message the words come \
-                 from, or leave it out"
-                    .to_owned(),
-            )
-            .into());
-        }
-        if !relayed_by.starts_with("agent:") {
-            return Err(CommandError::Validation(format!(
-                "{relayed_by} cannot relay a dispute: only an agent records a person's words \
-                 for them. A person disputes with their own credential (`loomtracer \
-                 dispute-attribution` or the REST endpoint), without a quote."
-            ))
-            .into());
-        }
-        if !disputed_by
-            .strip_prefix("human:")
-            .is_some_and(|name| !name.trim().is_empty())
-        {
-            return Err(CommandError::Validation(format!(
-                "{disputed_by} is not a person (human:<name>): an agent relays a person's words, \
-                 and an agent that a decision names as its decider disputes with its own \
-                 credential."
-            ))
-            .into());
-        }
+        let relay = Relay::new(relayed_by, said_in);
+        relay.require_valid(disputed_by, quote, "dispute")?;
         self.require_decision_exists(decision_id)?;
 
         if !self.is_recorded_decider(decision_id, disputed_by)? {
@@ -164,41 +132,17 @@ impl<L: EventLedger> Commands<'_, L> {
         }
 
         let event = self.relayed_event(
-            relayed_by,
+            &relay,
             disputed_by,
-            DecisionAttributionDisputedPayload {
+            EventPayload::DecisionAttributionDisputed(DecisionAttributionDisputedPayload {
                 decision_id: decision_id.to_owned(),
                 reason: quote.to_owned(),
-                said_in: said_in.map(|said_in| said_in.trim().to_owned()),
-            },
+                said_in: relay.recorded_said_in(),
+            }),
             event_uuid,
         )?;
 
         self.append_event(event)
-    }
-
-    /// The dispute event as `disputed_by` said it and `relayed_by` recorded it: the person is
-    /// the actor and the relaying agent is the provenance, not the `Commands`' own.
-    fn relayed_event(
-        &self,
-        relayed_by: &str,
-        disputed_by: &str,
-        payload: DecisionAttributionDisputedPayload,
-        event_uuid: Uuid,
-    ) -> Result<Event> {
-        let provenance = EventProvenance::agent(relayed_by);
-        EventBuilder::new(
-            event_uuid,
-            disputed_by,
-            EventPayload::DecisionAttributionDisputed(payload),
-        )
-        .tenant_id(self.context.tenant_id.clone())
-        .provenance(provenance)
-        .timestamp(Some(self.context.event_ts.unwrap_or_else(Utc::now)))
-        .build()
-        .map_err(|error| {
-            CommandError::Invariant(format!("failed to build typed event envelope: {error}")).into()
-        })
     }
 
     /// Whether the ledger names `actor_id` as a decider of `decision_id`: an acceptance it wrote

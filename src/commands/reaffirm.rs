@@ -16,7 +16,7 @@ use crate::ledger::EventLedger;
 use crate::util::{require_non_empty, require_valid_actor_id};
 use crate::Result;
 
-use super::{require_not_own_premise, Commands};
+use super::{require_not_own_premise, Commands, Relay};
 
 /// What a reaffirmation names: `decision_id` is the dependent, `premise_id` the decision or
 /// hypothesis it rests on, `reason` the one line for why it still holds.
@@ -48,6 +48,50 @@ impl<L: EventLedger> Commands<'_, L> {
         input: ReaffirmInput<'_>,
         event_uuid: Uuid,
     ) -> Result<EventId> {
+        self.reaffirm_recording(input, None, event_uuid)
+    }
+
+    /// Record that `input.actor_id` (a person) says `input.decision_id` still holds after
+    /// `input.premise_id` changed, as their agent `relayed_by` heard it (hivemind-efo6x): the same
+    /// `decision.reaffirmed` a person writes with their own credential, in the shape a person's
+    /// dispute of an attribution has. `input.reason` is the person's verbatim words; `said_in` is
+    /// the session, thread or message they said them in, when the agent knows.
+    pub fn relay_reaffirmation(
+        &self,
+        relayed_by: &str,
+        said_in: Option<&str>,
+        input: ReaffirmInput<'_>,
+    ) -> Result<EventId> {
+        self.relay_reaffirmation_with_uuid(relayed_by, said_in, input, Uuid::new_v4())
+    }
+
+    /// `relay_reaffirmation` with the event's uuid chosen by the caller, so a transport that
+    /// retries gets the existing event id back from the ledger instead of a second event.
+    ///
+    /// The event's actor is `input.actor_id` and its provenance is `agent` with `relayed_by` as
+    /// the source reference, whatever provenance this `Commands` was built with. Only a person
+    /// may be relayed (a `human:` actor) and only by an agent (an `agent:` actor), and their words
+    /// are required.
+    pub fn relay_reaffirmation_with_uuid(
+        &self,
+        relayed_by: &str,
+        said_in: Option<&str>,
+        input: ReaffirmInput<'_>,
+        event_uuid: Uuid,
+    ) -> Result<EventId> {
+        let relay = Relay::new(relayed_by, said_in);
+        relay.require_valid(input.actor_id, input.reason, "reaffirmation")?;
+        self.reaffirm_recording(input, Some(&relay), event_uuid)
+    }
+
+    /// The one reaffirmation: `input.actor_id` says the decision still holds, directly or (with
+    /// `relay`) as the agent that heard them say it.
+    fn reaffirm_recording(
+        &self,
+        input: ReaffirmInput<'_>,
+        relay: Option<&Relay<'_>>,
+        event_uuid: Uuid,
+    ) -> Result<EventId> {
         let ReaffirmInput {
             actor_id,
             decision_id,
@@ -68,16 +112,16 @@ impl<L: EventLedger> Commands<'_, L> {
             .into());
         }
 
-        let event = self.event_with_uuid(
-            actor_id,
-            EventPayload::DecisionReaffirmed(DecisionReaffirmedPayload {
-                decision_id: decision_id.to_owned(),
-                premise_id: premise_id.to_owned(),
-                reason: reason.to_owned(),
-            }),
-            None,
-            event_uuid,
-        )?;
+        let payload = EventPayload::DecisionReaffirmed(DecisionReaffirmedPayload {
+            decision_id: decision_id.to_owned(),
+            premise_id: premise_id.to_owned(),
+            reason: reason.to_owned(),
+            said_in: relay.and_then(Relay::recorded_said_in),
+        });
+        let event = match relay {
+            Some(relay) => self.relayed_event(relay, actor_id, payload, event_uuid)?,
+            None => self.event_with_uuid(actor_id, payload, None, event_uuid)?,
+        };
 
         self.append_event(event)
     }

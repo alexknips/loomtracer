@@ -1285,11 +1285,34 @@ fn write_quality_lines(output: &mut String, quality: &QualityProfile) {
 /// agent:claude:mayor, said in session-1)` when their agent recorded their words for them
 /// (hivemind-f9xgu). Nothing is added for a person who disputed with their own credential.
 fn disputing_actor(dispute: &AttributionDispute) -> String {
-    let notes = relay_notes(dispute.relayed_by.as_deref(), dispute.said_in.as_deref());
+    relayed_person(
+        &dispute.disputed_by,
+        dispute.relayed_by.as_deref(),
+        dispute.said_in.as_deref(),
+    )
+}
+
+/// A person, and through whom their words reached the record: the person alone, or `human:alex
+/// (relayed by agent:claude:mayor, said in session-1)` when their agent recorded them for them
+/// (hivemind-f9xgu, hivemind-efo6x).
+fn relayed_person(person: &str, relayed_by: Option<&str>, said_in: Option<&str>) -> String {
+    let notes = relay_notes(relayed_by, said_in);
     if notes.is_empty() {
-        dispute.disputed_by.clone()
+        person.to_owned()
     } else {
-        format!("{} ({notes})", dispute.disputed_by)
+        format!("{person} ({notes})")
+    }
+}
+
+/// ` (relayed by agent:claude:mayor, said in session-1)`, or nothing for a statement made with
+/// the actor's own credential: the clause a timeline entry puts before its colon
+/// (hivemind-f9xgu, hivemind-efo6x).
+fn relay_clause(relayed_by: Option<&str>, said_in: Option<&str>) -> String {
+    let notes = relay_notes(relayed_by, said_in);
+    if notes.is_empty() {
+        String::new()
+    } else {
+        format!(" ({notes})")
     }
 }
 
@@ -1375,6 +1398,20 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
                 disputed
             );
         }
+    }
+    // A disagreement an agent recorded for a person (hivemind-efo6x) says whose words these are
+    // and who relayed them; the person is among the rejecters either way.
+    for rejection in &decided_by.relayed_rejections {
+        let _ = writeln!(
+            output,
+            "  disagreed by: {}: {}",
+            relayed_person(
+                &rejection.rejected_by,
+                Some(&rejection.relayed_by),
+                rejection.said_in.as_deref()
+            ),
+            summary_cell(&rejection.reason)
+        );
     }
     // A dispute on a decision that lists no decider (a raw `emit` can write one) has no decided-by
     // line to sit in, so it gets its own.
@@ -2068,13 +2105,20 @@ fn timeline_fact_summary(fact: &TimelineFact) -> (&'static str, String) {
         TimelineFact::Asked { request_id, .. } => ("asked", format!("request {request_id}")),
         TimelineFact::Recorded => ("recorded", String::new()),
         TimelineFact::Accepted => ("accepted", String::new()),
-        TimelineFact::Rejected { reason } => (
-            "rejected",
-            reason
-                .as_deref()
-                .map(|reason| format!("reason: {}", summary_cell(reason)))
-                .unwrap_or_default(),
-        ),
+        TimelineFact::Rejected {
+            reason,
+            relayed_by,
+            said_in,
+        } => {
+            let relay = relay_clause(relayed_by.as_deref(), said_in.as_deref());
+            (
+                "rejected",
+                reason
+                    .as_deref()
+                    .map(|reason| format!("reason{relay}: {}", summary_cell(reason)))
+                    .unwrap_or_default(),
+            )
+        }
         TimelineFact::Superseded { by_id } => ("superseded", format!("by {by_id}")),
         TimelineFact::Supersedes { replaces_id } => ("supersedes", replaces_id.clone()),
         TimelineFact::Retitled { from, to, reason } => (
@@ -2114,13 +2158,21 @@ fn timeline_fact_summary(fact: &TimelineFact) -> (&'static str, String) {
             "premise rejected",
             format!("decision {decision_id} rejected"),
         ),
-        TimelineFact::Reaffirmed { premise_id, reason } => (
-            "reaffirmed",
-            format!(
-                "still holds after {premise_id} changed: {}",
-                summary_cell(reason)
-            ),
-        ),
+        TimelineFact::Reaffirmed {
+            premise_id,
+            reason,
+            relayed_by,
+            said_in,
+        } => {
+            let relay = relay_clause(relayed_by.as_deref(), said_in.as_deref());
+            (
+                "reaffirmed",
+                format!(
+                    "still holds after {premise_id} changed{relay}: {}",
+                    summary_cell(reason)
+                ),
+            )
+        }
         TimelineFact::AttributionDisputed {
             reason,
             relayed_by,
@@ -2397,6 +2449,12 @@ pub(crate) fn format_disagree_output(
         output.decision_id,
         decision_status_label(output.decision_status)
     );
+    if let Some(disagreed_by) = &output.disagreed_by {
+        let _ = write!(rendered, " disagreed_by={disagreed_by}");
+    }
+    if let Some(relayed_by) = &output.relayed_by {
+        let _ = write!(rendered, " relayed_by={relayed_by}");
+    }
     write_raise_upstream(&mut rendered, &output.raise_upstream);
     Ok(rendered)
 }
@@ -2788,6 +2846,9 @@ pub(crate) fn render_dot(graph: &impl GraphView) -> Result<String> {
             NodeKind::AttributionDispute => graph_property_string(properties, "reason")
                 .map(|reason| prefixed_dot_lines("Disputed attribution", reason))
                 .unwrap_or_else(|| vec![id.clone()]),
+            NodeKind::Rejection => graph_property_string(properties, "reason")
+                .map(|reason| prefixed_dot_lines("Disagrees", reason))
+                .unwrap_or_else(|| vec![id.clone()]),
             NodeKind::Notification => graph_property_string(properties, "channel")
                 .map(|channel| prefixed_dot_lines("Notification", channel))
                 .unwrap_or_else(|| vec![id.clone()]),
@@ -2892,8 +2953,9 @@ fn node_dump_query(kind: NodeKind) -> String {
             "node.id AS id, node.handle AS handle, node.display_name AS display_name, node.purpose AS purpose, node.anchors AS anchors"
         }
         NodeKind::Ask => "node.id AS id, node.question_id AS question_id, node.text AS text, node.asked_at AS asked_at",
-        NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
+        NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at, node.said_in AS said_in",
         NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at, node.said_in AS said_in",
+        NodeKind::Rejection => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.rejected_by AS rejected_by, node.rejected_at AS rejected_at, node.said_in AS said_in",
     };
     format!(
         "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",
@@ -2966,6 +3028,14 @@ fn node_properties_from_row(kind: NodeKind, row: &GraphRow) -> GraphProperties {
             insert_if_present(&mut properties, row, "reason");
             insert_if_present(&mut properties, row, "reaffirmed_by");
             insert_if_present(&mut properties, row, "reaffirmed_at");
+            insert_if_present(&mut properties, row, "said_in");
+        }
+        NodeKind::Rejection => {
+            insert_if_present(&mut properties, row, "decision_id");
+            insert_if_present(&mut properties, row, "reason");
+            insert_if_present(&mut properties, row, "rejected_by");
+            insert_if_present(&mut properties, row, "rejected_at");
+            insert_if_present(&mut properties, row, "said_in");
         }
         NodeKind::AttributionDispute => {
             insert_if_present(&mut properties, row, "decision_id");
@@ -3010,6 +3080,7 @@ fn node_color(kind: NodeKind) -> &'static str {
         NodeKind::Ask => "#a9dfbf",
         NodeKind::Reaffirmation => "#abebc6",
         NodeKind::AttributionDispute => "#e6b0aa",
+        NodeKind::Rejection => "#d98880",
     }
 }
 
@@ -3133,6 +3204,13 @@ pub(crate) struct DisagreeCommandOutput {
     pub(crate) decision_id: String,
     pub(crate) event_id: EventId,
     pub(crate) decision_status: DecisionStatus,
+    /// The person whose disagreement an agent recorded for them, when it was relayed
+    /// (hivemind-efo6x). Absent when the actor disagreed for themselves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) disagreed_by: Option<String>,
+    /// The agent that recorded it for them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) relayed_by: Option<String>,
     /// Everything the decision disagreed with rests on, each with its standing.
     pub(crate) rests_on: Vec<UpstreamPremise>,
     /// Prior decisions it rests on that still stand: the disagreement may be with one of them.

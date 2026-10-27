@@ -5,10 +5,12 @@
   "causation_event_id": 1,
   "type": "decision.rejected",
   "actor_id": "human-b",
-  "source": "cli",
-  "source_ref": null,
+  "source": "agent",
+  "source_ref": "agent:claude:scribe",
   "payload": {
-    "decision_id": "dec-1"
+    "decision_id": "dec-1",
+    "reason": "I would not have chosen it either",
+    "said_in": "session-1"
   },
   "ts": "2026-05-17T20:42:43Z"
 }

@@ -63,11 +63,15 @@ const NODE_DDL: &[(NodeKind, &str)] = &[
     ),
     (
         NodeKind::Reaffirmation,
-        "CREATE NODE TABLE IF NOT EXISTS `Reaffirmation` (id STRING, decision_id STRING, premise_id STRING, reason STRING, reaffirmed_by STRING, reaffirmed_at STRING, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, PRIMARY KEY(id));",
+        "CREATE NODE TABLE IF NOT EXISTS `Reaffirmation` (id STRING, decision_id STRING, premise_id STRING, reason STRING, reaffirmed_by STRING, reaffirmed_at STRING, said_in STRING, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, PRIMARY KEY(id));",
     ),
     (
         NodeKind::AttributionDispute,
         "CREATE NODE TABLE IF NOT EXISTS `AttributionDispute` (id STRING, decision_id STRING, reason STRING, disputed_by STRING, disputed_at STRING, said_in STRING, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, PRIMARY KEY(id));",
+    ),
+    (
+        NodeKind::Rejection,
+        "CREATE NODE TABLE IF NOT EXISTS `Rejection` (id STRING, decision_id STRING, reason STRING, rejected_by STRING, rejected_at STRING, said_in STRING, tenant_id STRING, event_origin INT64, source STRING, source_ref STRING, PRIMARY KEY(id));",
     ),
 ];
 

@@ -1084,6 +1084,18 @@ items. The MCP tools `reaffirm_decision` and `get_reexamine_items` are registere
 transports and take the `decision_id`/`description`/`topic` selectors; REST has the
 `POST /v1/decisions/{id}/reaffirmations` mirror, which takes the premise by id.
 
+A person's "that still holds" goes through their agent too (hivemind-efo6x): `reaffirm_decision`
+with `reaffirmed_by` (the person, `human:<name>`), `quote` (their verbatim words) and `said_in`, or
+`loomtracer --actor agent:<tool>:<name> reaffirm --reaffirmed-by human:<name> --quote "<words>"`,
+in place of `reason` / `--because`. The reaffirmation is the person's (`actor_id`), with the agent
+recorded as relaying it (`relayed_by`, `said_in` in the reply and on `reaffirmations[]`), and the
+re-examine line reads `reaffirmed by human:pat (relayed by agent:claude:mayor, said in <where>)`.
+The same check applies (only an open item is closed), and a name without words is refused. A
+person's disagreement is the same on `disagree_decision` with `disagreed_by`, `quote` and
+`said_in`: `why` and `verify` print `disagreed by human:bob (relayed by agent:claude:mayor, said in
+<where>): <words>` and `decided_by.relayed_rejections` lists it, and the dated story's `rejected`
+and `reaffirmed` entries carry `relayed_by` and `said_in`.
+
 **`disagree` and `supersede` say what the target rests on, so a disagreement can be taken
 upstream** (hivemind-ottw.5). Both verbs act on one decision, the leaf, which often rests on a
 prior decision that other decisions rest on too; the disagreement may really be with that

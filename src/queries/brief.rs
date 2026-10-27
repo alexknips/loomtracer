@@ -99,6 +99,72 @@ pub struct DecidedBy {
     /// (hivemind-purmd).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attribution_disputes: Vec<AttributionDispute>,
+    /// The disagreements an agent recorded for a person, one per person with their latest words
+    /// (hivemind-efo6x). The person is also in `rejecter_ids`; a disagreement they made with their
+    /// own credential has no entry here, because there is nothing more to say about it than that.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub relayed_rejections: Vec<RelayedRejection>,
+}
+
+/// One person's disagreement with a decision, as their agent recorded it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RelayedRejection {
+    pub rejected_by: String,
+    /// The agent that recorded it for them.
+    pub relayed_by: String,
+    /// What they said: the verbatim quote their agent recorded.
+    pub reason: String,
+    /// Where they said it (a session, thread or message), as the relaying agent stated it.
+    /// Absent when nobody did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejected_at: Option<DateTime<Utc>>,
+}
+
+/// The disagreements an agent recorded for a person against `decision_id`: each person's latest
+/// statement, in the order those statements were recorded. One bulk read of the (few) rejection
+/// nodes, like [`attribution_disputes`]: they have no edges, so the decision is matched on the
+/// node's `decision_id` property.
+fn relayed_rejections(graph: &impl GraphView, decision_id: &str) -> Result<Vec<RelayedRejection>> {
+    let mut rejections: Vec<(i64, RelayedRejection)> = Vec::new();
+    for (_, row) in node_rows(graph, NodeKind::Rejection)? {
+        if required_string(&row, "decision_id")? != decision_id {
+            continue;
+        }
+        let rejected_by = optional_string(&row, "rejected_by").unwrap_or_default();
+        let Some(relayed_by) = relayer_of(
+            optional_string(&row, "source").as_deref(),
+            optional_string(&row, "source_ref"),
+            &rejected_by,
+        ) else {
+            continue;
+        };
+        let origin = optional_int(&row, "event_origin").unwrap_or(i64::MAX);
+        let rejection = RelayedRejection {
+            rejected_by,
+            relayed_by,
+            reason: optional_string(&row, "reason").unwrap_or_default(),
+            said_in: optional_string(&row, "said_in"),
+            rejected_at: optional_datetime(&row, "rejected_at")?,
+        };
+        match rejections
+            .iter_mut()
+            .find(|(_, seen)| seen.rejected_by == rejection.rejected_by)
+        {
+            Some((seen_origin, _)) if *seen_origin > origin => {}
+            Some(slot) => *slot = (origin, rejection),
+            None => rejections.push((origin, rejection)),
+        }
+    }
+    rejections.sort_by(|(a, left), (b, right)| {
+        a.cmp(b)
+            .then_with(|| left.rejected_by.cmp(&right.rejected_by))
+    });
+    Ok(rejections
+        .into_iter()
+        .map(|(_, rejection)| rejection)
+        .collect())
 }
 
 /// One actor's statement that a decision names them as its decider and the call was not theirs.
@@ -330,6 +396,11 @@ pub(crate) fn get_decision_brief_with_labels(
     } else {
         Vec::new()
     };
+    let relayed_rejections = if context.rejected_count > 0 {
+        relayed_rejections(graph, decision_id)?
+    } else {
+        Vec::new()
+    };
     let drafted_from = if is_classified_capture(decision_id) {
         Some(drafted_from(graph, decision_id, session_ids)?)
     } else {
@@ -399,6 +470,7 @@ pub(crate) fn get_decision_brief_with_labels(
             rejecter_ids,
             drafted_from,
             attribution_disputes,
+            relayed_rejections,
         },
         rests_on: grounding.items,
         grounding_state: grounding.state,

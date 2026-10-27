@@ -346,6 +346,31 @@ not said it in this conversation there is nothing to record. Only an actor the d
 its decider can be disputed for, and a dispute is not a rejection: the acceptance and the
 decision's status stay as recorded (use `disagree_decision` to say the decision itself is wrong).
 
+A person's disagreement with a decision, and their "that still holds" after something it rests on
+changed, go the same way (hivemind-efo6x):
+
+```text
+loomtracer --actor agent:claude:mayor disagree --decision <id> \
+  --disagreed-by human:bob --quote "I would not have named it that either" \
+  --said-in "<session or thread>"
+
+loomtracer --actor agent:claude:mayor reaffirm --id <id> \
+  --reaffirmed-by human:pat --quote "sharding never depended on the per-tenant cap" \
+  --said-in "<session or thread>"
+```
+
+Over MCP they are `disagree_decision` with `disagreed_by`, `quote` and `said_in`, and
+`reaffirm_decision` with `reaffirmed_by`, `quote` and `said_in`, in place of the agent's own
+`reason`. The event is the person's, with the agent as its relay, exactly as for a dispute: `why`
+and `verify` read `disagreed by human:bob (relayed by agent:claude:mayor, said in ...): <quote>`
+(`decided_by.relayed_rejections` in JSON), and the re-examine entry of a reaffirmation reads
+`reaffirmed by human:pat (relayed by agent:claude:mayor, said in ...): "<quote>"`
+(`reaffirmations[].relayed_by` and `said_in`); the dated story says it too. A person's name
+without their words is refused with nothing written, and so are `quote` and `said_in` without the
+person's name and a `reason` beside them. Without the person's name the call is the agent's own,
+as before. A person who accepted a decision cannot also disagree with it; the refusal points at
+`dispute_attribution`.
+
 Which agent path each person-facing write has:
 
 | What the person says | Agent path | Their words and the relay on the record |
@@ -353,8 +378,9 @@ Which agent path each person-facing write has:
 | "I decided X" | `capture_decision` / `emit decision.capture` with `decided_by` | `quote` + `question`; the relay is the capture's `source_ref` |
 | "X replaces Y", from their own answer | capture their answer with `decided_by`, then `link_supersession` | the replacement keeps its decider and quote |
 | "I never decided this" | `dispute_attribution` / `dispute-attribution --disputed-by` | `quote`, `said_in`; the relay is the event's `source_ref` |
-| "I disagree with X" | `disagree_decision` (`reason`) | recorded as the calling agent's disagreement; an `actor_id` naming the person records it as theirs, with the relay not recorded |
-| "X still holds" | `reaffirm_decision` (`reason`) | the same as `disagree_decision` |
+| "I disagree with X" | `disagree_decision` / `disagree --disagreed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `disagreed_by` it is the calling agent's own disagreement (`reason`) |
+| "X still holds" | `reaffirm_decision` / `reaffirm --reaffirmed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `reaffirmed_by` it is the calling agent's own (`reason`) |
+| "X replaces Y", as the agent's own call | `supersede_decision` | the replacement is decided by the calling actor, so it is not a person's act; a person's own answer is captured with `decided_by` and linked |
 | A direct call with the person's own credential | `POST /v1/decisions/{id}/attribution-disputes`, `.../disagreements`, `.../reaffirmations` | the credential's actor, `source` `api` |
 
 ## What the decision binds and what undoing it costs

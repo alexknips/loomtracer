@@ -28,9 +28,17 @@ pub(crate) fn format_reaffirm_output(as_json: bool, reply: &ReaffirmReply) -> Re
     }
     let _ = write!(
         rendered,
-        "\n  recorded as event {} by {}: \"{}\"",
-        reply.event_id, reply.actor_id, reply.reason
+        "\n  recorded as event {} by {}",
+        reply.event_id, reply.actor_id
     );
+    if let Some(relayed_by) = &reply.relayed_by {
+        let _ = write!(rendered, " (relayed by {relayed_by}");
+        if let Some(said_in) = &reply.said_in {
+            let _ = write!(rendered, ", said in {said_in}");
+        }
+        rendered.push(')');
+    }
+    let _ = write!(rendered, ": \"{}\"", reply.reason);
     Ok(rendered)
 }
 
@@ -168,6 +176,7 @@ fn reaffirmation_phrase(reaffirmation: &ReaffirmationSummary) -> String {
         .unwrap_or_default();
     format!(
         "reaffirmed by {}{when}: \"{}\"",
-        reaffirmation.actor_id, reaffirmation.reason
+        reaffirmation.said_by(),
+        reaffirmation.reason
     )
 }

@@ -89,6 +89,46 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   `Commands::relay_attribution_dispute` and `relay_attribution_dispute_with_uuid` (library
   callers) append exactly one event. (hivemind-f9xgu)
 
+- **A person's disagreement and their "that still holds" go through their agent, in their own
+  words: `disagreed_by` / `reaffirmed_by` with `quote` and `said_in` on the `disagree_decision` and
+  `reaffirm_decision` MCP tools, and `--disagreed-by` / `--reaffirmed-by` with `--quote` and
+  `--said-in` on `loomtracer disagree` and `reaffirm`. `decision.rejected` and
+  `decision.reaffirmed` gain an optional `said_in`: upgrade the server (the cell image) before any
+  client records one.** Both tools recorded the calling agent's own act; the only way for an agent
+  to record one as a person's was an `actor_id` naming the person, which left the relaying agent off
+  the record (the event's `source_ref` became the person) and had no field for the person's words
+  beyond the agent's own `reason`. A person who said "I disagree with that" or "that still holds"
+  to their agent therefore got an agent's disagreement or an untraceable one in their name
+  (Alex, 2026-10-27, decision-6df7d5d8: a person's actions go through their agent, recorded as the
+  person's with their own words and the relaying agent named). The agent now passes the person
+  (`human:<name>`) and their verbatim `quote`, and `reason` stays out. The event is the person's
+  (`actor_id` is the person), its `source` is `agent` and its `source_ref` is the relaying agent
+  (`actor_id` of the call, an `agent:` actor), and `reason` is the quote, the same shape as a
+  person's dispute of an attribution. A person's name without their words is refused with
+  nothing written, and so are `quote` or `said_in` without the person, a `reason` beside the
+  person's words, a `human:` caller and an agent as the person; a person who already accepted the
+  decision still cannot disagree with it (the refusal points at `dispute_attribution`). `why` and
+  `verify` read `disagreed by human:bob (relayed by agent:claude:mayor, said in <where>): <quote>`
+  and `decided_by.relayed_rejections[]` in JSON lists `{rejected_by, relayed_by, reason, said_in,
+  rejected_at}` (absent when nothing was relayed; `rejecter_ids` is unchanged). The re-examine
+  entry of a reaffirmation reads `reaffirmed by human:pat (relayed by agent:claude:mayor, said in
+  <where>)` and `reaffirmations[]` (and the `reaffirm_decision` reply) carry `relayed_by` and
+  `said_in`, each absent when not recorded. The dated story says both: its `rejected` and
+  `reaffirmed` entries carry `relayed_by` and `said_in`. `supersede_decision` is unchanged: it records
+  a new decision decided by the calling actor, and a person's own answer is captured with
+  `decided_by` and linked with `link_supersession`. The direct paths (the person's own credential,
+  `POST /v1/decisions/{id}/disagreements` and `.../reaffirmations`, and `--reason` / `--because`
+  with the person's own `--actor`) are unchanged. `said_in` is an optional payload field, so every
+  event already in a ledger replays as before, and a server or CLI older than this release stops
+  replaying a ledger that holds one (`deny_unknown_fields`): run this release on the cell first,
+  then on every client. The graph gains one node kind, `Rejection` (one per `decision.rejected`
+  event: `decision_id`, `reason`, `rejected_by`, `rejected_at`, `said_in`, `source`, `source_ref`),
+  beside the `REJECTED_BY` edge, which is unchanged; the `Reaffirmation` node gains `said_in`.
+  Both are projected from the ledger, so a replay of the graph fills them for events already
+  recorded (none of those carries a relay). `Commands::relay_disagreement`,
+  `relay_reaffirmation` and their `_with_uuid` variants (library callers) append exactly one event.
+  (hivemind-efo6x)
+
 - **CI builds the CLI and the cell image for every `master` commit that passes it, and
   `--from-ci` deploys them without compiling on the host.** Deploying meant `cargo build
   --release` for the CLI (`scripts/install-local.sh`) and another release build inside

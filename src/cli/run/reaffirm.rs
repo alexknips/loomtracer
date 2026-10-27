@@ -11,6 +11,7 @@ use crate::cli::render::{
     format_query_response, format_reaffirm_ambiguous_output, format_reaffirm_output,
     render_reexamine_summary,
 };
+use crate::commands::Relay;
 use crate::error::CliError;
 use crate::projector::{memory::MemoryGraph, rebuild_graph_for_tenant};
 use crate::queries::{get_reexamine_items, QueryContext, ReexamineRequest};
@@ -41,17 +42,30 @@ pub(super) fn run_reaffirm(cli: &Cli, args: &ReaffirmArgs) -> Result<String> {
         FluentResolution::Output(output) => return Ok(output),
     };
 
+    // `--quote` (clap requires `--reaffirmed-by` with it) is an agent recording a person's words;
+    // otherwise `--because` (clap requires one of the two) is the actor's own.
+    let call = match (&args.quote, &args.reaffirmed_by) {
+        (Some(quote), Some(person)) => ReaffirmCall {
+            actor_id: person.trim(),
+            decision_id: &decision_id,
+            premise: args.premise.as_deref(),
+            reason: quote,
+            relay: Some(Relay::new(&cli.actor, args.said_in.as_deref())),
+        },
+        _ => ReaffirmCall {
+            actor_id: &cli.actor,
+            decision_id: &decision_id,
+            premise: args.premise.as_deref(),
+            reason: args.because.as_deref().unwrap_or_default(),
+            relay: None,
+        },
+    };
     let outcome = reaffirm(
         &ledger,
         &tenant_id,
         fluent_write_provenance(&cli.actor),
         &graph,
-        ReaffirmCall {
-            actor_id: &cli.actor,
-            decision_id: &decision_id,
-            premise: args.premise.as_deref(),
-            reason: &args.because,
-        },
+        call,
     )?;
     match outcome {
         ReaffirmOutcome::Recorded(reply) => format_reaffirm_output(cli.json, &reply),

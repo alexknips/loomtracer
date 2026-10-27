@@ -2402,6 +2402,10 @@ fn affected_nodes_for_event(event: &Event, payload: &EventPayload) -> Vec<Affect
             nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
         }
         EventPayload::DecisionRejected(payload) => {
+            nodes.insert(affected_node(
+                &event.event_uuid.to_string(),
+                NodeKind::Rejection,
+            ));
             nodes.insert(affected_node(&payload.decision_id, NodeKind::Decision));
         }
         EventPayload::DecisionRequested(payload) => {

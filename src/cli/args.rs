@@ -178,6 +178,12 @@ pub enum Command {
     /// description that matches more than one decision lists the candidates and writes nothing;
     /// pick one with --pick N, or name the decision with --decision.
     ///
+    /// An agent records a person's disagreement for them with `--actor agent:<tool>:<name>
+    /// --disagreed-by human:<name> --quote "<their verbatim words>"`, and `--said-in` for the
+    /// session or thread. The event is the person's, with the agent recorded as relaying it
+    /// (`rejected by <person> (relayed by <agent>): <quote>`), the way `capture --decided-by`
+    /// records a call they made. A person's name without their words is refused.
+    ///
     /// A decision often rests on a prior decision, and the disagreement may be with that premise.
     /// The reply adds a `raise_upstream:` line for each premise the decision rests on that still
     /// holds, with how many other decisions rest on it (`--json`: `rests_on` and
@@ -283,6 +289,11 @@ pub enum Command {
     /// re-examine item with a one-line reason (`--because`), attributed to whoever runs it
     /// (--actor; untyped, the agent in an agent session and the git user at a plain terminal).
     /// Resolves the decision by description with the same ambiguity gate as `supersede`.
+    ///
+    /// An agent records a person's reaffirmation for them with `--actor agent:<tool>:<name>
+    /// --reaffirmed-by human:<name> --quote "<their verbatim words>"` (and `--said-in` for the
+    /// session or thread) in place of `--because`: the reaffirmation is the person's, with the
+    /// agent recorded as relaying it. A person's name without their words is refused.
     ///
     /// Only an open item can be closed: the decision must rest on a premise (a decision it
     /// follows from, or an assumption or bet) that was superseded, rejected, contested or
@@ -1117,8 +1128,22 @@ pub struct DisagreeArgs {
     #[arg(long = "topic")]
     pub topic: Option<String>,
 
-    #[arg(long)]
-    pub reason: String,
+    /// Why you disagree, in your own words. Not with --quote.
+    #[arg(long, conflicts_with = "quote", required_unless_present = "quote")]
+    pub reason: Option<String>,
+
+    /// As an agent, record a person's disagreement for them: the person (`human:<name>`) whose
+    /// words --quote holds. --actor is the agent relaying them.
+    #[arg(long = "disagreed-by", requires = "quote")]
+    pub disagreed_by: Option<String>,
+
+    /// With --disagreed-by: the person's verbatim words, as they said them.
+    #[arg(long, requires = "disagreed_by")]
+    pub quote: Option<String>,
+
+    /// With --quote: the session, thread or message they said it in.
+    #[arg(long = "said-in", requires = "quote")]
+    pub said_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1362,9 +1387,27 @@ pub struct ReaffirmArgs {
     #[arg(long = "premise")]
     pub premise: Option<String>,
 
-    /// Why it still holds: one line, in your own words. Recorded with who you are and when.
-    #[arg(long = "because")]
-    pub because: String,
+    /// Why it still holds: one line, in your own words. Recorded with who you are and when. Not
+    /// with --quote.
+    #[arg(
+        long = "because",
+        conflicts_with = "quote",
+        required_unless_present = "quote"
+    )]
+    pub because: Option<String>,
+
+    /// As an agent, record a person's reaffirmation for them: the person (`human:<name>`) whose
+    /// words --quote holds. --actor is the agent relaying them.
+    #[arg(long = "reaffirmed-by", requires = "quote")]
+    pub reaffirmed_by: Option<String>,
+
+    /// With --reaffirmed-by: the person's verbatim words, as they said them.
+    #[arg(long, requires = "reaffirmed_by")]
+    pub quote: Option<String>,
+
+    /// With --quote: the session, thread or message they said it in.
+    #[arg(long = "said-in", requires = "quote")]
+    pub said_in: Option<String>,
 }
 
 /// `loomtracer reexamine` (hivemind-ottw.4).

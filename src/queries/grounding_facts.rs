@@ -23,7 +23,7 @@ use crate::Result;
 use super::grounding::hypothesis_facts_from_row;
 use super::shared::{
     node_row, node_rows, optional_datetime, optional_int, optional_string, relation_edges,
-    relation_edges_with_time, required_string,
+    relation_edges_with_time, relayer_of, required_string,
 };
 use super::status::{hypothesis_status_from_evidence, DecisionStandings, HypothesisStatus};
 
@@ -67,6 +67,11 @@ pub struct ReaffirmationRecord {
     pub premise_id: String,
     pub reason: String,
     pub reaffirmed_by: String,
+    /// The agent that recorded the reaffirmation for the person it is attributed to
+    /// (hivemind-efo6x); `None` when the actor reaffirmed with their own credential.
+    pub relayed_by: Option<String>,
+    /// Where the person said it, as the relaying agent stated it.
+    pub said_in: Option<String>,
     pub reaffirmed_at: Option<DateTime<Utc>>,
     /// The ledger offset of the event; what orders it against a change to the premise.
     pub event_origin: Option<i64>,
@@ -211,11 +216,18 @@ struct Refutations {
 pub(super) fn reaffirmation_records(graph: &impl GraphView) -> Result<Vec<ReaffirmationRecord>> {
     let mut records = Vec::new();
     for (id, row) in node_rows(graph, NodeKind::Reaffirmation)? {
+        let reaffirmed_by = optional_string(&row, "reaffirmed_by").unwrap_or_default();
         records.push(ReaffirmationRecord {
             decision_id: required_string(&row, "decision_id")?,
             premise_id: required_string(&row, "premise_id")?,
             reason: optional_string(&row, "reason").unwrap_or_default(),
-            reaffirmed_by: optional_string(&row, "reaffirmed_by").unwrap_or_default(),
+            relayed_by: relayer_of(
+                optional_string(&row, "source").as_deref(),
+                optional_string(&row, "source_ref"),
+                &reaffirmed_by,
+            ),
+            said_in: optional_string(&row, "said_in"),
+            reaffirmed_by,
             reaffirmed_at: optional_datetime(&row, "reaffirmed_at")?,
             event_origin: optional_int(&row, "event_origin"),
             id,

@@ -46,6 +46,7 @@ src/commands/ground_later/tests.rs
 src/commands/question/tests.rs
 src/commands/dispute/tests.rs
 src/commands/reaffirm/tests.rs
+src/commands/relay/tests.rs
 src/ledger/legacy_storage/tests.rs
 src/ledger/postgres/legacy_storage/tests.rs
 src/ledger/postgres/manager/tests.rs

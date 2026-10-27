@@ -4,13 +4,14 @@
   "correlation_id": "session-1",
   "causation_event_id": null,
   "type": "decision.reaffirmed",
-  "actor_id": "agent:codex:reviewer",
+  "actor_id": "human:alice",
   "source": "agent",
   "source_ref": "agent:codex:reviewer",
   "payload": {
     "decision_id": "decision-2",
     "premise_id": "decision-1",
-    "reason": "Sharding never depended on the per-tenant cap, only on the tenant id"
+    "reason": "Sharding never depended on the per-tenant cap, only on the tenant id",
+    "said_in": "session-1"
   },
   "ts": "2026-10-12T20:46:45Z"
 }

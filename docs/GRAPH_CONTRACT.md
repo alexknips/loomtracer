@@ -112,8 +112,8 @@ a reader needs without reconstructing them from edges:
   option is a node labelled with the recorded words, with a `CHOSE` edge and no `HAS_OPTION`.
 - **`nodes[]` with `kind: "Question"`, `"Ask"`, `"Blocker"` or `"DecisionRequest"`** carry a
   `label`: the words that were asked for a question and an ask (`text`), the one-line `reason`
-  for a blocker and a decision request. A `Reaffirmation` and an `AttributionDispute` read as their
-  `reason` the same way.
+  for a blocker and a decision request. A `Reaffirmation`, an `AttributionDispute` and a `Rejection`
+  read as their `reason` the same way.
   None of these has a title, so without the label a page can only call the node untitled.
 
 Both are pure reads: three bulk edge scans (`SUPERSEDES`, `ACCEPTED_BY`, `REJECTED_BY`), no
@@ -263,7 +263,10 @@ name a placeholder that a later event fills in:
 
 A `Reaffirmation` node is created by `decision.reaffirmed` ("still holds"): its id is the event's
 uuid, and it carries `decision_id` (the dependent), `premise_id` (a decision or a hypothesis),
-`reason`, `reaffirmed_by` and `reaffirmed_at`, plus the usual `event_origin`. It has no edges, and
+`reason`, `reaffirmed_by`, `reaffirmed_at` and `said_in` (where the person said it, null when not
+stated), plus the usual `event_origin`, `source` and `source_ref`. When an agent recorded the
+reaffirmation for a person (hivemind-efo6x) the node's `source` is `agent`, its `source_ref` is the
+relaying agent and `reason` is the person's verbatim quote. It has no edges, and
 that is the rule, not an omission. An edge from the dependent to the premise is unique per
 (kind, source, target) on Postgres and Kuzu, so a second reaffirmation of one pair after the
 premise changed again would collapse into the first; a node per event keeps every one. The
@@ -271,6 +274,17 @@ premise is a decision or a hypothesis, which one Kuzu relation table, bound to a
 source-and-target pair, cannot span; and every relation kind costs the bulk readers one more
 graph query per call. A reader takes the nodes in bulk and matches `decision_id` and
 `premise_id`. Nothing else is written or moved by the event.
+
+A `Rejection` node is created by `decision.rejected` (a disagreement): its id is the event's
+uuid, and it carries `decision_id`, `reason` (null when none was given), `rejected_by` (the event's
+actor), `rejected_at` and `said_in` (where the person said it, null when not stated), plus the usual
+`event_origin`, `source` and `source_ref`. It sits beside the `REJECTED_BY` edge the status is derived
+from, which is unchanged: that edge is unique per (decision, actor), carries no reason, and on
+Postgres no `source` or `source_ref`, so the words and the agent that relayed them (hivemind-efo6x:
+`source` `agent`, `source_ref` the relaying agent, `reason` the person's verbatim quote) have no
+other place in the graph. It has no edges for the reason a `Reaffirmation` has none. A reader takes
+the nodes in bulk and matches `decision_id`; `decided_by.relayed_rejections` lists the ones an agent
+relayed.
 
 A view that draws edges would show the node alone, so the two graph views (`GET /v1/graph`
 and the DOT export, both through `queries::reaffirmation_arrows`) add two *derived* lines read

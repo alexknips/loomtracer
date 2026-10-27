@@ -467,14 +467,14 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `capture_decision` | write | `emit decision.capture` |
 | `capture_evidence` | write | `emit evidence.recorded` |
 | `capture_hypothesis` | write | `emit hypothesis.recorded` |
-| `disagree_decision` | write | `disagree` |
+| `disagree_decision` | write | `disagree` (`--disagreed-by` for a person's words) |
 | `dispute_attribution` | write | `dispute-attribution --disputed-by` |
 | `supersede_decision` | write | `supersede` |
 | `link_supersession` | write | `emit decision.superseded` |
 | `move_decision` | write | `move` |
 | `retitle_decision` | write | `retitle` |
 | `ground_decision` | write | `ground` |
-| `reaffirm_decision` | write | `reaffirm` |
+| `reaffirm_decision` | write | `reaffirm` (`--reaffirmed-by` for a person's words) |
 | `acknowledge_suggestion` | write | (MCP only) |
 | `request_decision` | write | `ask` |
 | `classify_queue_submit` | write | `classify-queue submit` (MCP over HTTP only) |

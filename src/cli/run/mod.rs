@@ -2145,7 +2145,26 @@ fn run_disagree(cli: &Cli, args: &DisagreeArgs) -> Result<String> {
         &ledger,
         CommandContext::new(tenant_id.clone(), fluent_write_provenance(&cli.actor)),
     );
-    let event_id = commands.disagree(&cli.actor, &decision_id, &args.reason)?;
+    // `--quote` (clap requires `--disagreed-by` with it) is an agent recording a person's words;
+    // otherwise `--reason` (clap requires one of the two) is the actor's own.
+    let (event_id, disagreed_by, relayed_by) = match (&args.quote, &args.disagreed_by) {
+        (Some(quote), Some(person)) => {
+            let person = person.trim();
+            let event_id = commands.relay_disagreement(
+                &cli.actor,
+                person,
+                &decision_id,
+                quote,
+                args.said_in.as_deref(),
+            )?;
+            (event_id, Some(person.to_owned()), Some(cli.actor.clone()))
+        }
+        _ => {
+            let reason = args.reason.as_deref().unwrap_or_default();
+            let event_id = commands.disagree(&cli.actor, &decision_id, reason)?;
+            (event_id, None, None)
+        }
+    };
     let after = MemoryGraph::default();
     rebuild_graph_for_tenant(&ledger, &tenant_id, &after)?;
     let decision_status = derive_decision_status(&after, &decision_id)?;
@@ -2157,6 +2176,8 @@ fn run_disagree(cli: &Cli, args: &DisagreeArgs) -> Result<String> {
             decision_id,
             event_id,
             decision_status,
+            disagreed_by,
+            relayed_by,
             rests_on: upstream.rests_on,
             raise_upstream: upstream.raise_upstream,
         },

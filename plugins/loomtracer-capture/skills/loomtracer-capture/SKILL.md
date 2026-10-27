@@ -314,6 +314,22 @@ so ("I never agreed to that"), record it for them: the `dispute_attribution` too
 - Only a person the decision names as its decider can be disputed for. Anyone else is
   refused and nothing is written.
 
+### When the person says they disagree, or that it still holds
+
+The same goes for a person's disagreement with a decision and their "that still holds"
+after something it rests on changed: record it as theirs, not as your own. Use
+`disagree_decision` with `disagreed_by`, or `reaffirm_decision` with `reaffirmed_by` (the
+person, `human:<name>`), `quote` (their words) and `said_in`; on the CLI `loomtracer
+--actor agent:<tool>:<name> disagree --decision <id> --disagreed-by human:<name> --quote
+"<their words>"` or `reaffirm --id <id> --reaffirmed-by human:<name> --quote "<their
+words>"`. Leave `reason` out: with the person's name, their words are the quote.
+
+- `quote` is what they said, as they said it, never your summary. A person's name without
+  their words is refused; if they have not said it in this conversation, do not record
+  one.
+- `why` and `verify` read `disagreed by human:bob (relayed by agent:claude:mayor): <quote>`.
+  Without the person's name the disagreement or reaffirmation is yours, with your `reason`.
+
 ### Questions you ask with AskUserQuestion (Claude Code)
 
 The Claude plugin's hooks record these for you. When you call `AskUserQuestion`,

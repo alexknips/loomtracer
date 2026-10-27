@@ -302,6 +302,7 @@ fn rejections(graph: &impl GraphView, stated: &Stated<'_>) -> Result<Vec<Step>> 
             payload: EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id,
                 reason: None,
+                said_in: None,
             }),
         });
     }

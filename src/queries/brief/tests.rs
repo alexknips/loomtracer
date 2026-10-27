@@ -928,3 +928,82 @@ fn days_held_is_left_out_not_zeroed_when_the_dates_cannot_say() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn brief_names_the_agent_that_relayed_a_persons_disagreement_and_their_words() -> Result<()> {
+    let mut relayed = event(
+        2,
+        EventType::DecisionRejected,
+        "human:carol",
+        json!({
+            "decision_id": "d:rejected",
+            "reason": "I would not mail it",
+            "said_in": "session-7"
+        }),
+    );
+    relayed.source = EventSource::Agent;
+    relayed.source_ref = Some("agent:claude:mayor".to_owned());
+    // A person who disagreed with their own credential, and an agent that disagreed for itself,
+    // are rejecters with nothing to add.
+    let mut by_credential = event(
+        3,
+        EventType::DecisionRejected,
+        "human:bob",
+        json!({ "decision_id": "d:rejected", "reason": "Not now" }),
+    );
+    by_credential.source = EventSource::Api;
+    by_credential.source_ref = Some("human:bob".to_owned());
+    let mut by_an_agent = event(
+        4,
+        EventType::DecisionRejected,
+        "agent:claude:dave",
+        json!({ "decision_id": "d:rejected", "reason": "Too slow" }),
+    );
+    by_an_agent.source = EventSource::Agent;
+    by_an_agent.source_ref = Some("agent:claude:dave".to_owned());
+    let graph = graph_from_events([
+        bare_decision(1, "d:rejected", "Mail the report"),
+        relayed,
+        by_credential,
+        by_an_agent,
+    ])?;
+
+    let brief = get_decision_brief(&graph, "d:rejected")?
+        .data
+        .expect("decision exists");
+
+    assert_eq!(
+        brief.decided_by.rejecter_ids,
+        ["agent:claude:dave", "human:bob", "human:carol"],
+        "everyone who rejected it is still a rejecter"
+    );
+    let relayed = &brief.decided_by.relayed_rejections;
+    assert_eq!(relayed.len(), 1, "{relayed:?}");
+    assert_eq!(relayed[0].rejected_by, "human:carol");
+    assert_eq!(relayed[0].relayed_by, "agent:claude:mayor");
+    assert_eq!(relayed[0].reason, "I would not mail it");
+    assert_eq!(relayed[0].said_in.as_deref(), Some("session-7"));
+    let wire = serde_json::to_value(&brief.decided_by).expect("decided_by serializes");
+    assert_eq!(
+        wire["relayed_rejections"][0]["relayed_by"],
+        "agent:claude:mayor"
+    );
+    Ok(())
+}
+
+#[test]
+fn brief_lists_no_relayed_rejections_for_a_decision_nobody_rejected() -> Result<()> {
+    let graph = graph_from_events([bare_decision(1, "d:open", "Mail the report")])?;
+
+    let brief = get_decision_brief(&graph, "d:open")?
+        .data
+        .expect("decision exists");
+
+    assert!(brief.decided_by.relayed_rejections.is_empty());
+    let wire = serde_json::to_value(&brief.decided_by).expect("decided_by serializes");
+    assert!(
+        wire.get("relayed_rejections").is_none(),
+        "the key is absent when there is nothing to say: {wire}"
+    );
+    Ok(())
+}

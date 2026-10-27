@@ -302,6 +302,13 @@ pub struct DecisionRejectedPayload {
     pub decision_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// The session, thread or message the rejecting actor's words come from, as the agent that
+    /// relayed them states it (hivemind-efo6x): present only on a disagreement an agent recorded
+    /// for a person, and then `reason` holds their verbatim quote. Absent when nobody said: it is
+    /// never guessed. `#[serde(default)]` so every event predating this field still parses and
+    /// replays unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1379,12 +1386,22 @@ pub struct DecisionRetitledPayload {
 /// events (`decision.superseded`, `decision.rejected`). That an open re-examine item exists
 /// for the pair is enforced by `commands::reaffirm_decision`, not here; the event schema only
 /// shapes the wire format. Nothing here is ever edited in place.
+///
+/// A person's reaffirmation can reach the ledger through their agent (hivemind-efo6x), the way a
+/// dispute of an attribution does: the envelope's actor is still the person, its `source` is
+/// `agent` and its `source_ref` names the relaying agent, `reason` is the person's verbatim
+/// words and `said_in` is where they said them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DecisionReaffirmedPayload {
     pub decision_id: String,
     pub premise_id: String,
     pub reason: String,
+    /// The session, thread or message the reaffirming actor's words come from, as the relaying
+    /// agent states it. Absent when nobody said: it is never guessed. `#[serde(default)]` so
+    /// every event predating this field still parses and replays unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
 }
 
 /// `decision.attribution_disputed` (hivemind-purmd). The actor on the envelope is the one
@@ -1906,6 +1923,7 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             let payload: DecisionRejectedPayload = parse_payload(event)?;
             require_non_empty("payload.decision_id", &payload.decision_id)?;
             require_optional_non_empty("payload.reason", payload.reason.as_deref())?;
+            require_optional_non_empty("payload.said_in", payload.said_in.as_deref())?;
             Ok(EventPayload::DecisionRejected(payload))
         }
         EventType::DecisionSuperseded => {
@@ -2081,6 +2099,7 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             require_non_empty("payload.decision_id", &payload.decision_id)?;
             require_non_empty("payload.premise_id", &payload.premise_id)?;
             require_non_empty("payload.reason", &payload.reason)?;
+            require_optional_non_empty("payload.said_in", payload.said_in.as_deref())?;
             Ok(EventPayload::DecisionReaffirmed(payload))
         }
         EventType::DecisionAttributionDisputed => {

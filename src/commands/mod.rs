@@ -239,6 +239,26 @@
 //!   caller, an agent as `disputed_by`, a person who is not a decider and a blank quote are
 //!   refused with nothing written.
 //!
+//! # A person's disagreement and reaffirmation through their agent (`relay` module, hivemind-efo6x)
+//!
+//! `disagree` and `reaffirm_decision` record the calling actor's own act. A person works through
+//! their agent, so `relay_disagreement` and `relay_reaffirmation` record the person's, with the
+//! same shape `relay_attribution_dispute` has:
+//!
+//! - The event's actor is the person (`human:<name>`), its provenance is `agent` with the relaying
+//!   agent (an `agent:` actor) as `source_ref`, whatever provenance the `Commands` carries, `reason`
+//!   is the person's verbatim quote, and `said_in`, when given, says where they said it (blank is
+//!   refused, never guessed). An agent that passes a person's name without their words is refused,
+//!   and so are a `human:` relay, an agent as the person and a blank quote, with nothing written.
+//! - Everything else is the direct verb's rule: a person who accepted the decision cannot also
+//!   disagree with it (the refusal points at `dispute-attribution`), a repeated disagreement by the
+//!   same person returns the first event, a reaffirmation is a new act each time, and the verb
+//!   that closes an open re-examine item (`crate::reaffirmation::reaffirm`) still checks that
+//!   there is one before it writes.
+//! - There is no relay for `supersede_decision`: it records a new decision decided by the calling
+//!   actor, and a person's own answer is captured with `decided_by` and a quote and linked with
+//!   `link_supersession`.
+//!
 //! # Restatements (`restatement` module, hivemind-83cj)
 //!
 //! A decision stated again is one decision, not two. The classifier (layer 3) judges that a
@@ -388,6 +408,7 @@ mod grounding;
 mod project_rename;
 mod question;
 mod reaffirm;
+mod relay;
 mod restatement;
 mod transcript;
 
@@ -408,6 +429,7 @@ pub use question::{
     AnsweredQuestion, AskPlan, AskRecorded, AskedRequest, QuestionAnswerPlan, QuestionId,
 };
 pub use reaffirm::ReaffirmInput;
+pub use relay::Relay;
 pub use restatement::{ClassifiedBatchRecorded, RestatedCapture, RestatementOutcome};
 use transcript::captured_answers;
 
@@ -2584,6 +2606,65 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         reason: &str,
         event_uuid: Uuid,
     ) -> Result<EventId> {
+        self.disagree_recording(actor_id, decision_id, reason, None, event_uuid)
+    }
+
+    /// Record that `disagreed_by` disagrees with `decision_id`, as their agent `relayed_by` heard
+    /// it (hivemind-efo6x): the same `decision.rejected` a person writes with their own
+    /// credential, in the shape a person's dispute of an attribution has. `quote` is the
+    /// person's verbatim words, kept as the event's `reason`; `said_in` is the session, thread or
+    /// message they said them in, when the agent knows.
+    pub fn relay_disagreement(
+        &self,
+        relayed_by: &str,
+        disagreed_by: &str,
+        decision_id: &str,
+        quote: &str,
+        said_in: Option<&str>,
+    ) -> Result<EventId> {
+        self.relay_disagreement_with_uuid(
+            relayed_by,
+            disagreed_by,
+            decision_id,
+            quote,
+            said_in,
+            Uuid::new_v4(),
+        )
+    }
+
+    /// `relay_disagreement` with the event's uuid chosen by the caller, so a transport that
+    /// retries gets the existing event id back from the ledger instead of a second event.
+    ///
+    /// The event's actor is `disagreed_by` and its provenance is `agent` with `relayed_by` as the
+    /// source reference, whatever provenance this `Commands` was built with. Only a person may be
+    /// relayed (a `human:` actor) and only by an agent (an `agent:` actor), and their words are
+    /// required. The rest is the rule a direct disagreement has: a person who already accepted
+    /// the decision is refused, and one who already disagreed gets the earlier event back.
+    pub fn relay_disagreement_with_uuid(
+        &self,
+        relayed_by: &str,
+        disagreed_by: &str,
+        decision_id: &str,
+        quote: &str,
+        said_in: Option<&str>,
+        event_uuid: Uuid,
+    ) -> Result<EventId> {
+        require_non_empty("decision_id", decision_id)?;
+        let relay = Relay::new(relayed_by, said_in);
+        relay.require_valid(disagreed_by, quote, "disagreement")?;
+        self.disagree_recording(disagreed_by, decision_id, quote, Some(&relay), event_uuid)
+    }
+
+    /// The one disagreement: `actor_id` rejects `decision_id` with `reason`, directly or (with
+    /// `relay`) as the agent that heard them say it.
+    fn disagree_recording(
+        &self,
+        actor_id: &str,
+        decision_id: &str,
+        reason: &str,
+        relay: Option<&Relay<'_>>,
+        event_uuid: Uuid,
+    ) -> Result<EventId> {
         require_valid_actor_id(actor_id)?;
         require_non_empty("decision_id", decision_id)?;
         require_non_empty("reason", reason)?;
@@ -2604,15 +2685,15 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             return Err(already_accepted_refusal(actor_id, decision_id).into());
         }
 
-        let event = self.event_with_uuid(
-            actor_id,
-            EventPayload::DecisionRejected(DecisionRejectedPayload {
-                decision_id: decision_id.to_owned(),
-                reason: Some(reason.to_owned()),
-            }),
-            None,
-            event_uuid,
-        )?;
+        let payload = EventPayload::DecisionRejected(DecisionRejectedPayload {
+            decision_id: decision_id.to_owned(),
+            reason: Some(reason.to_owned()),
+            said_in: relay.and_then(Relay::recorded_said_in),
+        });
+        let event = match relay {
+            Some(relay) => self.relayed_event(relay, actor_id, payload, event_uuid)?,
+            None => self.event_with_uuid(actor_id, payload, None, event_uuid)?,
+        };
 
         self.append_event(event)
     }
@@ -2641,6 +2722,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
             EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id: decision_id.to_owned(),
                 reason: None,
+                said_in: None,
             }),
             None,
             event_uuid,

@@ -65,9 +65,16 @@ pub enum TimelineFact {
     /// The decision was recorded. Its own time is the answer time.
     Recorded,
     Accepted,
+    /// Someone disagreed with the decision, and why. When their agent recorded it for them,
+    /// `reason` is their verbatim quote, `relayed_by` the agent and `said_in` where they said it
+    /// (hivemind-efo6x).
     Rejected {
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        relayed_by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        said_in: Option<String>,
     },
     /// A newer decision replaced this one.
     Superseded {
@@ -104,10 +111,16 @@ pub enum TimelineFact {
         decision_id: String,
     },
     /// Someone said this decision still holds after the premise (a decision or a hypothesis)
-    /// changed (`decision.reaffirmed`), and why. The actor is the entry's own.
+    /// changed (`decision.reaffirmed`), and why. The actor is the entry's own. When their agent
+    /// recorded it for them, `reason` is their verbatim quote, `relayed_by` the agent and `said_in`
+    /// where they said it (hivemind-efo6x).
     Reaffirmed {
         premise_id: String,
         reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        relayed_by: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        said_in: Option<String>,
     },
     /// The actor the decision names as its decider said the call was not theirs
     /// (`decision.attribution_disputed`), and why. The actor is the entry's own. The decision's
@@ -342,8 +355,8 @@ struct Step {
     origin: EventId,
     ts: Option<DateTime<Utc>>,
     actor_id: Option<String>,
-    /// The agent that recorded this step for `actor_id`; only a dispute a person's agent relayed
-    /// has one (hivemind-f9xgu).
+    /// The agent that recorded this step for `actor_id`; only a dispute, a disagreement or a
+    /// reaffirmation a person's agent relayed has one (hivemind-f9xgu, hivemind-efo6x).
     relayed_by: Option<String>,
     payload: EventPayload,
 }
@@ -425,7 +438,9 @@ fn step_of(event: &Event) -> Result<Step> {
     let payload = events::validate(event)
         .map_err(|error| query_error(format!("invalid event {origin}: {error}")))?;
     let relayed_by = match payload {
-        EventPayload::DecisionAttributionDisputed(_) => relayer_of(
+        EventPayload::DecisionAttributionDisputed(_)
+        | EventPayload::DecisionRejected(_)
+        | EventPayload::DecisionReaffirmed(_) => relayer_of(
             Some(event.source.as_str()),
             event.source_ref.clone(), // ubs:ignore: the step owns its relay
             &event.actor_id,
@@ -515,6 +530,7 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
             EventPayload::DecisionRejected(DecisionRejectedPayload {
                 decision_id,
                 reason,
+                said_in,
             }) => {
                 for follower in premises.followers_of(&decision_id) {
                     if follower != decision_id {
@@ -526,7 +542,14 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
                         );
                     }
                 }
-                push(&decision_id, TimelineFact::Rejected { reason });
+                push(
+                    &decision_id,
+                    TimelineFact::Rejected {
+                        reason,
+                        relayed_by,
+                        said_in,
+                    },
+                );
             }
             EventPayload::DecisionSuperseded(DecisionSupersededPayload {
                 old_decision_id,
@@ -577,6 +600,8 @@ fn ledger_facts(steps: Vec<Step>) -> Result<Vec<LedgerFact>> {
                 TimelineFact::Reaffirmed {
                     premise_id: reaffirmed.premise_id,
                     reason: reaffirmed.reason,
+                    relayed_by,
+                    said_in: reaffirmed.said_in,
                 },
             ),
             EventPayload::DecisionAttributionDisputed(disputed) => push(

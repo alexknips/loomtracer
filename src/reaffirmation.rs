@@ -24,7 +24,7 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::commands::{CommandContext, Commands, ReaffirmInput};
+use crate::commands::{CommandContext, Commands, ReaffirmInput, Relay};
 use crate::error::CommandError;
 use crate::events::{EventId, EventProvenance, TenantId};
 use crate::ledger::EventLedger;
@@ -342,7 +342,9 @@ fn describe_reaffirmation(reaffirmation: &ReaffirmationSummary) -> String {
         .unwrap_or_default();
     format!(
         "{}{when} ({number}id {}, \"{}\")",
-        reaffirmation.actor_id, reaffirmation.id, reaffirmation.reason
+        reaffirmation.said_by(),
+        reaffirmation.id,
+        reaffirmation.reason
     )
 }
 
@@ -372,6 +374,13 @@ pub(crate) struct ReaffirmReply {
     /// Who it is attributed to.
     pub(crate) actor_id: String,
     pub(crate) reason: String,
+    /// The agent that recorded the reaffirmation for the person it is attributed to
+    /// (hivemind-efo6x). Absent when the actor reaffirmed with their own credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) relayed_by: Option<String>,
+    /// Where the person said it, when the relaying agent stated it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) said_in: Option<String>,
     /// The change(s) of the premise this reaffirmation answers, by ledger offset. A change
     /// recorded after it is a new item, never covered by it.
     pub(crate) covers: Vec<PremiseChange>,
@@ -385,13 +394,16 @@ pub(crate) enum ReaffirmOutcome {
     Refused(String),
 }
 
-/// What a caller says: who, which decision, optionally which premise, and why.
+/// What a caller says: who, which decision, optionally which premise, and why. With `relay`,
+/// `actor_id` is the person and `reason` their verbatim words, recorded by the agent `relay`
+/// names (hivemind-efo6x); without it they are the actor's own.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ReaffirmCall<'a> {
     pub(crate) actor_id: &'a str,
     pub(crate) decision_id: &'a str,
     pub(crate) premise: Option<&'a str>,
     pub(crate) reason: &'a str,
+    pub(crate) relay: Option<Relay<'a>>,
 }
 
 /// The one implementation of "reaffirm" behind the CLI, both MCP transports and REST: check the
@@ -410,7 +422,13 @@ pub(crate) fn reaffirm<L: EventLedger>(
         decision_id,
         premise,
         reason,
+        relay,
     } = call;
+    // Before anything is read, so a relay that cannot be recorded is refused as that and never
+    // answered with an ambiguity about the premise.
+    if let Some(relay) = &relay {
+        relay.require_valid(actor_id, reason, "reaffirmation")?;
+    }
     crate::util::require_non_empty("reason", reason)?;
     // One line, recorded as typed: the edges of it are not part of what someone said.
     let reason = reason.trim();
@@ -424,12 +442,16 @@ pub(crate) fn reaffirm<L: EventLedger>(
 
     let commands =
         Commands::new_with_context(ledger, CommandContext::new(tenant_id.clone(), provenance));
-    let event_id = commands.reaffirm_decision(ReaffirmInput {
+    let input = ReaffirmInput {
         actor_id,
         decision_id: &target.decision_id,
         premise_id: &target.premise_id,
         reason,
-    })?;
+    };
+    let event_id = match &relay {
+        Some(relay) => commands.relay_reaffirmation(relay.by, relay.said_in, input)?,
+        None => commands.reaffirm_decision(input)?,
+    };
 
     Ok(ReaffirmOutcome::Recorded(Box::new(ReaffirmReply {
         decision_id: target.decision_id,
@@ -440,6 +462,8 @@ pub(crate) fn reaffirm<L: EventLedger>(
         event_id,
         actor_id: actor_id.to_owned(),
         reason: reason.to_owned(),
+        relayed_by: relay.as_ref().map(|relay| relay.by.to_owned()),
+        said_in: relay.as_ref().and_then(Relay::recorded_said_in),
         covers: vec![target.covers],
     })))
 }

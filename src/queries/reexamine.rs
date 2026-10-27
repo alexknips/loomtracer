@@ -161,10 +161,39 @@ pub struct ReaffirmationSummary {
     pub actor_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at: Option<DateTime<Utc>>,
-    /// The one-line reason the actor gave.
+    /// The one-line reason the actor gave, or, when `relayed_by` is present, the verbatim quote
+    /// their agent recorded.
     pub reason: String,
+    /// The agent that recorded the reaffirmation for the person it is attributed to
+    /// (hivemind-efo6x). Absent when the actor reaffirmed with their own credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relayed_by: Option<String>,
+    /// Where the person said it (a session, thread or message), as the relaying agent stated it.
+    /// Absent when nobody did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_origin: Option<i64>,
+}
+
+impl ReaffirmationSummary {
+    /// Who said it still holds, and through whom: `human:alex`, or `human:alex (relayed by
+    /// agent:claude:mayor, said in session-1)` when their agent recorded their words for them.
+    /// The same words in every text surface.
+    pub fn said_by(&self) -> String {
+        let mut notes = Vec::new();
+        if let Some(relayed_by) = &self.relayed_by {
+            notes.push(format!("relayed by {relayed_by}"));
+        }
+        if let Some(said_in) = &self.said_in {
+            notes.push(format!("said in {}", on_one_line(said_in)));
+        }
+        if notes.is_empty() {
+            self.actor_id.clone()
+        } else {
+            format!("{} ({})", self.actor_id, notes.join(", "))
+        }
+    }
 }
 
 /// Where an item stands.
@@ -374,7 +403,7 @@ impl ReexamineEntry {
                         .map_or_else(String::new, |at| format!(" {}", at.format("%Y-%m-%d")));
                     format!(
                         "; re-examined{when} by {}: \"{}\"",
-                        latest.actor_id,
+                        latest.said_by(),
                         on_one_line(&latest.reason)
                     )
                 });
@@ -652,6 +681,8 @@ fn summarize_reaffirmation(record: &ReaffirmationRecord) -> ReaffirmationSummary
         actor_id: record.reaffirmed_by.clone(),
         at: record.reaffirmed_at,
         reason: record.reason.clone(),
+        relayed_by: record.relayed_by.clone(),
+        said_in: record.said_in.clone(),
         event_origin: record.event_origin,
     }
 }
