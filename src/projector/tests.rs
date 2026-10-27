@@ -6582,6 +6582,54 @@ fn decision_attribution_disputed_projects_one_node_and_leaves_the_acceptance_alo
     Ok(())
 }
 
+// hivemind-f9xgu: a dispute an agent relayed carries where the person said it, and the node's own
+// `source` / `source_ref` say who relayed it; one recorded without a place has no `said_in`.
+#[test]
+fn a_relayed_attribution_dispute_node_carries_where_it_was_said_and_who_relayed_it() -> Result<()> {
+    let mut relayed = event(
+        EventType::DecisionAttributionDisputed,
+        "human:alice",
+        json!({
+            "decision_id": "decision:named",
+            "reason": "I never agreed to it",
+            "said_in": "session-7"
+        }),
+    );
+    relayed.source = EventSource::Agent;
+    relayed.source_ref = Some("agent:claude:mayor".to_owned());
+    let mut direct = event(
+        EventType::DecisionAttributionDisputed,
+        "human:alice",
+        json!({"decision_id": "decision:named", "reason": "Not mine"}),
+    );
+    direct.source = EventSource::Api;
+    direct.source_ref = Some("human:alice".to_owned());
+    let (relayed_id, direct_id) = (
+        relayed.event_uuid.to_string(),
+        direct.event_uuid.to_string(),
+    );
+    let ledger = InMemoryEventLedger::new();
+    ledger.append(relayed)?;
+    ledger.append(direct)?;
+
+    let graph = RecordingGraph::default();
+    project_from_ledger(&ledger, &graph, 0)?;
+
+    let nodes = graph.nodes();
+    let string = |value: &str| Some(GraphValue::String(value.to_owned()));
+    let relayed = &nodes[&(NodeKind::AttributionDispute, relayed_id)];
+    assert_eq!(relayed.get("said_in").cloned(), string("session-7"));
+    assert_eq!(relayed.get("source").cloned(), string("agent"));
+    assert_eq!(
+        relayed.get("source_ref").cloned(),
+        string("agent:claude:mayor")
+    );
+    let direct = &nodes[&(NodeKind::AttributionDispute, direct_id)];
+    assert_eq!(direct.get("said_in"), Some(&GraphValue::Null));
+    assert_eq!(direct.get("source").cloned(), string("api"));
+    Ok(())
+}
+
 // ── Arrow orientation (hivemind-ku1x): every arrow runs newer -> older ──
 
 use super::arrow::{orient, Arrow};

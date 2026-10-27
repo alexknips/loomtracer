@@ -123,7 +123,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
     );
     assert_eq!(responses.len(), 1); // ubs:ignore: test-only; index guaranteed by test setup
     let tools = responses[0]["result"]["tools"].as_array().expect("array"); // ubs:ignore: test-only; panicking is correct in tests
-    assert_eq!(tools.len(), 38, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
+    assert_eq!(tools.len(), 39, "tool count mismatch: {tools:?}"); // ubs:ignore: test-only assertion
     let names: Vec<&str> = tools
         .iter()
         .map(|tool| tool["name"].as_str().expect("string name")) // ubs:ignore: test-only; panicking is correct in tests
@@ -133,6 +133,7 @@ fn tools_list_offers_every_tool_stdio_can_run_and_none_it_cannot() {
         "capture_evidence",
         "capture_hypothesis",
         "disagree_decision",
+        "dispute_attribution",
         "supersede_decision",
         "link_supersession",
         "move_decision",
@@ -280,6 +281,7 @@ fn the_write_tools_are_the_tools_that_append_events() {
             "capture_evidence",
             "capture_hypothesis",
             "disagree_decision",
+            "dispute_attribution",
             "supersede_decision",
             "link_supersession",
             "move_decision",
@@ -1796,6 +1798,238 @@ fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede
         "a refused disagree writes nothing"
     );
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// hivemind-f9xgu: a person disputes through their agent. The tool records the dispute as the
+// person's (their verbatim words, where they said it), with the calling agent as the relay, the
+// way `capture_decision` with `decided_by` and `quote` records a call they made.
+fn capture_decided_by_a_person(config: &McpConfig, person: &str) -> String {
+    let capture = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "capture_decision",
+            "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Call the review state Upheld",
+                "rationale": "The agent relayed a default name into the record",
+                "topic_keys": ["naming"],
+                "options": [{"label": "Upheld"}],
+                "chosen_option_label": "Upheld",
+                "decided_by": person,
+            }
+        }
+    })
+    .to_string();
+    let responses = drive(config, &[capture.as_str()]);
+    responses[0]["result"]["structuredContent"]["decision_id"]
+        .as_str()
+        .expect("decision id")
+        .to_owned()
+}
+
+fn call_tool(config: &McpConfig, id: u32, name: &str, arguments: Value) -> Value {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments }
+    })
+    .to_string();
+    drive(config, &[request.as_str()])
+        .into_iter()
+        .next()
+        .expect("one response") // ubs:ignore: test-only; panicking is correct in tests
+}
+
+#[test]
+fn dispute_attribution_tool_records_the_persons_words_with_the_agent_as_the_relay() {
+    let dir = unique_dir("dispute-attribution");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("relay-session");
+    let person = "human:alex.knips@gmail.com";
+    let relay = "agent:claude:relay-session";
+    let quote = "upheld was your idea and I never agreed to it";
+    let decision_id = capture_decided_by_a_person(&config, person);
+
+    let response = call_tool(
+        &config,
+        2,
+        "dispute_attribution",
+        json!({
+            "decision_id": decision_id,
+            "disputed_by": person,
+            "quote": quote,
+            "said_in": "session-2026-10-26",
+        }),
+    );
+    let result = &response["result"];
+    assert_eq!(result["isError"], false, "{result:?}");
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["decision_id"], decision_id.as_str());
+    assert_eq!(structured["disputed_by"], person);
+    assert_eq!(structured["relayed_by"], relay, "the calling agent");
+    assert_eq!(structured["said_in"], "session-2026-10-26");
+    assert_eq!(
+        structured["decision_status"], "accepted",
+        "a dispute of who decided is not a rejection"
+    );
+    let event_id = structured["event_id"].as_u64().expect("event id");
+
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = ledger.read(0, 50).expect("events read");
+    let disputed = events
+        .iter()
+        // ubs:ignore: event IDs are public ledger offsets, not secrets.
+        .find(|event| event.event_id == Some(event_id))
+        .expect("the dispute event");
+    assert_eq!(
+        disputed.event_type,
+        crate::events::EventType::DecisionAttributionDisputed
+    );
+    assert_eq!(disputed.actor_id, person, "the event is the person's");
+    assert_eq!(disputed.source, crate::events::EventSource::Agent);
+    assert_eq!(disputed.source_ref.as_deref(), Some(relay));
+    assert_eq!(disputed.payload["reason"], quote);
+    assert_eq!(disputed.payload["said_in"], "session-2026-10-26");
+    assert!(
+        events
+            .iter()
+            .all(|event| event.event_type != crate::events::EventType::DecisionRejected),
+        "nothing was rejected"
+    );
+
+    // The read side shows the person's acceptance and their dispute side by side, with the relay.
+    let graph = crate::projector::memory::MemoryGraph::default();
+    crate::projector::project_from_ledger(&ledger, &graph, 0).expect("project");
+    let brief = crate::queries::get_decision_brief(&graph, &decision_id)
+        .expect("brief reads")
+        .data
+        .expect("the decision has a brief");
+    let disputes = &brief.decided_by.attribution_disputes;
+    assert_eq!(disputes.len(), 1, "{disputes:?}");
+    assert_eq!(disputes[0].disputed_by, person);
+    assert_eq!(disputes[0].reason, quote);
+    assert_eq!(disputes[0].relayed_by.as_deref(), Some(relay));
+    assert_eq!(disputes[0].said_in.as_deref(), Some("session-2026-10-26"));
+    assert_eq!(
+        brief.decided_by.decider_ids,
+        [person],
+        "the acceptance stays"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn dispute_attribution_tool_resolves_a_description_and_asks_before_it_guesses() {
+    let dir = unique_dir("dispute-attribution-description");
+    let config = McpConfig::new(&dir).with_session_id("relay-session");
+    let person = "human:alex";
+    let decision_id = capture_decided_by_a_person(&config, person);
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let before = ledger.latest_offset().expect("offset before");
+
+    let unmatched = call_tool(
+        &config,
+        2,
+        "dispute_attribution",
+        json!({"description": "a decision nobody recorded", "disputed_by": person, "quote": "no"}),
+    );
+    assert_eq!(unmatched["result"]["isError"], false, "{unmatched:?}");
+    assert_eq!(
+        unmatched["result"]["structuredContent"]["data"]["outcome"], "not_found",
+        "{unmatched:?}"
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("offset"),
+        before,
+        "nothing written"
+    );
+
+    let resolved = call_tool(
+        &config,
+        3,
+        "dispute_attribution",
+        json!({"description": "Call the review state Upheld", "disputed_by": person, "quote": "no"}),
+    );
+    assert_eq!(resolved["result"]["isError"], false, "{resolved:?}");
+    assert_eq!(
+        resolved["result"]["structuredContent"]["decision_id"],
+        decision_id.as_str()
+    );
+    assert!(
+        resolved["result"]["structuredContent"]
+            .get("said_in")
+            .is_none(),
+        "nothing is guessed about where it was said: {resolved:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn dispute_attribution_tool_refuses_what_it_cannot_attribute_and_writes_nothing() {
+    let dir = unique_dir("dispute-attribution-refused");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("relay-session");
+    let person = "human:alex";
+    let decision_id = capture_decided_by_a_person(&config, person);
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let before = ledger.latest_offset().expect("offset before");
+
+    let refused = |arguments: Value| {
+        let response = call_tool(&config, 9, "dispute_attribution", arguments);
+        let result = &response["result"];
+        assert_eq!(result["isError"], true, "{result:?}");
+        result["content"][0]["text"]
+            .as_str()
+            .expect("error text")
+            .to_owned()
+    };
+    // A person the decision never named as its decider.
+    let text = refused(json!({
+        "decision_id": decision_id, "disputed_by": "human:bob", "quote": "not mine",
+    }));
+    assert!(
+        text.contains("human:bob is not recorded as a decider"),
+        "{text}"
+    );
+    // An agent is not a person to relay for.
+    let text = refused(json!({
+        "decision_id": decision_id, "disputed_by": "agent:claude:other", "quote": "not mine",
+    }));
+    assert!(text.contains("is not a person"), "{text}");
+    // A person does not relay: the tool's caller is an agent.
+    let text = refused(json!({
+        "actor_id": person, "decision_id": decision_id, "disputed_by": person, "quote": "mine",
+    }));
+    assert!(
+        text.contains("only an agent records a person's words"),
+        "{text}"
+    );
+    // The words are required, and so is the person.
+    let text = refused(json!({"decision_id": decision_id, "disputed_by": person}));
+    assert!(text.contains("quote"), "{text}");
+    let text = refused(json!({"decision_id": decision_id, "quote": "mine"}));
+    assert!(text.contains("disputed_by"), "{text}");
+    // An argument the tool does not take is refused, not ignored (`reason` is the CLI's).
+    let text = refused(json!({
+        "decision_id": decision_id, "disputed_by": person, "quote": "mine", "reason": "x",
+    }));
+    assert!(text.contains("reason"), "{text}");
+
+    assert_eq!(
+        ledger.latest_offset().expect("offset after"),
+        before,
+        "every refusal writes nothing"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -4494,6 +4728,46 @@ mod transport_parity {
                 content["event_id"].is_number(), // ubs:ignore: test-only assertion
                 "{name}: event_id should be present"
             );
+        }
+    }
+
+    /// hivemind-f9xgu: the dispute a person's agent records for them, the same on both transports.
+    #[tokio::test]
+    async fn dispute_attribution_relays_the_persons_words_across_transports() {
+        let (stdio, http) = run_after_with_id(
+            "capture_decision",
+            json!({
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Call the review state Upheld",
+                "rationale": "The agent relayed a default name into the record",
+                "topic_keys": ["naming"],
+                "options": [{"label": "Upheld"}],
+                "chosen_option_label": "Upheld",
+                "decided_by": "human:alex",
+            }),
+            "dispute_attribution",
+            "dispute-attribution",
+            |decision_id| {
+                json!({
+                    "actor_id": "agent:claude:relay",
+                    "decision_id": decision_id,
+                    "disputed_by": "human:alex",
+                    "quote": "upheld was your idea and I never agreed to it",
+                    "said_in": "thread-1",
+                })
+            },
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "{name}: expected success"); // ubs:ignore: test-only assertion
+            let content = &result["structuredContent"];
+            assert_eq!(content["disputed_by"], json!("human:alex"), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(content["relayed_by"], json!("agent:claude:relay"), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(content["said_in"], json!("thread-1"), "{name}"); // ubs:ignore: test-only assertion
+            assert_eq!(content["decision_status"], json!("accepted"), "{name}"); // ubs:ignore: test-only assertion
+            assert!(content["event_id"].is_number(), "{name}: event_id"); // ubs:ignore: test-only assertion
         }
     }
 

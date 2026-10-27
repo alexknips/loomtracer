@@ -268,3 +268,213 @@ fn a_decider_a_classifier_read_out_of_a_transcript_may_dispute_it() {
         1
     );
 }
+
+// hivemind-f9xgu: the person's dispute through their agent.
+
+const RELAY: &str = "agent:claude:mayor";
+const QUOTE: &str = "upheld was your idea and I never agreed to it";
+
+#[test]
+fn an_agent_relays_the_persons_dispute_as_theirs_with_their_words_and_the_relay_recorded() {
+    let ledger = InMemoryEventLedger::new();
+    // A `Commands` built with another provenance (here the CLI default): the relay is recorded
+    // anyway, because it is part of what the event says.
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+    let acceptances_before = of_type(&ledger, EventType::DecisionAccepted);
+    let before = events(&ledger).len();
+
+    let event_id = commands
+        .relay_attribution_dispute(RELAY, PERSON, &decision_id, QUOTE, Some("session-7"))
+        .expect("the agent relays the person's dispute");
+
+    let appended: Vec<Event> = events(&ledger).into_iter().skip(before).collect();
+    assert_eq!(appended.len(), 1, "one event, nothing else touched");
+    let event = &appended[0];
+    assert_eq!(event.event_id, Some(event_id));
+    assert_eq!(event.event_type, EventType::DecisionAttributionDisputed);
+    assert_eq!(event.actor_id, PERSON, "the event is the person's");
+    assert_eq!(event.source, crate::events::EventSource::Agent);
+    assert_eq!(event.source_ref.as_deref(), Some(RELAY), "who relayed it");
+    assert_eq!(payload_str(event, "decision_id"), decision_id);
+    assert_eq!(payload_str(event, "reason"), QUOTE, "their verbatim words");
+    assert_eq!(payload_str(event, "said_in"), "session-7");
+    assert_eq!(
+        of_type(&ledger, EventType::DecisionAccepted),
+        acceptances_before,
+        "the acceptance is neither rewritten nor removed"
+    );
+    assert!(of_type(&ledger, EventType::DecisionRejected).is_empty());
+}
+
+#[test]
+fn where_the_person_said_it_is_left_out_when_the_agent_does_not_say() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+
+    commands
+        .relay_attribution_dispute(RELAY, PERSON, &decision_id, QUOTE, None)
+        .expect("relay without a place");
+
+    let event = of_type(&ledger, EventType::DecisionAttributionDisputed).remove(0);
+    assert!(
+        event.payload.get("said_in").is_none(),
+        "nothing is guessed: {}",
+        event.payload
+    );
+}
+
+#[test]
+fn a_relay_names_a_person_who_is_a_recorded_decider_and_an_agent_to_relay_it() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+    let before = events(&ledger).len();
+
+    // A person the decision never named: the agent cannot put a dispute under their name.
+    let refused = commands
+        .relay_attribution_dispute(RELAY, "human:bystander", &decision_id, QUOTE, None)
+        .expect_err("a bystander has nothing to dispute");
+    match refused {
+        LoomtracerError::Command(CommandError::Invariant(message)) => {
+            assert!(
+                message.contains("human:bystander is not recorded as a decider"),
+                "{message}"
+            );
+            assert!(message.contains(RELAY), "names the relay: {message}");
+            assert!(message.contains("disagree_decision"), "{message}");
+        }
+        other => panic!("expected an invariant refusal, got {other:?}"),
+    }
+
+    // The agent that scribed the call is not a person to relay for, and a person does not relay.
+    for (relayed_by, disputed_by) in [
+        (RELAY, SCRIBE),
+        (RELAY, "someone"),
+        (RELAY, "human:"),
+        (PERSON, PERSON),
+        ("human:bystander", PERSON),
+    ] {
+        assert!(
+            matches!(
+                commands.relay_attribution_dispute(
+                    relayed_by,
+                    disputed_by,
+                    &decision_id,
+                    QUOTE,
+                    None
+                ),
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
+            ),
+            "{relayed_by} relaying for {disputed_by}"
+        );
+    }
+    assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+#[test]
+fn a_relay_needs_the_decision_the_words_and_a_real_place_or_none() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+    let before = events(&ledger).len();
+
+    assert!(matches!(
+        commands.relay_attribution_dispute(RELAY, PERSON, "decision-nope", QUOTE, None),
+        Err(LoomtracerError::Command(CommandError::Invariant(_)))
+    ));
+    for quote in ["", "   ", "\n\t"] {
+        assert!(
+            matches!(
+                commands.relay_attribution_dispute(RELAY, PERSON, &decision_id, quote, None),
+                Err(LoomtracerError::Command(CommandError::Validation(_)))
+            ),
+            "{quote:?} is not their words"
+        );
+    }
+    assert!(
+        matches!(
+            commands.relay_attribution_dispute(RELAY, PERSON, &decision_id, QUOTE, Some("  ")),
+            Err(LoomtracerError::Command(CommandError::Validation(_)))
+        ),
+        "a blank place is refused, not recorded as one"
+    );
+    assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+#[test]
+fn a_retried_relay_with_the_same_uuid_lands_once() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+    let uuid = uuid::Uuid::new_v4();
+
+    let first = commands
+        .relay_attribution_dispute_with_uuid(RELAY, PERSON, &decision_id, QUOTE, None, uuid)
+        .expect("first");
+    let retried = commands
+        .relay_attribution_dispute_with_uuid(RELAY, PERSON, &decision_id, QUOTE, None, uuid)
+        .expect("retry");
+
+    assert_eq!(retried, first, "the ledger hands back the existing event");
+    assert_eq!(
+        of_type(&ledger, EventType::DecisionAttributionDisputed).len(),
+        1
+    );
+}
+
+#[test]
+fn a_decider_a_classifier_read_out_of_a_transcript_can_be_relayed_for_too() {
+    // The same rule as a direct dispute: the draft names the person in `accepted_by`.
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    commands
+        .record_evidence(PERSON, "an earlier event, so the batch is not event 1")
+        .expect("evidence");
+    let capture = CaptureItem {
+        kind: "decision".to_owned(),
+        title: "Use Postgres for the ledger".to_owned(),
+        rationale: "It gives us one server for every tenant".to_owned(),
+        topic_keys: Vec::new(),
+        evidence_ids: Vec::new(),
+        options: Some(vec!["Postgres".to_owned(), "SQLite".to_owned()]),
+        chosen_option: Some("Postgres".to_owned()),
+        extraction_confidence: 0.9,
+        expressed_confidence: None,
+        supersedes_id: None,
+        premised_on_ids: Vec::new(),
+        supports_ids: Vec::new(),
+        refutes_ids: Vec::new(),
+        actor_id: None,
+        accepted_by: vec![PERSON.to_owned()],
+        rejected_by: Vec::new(),
+        blocked_actor_id: None,
+        decision_id: None,
+        participants: Vec::new(),
+        restates_id: None,
+        source_turn_id: None,
+        source_ts: None,
+        question: None,
+        session_initiator: None,
+    };
+    let batch_event = commands
+        .record_ingest_batch_classified(
+            "agent:loomtracer:classifier",
+            &["batch-1".to_owned()],
+            "claude-haiku-4-5-20251001",
+            "v1",
+            vec![capture],
+            None,
+        )
+        .expect("classified batch")
+        .event_id;
+    let draft_id = format!("capture:{batch_event}:0");
+
+    commands
+        .relay_attribution_dispute(RELAY, PERSON, &draft_id, QUOTE, None)
+        .expect("the person the transcript names as decider is relayed for");
+    assert!(commands
+        .relay_attribution_dispute(RELAY, "human:bystander", &draft_id, QUOTE, None)
+        .is_err());
+}

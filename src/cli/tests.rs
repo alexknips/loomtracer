@@ -15021,3 +15021,192 @@ fn a_named_decider_disputes_an_acceptance_recorded_in_their_name_and_why_shows_b
 
     let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
+
+// hivemind-f9xgu: a person disputes through their agent. The agent records the person's verbatim
+// words (`--quote`) as the person's dispute, naming itself as the relay and where they said it;
+// `why` reads "disputed by <person> (relayed by <agent>, said in <where>): <quote>". A person who
+// is not a recorded decider is refused with nothing written, and the flags that make a relay
+// cannot be mixed with the person's own `--reason`.
+#[test]
+fn an_agent_records_a_persons_dispute_in_their_words_and_why_names_the_relay() {
+    let loomtracer_dir = unique_test_dir("dispute-attribution-relayed");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let scribe = "agent:claude:scribe";
+    let mayor = "agent:claude:mayor";
+    let person = "human:alex";
+    let quote = "upheld was your idea and I never agreed to it";
+    let decision_id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "The product has a new name",
+        "--rationale",
+        "A default the agent relayed",
+        "--topic-keys",
+        "naming",
+        "--options",
+        "Upheld",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        person,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("the acceptance recorded in the person's name");
+
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+    let relay = |actor: &str, disputed_by: &str, extra: &[&str]| {
+        let mut argv = vec![
+            "loomtracer",
+            "--actor",
+            actor,
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "dispute-attribution",
+            "--decision",
+            &decision_id,
+            "--disputed-by",
+            disputed_by,
+            "--quote",
+            quote,
+        ];
+        argv.extend_from_slice(extra);
+        run(&Cli::parse_from(argv))
+    };
+
+    let not_a_decider = relay(mayor, "human:bob", &[]).expect_err("bob decided nothing here");
+    let printed = format_error(false, &not_a_decider);
+    assert!(
+        printed.contains("human:bob is not recorded as a decider"),
+        "{printed}"
+    );
+    assert_eq!(exit_code_for_error(&not_a_decider).code(), 3, "{printed}");
+    let by_a_person = relay(person, person, &[]).expect_err("only an agent relays");
+    assert!(
+        format_error(false, &by_a_person).contains("only an agent records a person's words"),
+        "{}",
+        format_error(false, &by_a_person)
+    );
+    let by_an_agent_for_an_agent =
+        relay(mayor, scribe, &[]).expect_err("an agent is not a person to relay for");
+    assert!(
+        format_error(false, &by_an_agent_for_an_agent).contains("is not a person"),
+        "{}",
+        format_error(false, &by_an_agent_for_an_agent)
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused relay writes nothing"
+    );
+
+    let recorded: serde_json::Value = serde_json::from_str(
+        &relay(mayor, person, &["--said-in", "session-7"])
+            .expect("the mayor records Alex's dispute in his words"),
+    )
+    .expect("valid dispute json");
+    assert_eq!(recorded["disputed_by"], person);
+    assert_eq!(recorded["relayed_by"], mayor);
+
+    let event = ledger
+        .read(latest_before, 10)
+        .expect("events read")
+        .into_iter()
+        .find(|event| event.event_type == crate::events::EventType::DecisionAttributionDisputed)
+        .expect("the dispute event");
+    assert_eq!(event.actor_id, person, "the event is the person's");
+    assert_eq!(event.source, crate::events::EventSource::Agent);
+    assert_eq!(event.source_ref.as_deref(), Some(mayor), "the relay");
+    assert_eq!(event.payload["reason"], quote);
+    assert_eq!(event.payload["said_in"], "session-7");
+
+    let why = run(&Cli::parse_from([
+        "loomtracer",
+        "--loomtracer-dir",
+        dir,
+        "query",
+        "why",
+        "The product has a new name",
+        "--summary",
+    ]))
+    .expect("why answers");
+    let decided_by = why
+        .lines()
+        .find(|line| line.trim_start().starts_with("decided by: "))
+        .unwrap_or_else(|| panic!("why names who decided: {why}"));
+    assert!(
+        decided_by.contains(&format!(
+            "disputed by {person} (relayed by {mayor}, said in session-7): {quote}"
+        )),
+        "the dispute names the person, the relay and their words: {decided_by}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "query",
+            "verify",
+            "The product has a new name",
+        ]))
+        .expect("verify json"),
+    )
+    .expect("valid verify json");
+    let decided_by = &json["data"]["decided_by"];
+    assert_eq!(decided_by["decider_ids"], serde_json::json!([person]));
+    let dispute = &decided_by["attribution_disputes"][0];
+    assert_eq!(dispute["disputed_by"], person, "{decided_by}");
+    assert_eq!(dispute["relayed_by"], mayor, "{decided_by}");
+    assert_eq!(dispute["said_in"], "session-7", "{decided_by}");
+    assert_eq!(dispute["reason"], quote, "{decided_by}");
+
+    for argv in [
+        // A relay is the quote, never the person's own reason as well.
+        vec![
+            "--reason",
+            "mine",
+            "--disputed-by",
+            person,
+            "--quote",
+            quote,
+        ],
+        // The person without their words, and words without the person.
+        vec!["--disputed-by", person],
+        vec!["--quote", quote],
+        vec!["--said-in", "session-7", "--reason", "mine"],
+    ] {
+        let mut full = vec![
+            "loomtracer",
+            "--actor",
+            mayor,
+            "--loomtracer-dir",
+            dir,
+            "dispute-attribution",
+            "--decision",
+            &decision_id,
+        ];
+        full.extend(argv.iter().copied());
+        assert!(
+            Cli::try_parse_from(full).is_err(),
+            "the relay flags go together: {argv:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}

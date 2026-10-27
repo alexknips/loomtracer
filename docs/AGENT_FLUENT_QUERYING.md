@@ -1122,13 +1122,19 @@ by human:alex: <reason>)`, and `decided_by.attribution_disputes` in JSON lists e
 actor's latest `{disputed_by, reason, disputed_at}` while `decider_ids` still names them. The
 statement is the actor's own, so the verb takes no target: only an actor the ledger names as a
 decider (a `decision.accepted` of its own, or an id a classifier draft lists in `accepted_by`)
-can dispute, and only for itself; any other actor, an agent that recorded the decision
-included, is refused (CLI exit 3, REST 400) with nothing written. On the cell it is `POST
+can dispute, for itself or, through its agent, as below; any other actor, an agent that recorded
+the decision included, is refused (CLI exit 3, REST 400) with nothing written. On the cell it is `POST
 /v1/decisions/{id}/attribution-disputes` with `{reason}`, and the actor is the credential's
-own, never a body field or an `actor_id` argument. There is deliberately **no MCP tool**: an MCP
-session under a person's credential is an agent working in that person's name, which is the
-case this verb exists to answer. A local ledger believes a typed `--actor` like every other
-verb, so what holds there is the rule on who may write the event, not who is at the keyboard.
+own, never a body field or an `actor_id` argument. People work through their agents, so the agent
+records a dispute for them (hivemind-f9xgu): the `dispute_attribution` MCP tool, or `loomtracer
+--actor agent:claude:mayor dispute-attribution --decision <id> --disputed-by human:alex --quote
+"<their words>" --said-in <where>`, writes the same event as the person's, with their verbatim
+words as the statement and the agent recorded as the relay (`source=agent`,
+`source_ref=<agent>`); `why` reads `disputed by human:alex (relayed by agent:claude:mayor, said in
+<where>): <their words>`, and `attribution_disputes[]` carries `relayed_by` and `said_in`. The
+person still has to be a recorded decider, and only an agent relays. A local ledger believes a
+typed `--actor` like every other verb, so what holds there is the rule on who may write the
+event, not who is at the keyboard.
 
 ### 3.1 The `review` naming collision
 

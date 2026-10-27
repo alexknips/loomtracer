@@ -105,7 +105,18 @@ pub struct DecidedBy {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AttributionDispute {
     pub disputed_by: String,
+    /// What they said: their own words, typed with their credential or, when `relayed_by` is
+    /// present, the verbatim quote their agent recorded.
     pub reason: String,
+    /// The agent that recorded the statement for the person (hivemind-f9xgu): the event's
+    /// `agent` source reference when it is not the disputing actor itself. Absent when the actor
+    /// disputed with their own credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relayed_by: Option<String>,
+    /// Where they said it (a session, thread or message), as the relaying agent stated it.
+    /// Absent when nobody did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disputed_at: Option<DateTime<Utc>>,
 }
@@ -123,9 +134,16 @@ fn attribution_disputes(
             continue;
         }
         let origin = optional_int(&row, "event_origin").unwrap_or(i64::MAX);
+        let disputed_by = optional_string(&row, "disputed_by").unwrap_or_default();
+        let relayed_by = (optional_string(&row, "source").as_deref() == Some("agent"))
+            .then(|| optional_string(&row, "source_ref"))
+            .flatten()
+            .filter(|relayer| *relayer != disputed_by);
         let dispute = AttributionDispute {
-            disputed_by: optional_string(&row, "disputed_by").unwrap_or_default(),
+            disputed_by,
             reason: optional_string(&row, "reason").unwrap_or_default(),
+            relayed_by,
+            said_in: optional_string(&row, "said_in"),
             disputed_at: optional_datetime(&row, "disputed_at")?,
         };
         match disputes

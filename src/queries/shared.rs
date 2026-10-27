@@ -117,7 +117,7 @@ fn node_return_columns(kind: NodeKind) -> &'static str {
         NodeKind::Project => "node.id AS id, node.handle AS handle, node.display_name AS display_name, node.purpose AS purpose, node.anchors AS anchors, node.source AS source, node.source_ref AS source_ref, node.event_origin AS event_origin",
         NodeKind::Ask => "node.id AS id, node.question_id AS question_id, node.text AS text, node.asked_at AS asked_at, node.source AS source, node.source_ref AS source_ref, node.event_origin AS event_origin",
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at, node.source AS source, node.source_ref AS source_ref, node.event_origin AS event_origin",
-        NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at, node.source AS source, node.source_ref AS source_ref, node.event_origin AS event_origin",
+        NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at, node.said_in AS said_in, node.source AS source, node.source_ref AS source_ref, node.event_origin AS event_origin",
     }
 }
 

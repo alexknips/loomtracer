@@ -51,6 +51,38 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A person disputes an attribution through their agent, in their own words: the
+  `dispute_attribution` MCP tool, and `--disputed-by` / `--quote` on `loomtracer
+  dispute-attribution`. `decision.attribution_disputed` gains an optional `said_in`: upgrade the
+  server (the cell image) before any client records one.** `dispute-attribution` had shipped as a
+  call only the person's own credential could make, with no MCP tool, so the only way to use it was
+  a person typing `curl` with their token, which nobody does (Alex, 2026-10-27: "no human one will
+  ever use our product through the api. that's just not how people work"). The product already
+  records a person's decision through their agent (`capture_decision` with `decided_by` and
+  `quote`); a dispute now works the same way. The agent calls `dispute_attribution` with
+  `disputed_by` (the person, `human:<name>`), `quote` (their verbatim words, required) and, when
+  it knows, `said_in` (the session, thread or message they said it in), and names the decision by
+  `decision_id` or `description`. The event is the person's (`actor_id` is `disputed_by`), its
+  `source` is `agent` and its `source_ref` is the relaying agent, and `reason` is the quote.
+  `why`, `verify` and `brief` read `decided by: human:alex (..., disputed by human:alex (relayed by
+  agent:claude:mayor, said in session-1): <quote>)`, and `decided_by.attribution_disputes` in JSON
+  gains `relayed_by` and `said_in` (each absent when not recorded). The rule on who may be
+  disputed for is unchanged: the person has to be an actor the decision names as its decider (a
+  `decision.accepted` of their own, including one an agent recorded in their name, or an id a
+  classifier draft lists in `accepted_by`), so an agent cannot put a dispute under a name the
+  decision never carried. Only an agent relays and only a person is relayed: a `human:` caller, or
+  a `disputed_by` that is an agent, is refused with nothing written. It is still not a
+  rejection, and the acceptance and the decision's status are untouched. The CLI relays with
+  `loomtracer --actor agent:<tool>:<name> dispute-attribution --disputed-by human:<name> --quote
+  "<words>" [--said-in <where>]`; `--reason` stays the person's own. The direct paths (`--reason`
+  with the person's own `--actor`, and `POST /v1/decisions/{id}/attribution-disputes`) are
+  unchanged. `said_in` is an optional payload field, so every event already in a ledger replays as
+  before, and a server or CLI older than this release stops replaying a ledger that holds a
+  dispute with it (`deny_unknown_fields`): run this release on the cell first, then on every
+  client. The `AttributionDispute` graph node gains a `said_in` property (null when not stated).
+  `Commands::relay_attribution_dispute` and `relay_attribution_dispute_with_uuid` (library
+  callers) append exactly one event. (hivemind-f9xgu)
+
 - **CI builds the CLI and the cell image for every `master` commit that passes it, and
   `--from-ci` deploys them without compiling on the host.** Deploying meant `cargo build
   --release` for the CLI (`scripts/install-local.sh`) and another release build inside
@@ -99,8 +131,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   included, is refused with the reason and a pointer to `disagree` (CLI exit 3, REST 400), and
   nothing is written. `disagree`'s refusal of an actor that accepted now names this verb.
   On the cell it is `POST /v1/decisions/{id}/attribution-disputes` with `{reason}`, and the
-  actor is the credential's own, never a body field; there is **no MCP tool**, because an MCP
-  session under a person's credential is an agent working in that person's name. A local ledger
+  actor is the credential's own, never a body field; an agent records it for the person with the
+  `dispute_attribution` tool (the entry above it). A local ledger
   believes a typed `--actor` like every other verb. Readers hard-fail on an event type they do
   not know, so a server or CLI older than this release stops replaying a ledger that holds one:
   run this release on the cell first, then on every client. The graph gains one node kind,

@@ -229,9 +229,15 @@
 //! - A retry is deduplicated by the event uuid the caller passes
 //!   (`dispute_attribution_with_uuid`). A second dispute by the same actor is a new statement
 //!   and is kept; the read side shows each actor's latest.
-//! - The server takes the actor from the caller's credential, never from an argument, and there
-//!   is no MCP tool for it: an agent working in a person's session must not be able to speak for
-//!   them.
+//! - The server takes the actor from the caller's credential on the direct path (REST), never from
+//!   an argument. A person works through their agent, so the agent records it for them
+//!   (`relay_attribution_dispute`, hivemind-f9xgu): the event's actor is the person
+//!   (`disputed_by`, a `human:` actor who is a recorded decider by the rule above), its
+//!   provenance is `agent` with the relaying agent (an `agent:` actor) as `source_ref`, whatever
+//!   provenance the `Commands` carries, `reason` is the person's verbatim quote (required), and
+//!   `said_in`, when given, says where they said it (blank is refused, never guessed). A `human:`
+//!   caller, an agent as `disputed_by`, a person who is not a decider and a blank quote are
+//!   refused with nothing written.
 //!
 //! # Restatements (`restatement` module, hivemind-83cj)
 //!

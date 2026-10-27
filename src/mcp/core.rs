@@ -242,6 +242,7 @@ pub(crate) const TOOL_KINDS: &[(&str, ToolKind)] = &[
     ("capture_evidence", ToolKind::Write),
     ("capture_hypothesis", ToolKind::Write),
     ("disagree_decision", ToolKind::Write),
+    ("dispute_attribution", ToolKind::Write),
     ("supersede_decision", ToolKind::Write),
     ("link_supersession", ToolKind::Write),
     ("move_decision", ToolKind::Write),
@@ -1369,6 +1370,95 @@ impl DisagreeArgs {
             reason,
         })
     }
+}
+
+/// Parsed, validated arguments for the `dispute_attribution` tool (hivemind-f9xgu): a person's
+/// agent recording, in the person's words, that a decision names them as its decider and the call
+/// was never theirs. The target resolves the way `disagree_decision`'s does. `actor_id` is the
+/// relaying agent, `disputed_by` the person, and `quote` their verbatim words: all three are
+/// always required, and the person is never inferred from the credential.
+pub(crate) struct DisputeAttributionArgs {
+    pub(crate) actor_id: String,
+    pub(crate) decision_id: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) topic: Option<String>,
+    pub(crate) disputed_by: String,
+    pub(crate) quote: String,
+    pub(crate) said_in: Option<String>,
+}
+
+impl DisputeAttributionArgs {
+    pub(crate) fn from_json(
+        args: &Map<String, Value>,
+        actor_id: String,
+    ) -> Result<Self, CoreError> {
+        Ok(Self {
+            actor_id,
+            decision_id: optional_string(args, "decision_id")?,
+            description: optional_string(args, "description")?,
+            topic: optional_string(args, "topic")?,
+            disputed_by: require_string(args, "disputed_by")?.trim().to_owned(),
+            quote: require_string(args, "quote")?,
+            said_in: optional_string(args, "said_in")?,
+        })
+    }
+}
+
+/// The core for the `dispute_attribution` MCP tool: one implementation consumed by both
+/// transports. Resolves its target via [`resolve_target`] first (an ambiguous or unmatched
+/// description is returned as-is and nothing is written), then records one
+/// `decision.attribution_disputed` as `disputed_by`, relayed by `actor_id`
+/// (`Commands::relay_attribution_dispute`). The decision's status is unchanged: a dispute of who
+/// decided is not a rejection, and the reply says so by returning the status as it now stands.
+pub(crate) fn dispute_attribution<P: LedgerProvider>(
+    provider: &P,
+    args: DisputeAttributionArgs,
+) -> Result<ToolOutput, CoreError> {
+    let handle = provider.ledger()?;
+    let target = resolve_target(
+        &handle,
+        args.decision_id.as_deref(),
+        args.description.as_deref(),
+        args.topic.as_deref(),
+        "decision_id",
+    )?;
+    let decision_id = match target {
+        ResolvedTarget::Id(id) => id,
+        ResolvedTarget::Ambiguous(output) => return Ok(output),
+        ResolvedTarget::NotFound(output) => return Ok(output),
+    };
+
+    let commands = Commands::new_with_context(
+        &handle.ledger,
+        CommandContext::new(
+            handle.tenant_id.clone(),
+            EventProvenance::agent(args.actor_id.clone()),
+        ),
+    );
+    let event_id = commands
+        .relay_attribution_dispute(
+            &args.actor_id,
+            &args.disputed_by,
+            &decision_id,
+            &args.quote,
+            args.said_in.as_deref(),
+        )
+        .map_err(CoreError::from)?;
+
+    let graph = handle.graph().map_err(CoreError::from)?;
+    let decision_status = derive_decision_status(&graph, &decision_id).map_err(CoreError::from)?;
+
+    let mut reply = json!({
+        "decision_id": decision_id,
+        "event_id": event_id,
+        "disputed_by": args.disputed_by,
+        "relayed_by": args.actor_id,
+        "decision_status": decision_status,
+    });
+    if let Some(said_in) = args.said_in.as_deref() {
+        reply["said_in"] = json!(said_in.trim());
+    }
+    Ok(ToolOutput(reply))
 }
 
 /// The migrated core for the `recall_decisions` MCP tool: one implementation

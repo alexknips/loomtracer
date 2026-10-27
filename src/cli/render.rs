@@ -24,11 +24,11 @@ use crate::quality_profile::{
 };
 use crate::queries::{
     annotate_resolution, derive_decision_status, derive_hypothesis_status, option_label_unit,
-    oriented_edges, reaffirmation_arrows, BlockerNotificationCandidates, ChangedDecisionsResults,
-    CompactView, Contest, ContestedDecisionsResults, DecidedBy, DecisionBlockerResults,
-    DecisionBrief, DecisionOutcome, DecisionSearchResults, DecisionStatus, DecisionTimeline,
-    DecisionView, DecisionsAddedSinceResults, DecisionsChangedSinceResults, DraftedFrom,
-    GroundingAdded, GroundingItem, GroundingItemState, GroundingKind, GroundingState,
+    oriented_edges, reaffirmation_arrows, AttributionDispute, BlockerNotificationCandidates,
+    ChangedDecisionsResults, CompactView, Contest, ContestedDecisionsResults, DecidedBy,
+    DecisionBlockerResults, DecisionBrief, DecisionOutcome, DecisionSearchResults, DecisionStatus,
+    DecisionTimeline, DecisionView, DecisionsAddedSinceResults, DecisionsChangedSinceResults,
+    DraftedFrom, GroundingAdded, GroundingItem, GroundingItemState, GroundingKind, GroundingState,
     HistoryChangeKind, HypothesisStatus, MatchReason, MisfiledDecisionCandidate, OpenWhyResults,
     OpenWhyView, OptionLabel, OutcomeReason, ProjectDecisionsOutcome, ProjectDecisionsPage,
     ProjectListResults, ProjectMove, ProjectOutcome, ProjectTopicFact, QueryResponse,
@@ -1281,6 +1281,24 @@ fn write_quality_lines(output: &mut String, quality: &QualityProfile) {
     }
 }
 
+/// Who disputed an attribution, and through whom: `human:alex`, or `human:alex (relayed by
+/// agent:claude:mayor, said in session-1)` when their agent recorded their words for them
+/// (hivemind-f9xgu). Nothing is added for a person who disputed with their own credential.
+fn disputing_actor(dispute: &AttributionDispute) -> String {
+    let mut notes = Vec::new();
+    if let Some(relayed_by) = &dispute.relayed_by {
+        notes.push(format!("relayed by {relayed_by}"));
+    }
+    if let Some(said_in) = &dispute.said_in {
+        notes.push(format!("said in {}", summary_cell(said_in)));
+    }
+    if notes.is_empty() {
+        dispute.disputed_by.clone()
+    } else {
+        format!("{} ({})", dispute.disputed_by, notes.join(", "))
+    }
+}
+
 /// Recorder and decider are distinct actors (hivemind-zdsh.9): the recorder is whoever
 /// wrote the decision down (`PROPOSED_BY`), the decider is whoever actually made the call
 /// (`ACCEPTED_BY`). Collapsed to one "decided by" line only on self-acceptance, where
@@ -1299,7 +1317,7 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
         .map(|dispute| {
             format!(
                 ", disputed by {}: {}",
-                dispute.disputed_by,
+                disputing_actor(dispute),
                 summary_cell(&dispute.reason)
             )
         })
@@ -1357,7 +1375,7 @@ fn write_decided_by(output: &mut String, decided_by: &DecidedBy) {
             let _ = writeln!(
                 output,
                 "  attribution disputed by: {}: {}",
-                dispute.disputed_by,
+                disputing_actor(dispute),
                 summary_cell(&dispute.reason)
             );
         }
@@ -2368,10 +2386,14 @@ pub(crate) fn format_dispute_attribution_output(
         return format_json_value(true, output);
     }
 
-    Ok(format!(
+    let mut rendered = format!(
         "event_id={} decision_id={} disputed_by={}",
         output.event_id, output.decision_id, output.disputed_by
-    ))
+    );
+    if let Some(relayed_by) = &output.relayed_by {
+        let _ = write!(rendered, " relayed_by={relayed_by}");
+    }
+    Ok(rendered)
 }
 
 /// One line per prior decision the acted-on decision rests on that still stands. A hint: the
@@ -2848,7 +2870,7 @@ fn node_dump_query(kind: NodeKind) -> String {
         }
         NodeKind::Ask => "node.id AS id, node.question_id AS question_id, node.text AS text, node.asked_at AS asked_at",
         NodeKind::Reaffirmation => "node.id AS id, node.decision_id AS decision_id, node.premise_id AS premise_id, node.reason AS reason, node.reaffirmed_by AS reaffirmed_by, node.reaffirmed_at AS reaffirmed_at",
-        NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at",
+        NodeKind::AttributionDispute => "node.id AS id, node.decision_id AS decision_id, node.reason AS reason, node.disputed_by AS disputed_by, node.disputed_at AS disputed_at, node.said_in AS said_in",
     };
     format!(
         "MATCH (node:`{}`) RETURN {projection} ORDER BY node.id;",
@@ -2927,6 +2949,7 @@ fn node_properties_from_row(kind: NodeKind, row: &GraphRow) -> GraphProperties {
             insert_if_present(&mut properties, row, "reason");
             insert_if_present(&mut properties, row, "disputed_by");
             insert_if_present(&mut properties, row, "disputed_at");
+            insert_if_present(&mut properties, row, "said_in");
         }
     }
     properties
@@ -3100,6 +3123,9 @@ pub(crate) struct DisputeAttributionOutput {
     /// The actor who disputed: the one the decision names as its decider. The acceptance stays
     /// as recorded.
     pub(crate) disputed_by: String,
+    /// The agent that recorded the dispute for them, when it was relayed (hivemind-f9xgu).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) relayed_by: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

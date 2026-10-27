@@ -23,14 +23,15 @@ use crate::mcp::core::{
     AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CaptureEvidenceArgs,
     CaptureHypothesisArgs, ClassifyQueueListArgs, ClassifyQueueSubmitArgs, CompactViewArgs,
     CoreError, DecisionContextCandidatesArgs, DecisionQualityCandidatesArgs, DisagreeArgs,
-    GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionArgs, GetDecisionContextArgs,
-    GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
-    GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
-    GetSuggestionsArgs, GetSupersessionChainArgs, GetWaitingRequestsArgs, GraphSource,
-    GroundDecisionArgs, LedgerHandle, LedgerProvider, LinkSupersessionArgs, MoveDecisionArgs,
-    RankDecisionsByImportanceArgs, ReaffirmDecisionArgs, RecallDecisionsArgs, RecentDecisionsArgs,
-    RequestDecisionArgs, RetitleDecisionArgs, ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs,
-    ScoreDecisionArgs, SearchDecisionsArgs, SummarizeDecisionsArgs, SupersedeDecisionArgs,
+    DisputeAttributionArgs, GetChangedDecisionsArgs, GetContestedDecisionsArgs, GetDecisionArgs,
+    GetDecisionContextArgs, GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs,
+    GetOpenWhyDecisionsArgs, GetReexamineItemsArgs, GetRelevantDecisionsArgs,
+    GetSituationalDecisionsArgs, GetSuggestionsArgs, GetSupersessionChainArgs,
+    GetWaitingRequestsArgs, GraphSource, GroundDecisionArgs, LedgerHandle, LedgerProvider,
+    LinkSupersessionArgs, MoveDecisionArgs, RankDecisionsByImportanceArgs, ReaffirmDecisionArgs,
+    RecallDecisionsArgs, RecentDecisionsArgs, RequestDecisionArgs, RetitleDecisionArgs,
+    ScanDecisionQualityArgs, ScanMisfiledDecisionsArgs, ScoreDecisionArgs, SearchDecisionsArgs,
+    SummarizeDecisionsArgs, SupersedeDecisionArgs,
 };
 use crate::projector::memory::MemoryGraph;
 
@@ -218,6 +219,7 @@ fn mcp_tools_call_blocking(
         "capture_evidence" => mcp_capture_evidence(backend, ctx, &actor_id, args),
         "capture_hypothesis" => mcp_capture_hypothesis(backend, ctx, &actor_id, args),
         "disagree_decision" => mcp_disagree(backend, ctx, &actor_id, args, cache),
+        "dispute_attribution" => mcp_dispute_attribution(backend, ctx, &actor_id, args, cache),
         "supersede_decision" => mcp_supersede(backend, ctx, &actor_id, args, cache),
         "link_supersession" => mcp_link_supersession(backend, ctx, &actor_id, args, cache),
         "move_decision" => mcp_move(backend, ctx, &actor_id, args, cache),
@@ -448,6 +450,23 @@ fn mcp_capture_hypothesis(
         graph_cache: None,
     };
     let output = crate::mcp::core::capture_hypothesis(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn mcp_dispute_attribution(
+    backend: &ApiBackend,
+    ctx: &ApiRequestCtx,
+    actor_id: &str,
+    args: serde_json::Map<String, serde_json::Value>,
+    cache: &Arc<GraphCache>,
+) -> McpToolResult {
+    let core_args = DisputeAttributionArgs::from_json(&args, actor_id.to_owned())?;
+    let provider = HttpLedgerProvider {
+        backend,
+        tenant_id: &ctx.tenant_id,
+        graph_cache: Some(cache),
+    };
+    let output = crate::mcp::core::dispute_attribution(&provider, core_args)?;
     Ok(output.into_value())
 }
 

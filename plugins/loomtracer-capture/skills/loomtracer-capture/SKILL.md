@@ -297,6 +297,23 @@ something you observed, and the record loses who decided.
   `answered_at`. `--answers` takes a request id; `loomtracer ground --answers` takes
   the question's text.
 
+### When the person says a decision was never theirs
+
+A decision names its decider from an acceptance, and you or another agent may have
+recorded a person's name there for a call they never made. When the person tells you
+so ("I never agreed to that"), record it for them: the `dispute_attribution` tool, or
+`loomtracer --actor agent:<tool>:<name> dispute-attribution --decision <id>
+--disputed-by human:<name> --quote "<their words>" --said-in "<session or thread>"`.
+
+- `quote` is what they said, as they said it, never your summary. If they have not
+  said it in this conversation, do not record one.
+- It is recorded as their dispute with you as the relay: `why` reads `disputed by
+  human:alex (relayed by agent:claude:mayor): <quote>`. The acceptance stays as
+  recorded and the decision keeps its status; it is not a rejection. To say the
+  decision itself is wrong, use `disagree_decision`.
+- Only a person the decision names as its decider can be disputed for. Anyone else is
+  refused and nothing is written.
+
 ### Questions you ask with AskUserQuestion (Claude Code)
 
 The Claude plugin's hooks record these for you. When you call `AskUserQuestion`,

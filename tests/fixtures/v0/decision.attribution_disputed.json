@@ -5,11 +5,12 @@
   "causation_event_id": null,
   "type": "decision.attribution_disputed",
   "actor_id": "human:alice",
-  "source": "human",
-  "source_ref": "human:alice",
+  "source": "agent",
+  "source_ref": "agent:claude:scribe",
   "payload": {
     "decision_id": "decision-2",
-    "reason": "I never agreed to this; an agent relayed a default in my name"
+    "reason": "I never agreed to this; an agent relayed a default in my name",
+    "said_in": "session-1"
   },
   "ts": "2026-10-26T21:30:00Z"
 }

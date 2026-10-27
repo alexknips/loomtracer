@@ -283,8 +283,11 @@ line is left out when the node it names is not in the graph.
 
 An `AttributionDispute` node is created by `decision.attribution_disputed` ("I never decided
 this"): its id is the event's uuid, and it carries `decision_id`, `reason`, `disputed_by` (the
-event's actor, always one the decision names as a decider) and `disputed_at`, plus the usual
-`event_origin`. It has no edges, for the reason a `Reaffirmation` has none, and one more: the
+event's actor, always one the decision names as a decider), `disputed_at` and `said_in` (where the
+person said it, null when not stated), plus the usual `event_origin`, `source` and `source_ref`.
+When an agent recorded the dispute for the person (hivemind-f9xgu) the node's `source` is `agent`
+and its `source_ref` is the relaying agent, and `reason` is the person's verbatim quote;
+`decided_by.attribution_disputes` reads that as `relayed_by`. It has no edges, for the reason a `Reaffirmation` has none, and one more: the
 acceptance it disputes keeps its `ACCEPTED_BY` edge and its actor exactly as recorded, so the
 graph holds the attribution and the dispute of it side by side and nothing is rewritten. The
 decision's status is untouched (a dispute is not a rejection). A reader takes the nodes in bulk

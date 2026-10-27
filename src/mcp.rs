@@ -35,7 +35,7 @@ use crate::Result;
 use core::{
     AcknowledgeSuggestionArgs, AnalyzeFailureModesArgs, CaptureDecisionArgs, CaptureEvidenceArgs,
     CaptureHypothesisArgs, CompactViewArgs, CoreError, DecisionContextCandidatesArgs,
-    DecisionQualityCandidatesArgs, DisagreeArgs, GetChangedDecisionsArgs,
+    DecisionQualityCandidatesArgs, DisagreeArgs, DisputeAttributionArgs, GetChangedDecisionsArgs,
     GetContestedDecisionsArgs, GetDecisionArgs, GetDecisionContextArgs,
     GetDecisionNeighborhoodArgs, GetDecisionOutcomeArgs, GetOpenWhyDecisionsArgs,
     GetReexamineItemsArgs, GetRelevantDecisionsArgs, GetSituationalDecisionsArgs,
@@ -386,6 +386,7 @@ fn tools_call(params: Value, config: &McpConfig) -> std::result::Result<Value, R
         "capture_evidence" => tool_capture_evidence(arguments, config),
         "capture_hypothesis" => tool_capture_hypothesis(arguments, config),
         "disagree_decision" => tool_disagree_decision(arguments, config),
+        "dispute_attribution" => tool_dispute_attribution(arguments, config),
         "supersede_decision" => tool_supersede_decision(arguments, config),
         "link_supersession" => tool_link_supersession(arguments, config),
         "move_decision" => tool_move_decision(arguments, config),
@@ -625,6 +626,23 @@ pub fn tool_definitions() -> Vec<Value> {
                     "description": { "type": "string", "description": "Free-text description to resolve to a decision when the id is not known." },
                     "topic": { "type": "string", "description": "Narrows description resolution to decisions carrying this topic key." },
                     "reason": { "type": "string" }
+                }
+            }
+        }),
+        json!({
+            "name": "dispute_attribution",
+            "description": "Record, for a person, that a decision names them as its decider and the call was never theirs: use it when a person tells you in conversation that something recorded in their name is not what they decided (\"I never agreed to that\"). The event is the person's: `disputed_by` is the actor, you are recorded as the agent that relayed it (`actor_id`), and `quote` is their verbatim words, so `why`, `verify` and `brief` read `disputed by human:alex (relayed by agent:claude:mayor): <quote>`. Their words are the dispute: never paraphrase them, never write a dispute the person did not say, and never write one for a person who has not said it in this conversation. `said_in` says where they said it (a session id, a thread link, a message); leave it out when you do not know, and nothing is guessed. It is not a rejection and not a disagreement with the decision: the acceptance stays as recorded, the decision keeps its status (the reply returns it as `decision_status`), and to record that a person disagrees with the decision itself you use `disagree_decision`. Only an actor the decision names as its decider can dispute it: `disputed_by` must be a person (`human:<name>`) who has a `decision.accepted` of their own on the decision (including one an agent recorded in their name with `decided_by`) or whom a classifier draft lists as a decider; anyone else is refused as an invalid argument, with nothing written. Resolves the decision by `decision_id` or a free-text `description` (+ optional `topic`) — exactly one is required. An ambiguous description returns a successful result shaped `{outcome: \"ambiguous\", candidates: [...]}`, not an error, and no event is appended; re-call with decision_id from that list. A description matching nothing is also a successful result, shaped `{outcome: \"not_found\"}`, and no event is appended. A second dispute by the same person is a new statement and is kept; the read side shows each person's latest. The reply is `{decision_id, event_id, disputed_by, relayed_by, said_in?, decision_status}`. Wraps `loomtracer dispute-attribution --disputed-by`.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["disputed_by", "quote"],
+                "properties": {
+                    "actor_id": { "type": "string", "description": "The agent relaying the person's words (you). Defaults to `agent:<tool>:<name>` when omitted (over MCP-over-HTTP: the bearer token's actor for an agent token; under a person's credential, the MCP session's agent, `agent:mcp-http:<session>`). Must be an agent: a person disputes with their own credential." },
+                    "decision_id": { "type": "string", "description": "The decision whose attribution is disputed. Provide this or `description`, not both." },
+                    "description": { "type": "string", "description": "Free-text description to resolve to a decision when the id is not known." },
+                    "topic": { "type": "string", "description": "Narrows description resolution to decisions carrying this topic key." },
+                    "disputed_by": { "type": "string", "description": "The person whose words these are and whom the decision names as its decider: a human actor, e.g. `human:alex.knips@gmail.com`. They are recorded as the one disputing; you are recorded as relaying." },
+                    "quote": { "type": "string", "description": "The person's verbatim words, as they said them, self-contained. Recorded as the dispute's statement." },
+                    "said_in": { "type": "string", "description": "Where they said it: the session, thread or message the words come from. Optional; never guessed." }
                 }
             }
         }),
@@ -1395,6 +1413,18 @@ fn tool_disagree_decision(args: Value, config: &McpConfig) -> std::result::Resul
     let core_args = DisagreeArgs::from_json(&args, actor_id)?;
     let provider = StdioLedgerProvider { config };
     let output = core::disagree_decision(&provider, core_args)?;
+    Ok(output.into_value())
+}
+
+fn tool_dispute_attribution(
+    args: Value,
+    config: &McpConfig,
+) -> std::result::Result<Value, RpcError> {
+    let args = args.as_object().cloned().unwrap_or_default();
+    let actor_id = mcp_actor_id(&args, config)?;
+    let core_args = DisputeAttributionArgs::from_json(&args, actor_id)?;
+    let provider = StdioLedgerProvider { config };
+    let output = core::dispute_attribution(&provider, core_args)?;
     Ok(output.into_value())
 }
 

@@ -1394,11 +1394,21 @@ pub struct DecisionReaffirmedPayload {
 /// decider of `decision_id` is enforced by `commands::dispute_attribution`, not here; the event
 /// schema only shapes the wire format. Nothing here is ever edited in place, and the acceptance
 /// it disputes is neither rewritten nor removed.
+///
+/// A person's dispute can reach the ledger through their agent (hivemind-f9xgu), the way a
+/// decision a person made does with `decided_by` and `quote`: the envelope's actor is still the
+/// person, its `source` is `agent` and its `source_ref` names the relaying agent, and `reason` is
+/// the person's verbatim words. `said_in` is where they said it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DecisionAttributionDisputedPayload {
     pub decision_id: String,
     pub reason: String,
+    /// The session, thread or message the disputing actor's words come from, as the relaying
+    /// agent states it. Absent when nobody said: it is never guessed. `#[serde(default)]` so
+    /// every event predating this field still parses and replays unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub said_in: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2077,6 +2087,7 @@ pub fn validate(event: &Event) -> std::result::Result<EventPayload, EventValidat
             let payload: DecisionAttributionDisputedPayload = parse_payload(event)?;
             require_non_empty("payload.decision_id", &payload.decision_id)?;
             require_non_empty("payload.reason", &payload.reason)?;
+            require_optional_non_empty("payload.said_in", payload.said_in.as_deref())?;
             Ok(EventPayload::DecisionAttributionDisputed(payload))
         }
         EventType::ProjectRegistered => {

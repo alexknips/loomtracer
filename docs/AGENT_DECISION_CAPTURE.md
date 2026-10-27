@@ -322,6 +322,40 @@ reference: a number followed by `k`, `m`, `s`, `h`, `d`, `w`, `y`, `x`, `g` or `
 legitimately needs one of those tokens (e.g. quoting someone else's outline),
 pair `--quote`/`--question` rather than folding it into `--rationale`.
 
+### A person acts through their agent
+
+People use Loomtracer through their agents, not through its API (Alex, 2026-10-27, decision
+`decision-6df7d5d8`): a person says what they decided, or that something recorded in their name is
+not what they decided, to the agent they are working with, and the agent records it. So the record
+of a person's act carries their own words and names the agent that relayed them. A decision a
+person made is recorded this way with `--decided-by` and `--quote` (above); a dispute of one is
+recorded the same way:
+
+```text
+loomtracer --actor agent:claude:mayor dispute-attribution --decision <id> \
+  --disputed-by human:alex --quote "upheld was your idea and I never agreed to it" \
+  --said-in "<session or thread>"
+```
+
+Over MCP it is `dispute_attribution` with `disputed_by`, `quote` and `said_in`. The event is the
+person's: they are its actor, its `source` is `agent` and its `source_ref` is the relaying agent, so
+`why`, `verify` and `brief` read `disputed by human:alex (relayed by agent:claude:mayor, said in
+...): <quote>`. The `quote` is what they said, as they said it, never your summary; if they have
+not said it in this conversation there is nothing to record. Only an actor the decision names as
+its decider can be disputed for, and a dispute is not a rejection: the acceptance and the
+decision's status stay as recorded (use `disagree_decision` to say the decision itself is wrong).
+
+Which agent path each person-facing write has:
+
+| What the person says | Agent path | Their words and the relay on the record |
+|---|---|---|
+| "I decided X" | `capture_decision` / `emit decision.capture` with `decided_by` | `quote` + `question`; the relay is the capture's `source_ref` |
+| "X replaces Y", from their own answer | capture their answer with `decided_by`, then `link_supersession` | the replacement keeps its decider and quote |
+| "I never decided this" | `dispute_attribution` / `dispute-attribution --disputed-by` | `quote`, `said_in`; the relay is the event's `source_ref` |
+| "I disagree with X" | `disagree_decision` (`reason`) | recorded as the calling agent's disagreement; an `actor_id` naming the person records it as theirs, with the relay not recorded |
+| "X still holds" | `reaffirm_decision` (`reason`) | the same as `disagree_decision` |
+| A direct call with the person's own credential | `POST /v1/decisions/{id}/attribution-disputes`, `.../disagreements`, `.../reaffirmations` | the credential's actor, `source` `api` |
+
 ## What the decision binds and what undoing it costs
 
 The capture flow is **answer before you write**. "What does it rest on?" looks

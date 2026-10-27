@@ -2187,14 +2187,34 @@ fn run_dispute_attribution(cli: &Cli, args: &DisputeAttributionArgs) -> Result<S
         &ledger,
         CommandContext::new(tenant_id, fluent_write_provenance(&cli.actor)),
     );
-    let event_id = commands.dispute_attribution(&cli.actor, &decision_id, &args.reason)?;
+    // `--quote` (clap requires `--disputed-by` with it) is an agent recording a person's words;
+    // otherwise `--reason` (clap requires one of the two) is the actor's own.
+    let (event_id, disputed_by, relayed_by) = match (&args.quote, &args.disputed_by) {
+        (Some(quote), Some(person)) => {
+            let person = person.trim();
+            let event_id = commands.relay_attribution_dispute(
+                &cli.actor,
+                person,
+                &decision_id,
+                quote,
+                args.said_in.as_deref(),
+            )?;
+            (event_id, person.to_owned(), Some(cli.actor.clone()))
+        }
+        _ => {
+            let reason = args.reason.as_deref().unwrap_or_default();
+            let event_id = commands.dispute_attribution(&cli.actor, &decision_id, reason)?;
+            (event_id, cli.actor.clone(), None)
+        }
+    };
 
     format_dispute_attribution_output(
         cli.json,
         &DisputeAttributionOutput {
             decision_id,
             event_id,
-            disputed_by: cli.actor.clone(),
+            disputed_by,
+            relayed_by,
         },
     )
 }

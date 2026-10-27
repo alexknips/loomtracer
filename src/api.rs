@@ -26,8 +26,9 @@
 //! - `POST /v1/decisions/{id}/attribution-disputes` — say the call `{id}` names the caller as
 //!   its decider for was never theirs, with a `reason`: the caller is the credential's own actor
 //!   (the body names nobody), and only an actor the decision names as a decider may do it. The
-//!   acceptance stays as recorded and the status is unchanged; there is no MCP tool, so an agent
-//!   in a person's session cannot do it for them (hivemind-purmd)
+//!   acceptance stays as recorded and the status is unchanged. This is the direct, own-credential
+//!   path (hivemind-purmd); an agent records it for the person with the `dispute_attribution` MCP
+//!   tool (hivemind-f9xgu)
 //! - `POST /v1/decisions/{id}/supersessions`        — supersede
 //! - `POST /v1/decisions/{id}/supersession-links`   — record that `{id}` (already recorded)
 //!   supersedes the body's `supersedes_id` (already recorded), as the caller, without creating

@@ -2340,7 +2340,9 @@ fn project_decision_reaffirmed(
 }
 
 /// `decision.attribution_disputed` becomes one `AttributionDispute` node id'd by the event's own
-/// uuid, carrying the decision, the reason, who disputed and when. It touches no other node: the
+/// uuid, carrying the decision, the reason, who disputed, when, and where they said it (`said_in`,
+/// null when not stated). The node's `source` and `source_ref` say who recorded it: the agent that
+/// relayed a person's words (hivemind-f9xgu), or the person's own credential. It touches no other node: the
 /// acceptance it disputes keeps its `ACCEPTED_BY` edge and its actor, so the graph shows both
 /// the attribution and the dispute of it (hivemind-purmd).
 fn project_decision_attribution_disputed(
@@ -2359,6 +2361,13 @@ fn project_decision_attribution_disputed(
             ("reason", GraphValue::String(payload.reason.clone())),
             ("disputed_by", GraphValue::String(event.actor_id.clone())),
             ("disputed_at", event_timestamp(event)),
+            (
+                "said_in",
+                payload
+                    .said_in
+                    .clone()
+                    .map_or(GraphValue::Null, GraphValue::String),
+            ),
         ],
     );
     graph.upsert_node(

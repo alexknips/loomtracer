@@ -922,6 +922,7 @@ fn typed_payload_cases() -> Vec<(EventType, EventPayload)> {
             EventPayload::DecisionAttributionDisputed(DecisionAttributionDisputedPayload {
                 decision_id: "decision:minimal".to_owned(),
                 reason: "Contract tests need one valid attribution dispute payload".to_owned(),
+                said_in: Some("session-1".to_owned()),
             }),
         ),
         (

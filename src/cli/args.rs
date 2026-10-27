@@ -190,25 +190,30 @@ pub enum Command {
     /// missing. With that variable set it otherwise says in its output (a `notice` key under
     /// --json) that it used that local ledger, so the cell has no record of it.
     Disagree(DisagreeArgs),
-    /// Say that a decision names you as its decider and the call was never yours, and why:
-    /// someone else (an agent relaying a default, a scribe) recorded your name against it.
+    /// Say that a decision names a person as its decider and the call was never theirs, and why:
+    /// someone else (an agent relaying a default, a scribe) recorded their name against it.
     ///
-    /// Writes a `decision.attribution_disputed` event with `--reason` from `--actor`, beside the
-    /// acceptance, which is neither removed nor rewritten: `why`, `verify` and `brief` then read
-    /// `decided by: <you> (..., disputed by <you>: <reason>)`. It is not a rejection and does not
-    /// change the decision's status; to say you disagree with the decision itself, use
-    /// `disagree`. Only an actor the decision names as a decider can dispute, and only for
-    /// itself: `--actor` is the one disputing, so there is no way to dispute for someone else,
-    /// and any other actor is refused, exit 3, with nothing recorded. A description that matches
-    /// more than one decision lists the candidates and writes nothing; pick one with --pick N,
-    /// or name the decision with --decision.
+    /// Writes a `decision.attribution_disputed` event beside the acceptance, which is neither
+    /// removed nor rewritten: `why`, `verify` and `brief` then read `decided by: <person> (...,
+    /// disputed by <person>: <what they said>)`. It is not a rejection and does not change the
+    /// decision's status; to say you disagree with the decision itself, use `disagree`. Only an
+    /// actor the decision names as a decider can be the one disputing. Two ways to write it, and
+    /// any other actor is refused, exit 3, with nothing recorded:
+    ///
+    /// - The person, with `--reason` in their own words: `--actor` is the one disputing.
+    /// - Their agent, for them: `--actor agent:<tool>:<name> --disputed-by human:<name> --quote
+    ///   "<their verbatim words>"`, with `--said-in` for the session or thread. The event is the
+    ///   person's, with the agent recorded as relaying it (`disputed by <person> (relayed by
+    ///   <agent>): <quote>`), the way `capture --decided-by` records a call they made.
+    ///
+    /// A description that matches more than one decision lists the candidates and writes
+    /// nothing; pick one with --pick N, or name the decision with --decision.
     ///
     /// Reads and writes the ledger under --loomtracer-dir (or --database-url) and never contacts
     /// the server in LOOMTRACER_API_URL. It refuses, exit 2 and creating nothing, when
-    /// --loomtracer-dir holds no ledger. For the cell, call `POST
-    /// /v1/decisions/{id}/attribution-disputes` with your own token: the cell takes the actor
-    /// from the token, and there is no MCP tool for it, so an agent in your session cannot speak
-    /// for you.
+    /// --loomtracer-dir holds no ledger. For the cell, an agent calls the `dispute_attribution`
+    /// MCP tool; a person with their own token can call `POST
+    /// /v1/decisions/{id}/attribution-disputes`, where the cell takes the actor from the token.
     DisputeAttribution(DisputeAttributionArgs),
     /// Replace a decision with a new one, found by describing it: the replacement is captured
     /// with its own title, rationale and options, and the old decision is marked superseded by
@@ -1133,9 +1138,23 @@ pub struct DisputeAttributionArgs {
     #[arg(long = "topic")]
     pub topic: Option<String>,
 
-    /// In your own words: what was recorded in your name that you did not decide.
-    #[arg(long)]
-    pub reason: String,
+    /// In your own words: what was recorded in your name that you did not decide. Not with
+    /// --quote.
+    #[arg(long, conflicts_with = "quote", required_unless_present = "quote")]
+    pub reason: Option<String>,
+
+    /// As an agent, record a person's dispute for them: the person (`human:<name>`) whose
+    /// words --quote holds. --actor is the agent relaying them.
+    #[arg(long = "disputed-by", requires = "quote")]
+    pub disputed_by: Option<String>,
+
+    /// With --disputed-by: the person's verbatim words, as they said them.
+    #[arg(long, requires = "disputed_by")]
+    pub quote: Option<String>,
+
+    /// With --quote: the session, thread or message they said it in.
+    #[arg(long = "said-in", requires = "quote")]
+    pub said_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]

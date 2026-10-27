@@ -468,6 +468,7 @@ Cursor uses the same shape under `mcp.servers`. The server exposes these tools:
 | `capture_evidence` | write | `emit evidence.recorded` |
 | `capture_hypothesis` | write | `emit hypothesis.recorded` |
 | `disagree_decision` | write | `disagree` |
+| `dispute_attribution` | write | `dispute-attribution --disputed-by` |
 | `supersede_decision` | write | `supersede` |
 | `link_supersession` | write | `emit decision.superseded` |
 | `move_decision` | write | `move` |
