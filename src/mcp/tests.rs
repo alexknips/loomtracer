@@ -1834,6 +1834,35 @@ fn capture_decided_by_a_person(config: &McpConfig, person: &str) -> String {
         .to_owned()
 }
 
+// The decision the calling agent decided itself: `chosen_option_label` without `decided_by`
+// self-accepts from the agent, so the agent is the decision's recorded decider.
+fn capture_decided_by_the_agent(config: &McpConfig) -> String {
+    let capture = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "capture_decision",
+            "arguments": {
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Call the review state Upheld",
+                "rationale": "The agent decided the name itself on a default",
+                "topic_keys": ["naming"],
+                "options": [{"label": "Upheld"}],
+                "chosen_option_label": "Upheld",
+            }
+        }
+    })
+    .to_string();
+    let responses = drive(config, &[capture.as_str()]);
+    responses[0]["result"]["structuredContent"]["decision_id"]
+        .as_str()
+        .expect("decision id")
+        .to_owned()
+}
+
 fn call_tool(config: &McpConfig, id: u32, name: &str, arguments: Value) -> Value {
     let request = json!({
         "jsonrpc": "2.0",
@@ -1928,6 +1957,83 @@ fn dispute_attribution_tool_records_the_persons_words_with_the_agent_as_the_rela
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// hivemind-53dmq: an agent that the decision names as its decider says the call was never its own
+// with `reason` alone. The event is the agent's, on its own credential, with no relay; it sits
+// beside the acceptance, which stays.
+#[test]
+fn dispute_attribution_tool_records_a_decider_agents_own_dispute_with_no_relay() {
+    let dir = unique_dir("dispute-attribution-own");
+    let config = McpConfig::new(&dir)
+        .with_agent_tool("claude")
+        .with_session_id("decider-session");
+    let agent = "agent:claude:decider-session";
+    let reason = "the name came from a default in my prompt; I did not choose it";
+    let decision_id = capture_decided_by_the_agent(&config);
+
+    let response = call_tool(
+        &config,
+        2,
+        "dispute_attribution",
+        json!({"decision_id": decision_id, "reason": reason}),
+    );
+    let result = &response["result"];
+    assert_eq!(result["isError"], false, "{result:?}");
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["decision_id"], decision_id.as_str());
+    assert_eq!(
+        structured["disputed_by"], agent,
+        "the agent speaks for itself"
+    );
+    assert!(
+        structured.get("relayed_by").is_none() && structured.get("said_in").is_none(),
+        "nobody relayed it: {structured:?}"
+    );
+    assert_eq!(
+        structured["decision_status"], "accepted",
+        "a dispute of who decided is not a rejection"
+    );
+    let event_id = structured["event_id"].as_u64().expect("event id");
+
+    let ledger = SqliteEventLedger::open(&dir).expect("ledger opens");
+    let events = ledger.read(0, 50).expect("events read");
+    let disputed = events
+        .iter()
+        // ubs:ignore: event IDs are public ledger offsets, not secrets.
+        .find(|event| event.event_id == Some(event_id))
+        .expect("the dispute event");
+    assert_eq!(
+        disputed.event_type,
+        crate::events::EventType::DecisionAttributionDisputed
+    );
+    assert_eq!(disputed.actor_id, agent, "the event is the agent's own");
+    assert_eq!(disputed.payload["reason"], reason);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.event_type != crate::events::EventType::DecisionRejected),
+        "nothing was rejected"
+    );
+
+    let graph = crate::projector::memory::MemoryGraph::default();
+    crate::projector::project_from_ledger(&ledger, &graph, 0).expect("project");
+    let brief = crate::queries::get_decision_brief(&graph, &decision_id)
+        .expect("brief reads")
+        .data
+        .expect("the decision has a brief");
+    let disputes = &brief.decided_by.attribution_disputes;
+    assert_eq!(disputes.len(), 1, "{disputes:?}");
+    assert_eq!(disputes[0].disputed_by, agent);
+    assert_eq!(disputes[0].reason, reason);
+    assert_eq!(disputes[0].relayed_by, None);
+    assert_eq!(
+        brief.decided_by.decider_ids,
+        [agent],
+        "the acceptance stays"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn dispute_attribution_tool_resolves_a_description_and_asks_before_it_guesses() {
     let dir = unique_dir("dispute-attribution-description");
@@ -2008,6 +2114,8 @@ fn dispute_attribution_tool_refuses_what_it_cannot_attribute_and_writes_nothing(
         "decision_id": decision_id, "disputed_by": "agent:claude:other", "quote": "not mine",
     }));
     assert!(text.contains("is not a person"), "{text}");
+    // hivemind-53dmq: and an agent that names itself is told where its own dispute goes.
+    assert!(text.contains("send your own words as `reason`"), "{text}");
     // A person does not relay: the tool's caller is an agent.
     let text = refused(json!({
         "actor_id": person, "decision_id": decision_id, "disputed_by": person, "quote": "mine",
@@ -2037,15 +2145,33 @@ fn dispute_attribution_tool_refuses_what_it_cannot_attribute_and_writes_nothing(
     };
     needs_a_person(&text);
     needs_a_person(&refused(json!({"decision_id": decision_id})));
-    // An argument the tool does not take is refused, not ignored (`reason` is the CLI's).
+    // `reason` is the agent's own words: beside a person it is refused, not ignored.
     let text = refused(json!({
         "decision_id": decision_id, "disputed_by": person, "quote": "mine", "reason": "x",
     }));
-    assert!(text.contains("reason"), "{text}");
+    assert!(text.contains("leave `reason` out"), "{text}");
+    // And the person's words go with the person, not with the agent's own `reason`.
+    let text = refused(json!({"decision_id": decision_id, "reason": "x", "quote": "mine"}));
+    assert!(text.contains("go with `disputed_by`"), "{text}");
+    // An argument the tool does not take is refused, not ignored.
+    let text = refused(json!({
+        "decision_id": decision_id, "disputed_by": person, "quote": "mine", "comment": "x",
+    }));
+    assert!(text.contains("unknown argument `comment`"), "{text}");
+    // hivemind-53dmq: an agent's own `reason` is for a decision that names that agent as its
+    // decider. This one names the person, so the agent is told the paths it has, as tools, and
+    // is not offered `reason` again.
+    let text = refused(json!({"decision_id": decision_id, "reason": "I disagree"}));
     needs_a_person(&text);
-    needs_a_person(&refused(
-        json!({"decision_id": decision_id, "reason": "I disagree"}),
-    ));
+    assert!(
+        text.contains("agent:claude:relay-session is not recorded as a decider"),
+        "{text}"
+    );
+    assert!(!text.contains("send your own words as `reason`"), "{text}");
+    // A person is not the agent that speaks for itself here: their dispute goes through their agent.
+    let text = refused(json!({"actor_id": person, "decision_id": decision_id, "reason": "mine"}));
+    assert!(text.contains("is not an agent"), "{text}");
+    assert!(text.contains("`disputed_by`"), "{text}");
 
     assert_eq!(
         ledger.latest_offset().expect("offset after"),
@@ -5197,6 +5323,87 @@ mod transport_parity {
             assert_eq!(content["said_in"], json!("thread-1"), "{name}"); // ubs:ignore: test-only assertion
             assert_eq!(content["decision_status"], json!("accepted"), "{name}"); // ubs:ignore: test-only assertion
             assert!(content["event_id"].is_number(), "{name}: event_id"); // ubs:ignore: test-only assertion
+        }
+    }
+
+    /// hivemind-53dmq: the dispute a decider agent records for itself with `reason`, and the
+    /// refusal of one that is not a decider, the same on both transports.
+    #[tokio::test]
+    async fn dispute_attribution_takes_a_decider_agents_own_reason_across_transports() {
+        let capture = |decided_by: Option<&str>| {
+            let mut arguments = json!({
+                "actor_id": "agent:claude:decider",
+                "binds": {"level": "something", "statement": "Later work builds on it"},
+                "undo_cost": {"level": "cheap"},
+                "grounding": [{"kind": "bet"}],
+                "title": "Call the review state Upheld",
+                "rationale": "The agent decided the name itself on a default",
+                "topic_keys": ["naming"],
+                "options": [{"label": "Upheld"}],
+                "chosen_option_label": "Upheld",
+            });
+            if let (Some(decided_by), Some(arguments)) = (decided_by, arguments.as_object_mut()) {
+                arguments.insert("decided_by".to_owned(), json!(decided_by));
+            }
+            arguments
+        };
+        let own_reason = |decision_id: &str| {
+            json!({
+                "actor_id": "agent:claude:decider",
+                "decision_id": decision_id,
+                "reason": "the name came from a default in my prompt",
+            })
+        };
+
+        let (stdio, http) = run_after_with_id(
+            "capture_decision",
+            capture(None),
+            "dispute_attribution",
+            "dispute-attribution-own",
+            own_reason,
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], false, "{name}: expected success"); // ubs:ignore: test-only assertion
+            let content = &result["structuredContent"];
+            assert_eq!(
+                content["disputed_by"],
+                json!("agent:claude:decider"),
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+            assert!(content.get("relayed_by").is_none(), "{name}: no relay"); // ubs:ignore: test-only assertion
+            assert_eq!(content["decision_status"], json!("accepted"), "{name}"); // ubs:ignore: test-only assertion
+            assert!(content["event_id"].is_number(), "{name}: event_id"); // ubs:ignore: test-only assertion
+        }
+
+        // The same words about a decision a person decided: the agent is not its decider.
+        let (stdio, http) = run_after_with_id(
+            "capture_decision",
+            capture(Some("human:alex")),
+            "dispute_attribution",
+            "dispute-attribution-own-refused",
+            own_reason,
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], true, "{name}: expected a refusal"); // ubs:ignore: test-only assertion
+            let text = result["content"][0]["text"].as_str().expect("error text"); // ubs:ignore: test-only; panicking is correct in tests
+            for named in [
+                "`disputed_by`",
+                "`quote`",
+                "`disagree_decision`",
+                "`link_supersession`",
+            ] {
+                assert!(text.contains(named), "{name}: names {named}: {text}"); // ubs:ignore: test-only assertion
+            }
+            assert!(
+                !text.contains("loomtracer disagree"),
+                "{name}: no CLI name: {text}"
+            ); // ubs:ignore: test-only assertion
+            assert!(
+                text.contains("is not recorded as a decider"),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
         }
     }
 

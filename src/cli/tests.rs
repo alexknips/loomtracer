@@ -15147,6 +15147,110 @@ fn a_non_decider_agents_dispute_refusal_names_what_it_is_missing_and_the_hint_wo
     let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
+// hivemind-53dmq: an agent the decision names as its decider says the call was never its own with
+// `--reason`, on its own credential and with no relay. Naming itself as the person is refused, in
+// words that point it at `--reason`, and writes nothing.
+#[test]
+fn a_decider_agent_disputes_its_own_acceptance_with_reason_and_is_not_a_relayed_person() {
+    let loomtracer_dir = unique_test_dir("dispute-attribution-decider-agent");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let scribe = "agent:claude:scribe";
+    let reason = "the name came from a default in my prompt";
+    let decision_id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "The product has a new name",
+        "--rationale",
+        "A default the agent took",
+        "--topic-keys",
+        "naming",
+        "--options",
+        "Upheld",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("the agent accepts its own proposal");
+
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+    let as_a_person = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "dispute-attribution",
+        "--decision",
+        &decision_id,
+        "--disputed-by",
+        scribe,
+        "--quote",
+        reason,
+    ]))
+    .expect_err("an agent is not a person to relay for");
+    assert!(
+        format_error(false, &as_a_person).contains("is not a person"),
+        "{as_a_person:?}"
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused dispute writes nothing"
+    );
+
+    let recorded: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            scribe,
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "dispute-attribution",
+            "--decision",
+            &decision_id,
+            "--reason",
+            reason,
+        ]))
+        .expect("the decider's own dispute records"),
+    )
+    .expect("valid dispute json");
+    assert_eq!(recorded["disputed_by"], scribe);
+    assert!(
+        recorded
+            .get("relayed_by")
+            .is_none_or(serde_json::Value::is_null),
+        "nobody relayed it: {recorded}"
+    );
+    let disputes: Vec<_> = ledger
+        .read(0, 100)
+        .expect("events read")
+        .into_iter()
+        .filter(|event| event.event_type == crate::events::EventType::DecisionAttributionDisputed)
+        .collect();
+    assert_eq!(disputes.len(), 1, "{disputes:?}");
+    assert_eq!(disputes[0].actor_id, scribe);
+    assert_eq!(disputes[0].payload["reason"], reason);
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}
+
 // hivemind-f9xgu: a person disputes through their agent. The agent records the person's verbatim
 // words (`--quote`) as the person's dispute, naming itself as the relay and where they said it;
 // `why` reads "disputed by <person> (relayed by <agent>, said in <where>): <quote>". A person who

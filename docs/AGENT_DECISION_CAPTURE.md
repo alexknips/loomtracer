@@ -346,11 +346,16 @@ not said it in this conversation there is nothing to record. Only an actor the d
 its decider can be disputed for, and a dispute is not a rejection: the acceptance and the
 decision's status stay as recorded (use `disagree_decision` to say the decision itself is wrong).
 `--reason` (in place of `--disputed-by` and `--quote`) is the decider's own words with their own
-credential. An agent that is not itself a decider and sends `--reason`, or calls
-`dispute_attribution` without `disputed_by`, is refused with nothing written, and the refusal is
-addressed to you: it names `disputed_by` (the person) and `quote` (their words), and where your
-own disagreement goes (`disagree_decision` with your `reason`, or `capture_decision` and
-`link_supersession` to replace the decision). A person on their own credential who is not a
+credential. Over MCP it is the same: an agent that the decision names as its decider, because it
+holds a `decision.accepted` of its own on it, and that says the call was never its own, sends
+`dispute_attribution` with `reason` alone (no `disputed_by`, `quote` or `said_in`). The event is
+the agent's own, with no relay, and the reply names it as `disputed_by`. `disputed_by` set to an
+agent is refused and points there, and so is `reason` together with `disputed_by`. An agent that is
+not itself a decider and sends `--reason` or `reason`, or calls `dispute_attribution` without
+`disputed_by`, is refused with nothing written, and the refusal is addressed to you: it names
+`disputed_by` (the person) and `quote` (their words), and where your own disagreement goes
+(`disagree_decision` with your `reason`, or `capture_decision` and `link_supersession` to replace
+the decision). A person on their own credential who is not a
 decider is still pointed at `disagree`.
 
 A person's disagreement with a decision, and their "that still holds" after something it rests on
@@ -413,7 +418,7 @@ Which agent path each person-facing write has:
 | "I decided X" | `capture_decision` / `emit decision.capture` with `decided_by` | `quote` + `question`; the relay is the capture's `source_ref` |
 | "X replaces Y", from their own answer | capture their answer with `decided_by`, then `link_supersession` | the replacement keeps its decider and quote |
 | "Yes, go with that" (a recommendation left open) | `accept_decision` | `quote` + `question`, `said_in`; the relay is the event's `source_ref` |
-| "I never decided this" | `dispute_attribution` / `dispute-attribution --disputed-by` | `quote`, `said_in`; the relay is the event's `source_ref` |
+| "I never decided this" | `dispute_attribution` / `dispute-attribution --disputed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `disputed_by` it is the calling agent's own dispute (`reason`), allowed when the decision names that agent as its decider |
 | "I disagree with X" | `disagree_decision` / `disagree --disagreed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `disagreed_by` it is the calling agent's own disagreement (`reason`) |
 | "X still holds" | `reaffirm_decision` / `reaffirm --reaffirmed-by` | `quote`, `said_in`; the relay is the event's `source_ref`. Without `reaffirmed_by` it is the calling agent's own (`reason`) |
 | "X replaces Y", as the agent's own call | `supersede_decision` | the replacement is decided by the calling actor, so it is not a person's act; a person's own answer is captured with `decided_by` and linked |

@@ -350,15 +350,8 @@ pub(crate) fn reject_unknown_arguments(
     } else {
         format!("takes: {}", listed.join(", "))
     };
-    // `reason` is what the CLI's `dispute-attribution` takes for the actor's own words, so an
-    // agent that sends it here is saying what it means to record and is missing who said it.
-    let hint = if tool == "dispute_attribution" && arguments.contains_key("reason") {
-        format!(". {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}")
-    } else {
-        String::new()
-    };
     Err(CoreError::InvalidArgument(format!(
-        "unknown argument{} {}; {tool} {takes}{hint}",
+        "unknown argument{} {}; {tool} {takes}",
         if unknown.len() == 1 { "" } else { "s" },
         unknown.join(", "),
     )))
@@ -366,13 +359,29 @@ pub(crate) fn reject_unknown_arguments(
 
 /// What `dispute_attribution` tells an agent that calls it without the person (hivemind-9vrok):
 /// the tool records a person's dispute through the agent, so it needs the person and their
-/// words, and an agent's own disagreement is another tool. Without this the agent that arrives
-/// from the CLI's `--reason` form, or from a refusal that sent it here, has no next step.
+/// words, and an agent's own disagreement is another tool. A decider agent that disputes its own
+/// acceptance sends `reason` alone (hivemind-53dmq).
 const DISPUTE_ATTRIBUTION_NEEDS_A_PERSON: &str =
     "dispute_attribution records, for a person, that the call was never theirs: pass \
-     `disputed_by` (the person, `human:<name>`) and `quote` (their verbatim words). To record \
-     that you disagree with the decision yourself, use `disagree_decision` with your `reason`; \
-     to replace it, `capture_decision` then `link_supersession`";
+     `disputed_by` (the person, `human:<name>`) and `quote` (their verbatim words). If the \
+     decision names you as its decider and the call was never yours, send your own words as \
+     `reason`, with nothing else. To record that you disagree with the decision yourself, use \
+     `disagree_decision` with your `reason`; to replace it, `capture_decision` then \
+     `link_supersession`";
+
+/// What `dispute_attribution` tells an agent whose own `reason` was refused because the decision
+/// does not name it as a decider: the dispute is for the decider's own acceptance only, so it
+/// gets the paths it has instead, as tools (hivemind-53dmq). It does not offer `reason` again.
+fn dispute_attribution_not_a_decider(actor_id: &str, decision_id: &str) -> CoreError {
+    CoreError::InvalidArgument(format!(
+        "{actor_id} is not recorded as a decider of decision {decision_id}, so it cannot dispute \
+         that attribution: only an actor the decision names as its decider can say the call was \
+         not theirs, and only for itself. If a person told you the call was never theirs, pass \
+         `disputed_by` (the person, `human:<name>`) and their verbatim words as `quote`. To \
+         record that you disagree with the decision yourself, use `disagree_decision` with your \
+         `reason`; to replace it, `capture_decision` then `link_supersession`"
+    ))
+}
 
 /// The tools that append events to the ledger, in [`TOOL_KINDS`] order. The site's reference
 /// generator sorts its tool pages into write and read tools with this, so what the page calls a
@@ -1462,15 +1471,15 @@ impl DisagreeArgs {
 /// agent recording, in the person's words, that a decision names them as its decider and the call
 /// was never theirs. The target resolves the way `disagree_decision`'s does. `actor_id` is the
 /// relaying agent, `disputed_by` the person, and `quote` their verbatim words: all three are
-/// always required, and the person is never inferred from the credential.
+/// required for a person, and the person is never inferred from the credential. A decider agent
+/// that says the call was never its own sends its `reason` alone (hivemind-53dmq), recorded as
+/// its own dispute with its own credential, the way the CLI's `dispute-attribution --reason` is.
 pub(crate) struct DisputeAttributionArgs {
     pub(crate) actor_id: String,
     pub(crate) decision_id: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) topic: Option<String>,
-    pub(crate) disputed_by: String,
-    pub(crate) quote: String,
-    pub(crate) said_in: Option<String>,
+    pub(crate) statement: Statement,
 }
 
 impl DisputeAttributionArgs {
@@ -1478,21 +1487,56 @@ impl DisputeAttributionArgs {
         args: &Map<String, Value>,
         actor_id: String,
     ) -> Result<Self, CoreError> {
+        let person = optional_string(args, "disputed_by")?;
+        let reason = optional_string(args, "reason")?;
+        let statement = match (person, reason) {
+            (Some(person), None) => {
+                let person = person.trim().to_owned();
+                if person.starts_with("agent:") {
+                    return Err(CoreError::InvalidArgument(format!(
+                        "{person} is not a person (human:<name>): `disputed_by` is the person \
+                         whose words `quote` carries. To say the call was never yours, leave \
+                         out `disputed_by` and `quote` and send your own words as `reason`"
+                    )));
+                }
+                Statement::Relayed(RelayedWords {
+                    person,
+                    quote: require_string(args, "quote")?,
+                    said_in: optional_string(args, "said_in")?,
+                })
+            }
+            (None, Some(reason)) => {
+                if optional_string(args, "quote")?.is_some()
+                    || optional_string(args, "said_in")?.is_some()
+                {
+                    return Err(CoreError::InvalidArgument(
+                        "`quote` and `said_in` go with `disputed_by`: name the person whose \
+                         words they are, or leave them out and give your own `reason`"
+                            .to_owned(),
+                    ));
+                }
+                Statement::Own { reason }
+            }
+            (Some(_), Some(_)) => {
+                return Err(CoreError::InvalidArgument(
+                    "with `disputed_by` the person's words are the `quote`: leave `reason` out, \
+                     which would be your own. Send `disputed_by` with `quote` for a person, or \
+                     `reason` alone for yourself"
+                        .to_owned(),
+                ));
+            }
+            (None, None) => {
+                return Err(CoreError::InvalidArgument(format!(
+                    "missing `disputed_by`: {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}"
+                )));
+            }
+        };
         Ok(Self {
             actor_id,
             decision_id: optional_string(args, "decision_id")?,
             description: optional_string(args, "description")?,
             topic: optional_string(args, "topic")?,
-            disputed_by: require_string(args, "disputed_by")
-                .map_err(|(_, message)| {
-                    CoreError::InvalidArgument(format!(
-                        "{message}: {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}"
-                    ))
-                })?
-                .trim()
-                .to_owned(),
-            quote: require_string(args, "quote")?,
-            said_in: optional_string(args, "said_in")?,
+            statement,
         })
     }
 }
@@ -1500,9 +1544,11 @@ impl DisputeAttributionArgs {
 /// The core for the `dispute_attribution` MCP tool: one implementation consumed by both
 /// transports. Resolves its target via [`resolve_target`] first (an ambiguous or unmatched
 /// description is returned as-is and nothing is written), then records one
-/// `decision.attribution_disputed` as `disputed_by`, relayed by `actor_id`
-/// (`Commands::relay_attribution_dispute`). The decision's status is unchanged: a dispute of who
-/// decided is not a rejection, and the reply says so by returning the status as it now stands.
+/// `decision.attribution_disputed`: as `disputed_by`, relayed by `actor_id`
+/// (`Commands::relay_attribution_dispute`), or, for a `reason` alone, as `actor_id` itself
+/// (`Commands::dispute_attribution`), which must be an agent the decision names as its decider.
+/// The decision's status is unchanged: a dispute of who decided is not a rejection, and the
+/// reply says so by returning the status as it now stands.
 pub(crate) fn dispute_attribution<P: LedgerProvider>(
     provider: &P,
     args: DisputeAttributionArgs,
@@ -1528,15 +1574,38 @@ pub(crate) fn dispute_attribution<P: LedgerProvider>(
             EventProvenance::agent(args.actor_id.clone()),
         ),
     );
-    let event_id = commands
-        .relay_attribution_dispute(
+    let event_id = match &args.statement {
+        Statement::Own { reason } => {
+            // The tool's caller is an agent: a person's own dispute goes through their agent with
+            // their words, so an actor_id naming a person is not taken as the person speaking.
+            // Checked here so the refusal speaks in tools (the commands text names CLI forms).
+            if !args.actor_id.starts_with("agent:") {
+                return Err(CoreError::InvalidArgument(format!(
+                    "{} is not an agent: a person's dispute is recorded for them by their agent, \
+                     with `disputed_by` and their verbatim words as `quote`",
+                    args.actor_id
+                )));
+            }
+            if !commands
+                .is_recorded_decider(&decision_id, &args.actor_id)
+                .map_err(CoreError::from)?
+            {
+                return Err(dispute_attribution_not_a_decider(
+                    &args.actor_id,
+                    &decision_id,
+                ));
+            }
+            commands.dispute_attribution(&args.actor_id, &decision_id, reason)
+        }
+        Statement::Relayed(words) => commands.relay_attribution_dispute(
             &args.actor_id,
-            &args.disputed_by,
+            &words.person,
             &decision_id,
-            &args.quote,
-            args.said_in.as_deref(),
-        )
-        .map_err(CoreError::from)?;
+            &words.quote,
+            words.said_in.as_deref(),
+        ),
+    }
+    .map_err(CoreError::from)?;
 
     let graph = handle.graph().map_err(CoreError::from)?;
     let decision_status = derive_decision_status(&graph, &decision_id).map_err(CoreError::from)?;
@@ -1544,12 +1613,18 @@ pub(crate) fn dispute_attribution<P: LedgerProvider>(
     let mut reply = json!({
         "decision_id": decision_id,
         "event_id": event_id,
-        "disputed_by": args.disputed_by,
-        "relayed_by": args.actor_id,
         "decision_status": decision_status,
     });
-    if let (Some(said_in), Some(reply)) = (args.said_in.as_deref(), reply.as_object_mut()) {
-        reply.insert("said_in".to_owned(), json!(said_in.trim()));
+    match &args.statement {
+        Statement::Own { .. } => {
+            if let Some(reply) = reply.as_object_mut() {
+                reply.insert("disputed_by".to_owned(), json!(args.actor_id));
+            }
+        }
+        Statement::Relayed(_) => {
+            args.statement
+                .insert_relay_into(&mut reply, "disputed_by", &args.actor_id)
+        }
     }
     Ok(ToolOutput(reply))
 }

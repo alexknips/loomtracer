@@ -145,7 +145,7 @@ impl<L: EventLedger> Commands<'_, L> {
     /// (`decision.accepted`, including the one an agent records for a person with `decided_by`),
     /// or, for a decision a classifier drafted from a transcript, an id the capture lists in
     /// `accepted_by`.
-    fn is_recorded_decider(&self, decision_id: &str, actor_id: &str) -> Result<bool> {
+    pub(crate) fn is_recorded_decider(&self, decision_id: &str, actor_id: &str) -> Result<bool> {
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionAccepted)? {
             return Ok(true);
         }

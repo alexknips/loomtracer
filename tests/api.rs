@@ -7818,6 +7818,95 @@ async fn a_non_decider_agent_is_told_what_a_dispute_needs_and_the_named_call_rec
     ); // ubs:ignore
 }
 
+// hivemind-53dmq: an agent that the decision names as its decider says the call was never its own
+// over POST /mcp with `reason` alone, recorded as that agent with no relay. The agent names itself
+// in `disputed_by` and is pointed at `reason`; a person's `actor_id` is not the agent speaking.
+#[tokio::test]
+async fn a_decider_agent_disputes_its_own_acceptance_over_post_mcp() {
+    use loomtracer::events::EventType;
+    use loomtracer::ledger::EventLedger as _;
+
+    let dir = test_ledger_dir();
+    // `post_json` is the agent `agent:test:session-1`; a capture with a chosen option and no
+    // `decided_by` self-accepts from it, so it is the decision's recorded decider.
+    let decision_id =
+        capture_for_graph(&dir, "The product has a new name", Some("Option one"), None).await;
+    let decider = "agent:test:session-1";
+    let disputes = |dir: &Path| {
+        loomtracer::ledger::SqliteEventLedger::open(dir)
+            .unwrap()
+            .read(0, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::DecisionAttributionDisputed)
+            .collect::<Vec<_>>()
+    };
+    let refused = |arguments: serde_json::Value| {
+        let dir = dir.clone();
+        async move {
+            let (status, body) = call(
+                app(dir),
+                mcp_post(mcp_tools_call_body("dispute_attribution", arguments)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+            assert_eq!(body["result"]["isError"], true, "{body}"); // ubs:ignore
+            body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        }
+    };
+
+    // The agent that names itself as the person is told where its own dispute goes.
+    let text = refused(serde_json::json!({
+        "decision_id": decision_id, "actor_id": decider, "disputed_by": decider, "quote": "not mine",
+    }))
+    .await;
+    assert!(text.contains("is not a person"), "{text}"); // ubs:ignore
+    assert!(text.contains("send your own words as `reason`"), "{text}"); // ubs:ignore
+                                                                         // A person's name as `actor_id` is not the agent speaking for itself.
+    let text = refused(serde_json::json!({
+        "decision_id": decision_id, "actor_id": "human:alex", "reason": "mine",
+    }))
+    .await;
+    assert!(text.contains("is not an agent"), "{text}"); // ubs:ignore
+                                                         // The person's words and the agent's own `reason` are not both one statement.
+    let text = refused(serde_json::json!({
+        "decision_id": decision_id, "actor_id": decider, "disputed_by": "human:alex",
+        "quote": "not mine", "reason": "mine",
+    }))
+    .await;
+    assert!(text.contains("leave `reason` out"), "{text}"); // ubs:ignore
+                                                            // The caller of this request is another agent, which the decision does not name.
+    let text = refused(serde_json::json!({"decision_id": decision_id, "reason": "mine"})).await;
+    assert!(
+        text.contains("agent:test:mcp-session is not recorded as a decider"),
+        "{text}"
+    ); // ubs:ignore
+    assert!(disputes(&dir).is_empty(), "every refusal writes nothing"); // ubs:ignore
+
+    let reason = "the name came from a default in my prompt; I did not choose it";
+    let (status, body) = call(
+        app(dir.clone()),
+        mcp_post(mcp_tools_call_body(
+            "dispute_attribution",
+            serde_json::json!({"decision_id": decision_id, "actor_id": decider, "reason": reason}),
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["result"]["isError"], false, "{body}"); // ubs:ignore
+    let reply = &body["result"]["structuredContent"];
+    assert_eq!(reply["disputed_by"], decider, "{body}"); // ubs:ignore
+    assert!(reply.get("relayed_by").is_none(), "no relay: {body}"); // ubs:ignore
+    assert_eq!(reply["decision_status"], "accepted", "{body}"); // ubs:ignore
+    let recorded = disputes(&dir);
+    assert_eq!(recorded.len(), 1, "{recorded:?}"); // ubs:ignore
+    assert_eq!(recorded[0].actor_id, decider); // ubs:ignore
+    assert_eq!(recorded[0].payload["reason"], reason); // ubs:ignore
+}
+
 #[tokio::test]
 async fn only_the_named_decider_disputes_an_acceptance_and_why_shows_both() {
     use loomtracer::events::EventType;
