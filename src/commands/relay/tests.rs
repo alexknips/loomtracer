@@ -176,11 +176,82 @@ fn a_person_who_accepted_the_decision_cannot_also_disagree_through_their_agent()
     match refused {
         LoomtracerError::Command(CommandError::Invariant(message)) => {
             assert!(message.contains("already accepted"), "{message}");
-            assert!(message.contains("dispute-attribution"), "{message}");
+            // It speaks to the relaying agent and names what that agent can do for the person.
+            assert!(
+                message.contains(&format!("{RELAY} cannot record")),
+                "{message}"
+            );
+            assert!(message.contains("`dispute_attribution`"), "{message}");
+            assert!(
+                message.contains(&format!("`disputed_by` {PERSON}")),
+                "{message}"
+            );
+            assert!(message.contains("`capture_decision`"), "{message}");
+            assert!(
+                message.contains(&format!("`decided_by` {PERSON}")),
+                "{message}"
+            );
+            assert!(message.contains("`link_supersession`"), "{message}");
+            // Not the person's own-credential hint, which refuses an agent and loops back here.
+            assert!(
+                !message.contains("To change your own decision"),
+                "{message}"
+            );
+            assert!(!message.contains("--reason"), "{message}");
         }
         other => panic!("expected an invariant refusal, got {other:?}"),
     }
     assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+#[test]
+fn the_dispute_a_refused_relayed_disagreement_points_at_records_the_persons_words() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    commands
+        .accept_decision(&decision_id, PERSON)
+        .expect("the person accepts");
+    commands
+        .relay_disagreement(RELAY, PERSON, &decision_id, QUOTE, None)
+        .expect_err("they already accepted it");
+
+    // The next step the refusal names, taken as the same agent with the same words.
+    commands
+        .relay_attribution_dispute(RELAY, PERSON, &decision_id, QUOTE, None)
+        .expect("the agent records the person's dispute");
+
+    let disputes = of_type(&ledger, EventType::DecisionAttributionDisputed);
+    assert_eq!(disputes.len(), 1);
+    assert_eq!(disputes[0].actor_id, PERSON);
+    assert_eq!(disputes[0].source_ref.as_deref(), Some(RELAY));
+    assert_eq!(payload_str(&disputes[0], "reason"), QUOTE);
+}
+
+#[test]
+fn a_person_disagreeing_with_their_own_credential_keeps_the_own_decision_refusal() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = propose(&commands, "Cap requests per tenant");
+    commands
+        .accept_decision(&decision_id, PERSON)
+        .expect("the person accepts");
+
+    let refused = commands
+        .disagree(PERSON, &decision_id, "I changed my mind")
+        .expect_err("they already accepted it");
+
+    match refused {
+        LoomtracerError::Command(CommandError::Invariant(message)) => {
+            assert!(message.contains("To change your own decision"), "{message}");
+            assert!(
+                message.contains("loomtracer dispute-attribution"),
+                "{message}"
+            );
+            assert!(!message.contains("cannot record"), "{message}");
+        }
+        other => panic!("expected an invariant refusal, got {other:?}"),
+    }
 }
 
 #[test]

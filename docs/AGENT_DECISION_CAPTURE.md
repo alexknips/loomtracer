@@ -368,8 +368,12 @@ and `verify` read `disagreed by human:bob (relayed by agent:claude:mayor, said i
 (`reaffirmations[].relayed_by` and `said_in`); the dated story says it too. A person's name
 without their words is refused with nothing written, and so are `quote` and `said_in` without the
 person's name and a `reason` beside them. Without the person's name the call is the agent's own,
-as before. A person who accepted a decision cannot also disagree with it; the refusal points at
-`dispute_attribution`.
+as before. A person who accepted a decision cannot also disagree with it. The refusal is addressed
+to you, the relaying agent, and writes nothing: if they say the call was never theirs, call
+`dispute_attribution` with `disputed_by` and their `quote`; if they changed their mind, capture
+their new answer with `capture_decision` (`decided_by` and `quote`) and `link_supersession` it to
+the old decision. A person disagreeing with their own credential gets the refusal that points at
+`supersede`, `retitle` and `move`.
 
 A person's "yes" to a recommendation that was left open is recorded the same way (hivemind-fsxx9).
 When you record a recommendation nobody decided, capture it with `still_proposed`; when the person

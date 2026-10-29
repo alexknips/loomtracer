@@ -2408,17 +2408,36 @@ fn disagree_decision_tool_refuses_a_persons_name_without_their_words_and_writes_
         text.contains("only an agent records a person's words"),
         "{text}"
     );
-    // A person who accepted the decision cannot also disagree with it; the refusal points at the
-    // dispute of an attribution.
+    // A person who accepted the decision cannot also disagree with it; the refusal tells the
+    // relaying agent which tools record the person's dispute or their changed mind, not a CLI
+    // form that takes their own credential.
     let text = refused(json!({
         "decision_id": decision_id, "disagreed_by": decider, "quote": "mine",
     }));
-    assert!(text.contains("dispute-attribution"), "{text}");
+    assert!(text.contains("`dispute_attribution`"), "{text}");
+    assert!(text.contains(&format!("`disputed_by` {decider}")), "{text}");
+    assert!(text.contains("`capture_decision`"), "{text}");
+    assert!(text.contains("`link_supersession`"), "{text}");
+    assert!(!text.contains("--reason"), "{text}");
 
     assert_eq!(
         ledger.latest_offset().expect("offset after"),
         before,
         "every refusal writes nothing"
+    );
+
+    // The dispute the refusal names, called as the same agent with the same words, is recorded as
+    // the person's with the agent as the relay.
+    let disputed = call_tool(
+        &config,
+        10,
+        "dispute_attribution",
+        json!({"decision_id": decision_id, "disputed_by": decider, "quote": "mine"}),
+    );
+    assert_ne!(disputed["result"]["isError"], true, "{disputed:?}");
+    assert!(
+        ledger.latest_offset().expect("offset after dispute") > before,
+        "the dispute is written"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

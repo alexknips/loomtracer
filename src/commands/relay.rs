@@ -83,6 +83,27 @@ impl<'a> Relay<'a> {
         }
         Ok(())
     }
+
+    /// The refusal for a relayed disagreement from a person who already accepted the decision.
+    /// It stays a refusal, but it speaks to the relaying agent, not to the person: the direct
+    /// text ("to change your own decision ...") names forms that take the caller's own
+    /// credential, and an agent that follows its dispute hint is refused again and sent back to
+    /// `disagree`. This one names the two paths an agent can take for the person, as tools
+    /// (MCP is where an agent reaches the cell), with the CLI form of the dispute beside it.
+    pub(crate) fn already_accepted_refusal(&self, person: &str, decision_id: &str) -> CommandError {
+        let by = self.by;
+        CommandError::Invariant(format!(
+            "{person} already accepted decision {decision_id}, so {by} cannot record that they \
+             reject it: a person who accepted a call cannot also disagree with it. If they say \
+             the call was never theirs and someone else recorded their name against it, record \
+             that with `dispute_attribution` (`disputed_by` {person} and their words as `quote`; \
+             CLI: `loomtracer dispute-attribution --decision {decision_id} --disputed-by \
+             {person} --quote ...`): it is kept beside the acceptance, which stays. If they \
+             changed their mind, capture their new answer with `capture_decision` (`decided_by` \
+             {person} and their words as `quote`), then `link_supersession` from {decision_id} \
+             to it."
+        ))
+    }
 }
 
 /// What a person accepted and what they said: `accepted_by` is the person (`human:<name>`),

@@ -15302,10 +15302,15 @@ fn an_agent_records_a_persons_disagreement_in_their_words_and_why_names_the_rela
         format_error(false, &for_an_agent)
     );
     let already_accepted = relay(mayor, decider, &[]).expect_err("they accepted it");
+    let already_accepted_text = format_error(false, &already_accepted);
     assert!(
-        format_error(false, &already_accepted).contains("dispute-attribution"),
-        "{}",
-        format_error(false, &already_accepted)
+        already_accepted_text.contains("--disputed-by")
+            && already_accepted_text.contains("--quote"),
+        "{already_accepted_text}"
+    );
+    assert!(
+        !already_accepted_text.contains("--reason"),
+        "{already_accepted_text}"
     );
     assert_eq!(
         ledger.latest_offset().expect("latest offset after"),

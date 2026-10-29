@@ -251,8 +251,11 @@
 //!   refused, never guessed). An agent that passes a person's name without their words is refused,
 //!   and so are a `human:` relay, an agent as the person and a blank quote, with nothing written.
 //! - Everything else is the direct verb's rule: a person who accepted the decision cannot also
-//!   disagree with it (the refusal points at `dispute-attribution`), a repeated disagreement by the
-//!   same person returns the first event, a reaffirmation is a new act each time, and the verb
+//!   disagree with it. A relayed disagreement is refused in words for the relaying agent, naming
+//!   `dispute_attribution` with `disputed_by` and a quote (the call was never theirs) and
+//!   `capture_decision` with `decided_by` and a quote, then `link_supersession` (they changed
+//!   their mind); the person's own-credential refusal keeps its text. A repeated disagreement by
+//!   the same person returns the first event, a reaffirmation is a new act each time, and the verb
 //!   that closes an open re-examine item (`crate::reaffirmation::reaffirm`) still checks that
 //!   there is one before it writes.
 //! - There is no relay for `supersede_decision`: it records a new decision decided by the calling
@@ -2708,7 +2711,11 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
 
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionAccepted)? {
-            return Err(already_accepted_refusal(actor_id, decision_id).into());
+            return Err(match relay {
+                Some(relay) => relay.already_accepted_refusal(actor_id, decision_id),
+                None => already_accepted_refusal(actor_id, decision_id),
+            }
+            .into());
         }
 
         let payload = EventPayload::DecisionRejected(DecisionRejectedPayload {
