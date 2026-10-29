@@ -112,11 +112,71 @@ fn an_agent_cannot_dispute_for_the_person_it_named() {
                 message.contains("only for itself"),
                 "says whose it is to make: {message}"
             );
+            // hivemind-9vrok: it speaks to the agent, so it names what the agent is missing and
+            // the other paths it can take, and does not send it to `disagree` as the way to
+            // dispute for someone else (the loop fxkw6 closed from the other side).
+            for named in [
+                "dispute_attribution",
+                "`disputed_by`",
+                "`quote`",
+                "--disputed-by human:<name> --quote",
+                "`disagree_decision`",
+                "`capture_decision`",
+                "`link_supersession`",
+            ] {
+                assert!(message.contains(named), "names {named}: {message}");
+            }
             assert!(
-                message.contains("loomtracer disagree"),
-                "points at disagree: {message}"
+                !message.contains("use `loomtracer disagree`"),
+                "no longer sends the agent back to disagree: {message}"
             );
         }
+        other => panic!("expected an invariant refusal, got {other:?}"),
+    }
+    assert_eq!(events(&ledger).len(), before, "nothing written");
+}
+
+#[test]
+fn the_hint_an_agent_is_given_records_the_persons_dispute_with_the_agent_as_the_relay() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+    commands
+        .dispute_attribution(SCRIBE, &decision_id, REASON)
+        .expect_err("the scribe is not a decider");
+
+    // The path the refusal names, followed as the same agent.
+    commands
+        .relay_attribution_dispute(SCRIBE, PERSON, &decision_id, REASON, None)
+        .expect("the hint's own call records the dispute");
+
+    let disputed = of_type(&ledger, EventType::DecisionAttributionDisputed).remove(0);
+    assert_eq!(disputed.actor_id, PERSON, "the event is the person's");
+    assert_eq!(disputed.source_ref.as_deref(), Some(SCRIBE));
+    assert_eq!(payload_str(&disputed, "reason"), REASON);
+}
+
+#[test]
+fn a_person_without_a_decider_record_keeps_the_own_credential_refusal_word_for_word() {
+    let ledger = InMemoryEventLedger::new();
+    let commands = Commands::new(&ledger);
+    let decision_id = decided_for_person(&commands);
+    let before = events(&ledger).len();
+
+    let refused = commands
+        .dispute_attribution("human:bystander", &decision_id, REASON)
+        .expect_err("a bystander has nothing to dispute");
+
+    match refused {
+        LoomtracerError::Command(CommandError::Invariant(message)) => assert_eq!(
+            message,
+            format!(
+                "human:bystander is not recorded as a decider of decision {decision_id}, so it \
+                 cannot dispute that attribution: only an actor the decision names as its \
+                 decider can say the call was not theirs, and only for itself. To say you \
+                 disagree with the decision, use `loomtracer disagree`."
+            )
+        ),
         other => panic!("expected an invariant refusal, got {other:?}"),
     }
     assert_eq!(events(&ledger).len(), before, "nothing written");

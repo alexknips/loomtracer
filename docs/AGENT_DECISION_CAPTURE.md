@@ -345,6 +345,13 @@ person's: they are its actor, its `source` is `agent` and its `source_ref` is th
 not said it in this conversation there is nothing to record. Only an actor the decision names as
 its decider can be disputed for, and a dispute is not a rejection: the acceptance and the
 decision's status stay as recorded (use `disagree_decision` to say the decision itself is wrong).
+`--reason` (in place of `--disputed-by` and `--quote`) is the decider's own words with their own
+credential. An agent that is not itself a decider and sends `--reason`, or calls
+`dispute_attribution` without `disputed_by`, is refused with nothing written, and the refusal is
+addressed to you: it names `disputed_by` (the person) and `quote` (their words), and where your
+own disagreement goes (`disagree_decision` with your `reason`, or `capture_decision` and
+`link_supersession` to replace the decision). A person on their own credential who is not a
+decider is still pointed at `disagree`.
 
 A person's disagreement with a decision, and their "that still holds" after something it rests on
 changed, go the same way (hivemind-efo6x):

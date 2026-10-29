@@ -37,6 +37,8 @@ impl<L: EventLedger> Commands<'_, L> {
     /// event's actor is the one disputing, and nothing here takes a target. Someone who merely
     /// disagrees with the decision is not refused here but pointed at `disagree`, because they
     /// are not a decider and the dispute would say something about a name that is not theirs.
+    /// An agent that is not a decider is told the paths it can take instead
+    /// ([`not_a_decider_refusal`]).
     pub fn dispute_attribution_with_uuid(
         &self,
         actor_id: &str,
@@ -50,13 +52,7 @@ impl<L: EventLedger> Commands<'_, L> {
         self.require_decision_exists(decision_id)?;
 
         if !self.is_recorded_decider(decision_id, actor_id)? {
-            return Err(CommandError::Invariant(format!(
-                "{actor_id} is not recorded as a decider of decision {decision_id}, so it cannot \
-                 dispute that attribution: only an actor the decision names as its decider can \
-                 say the call was not theirs, and only for itself. To say you disagree with the \
-                 decision, use `loomtracer disagree`."
-            ))
-            .into());
+            return Err(not_a_decider_refusal(actor_id, decision_id).into());
         }
 
         let event = self.event_with_uuid(
@@ -165,6 +161,37 @@ impl<L: EventLedger> Commands<'_, L> {
                     .any(|decider| same_identifier(decider, actor_id))
             }))
     }
+}
+
+/// The refusal for a dispute from an actor the decision does not name as its decider
+/// (hivemind-9vrok). A person, or anything else on its own credential, is pointed at `disagree`.
+/// An agent is not: it reaches here by following a hint that told it to dispute with `--reason`,
+/// and for the person it is relaying `disagree` is the path that refuses it in turn, so this
+/// text names what the agent is missing (`disputed_by` and the person's `quote`) and the other
+/// paths it can take, as tools (MCP is where an agent reaches the cell) with the CLI forms
+/// beside them, the way [`Relay::already_accepted_refusal`] does for the reverse refusal.
+fn not_a_decider_refusal(actor_id: &str, decision_id: &str) -> CommandError {
+    let refused = format!(
+        "{actor_id} is not recorded as a decider of decision {decision_id}, so it cannot dispute \
+         that attribution: only an actor the decision names as its decider can say the call was \
+         not theirs, and only for itself."
+    );
+    if !actor_id.starts_with("agent:") {
+        return CommandError::Invariant(format!(
+            "{refused} To say you disagree with the decision, use `loomtracer disagree`."
+        ));
+    }
+    CommandError::Invariant(format!(
+        "{refused} If a person told you the call was never theirs and someone else recorded \
+         their name against it, record that for them with `dispute_attribution` (`disputed_by` \
+         the person as `human:<name>` and their verbatim words as `quote`; CLI: `loomtracer \
+         dispute-attribution --decision {decision_id} --disputed-by human:<name> --quote ...`): \
+         it is kept beside the acceptance, which stays. To record that someone disagrees with \
+         the decision itself, use `disagree_decision` (CLI: `loomtracer disagree`): with \
+         `disagreed_by` and their `quote` for a person who did not accept it, with your own \
+         `reason` for yourself. To replace it, capture the replacement with `capture_decision`, \
+         then `link_supersession` from {decision_id} to it."
+    ))
 }
 
 #[cfg(test)]

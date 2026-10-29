@@ -350,12 +350,29 @@ pub(crate) fn reject_unknown_arguments(
     } else {
         format!("takes: {}", listed.join(", "))
     };
+    // `reason` is what the CLI's `dispute-attribution` takes for the actor's own words, so an
+    // agent that sends it here is saying what it means to record and is missing who said it.
+    let hint = if tool == "dispute_attribution" && arguments.contains_key("reason") {
+        format!(". {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}")
+    } else {
+        String::new()
+    };
     Err(CoreError::InvalidArgument(format!(
-        "unknown argument{} {}; {tool} {takes}",
+        "unknown argument{} {}; {tool} {takes}{hint}",
         if unknown.len() == 1 { "" } else { "s" },
         unknown.join(", "),
     )))
 }
+
+/// What `dispute_attribution` tells an agent that calls it without the person (hivemind-9vrok):
+/// the tool records a person's dispute through the agent, so it needs the person and their
+/// words, and an agent's own disagreement is another tool. Without this the agent that arrives
+/// from the CLI's `--reason` form, or from a refusal that sent it here, has no next step.
+const DISPUTE_ATTRIBUTION_NEEDS_A_PERSON: &str =
+    "dispute_attribution records, for a person, that the call was never theirs: pass \
+     `disputed_by` (the person, `human:<name>`) and `quote` (their verbatim words). To record \
+     that you disagree with the decision yourself, use `disagree_decision` with your `reason`; \
+     to replace it, `capture_decision` then `link_supersession`";
 
 /// The tools that append events to the ledger, in [`TOOL_KINDS`] order. The site's reference
 /// generator sorts its tool pages into write and read tools with this, so what the page calls a
@@ -1466,7 +1483,14 @@ impl DisputeAttributionArgs {
             decision_id: optional_string(args, "decision_id")?,
             description: optional_string(args, "description")?,
             topic: optional_string(args, "topic")?,
-            disputed_by: require_string(args, "disputed_by")?.trim().to_owned(),
+            disputed_by: require_string(args, "disputed_by")
+                .map_err(|(_, message)| {
+                    CoreError::InvalidArgument(format!(
+                        "{message}: {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}"
+                    ))
+                })?
+                .trim()
+                .to_owned(),
             quote: require_string(args, "quote")?,
             said_in: optional_string(args, "said_in")?,
         })

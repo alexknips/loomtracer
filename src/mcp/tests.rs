@@ -2021,11 +2021,31 @@ fn dispute_attribution_tool_refuses_what_it_cannot_attribute_and_writes_nothing(
     assert!(text.contains("quote"), "{text}");
     let text = refused(json!({"decision_id": decision_id, "quote": "mine"}));
     assert!(text.contains("disputed_by"), "{text}");
+    // hivemind-9vrok: an agent that arrives without the person is told what the tool needs and
+    // where its own disagreement goes, as tools, not CLI commands.
+    let needs_a_person = |text: &str| {
+        for named in [
+            "`disputed_by`",
+            "`quote`",
+            "`disagree_decision`",
+            "`capture_decision`",
+            "`link_supersession`",
+        ] {
+            assert!(text.contains(named), "names {named}: {text}");
+        }
+        assert!(!text.contains("loomtracer disagree"), "no CLI name: {text}");
+    };
+    needs_a_person(&text);
+    needs_a_person(&refused(json!({"decision_id": decision_id})));
     // An argument the tool does not take is refused, not ignored (`reason` is the CLI's).
     let text = refused(json!({
         "decision_id": decision_id, "disputed_by": person, "quote": "mine", "reason": "x",
     }));
     assert!(text.contains("reason"), "{text}");
+    needs_a_person(&text);
+    needs_a_person(&refused(
+        json!({"decision_id": decision_id, "reason": "I disagree"}),
+    ));
 
     assert_eq!(
         ledger.latest_offset().expect("offset after"),

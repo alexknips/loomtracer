@@ -7722,6 +7722,102 @@ async fn classify_queue_submit_names_a_capture_with_a_bucket_label_and_records_t
 // Attribution disputes (hivemind-purmd)
 // ---------------------------------------------------------------------------
 
+// hivemind-9vrok: an agent that is not a decider is refused with a text addressed to it, over the
+// REST route and over POST /mcp, with nothing written; the call the text names then records the
+// person's dispute with the agent as the relay.
+#[tokio::test]
+async fn a_non_decider_agent_is_told_what_a_dispute_needs_and_the_named_call_records_it() {
+    use loomtracer::events::EventType;
+    use loomtracer::ledger::EventLedger as _;
+
+    let dir = test_ledger_dir();
+    // `post_json` and `mcp_post` are agents (`agent:test:session-1`, `agent:test:mcp-session`);
+    // the decision names the person as its decider, not them.
+    let decision_id = capture_for_graph(
+        &dir,
+        "The product has a new name",
+        Some("Option one"),
+        Some("human:alex"),
+    )
+    .await;
+    let disputes = |dir: &Path| {
+        loomtracer::ledger::SqliteEventLedger::open(dir)
+            .unwrap()
+            .read(0, 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.event_type == EventType::DecisionAttributionDisputed)
+            .collect::<Vec<_>>()
+    };
+    let names_the_paths = |text: &str| {
+        for named in [
+            "`disputed_by`",
+            "`quote`",
+            "`disagree_decision`",
+            "`capture_decision`",
+            "`link_supersession`",
+        ] {
+            assert!(text.contains(named), "names {named}: {text}"); // ubs:ignore
+        }
+        assert!(!text.contains("use `loomtracer disagree`"), "{text}"); // ubs:ignore
+    };
+
+    // The REST route is the caller's own credential: an agent token that is not a decider.
+    let (status, body) = call(
+        app(dir.clone()),
+        post_json(
+            &format!("/v1/decisions/{decision_id}/attribution-disputes"),
+            serde_json::json!({ "reason": "I disagree with Upheld" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}"); // ubs:ignore
+    names_the_paths(body["error"]["message"].as_str().unwrap_or_default());
+
+    // Over POST /mcp the tool takes the person, so the agent that leaves them out is told so.
+    for arguments in [
+        serde_json::json!({ "decision_id": decision_id }),
+        serde_json::json!({ "decision_id": decision_id, "reason": "I disagree with Upheld" }),
+    ] {
+        let (status, body) = call(
+            app(dir.clone()),
+            mcp_post(mcp_tools_call_body("dispute_attribution", arguments)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+        assert_eq!(body["result"]["isError"], true, "{body}"); // ubs:ignore
+        names_the_paths(
+            body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap_or_default(),
+        );
+    }
+    assert!(disputes(&dir).is_empty(), "every refusal writes nothing"); // ubs:ignore
+
+    // The call the text names.
+    let (status, body) = call(
+        app(dir.clone()),
+        mcp_post(mcp_tools_call_body(
+            "dispute_attribution",
+            serde_json::json!({
+                "decision_id": decision_id,
+                "disputed_by": "human:alex",
+                "quote": "I disagree with Upheld",
+            }),
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+    assert_eq!(body["result"]["isError"], false, "{body}"); // ubs:ignore
+    let recorded = disputes(&dir);
+    assert_eq!(recorded.len(), 1, "{recorded:?}"); // ubs:ignore
+    assert_eq!(recorded[0].actor_id, "human:alex"); // ubs:ignore
+    assert_eq!(
+        recorded[0].source_ref.as_deref(),
+        Some("agent:test:mcp-session")
+    ); // ubs:ignore
+}
+
 #[tokio::test]
 async fn only_the_named_decider_disputes_an_acceptance_and_why_shows_both() {
     use loomtracer::events::EventType;

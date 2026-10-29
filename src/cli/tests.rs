@@ -15022,6 +15022,131 @@ fn a_named_decider_disputes_an_acceptance_recorded_in_their_name_and_why_shows_b
     let _ = std::fs::remove_dir_all(&loomtracer_dir);
 }
 
+// hivemind-9vrok: an agent that is not a decider and sends `--reason` is refused, as before, but
+// the refusal is addressed to it: it names `disputed_by` and `quote` and where its own
+// disagreement goes, and following that hint records the person's dispute with the agent as the
+// relay. A person on their own credential is still pointed at `disagree`, word for word.
+#[test]
+fn a_non_decider_agents_dispute_refusal_names_what_it_is_missing_and_the_hint_works() {
+    let loomtracer_dir = unique_test_dir("dispute-attribution-agent-hint");
+    let dir = loomtracer_dir.to_str().expect("utf-8 temp path");
+    let scribe = "agent:claude:scribe";
+    let person = "human:alex";
+    let reason = "I disagree with Upheld";
+    let decision_id = run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        scribe,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.proposed",
+        "--title",
+        "The product has a new name",
+        "--rationale",
+        "A default the agent relayed",
+        "--topic-keys",
+        "naming",
+        "--options",
+        "Upheld",
+    ]))
+    .expect("decision proposed");
+    run(&Cli::parse_from([
+        "loomtracer",
+        "--actor",
+        person,
+        "--loomtracer-dir",
+        dir,
+        "emit",
+        "decision.accepted",
+        "--decision-id",
+        &decision_id,
+    ]))
+    .expect("the acceptance recorded in the person's name");
+
+    let ledger = SqliteEventLedger::open(&loomtracer_dir).expect("ledger opens");
+    let latest_before = ledger.latest_offset().expect("latest offset");
+    let dispute_with_reason = |actor: &str| {
+        run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            actor,
+            "--loomtracer-dir",
+            dir,
+            "dispute-attribution",
+            "--decision",
+            &decision_id,
+            "--reason",
+            reason,
+        ]))
+        .expect_err("neither is a recorded decider")
+    };
+
+    let by_the_agent = dispute_with_reason(scribe);
+    let printed = format_error(false, &by_the_agent);
+    assert_eq!(exit_code_for_error(&by_the_agent).code(), 3, "{printed}");
+    let cli_form = format!(
+        "loomtracer dispute-attribution --decision {decision_id} --disputed-by human:<name> --quote"
+    );
+    for named in [
+        "`dispute_attribution`",
+        "`disputed_by`",
+        "`quote`",
+        cli_form.as_str(),
+        "`disagree_decision`",
+        "`capture_decision`",
+        "`link_supersession`",
+    ] {
+        assert!(printed.contains(named), "names {named}: {printed}");
+    }
+    assert!(
+        !printed.contains("use `loomtracer disagree`"),
+        "the agent is not sent back to disagree: {printed}"
+    );
+
+    let by_a_person = dispute_with_reason("human:bob");
+    assert_eq!(
+        format_error(false, &by_a_person),
+        format!(
+            "error: invariant violated: human:bob is not recorded as a decider of decision \
+             {decision_id}, so it cannot dispute that attribution: only an actor the decision \
+             names as its decider can say the call was not theirs, and only for itself. To say \
+             you disagree with the decision, use `loomtracer disagree`."
+        ),
+        "the person's own-credential refusal keeps its text"
+    );
+    assert_eq!(
+        ledger.latest_offset().expect("latest offset after"),
+        latest_before,
+        "a refused dispute writes nothing"
+    );
+
+    // The hint, followed as the same agent.
+    let recorded: serde_json::Value = serde_json::from_str(
+        &run(&Cli::parse_from([
+            "loomtracer",
+            "--actor",
+            scribe,
+            "--json",
+            "--loomtracer-dir",
+            dir,
+            "dispute-attribution",
+            "--decision",
+            &decision_id,
+            "--disputed-by",
+            person,
+            "--quote",
+            reason,
+        ]))
+        .expect("the hint's own call records the dispute"),
+    )
+    .expect("valid dispute json");
+    assert_eq!(recorded["disputed_by"], person);
+    assert_eq!(recorded["relayed_by"], scribe);
+
+    let _ = std::fs::remove_dir_all(&loomtracer_dir);
+}
+
 // hivemind-f9xgu: a person disputes through their agent. The agent records the person's verbatim
 // words (`--quote`) as the person's dispute, naming itself as the relay and where they said it;
 // `why` reads "disputed by <person> (relayed by <agent>, said in <where>): <quote>". A person who
