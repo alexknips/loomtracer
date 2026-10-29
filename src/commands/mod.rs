@@ -2635,7 +2635,34 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         reason: &str,
         event_uuid: Uuid,
     ) -> Result<EventId> {
-        self.disagree_recording(actor_id, decision_id, reason, None, event_uuid)
+        self.disagree_recording(
+            actor_id,
+            decision_id,
+            reason,
+            None,
+            RefusalWords::Command,
+            event_uuid,
+        )
+    }
+
+    /// `disagree` for an agent that reaches the cell through MCP tools (hivemind-3wgmm): the same
+    /// disagreement and the same refusals, but the refusal for an agent that already accepted the
+    /// decision names the tools it can call (`supersede_decision`, `retitle_decision`,
+    /// `move_decision`, `dispute_attribution`), not the CLI commands, which never contact the cell.
+    pub fn disagree_by_tool(
+        &self,
+        actor_id: &str,
+        decision_id: &str,
+        reason: &str,
+    ) -> Result<EventId> {
+        self.disagree_recording(
+            actor_id,
+            decision_id,
+            reason,
+            None,
+            RefusalWords::Tool,
+            Uuid::new_v4(),
+        )
     }
 
     /// Record that `disagreed_by` disagrees with `decision_id`, as their agent `relayed_by` heard
@@ -2681,7 +2708,14 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         require_non_empty("decision_id", decision_id)?;
         let relay = Relay::new(relayed_by, said_in);
         relay.require_valid(disagreed_by, quote, "disagreement")?;
-        self.disagree_recording(disagreed_by, decision_id, quote, Some(&relay), event_uuid)
+        self.disagree_recording(
+            disagreed_by,
+            decision_id,
+            quote,
+            Some(&relay),
+            RefusalWords::Command,
+            event_uuid,
+        )
     }
 
     /// The one disagreement: `actor_id` rejects `decision_id` with `reason`, directly or (with
@@ -2692,6 +2726,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         decision_id: &str,
         reason: &str,
         relay: Option<&Relay<'_>>,
+        words: RefusalWords,
         event_uuid: Uuid,
     ) -> Result<EventId> {
         require_valid_actor_id(actor_id)?;
@@ -2713,7 +2748,7 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionAccepted)? {
             return Err(match relay {
                 Some(relay) => relay.already_accepted_refusal(actor_id, decision_id),
-                None => already_accepted_refusal(actor_id, decision_id),
+                None => already_accepted_refusal(actor_id, decision_id, words),
             }
             .into());
         }
@@ -2747,7 +2782,9 @@ impl<'a, L: EventLedger> Commands<'a, L> {
         }
 
         if self.actor_has_decision_event(decision_id, actor_id, EventType::DecisionAccepted)? {
-            return Err(already_accepted_refusal(actor_id, decision_id).into());
+            return Err(
+                already_accepted_refusal(actor_id, decision_id, RefusalWords::Command).into(),
+            );
         }
 
         let event = self.event_with_uuid(
@@ -4873,11 +4910,43 @@ fn require_not_own_premise(decision_id: &str, premise_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Which surface's words a refusal speaks in (hivemind-3wgmm). A refusal that names a way
+/// forward names it on the surface the caller is on: an agent over MCP reaches the cell by tools,
+/// and the CLI commands it would otherwise be sent to never contact the cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefusalWords {
+    /// `loomtracer ...` commands: the CLI, REST, `emit` and the plugin scripts.
+    Command,
+    /// MCP tools, for an agent caller (`stdio` and `POST /mcp`). A caller that is not an agent
+    /// gets the command words.
+    Tool,
+}
+
 /// The refusal for an actor that already accepted a decision (a capture accepts itself) and now
 /// rejects it. It stays a refusal; the message says why and names what changes a decision the
-/// actor itself made. One text for every surface: CLI, MCP, HTTP and the plugin scripts all
-/// reach it through `disagree` and `reject_decision`.
-fn already_accepted_refusal(actor_id: &str, decision_id: &str) -> CommandError {
+/// actor itself made. CLI, HTTP and the plugin scripts reach it with command words through
+/// `disagree` and `reject_decision`; an agent over MCP reaches it through `disagree_by_tool` and
+/// is told the tools that do the same (`supersede_decision` for a change of mind,
+/// `retitle_decision` / `move_decision` for the wording or the project, `dispute_attribution`
+/// with `reason` alone when the call was never its own: it accepted, so it is a recorded decider).
+fn already_accepted_refusal(
+    actor_id: &str,
+    decision_id: &str,
+    words: RefusalWords,
+) -> CommandError {
+    if words == RefusalWords::Tool && actor_id.starts_with("agent:") {
+        return CommandError::Invariant(format!(
+            "{actor_id} already accepted decision {decision_id}, so it cannot also reject it. \
+             To change your own decision, record the replacement with `supersede_decision` \
+             (`old_decision_id` {decision_id}, with `title`, `rationale`, `grounding`, `binds` and \
+             `undo_cost`, and `options` with `chosen_option_label` for what you chose). If only \
+             the wording or the project is wrong, use `retitle_decision` or `move_decision` \
+             (`decision_id` {decision_id} and `to`). If the call was never yours and someone \
+             else recorded your name against it, say so with `dispute_attribution` (`decision_id` \
+             {decision_id} and your own words as `reason`, with nothing else): it is kept beside \
+             the acceptance, which stays."
+        ));
+    }
     CommandError::Invariant(format!(
         "{actor_id} already accepted decision {decision_id}, so it cannot also reject it. \
          To change your own decision, record the replacement with `loomtracer supersede --old {decision_id} \

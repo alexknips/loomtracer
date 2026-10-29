@@ -1519,6 +1519,24 @@ fn rejecting_a_decision_you_accepted_says_so_and_points_to_supersede() {
             !printed.contains("cannot accept and reject"),
             "the old wording is gone: {printed}"
         );
+        // hivemind-3wgmm: the MCP refusal speaks in tools; the CLI's words are unchanged, even
+        // for an agent, which reaches this verb on its own ledger.
+        assert!(
+            printed.contains(&format!(
+                "{actor} already accepted decision {decision_id}, so it cannot also reject it. \
+                 To change your own decision, record the replacement with `loomtracer supersede \
+                 --old {decision_id} --title ... --rationale ... --chose ...`. If only the \
+                 wording or the project is wrong, use `loomtracer retitle` or `loomtracer move`. \
+                 If the call was never yours and someone else recorded your name against it, say \
+                 so with `loomtracer dispute-attribution --decision {decision_id} --reason \
+                 ...`: it is kept beside the acceptance, which stays."
+            )),
+            "the CLI text is unchanged: {printed}"
+        );
+        assert!(
+            !printed.contains("supersede_decision") && !printed.contains("retitle_decision"),
+            "no tool name over the CLI: {printed}"
+        );
         assert_eq!(exit_code_for_error(error).code(), 3, "{printed}");
     }
     assert_eq!(
@@ -15208,6 +15226,14 @@ fn a_decider_agent_disputes_its_own_acceptance_with_reason_and_is_not_a_relayed_
         format_error(false, &as_a_person).contains("is not a person"),
         "{as_a_person:?}"
     );
+    // hivemind-3wgmm: and it says what an agent that speaks for itself runs instead.
+    assert!(
+        format_error(false, &as_a_person).contains(
+            "uses its own credential: send your own words as `reason`, without the person or a \
+             `quote` (CLI: `--reason` in place of `--disputed-by` and `--quote`)."
+        ),
+        "{as_a_person:?}"
+    );
     assert_eq!(
         ledger.latest_offset().expect("latest offset after"),
         latest_before,
@@ -15530,6 +15556,15 @@ fn an_agent_records_a_persons_disagreement_in_their_words_and_why_names_the_rela
         "{}",
         format_error(false, &for_an_agent)
     );
+    // hivemind-3wgmm: and it says what an agent that speaks for itself runs instead.
+    assert!(
+        format_error(false, &for_an_agent).contains(
+            "uses its own credential: send your own words as `reason`, without the person or a \
+             `quote` (CLI: `--reason` in place of `--disagreed-by` and `--quote`)."
+        ),
+        "{}",
+        format_error(false, &for_an_agent)
+    );
     let already_accepted = relay(mayor, decider, &[]).expect_err("they accepted it");
     let already_accepted_text = format_error(false, &already_accepted);
     assert!(
@@ -15735,6 +15770,15 @@ fn an_agent_records_a_persons_reaffirmation_in_their_words_and_reexamine_names_t
     let for_an_agent = reaffirm(mayor, scribe, &[]).expect_err("an agent is not a person");
     assert!(
         format_error(false, &for_an_agent).contains("is not a person"),
+        "{}",
+        format_error(false, &for_an_agent)
+    );
+    // hivemind-3wgmm: and it says what an agent that speaks for itself runs instead.
+    assert!(
+        format_error(false, &for_an_agent).contains(
+            "uses its own credential: send your own words as `reason`, without the person or a \
+             `quote` (CLI: `--because` in place of `--reaffirmed-by` and `--quote`)."
+        ),
         "{}",
         format_error(false, &for_an_agent)
     );

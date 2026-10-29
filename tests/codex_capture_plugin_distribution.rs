@@ -2491,6 +2491,35 @@ fn verify_active_capture_skill(name: &str, body: &str) -> TestResult<()> {
     Ok(())
 }
 
+/// hivemind-3wgmm: the capture skill teaches an agent that accepted a decision, and was never the
+/// one who made the call, to dispute it with `reason` alone (hivemind-53dmq), and where to go when
+/// `disagree_decision` refuses it for disagreeing with its own acceptance. Without it the agent
+/// learns the person's form only and sends `disputed_by` for itself.
+#[test]
+fn the_capture_skill_teaches_an_agents_own_dispute_and_its_own_refused_disagreement(
+) -> TestResult<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let skill = fs::read_to_string(
+        root.join("plugins/loomtracer-capture/skills/loomtracer-capture/SKILL.md"),
+    )?;
+    // Prose wraps; compare with the line breaks folded to single spaces.
+    let folded = skill.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "`dispute_attribution` with your own words as `reason` and nothing else (no `disputed_by`, `quote` or `said_in`)",
+        "dispute-attribution --decision <id> --reason \"<your words>\"",
+        "It is recorded as yours, with no relay.",
+        "`disagree_decision` refuses you",
+        "`supersede_decision` to change your mind",
+        "`retitle_decision` or `move_decision` when only the wording or the project is wrong",
+    ] {
+        assert!(
+            folded.contains(needle),
+            "the capture skill should say `{needle}`"
+        );
+    }
+    Ok(())
+}
+
 fn assert_executable(path: impl AsRef<Path>) -> TestResult<()> {
     let path = path.as_ref();
     let metadata = fs::metadata(path).map_err(|error| {

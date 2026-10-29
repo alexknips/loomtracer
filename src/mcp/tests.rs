@@ -1723,8 +1723,9 @@ fn disagree_decision_tool_contests_and_defaults_actor() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// hivemind-09j6r: the same refusal text as the CLI, so an agent that wants to change its own call
-// is told it accepted the decision itself and is pointed at supersede.
+// hivemind-09j6r: an agent that wants to change its own call is told it accepted the decision
+// itself and is pointed at supersede. hivemind-3wgmm: over MCP it is pointed at the tools, not at
+// CLI commands that never contact the cell; a person's own credential keeps the command words.
 #[test]
 fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede() {
     let dir = unique_dir("disagree-own-accepted");
@@ -1785,6 +1786,51 @@ fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede
         )),
         "{text}"
     );
+    for tool_step in [
+        format!("`supersede_decision` (`old_decision_id` {decision_id}, with `title`, `rationale`"),
+        "`retitle_decision` or `move_decision` (`decision_id`".to_owned(),
+        format!(
+            "`dispute_attribution` (`decision_id` {decision_id} and your own words as `reason`, \
+             with nothing else)"
+        ),
+    ] {
+        assert!(text.contains(&tool_step), "{tool_step}: {text}");
+    }
+    assert!(
+        !text.contains("loomtracer "),
+        "over MCP no CLI command is named: {text}"
+    );
+    assert!(!text.contains("cannot accept and reject"), "{text}");
+    assert_eq!(
+        ledger.latest_offset().expect("offset after"),
+        offset_before,
+        "a refused disagree writes nothing"
+    );
+
+    // A person on their own credential is not the agent the tools are for: the command words stay.
+    let person = "human:test-owner";
+    Commands::new(&ledger)
+        .accept_decision(&decision_id, person)
+        .expect("the person accepts the decision");
+    let offset_before = ledger.latest_offset().expect("offset before");
+    let disagree = json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "disagree_decision",
+            "arguments": {
+                "actor_id": person,
+                "decision_id": decision_id,
+                "reason": "changed my mind"
+            }
+        }
+    })
+    .to_string();
+    let responses = drive(&config, &[disagree.as_str()]);
+    let result = &responses[0]["result"];
+    assert_eq!(result["isError"], true, "{result:?}");
+    let text = result["content"][0]["text"].as_str().expect("error text");
     assert!(
         text.contains(&format!("loomtracer supersede --old {decision_id} --title")),
         "{text}"
@@ -1793,7 +1839,7 @@ fn disagree_decision_tool_refuses_your_own_accepted_decision_and_names_supersede
         text.contains("loomtracer retitle") && text.contains("loomtracer move"),
         "{text}"
     );
-    assert!(!text.contains("cannot accept and reject"), "{text}");
+    assert!(!text.contains("supersede_decision"), "{text}");
     assert_eq!(
         ledger.latest_offset().expect("offset after"),
         offset_before,
@@ -2980,16 +3026,31 @@ mod transport_parity {
     }
 
     async fn http_call(dir: &std::path::Path, tool: &str, arguments: Value) -> Value {
+        http_call_in_session(dir, None, tool, arguments).await
+    }
+
+    /// `http_call` as an MCP client that sent a session id: the caller is then the session's
+    /// agent (`agent:mcp-http:<session>`), not the credential's own actor (`service:api` here).
+    async fn http_call_in_session(
+        dir: &std::path::Path,
+        session: Option<&str>,
+        tool: &str,
+        arguments: Value,
+    ) -> Value {
         let body = json!({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
             "params": { "name": tool, "arguments": arguments }
         });
-        let request = Request::builder()
+        let mut builder = Request::builder()
             .method("POST")
             .uri("/mcp")
-            .header("content-type", "application/json")
+            .header("content-type", "application/json");
+        if let Some(session) = session {
+            builder = builder.header("mcp-session-id", session);
+        }
+        let request = builder
             .body(Body::from(serde_json::to_string(&body).expect("json body"))) // ubs:ignore: test-only; panicking is correct in tests
             .expect("build request"); // ubs:ignore: test-only; panicking is correct in tests
         let response = http_app(dir).oneshot(request).await.expect("http response"); // ubs:ignore: test-only; panicking is correct in tests
@@ -7675,6 +7736,167 @@ mod transport_parity {
 
         let _ = std::fs::remove_dir_all(&stdio_dir);
         let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    // hivemind-3wgmm: an agent that accepted its own decision and then disagrees with it is
+    // refused, and the refusal names the MCP tools, not CLI commands that never reach the cell.
+    // Each step it names is then taken as written, as that same agent, and records the act.
+    #[tokio::test]
+    async fn the_refusal_of_an_agents_own_accepted_decision_names_tools_that_work_across_transports(
+    ) {
+        let (stdio_dir, http_dir) = project_dirs("own-accepted-hint", &["billing", "pricing"]);
+
+        for (name, dir, http) in [("stdio", &stdio_dir, false), ("http", &http_dir, true)] {
+            // Over HTTP the caller is the MCP session's agent, as it is for a real client.
+            let call = |tool: &'static str, args: Value| async move {
+                if http {
+                    http_call_in_session(dir, Some("own-accepted-session"), tool, args).await
+                } else {
+                    stdio_call(dir, tool, args)
+                }
+            };
+            // A capture that chose an option accepts itself, as the calling agent.
+            let decision_id = captured_id(
+                &call(
+                    "capture_decision",
+                    with_args(
+                        capture_args("Retry billing jobs through a queue"),
+                        json!({ "project": "billing", "chosen_option_label": "queue" }),
+                    ),
+                )
+                .await,
+            );
+
+            let events_before = event_count(dir);
+            let refused = call(
+                "disagree_decision",
+                json!({ "decision_id": decision_id, "reason": "I changed my mind" }),
+            )
+            .await;
+            let result = &refused["result"];
+            assert_eq!(result["isError"], true, "{name}: {refused:?}"); // ubs:ignore: test-only assertion
+            let text = error_text(result);
+            assert!(
+                text.contains(&format!(
+                    "already accepted decision {decision_id}, so it cannot also reject it."
+                )),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            for tool_step in [
+                "`supersede_decision` (`old_decision_id`",
+                "`retitle_decision` or `move_decision` (`decision_id`",
+                "`dispute_attribution` (`decision_id`",
+                "your own words as `reason`, with nothing else",
+            ] {
+                assert!(text.contains(tool_step), "{name}: {tool_step}: {text}");
+                // ubs:ignore: test-only assertion
+            }
+            assert!(
+                !text.contains("loomtracer "),
+                "{name}: no CLI command is named over MCP: {text}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                event_count(dir),
+                events_before,
+                "{name}: a refused disagree writes nothing"
+            ); // ubs:ignore: test-only assertion
+
+            // The call was never the agent's own: `reason` alone, on its own credential.
+            let disputed = call(
+                "dispute_attribution",
+                json!({ "decision_id": decision_id, "reason": "I never made this call" }),
+            )
+            .await;
+            assert_eq!(disputed["result"]["isError"], false, "{name}: {disputed:?}"); // ubs:ignore: test-only assertion
+            let reply = &disputed["result"]["structuredContent"];
+            assert!(
+                reply["disputed_by"]
+                    .as_str()
+                    .is_some_and(|actor| actor.starts_with("agent:")),
+                "{name}: {reply:?}"
+            ); // ubs:ignore: test-only assertion
+            assert!(reply.get("relayed_by").is_none(), "{name}: no relay"); // ubs:ignore: test-only assertion
+
+            // Only the wording is wrong.
+            let retitled = call(
+                "retitle_decision",
+                json!({ "decision_id": decision_id, "to": "Retry billing jobs through a bounded queue" }),
+            )
+            .await;
+            assert_eq!(retitled["result"]["isError"], false, "{name}: {retitled:?}"); // ubs:ignore: test-only assertion
+
+            // Only the project is wrong.
+            let moved = call(
+                "move_decision",
+                json!({ "decision_id": decision_id, "to": "pricing" }),
+            )
+            .await;
+            assert_eq!(moved["result"]["isError"], false, "{name}: {moved:?}"); // ubs:ignore: test-only assertion
+            assert_eq!(
+                moved["result"]["structuredContent"]["from"], "billing",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+
+            // A change of mind: the replacement, named by `old_decision_id`.
+            let superseded = call(
+                "supersede_decision",
+                with_args(
+                    capture_args("Drop the billing retry queue"),
+                    json!({
+                        "old_decision_id": decision_id,
+                        "options": [{ "label": "drop" }],
+                        "chosen_option_label": "drop",
+                    }),
+                ),
+            )
+            .await;
+            assert_eq!(
+                superseded["result"]["isError"], false,
+                "{name}: {superseded:?}"
+            ); // ubs:ignore: test-only assertion
+            assert_eq!(
+                superseded["result"]["structuredContent"]["old_decision_status"], "superseded",
+                "{name}"
+            ); // ubs:ignore: test-only assertion
+        }
+
+        let _ = std::fs::remove_dir_all(&stdio_dir);
+        let _ = std::fs::remove_dir_all(&http_dir);
+    }
+
+    // hivemind-3wgmm: a `reason` of only whitespace reads as absent to the argument reader, and the
+    // tool answered "missing `disputed_by`": the person it never asked for. It says the reason is empty.
+    #[tokio::test]
+    async fn dispute_attribution_with_a_blank_reason_says_the_reason_is_empty_across_transports() {
+        let (stdio, http) = run(
+            "dispute_attribution",
+            "dispute-blank-reason",
+            json!({ "decision_id": "decision-1", "reason": "   " }),
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert_eq!(result["isError"], true, "{name}: {result:?}"); // ubs:ignore: test-only assertion
+            let text = error_text(result);
+            assert!(
+                text.contains("`reason` must be a non-empty string"),
+                "{name}: {text}"
+            ); // ubs:ignore: test-only assertion
+            assert!(!text.contains("missing `disputed_by`"), "{name}: {text}"); // ubs:ignore: test-only assertion
+        }
+
+        // Nothing sent at all is still a missing person.
+        let (stdio, http) = run(
+            "dispute_attribution",
+            "dispute-no-reason",
+            json!({ "decision_id": "decision-1" }),
+        )
+        .await;
+        for (name, result) in [("stdio", &stdio), ("http", &http)] {
+            assert!(
+                error_text(result).contains("missing `disputed_by`"),
+                "{name}: {result:?}"
+            ); // ubs:ignore: test-only assertion
+        }
     }
 
     #[tokio::test]

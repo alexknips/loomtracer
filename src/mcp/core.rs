@@ -1526,9 +1526,16 @@ impl DisputeAttributionArgs {
                 ));
             }
             (None, None) => {
-                return Err(CoreError::InvalidArgument(format!(
-                    "missing `disputed_by`: {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}"
-                )));
+                // A `reason` of only whitespace reads as absent above; say it is empty, not that
+                // the person is missing (hivemind-3wgmm).
+                let reason_given = matches!(args.get("reason"), Some(Value::String(_)));
+                return Err(CoreError::InvalidArgument(if reason_given {
+                    format!(
+                        "`reason` must be a non-empty string: {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}"
+                    )
+                } else {
+                    format!("missing `disputed_by`: {DISPUTE_ATTRIBUTION_NEEDS_A_PERSON}")
+                }));
             }
         };
         Ok(Self {
@@ -2002,7 +2009,9 @@ pub(crate) fn disagree_decision<P: LedgerProvider>(
         ),
     );
     let event_id = match &args.statement {
-        Statement::Own { reason } => commands.disagree(&args.actor_id, &decision_id, reason),
+        Statement::Own { reason } => {
+            commands.disagree_by_tool(&args.actor_id, &decision_id, reason)
+        }
         Statement::Relayed(words) => commands.relay_disagreement(
             &args.actor_id,
             &words.person,

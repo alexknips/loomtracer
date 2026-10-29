@@ -7907,6 +7907,110 @@ async fn a_decider_agent_disputes_its_own_acceptance_over_post_mcp() {
     assert_eq!(recorded[0].payload["reason"], reason); // ubs:ignore
 }
 
+// hivemind-3wgmm: an agent that accepted its own decision and disagrees with it over POST /mcp is
+// refused, and the refusal names the MCP tools, not CLI commands that never reach the cell. The
+// steps it names, taken as written by the same agent, record the act.
+#[tokio::test]
+async fn an_agent_that_disagrees_with_its_own_acceptance_over_post_mcp_is_told_the_tools() {
+    use loomtracer::events::EventType;
+    use loomtracer::ledger::EventLedger as _;
+
+    let dir = test_ledger_dir();
+    let agent = "agent:test:mcp-session";
+    let tool_call = |tool: &'static str, arguments: serde_json::Value| {
+        let dir = dir.clone();
+        async move {
+            let (status, body) =
+                call(app(dir), mcp_post(mcp_tools_call_body(tool, arguments))).await;
+            assert_eq!(status, StatusCode::OK, "{body}"); // ubs:ignore
+            body["result"].clone()
+        }
+    };
+    let events = |dir: &Path| {
+        loomtracer::ledger::SqliteEventLedger::open(dir)
+            .unwrap()
+            .read(0, 1000)
+            .unwrap()
+    };
+
+    // A capture that chose an option accepts itself, as the calling agent.
+    let captured = tool_call(
+        "capture_decision",
+        serde_json::json!({
+            "binds": {"level": "something", "statement": "Later work builds on it"},
+            "undo_cost": {"level": "cheap"},
+            "grounding": [{"kind": "bet"}],
+            "title": "Retry billing jobs through a queue",
+            "rationale": "Bounded retries avoid unbounded backlog growth under load",
+            "topic_keys": ["graph-standing"],
+            "options": [{ "label": "Option one" }, { "label": "Option two" }],
+            "chosen_option_label": "Option one",
+        }),
+    )
+    .await;
+    assert_eq!(captured["isError"], false, "{captured}"); // ubs:ignore
+    let decision_id = captured["structuredContent"]["decision_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let before = events(&dir).len();
+    let refused = tool_call(
+        "disagree_decision",
+        serde_json::json!({"decision_id": decision_id, "reason": "I changed my mind"}),
+    )
+    .await;
+    assert_eq!(refused["isError"], true, "{refused}"); // ubs:ignore
+    let text = refused["content"][0]["text"].as_str().unwrap_or_default();
+    assert!(
+        text.contains(&format!(
+            "{agent} already accepted decision {decision_id}, so it cannot also reject it."
+        )),
+        "{text}"
+    ); // ubs:ignore
+    for tool_step in [
+        "`supersede_decision` (`old_decision_id`",
+        "`retitle_decision` or `move_decision` (`decision_id`",
+        "`dispute_attribution` (`decision_id`",
+        "your own words as `reason`, with nothing else",
+    ] {
+        assert!(text.contains(tool_step), "{tool_step}: {text}"); // ubs:ignore
+    }
+    assert!(
+        !text.contains("loomtracer "),
+        "no CLI command over MCP: {text}"
+    ); // ubs:ignore
+    assert_eq!(
+        events(&dir).len(),
+        before,
+        "a refused disagree writes nothing"
+    ); // ubs:ignore
+
+    // The call was never the agent's own: `reason` alone, on its own credential, no relay.
+    let disputed = tool_call(
+        "dispute_attribution",
+        serde_json::json!({"decision_id": decision_id, "reason": "I never made this call"}),
+    )
+    .await;
+    assert_eq!(disputed["isError"], false, "{disputed}"); // ubs:ignore
+    assert_eq!(disputed["structuredContent"]["disputed_by"], agent); // ubs:ignore
+    assert!(disputed["structuredContent"].get("relayed_by").is_none()); // ubs:ignore
+    let recorded: Vec<_> = events(&dir)
+        .into_iter()
+        .filter(|event| event.event_type == EventType::DecisionAttributionDisputed)
+        .collect();
+    assert_eq!(recorded.len(), 1, "{recorded:?}"); // ubs:ignore
+    assert_eq!(recorded[0].actor_id, agent); // ubs:ignore
+
+    // Only the wording is wrong.
+    let retitled = tool_call(
+        "retitle_decision",
+        serde_json::json!({"decision_id": decision_id, "to": "Retry billing jobs through a bounded queue"}),
+    )
+    .await;
+    assert_eq!(retitled["isError"], false, "{retitled}"); // ubs:ignore
+}
+
 #[tokio::test]
 async fn only_the_named_decider_disputes_an_acceptance_and_why_shows_both() {
     use loomtracer::events::EventType;

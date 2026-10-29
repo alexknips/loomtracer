@@ -387,6 +387,21 @@ their new answer with `capture_decision` (`decided_by` and `quote`) and `link_su
 the old decision. A person disagreeing with their own credential gets the refusal that points at
 `supersede`, `retitle` and `move`.
 
+An agent that accepted a decision itself, which a capture that chose an option does, cannot also
+disagree with it, and the refusal names what works where the agent is. Over MCP (stdio and
+`POST /mcp`) it names the tools, because the commands never contact the cell: `supersede_decision`
+with `old_decision_id` to change its mind, `retitle_decision` or `move_decision` when only the
+wording or the project is wrong, and `dispute_attribution` with its own words as `reason` alone
+when the call was never its own (it accepted, so the decision names it as a decider). Over the CLI
+the refusal is unchanged and names `loomtracer supersede`, `retitle`, `move` and
+`dispute-attribution` with `--reason`. Nothing is written either way.
+
+`--disputed-by`, `--disagreed-by` or `--reaffirmed-by` set to an agent is refused, because only a
+person is relayed; the refusal names the agent's own form: `--reason` (`--because` for `reaffirm`)
+in place of the person's flag and `--quote` on the CLI, `reason` without the person and `quote`
+over MCP. A `reason` of only whitespace sent to `dispute_attribution` is refused as empty, not as
+a missing person.
+
 A person's "yes" to a recommendation that was left open is recorded the same way (hivemind-fsxx9).
 When you record a recommendation nobody decided, capture it with `still_proposed`; when the person
 then says "yes, go with that", call `accept_decision` with `accepted_by`, their verbatim `quote`, the

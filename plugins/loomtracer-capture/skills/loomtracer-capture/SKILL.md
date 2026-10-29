@@ -327,6 +327,16 @@ so ("I never agreed to that"), record it for them: the `dispute_attribution` too
   decision itself is wrong, use `disagree_decision`.
 - Only a person the decision names as its decider can be disputed for. Anyone else is
   refused and nothing is written.
+- When the call that was never yours is your own acceptance (you accepted it, so the
+  decision names you as a decider), say so for yourself: `dispute_attribution` with your
+  own words as `reason` and nothing else (no `disputed_by`, `quote` or `said_in`), or
+  `loomtracer --actor agent:<tool>:<name> dispute-attribution --decision <id> --reason
+  "<your words>"`. It is recorded as yours, with no relay. An agent the decision does not
+  name as a decider is refused and nothing is written.
+- If you accepted a decision and now disagree with it, `disagree_decision` refuses you.
+  The refusal names what to call instead: `supersede_decision` to change your mind,
+  `retitle_decision` or `move_decision` when only the wording or the project is wrong,
+  and the `reason` dispute above when the call was never yours.
 
 ### When the person says they disagree, or that it still holds
 

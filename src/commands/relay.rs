@@ -23,6 +23,28 @@ use crate::Result;
 
 use super::{already_rejected_refusal, Commands};
 
+/// What an agent that speaks for itself sends instead of a person's name and `quote`
+/// (hivemind-3wgmm). The refusal of a relay that names an agent as the person says such an agent
+/// "uses its own credential" and, without this, names no argument or flag that does. `what` is
+/// the act as [`Relay::require_valid`] names it; an acceptance has no own-credential form.
+fn own_credential_form(what: &str) -> &'static str {
+    match what {
+        "dispute" => {
+            ": send your own words as `reason`, without the person or a `quote` (CLI: `--reason` \
+             in place of `--disputed-by` and `--quote`)"
+        }
+        "disagreement" => {
+            ": send your own words as `reason`, without the person or a `quote` (CLI: `--reason` \
+             in place of `--disagreed-by` and `--quote`)"
+        }
+        "reaffirmation" => {
+            ": send your own words as `reason`, without the person or a `quote` (CLI: \
+             `--because` in place of `--reaffirmed-by` and `--quote`)"
+        }
+        _ => "",
+    }
+}
+
 /// The agent that heard a person say something and records it for them.
 #[derive(Debug, Clone, Copy)]
 pub struct Relay<'a> {
@@ -77,7 +99,8 @@ impl<'a> Relay<'a> {
         {
             return Err(CommandError::Validation(format!(
                 "{person} is not a person (human:<name>): an agent relays a person's words, and \
-                 an agent that speaks for itself uses its own credential."
+                 an agent that speaks for itself uses its own credential{}.",
+                own_credential_form(what)
             ))
             .into());
         }
