@@ -1,10 +1,10 @@
 {
   "loomtracer-capture": {
-    "content_sha256": "540fa6567c2f9a35158be2e4f01f26fc1e22c6c4fbcdb4f87f91285792301454",
-    "version": "0.1.5"
+    "content_sha256": "099c8f122133f3a1edcb3f05e0e852ac36f48308d3d348aa0a3e8229d7c1a7a6",
+    "version": "0.1.6"
   },
   "loomtracer-context": {
-    "content_sha256": "05528e504c1c0f421454fa922097a33bbddfb94dd97a07fbfc06f60b71a007d1",
-    "version": "0.1.2"
+    "content_sha256": "0791e5055158d1c690f9cb0c787261f4cec5039098ef451be4dc132ed57d5359",
+    "version": "0.1.3"
   }
 }

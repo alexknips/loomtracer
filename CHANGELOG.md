@@ -258,14 +258,29 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   old `SKILL.md`: an agent that installed 0.1.4 never learned a person's dispute, disagreement
   and acceptance through their agent, or that an agent disputes its own acceptance with `reason`
   alone (hivemind-f9xgu, efo6x, fsxx9, 3wgmm), and a fresh install had them all. Both manifests
-  of `loomtracer-capture` are 0.1.5 and both of `loomtracer-context`, which had changed three
-  times since 0.1.1 the same way, are 0.1.2; run `claude plugin update` to get them.
+  of `loomtracer-capture` carry them from 0.1.5 on, and both of `loomtracer-context`, which had
+  changed three times since 0.1.1 the same way, from 0.1.2. To get them, run
+  `claude plugin marketplace update loomtracer`, then `claude plugin update
+  loomtracer-capture@loomtracer` (and `loomtracer-context@loomtracer`); `claude plugin update` on
+  its own still answers "already at the latest version" until the marketplace is refreshed. On
+  Codex, `codex plugin marketplace upgrade loomtracer-plugins` is the whole step.
   `plugins/shipped-versions.json` records each plugin's version and a hash of its files, and
   `tests/plugin_versions.rs` fails when the files change under the version recorded, or when a
   plugin's two manifests disagree. It reads no git history, so it holds on a shallow checkout.
   After bumping, `LOOMTRACER_BLESS_PLUGIN_VERSIONS=1 cargo test --test plugin_versions` rewrites
   the lock, and refuses a plugin whose files changed under the version it already records.
   (hivemind-j56j7)
+- **The README and both plugin READMEs say how to update an installed plugin.** They showed only
+  the install commands, and the step the changelog gave, `claude plugin update`, answers
+  "already at the latest version (0.1.4)" on an install made before the fix, because the
+  marketplace on that machine is still the old one. They now give `claude plugin marketplace
+  update loomtracer` then `claude plugin update <plugin>@loomtracer` (restart Claude Code to
+  apply it), and `codex plugin marketplace upgrade loomtracer-plugins` for Codex. Run in a
+  scratch config on an install made at the commit before j56j7 merged, the Claude Code steps end
+  at `loomtracer-capture` 0.1.5 and `loomtracer-context` 0.1.2, with the skill text of the last
+  five changes, and the Codex step ends at the same two versions. The plugin READMEs are among
+  the files the version lock hashes, so `loomtracer-capture` is now 0.1.6 and
+  `loomtracer-context` 0.1.3: the same files plus these lines. (hivemind-5ke7y)
 - **After a person disputes an attribution, `get_decision_context` and `analyze_failure_modes`
   no longer report them as the one who accepted.** `why`, `verify` and `brief` already read
   `decided by: <person> (..., disputed by <person>: <reason>)`, but the MCP `get_decision_context`

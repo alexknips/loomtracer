@@ -62,6 +62,19 @@ From Claude Code, add this repository as a marketplace and install the plugin:
 /reload-plugins
 ```
 
+To update an installed plugin, refresh the marketplace first, then update the plugin. Run
+both from a shell and restart Claude Code to apply the update:
+
+```bash
+claude plugin marketplace update loomtracer
+claude plugin update loomtracer-capture@loomtracer
+```
+
+`claude plugin update` on its own answers "already at the latest version" after a release,
+because the marketplace on your machine is still the one you added. On Codex, one command
+moves the installed plugin to the version the marketplace now has:
+`codex plugin marketplace upgrade loomtracer-plugins`.
+
 For local development from this checkout:
 
 ```text

@@ -1,6 +1,6 @@
 {
   "name": "loomtracer-capture",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Capture Codex decisions into Loomtracer through the deterministic local CLI.",
   "author": {
     "name": "Loomtracer contributors",

@@ -1,6 +1,6 @@
 {
   "name": "loomtracer-context",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Consult, verify, and contest Loomtracer decisions from Codex by description, never by id, through the deterministic local CLI.",
   "author": {
     "name": "Loomtracer contributors",

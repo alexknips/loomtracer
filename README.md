@@ -364,6 +364,18 @@ plugin in `plugins/loomtracer-capture`. Install it from Claude Code:
 /reload-plugins
 ```
 
+To update an installed plugin, refresh the marketplace first, then update the plugin. Run
+both from a shell and restart Claude Code to apply the update:
+
+```bash
+claude plugin marketplace update loomtracer
+claude plugin update loomtracer-capture@loomtracer
+```
+
+`claude plugin update` on its own answers "already at the latest version" after a release,
+because the marketplace on your machine is still the one you added; `claude plugin
+marketplace update loomtracer` fetches the current one.
+
 In this repository, `.claude/settings.json` advertises the marketplace and
 enables `loomtracer-capture@loomtracer` so trusted Claude Code sessions are prompted
 to install it. The plugin provides:
@@ -396,6 +408,9 @@ Install it next to the capture plugin:
 /plugin install loomtracer-context@loomtracer
 ```
 
+It updates the same way, after the marketplace refresh above:
+`claude plugin update loomtracer-context@loomtracer`.
+
 - `/loomtracer-context:situational` — "what should I know before I touch this?",
   from the current diff, paths or branch
 - `/loomtracer-context:recall` — "what did we decide about X?"
@@ -424,6 +439,13 @@ checkout or machine, add this repository as a marketplace first:
 
 ```bash
 codex plugin marketplace add https://github.com/alexknips/loomtracer.git
+```
+
+To update an installed Codex plugin, refresh its marketplace; that one command moves every
+installed Loomtracer plugin to the version the marketplace now has:
+
+```bash
+codex plugin marketplace upgrade loomtracer-plugins
 ```
 
 Users who only want the instruction bundle can copy
