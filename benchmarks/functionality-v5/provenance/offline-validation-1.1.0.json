@@ -1,0 +1,53 @@
+{
+  "schema": "functionality-v5-public-offline-evidence-1.1.0",
+  "status": "passed",
+  "createdAt": "2026-10-21T16:04:39.009Z",
+  "packageVersion": "functionality-v5-portable-package-1.1.0",
+  "versions": {
+    "corpus": "functionality-v5-corpus-1.0.3",
+    "protocol": "functionality-v5-isolated-workflows-1.2.0",
+    "rubric": "functionality-v5-strict-units-1.0.2",
+    "report": "functionality-v5-report-1.1.0"
+  },
+  "testCount": 191,
+  "skippedTests": 0,
+  "corpusCases": 27,
+  "corpusChecks": 786,
+  "corpusHash": "075e3a7fc2e58d0364c977dd43f2101c668d81ab5638d208b05c62b04284f04f",
+  "implementationHash": "b2e359b5f09f474dc6ef447a2ff1516687824df8f78a0424110d8af45428087e",
+  "nativeValidation": {
+    "status": "passed",
+    "sha256": "71892fb1a29eca5bf7c2ab56f70cb6c0f0c492532a50acc235b34fbf839a6738",
+    "version": "hivemind 0.7.0+cdf11fdecb8f",
+    "backend": "hivemind-rust-cli",
+    "adapterVersion": "functionality-v5-hivemind-native-1.0.0",
+    "skippedTests": 0
+  },
+  "evaluatedProviderInvocations": 0,
+  "authoringReview": {
+    "status": "passed",
+    "type": "agent-assisted prospective semantic authoring review; not retrospective human audit",
+    "file": "authoring-review.json",
+    "sha256": "8d1748ad9c9444866815fe54f6c10f9f08e976e189d2202dcaf8695808fd1f28"
+  },
+  "testOutputSha256": "7f3949c274d2189bf1e30ca6deb6133a6fa0cc4201d26224f8f4d8829c4d0191",
+  "controllerIntegration": {
+    "provider": "scripted offline mock",
+    "nativeBackend": "real Rust CLI",
+    "workflows": 42,
+    "results": 36,
+    "gradingPackets": 48,
+    "maintenanceCalls": {
+      "notes": 12,
+      "native": 12,
+      "history": 0
+    }
+  },
+  "reproduction": "npm ci; npm run validate -- --native-binary /absolute/hivemind --review authoring-review.json --output /absolute/new/validation",
+  "limitations": [
+    "Prospective authoring review, not human audit of evaluated outcomes.",
+    "No fresh live canary or evaluated workflow was run.",
+    "Official native release build identity differs from the PR checkout head.",
+    "Prior results and token ledgers remain unchanged."
+  ]
+}

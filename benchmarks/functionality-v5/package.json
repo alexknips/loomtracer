@@ -1,0 +1,14 @@
+{
+  "name": "loomtracer-functionality-v5",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "postinstall": "npm ci --prefix lib/benchmarks/functionality-v3/vendor --ignore-scripts",
+    "setup": "npm ci --prefix lib/benchmarks/functionality-v3/vendor --ignore-scripts",
+    "test": "node --test lib/benchmarks/functionality-v5/*.test.mjs",
+    "validate": "node lib/benchmarks/functionality-v5/validate-offline.mjs",
+    "screen": "node lib/benchmarks/functionality-v5/run-screen.mjs"
+  }
+}
