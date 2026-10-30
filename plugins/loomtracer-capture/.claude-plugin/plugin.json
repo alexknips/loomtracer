@@ -1,6 +1,6 @@
 {
   "name": "loomtracer-capture",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Capture Loomtracer decisions from Claude Code with explicit actor provenance, through the deterministic local CLI and MCP server.",
   "author": {
     "name": "Loomtracer contributors",

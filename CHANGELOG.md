@@ -251,6 +251,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **An installed `loomtracer-capture` plugin gets the capture skill's last five changes, and a
+  plugin change that forgets its version bump no longer merges.** Claude Code and Codex key an
+  installed plugin on the `version` in its `plugin.json`, so `claude plugin update
+  loomtracer-capture@loomtracer` answered "already at the latest version (0.1.4)" and kept the
+  old `SKILL.md`: an agent that installed 0.1.4 never learned a person's dispute, disagreement
+  and acceptance through their agent, or that an agent disputes its own acceptance with `reason`
+  alone (hivemind-f9xgu, efo6x, fsxx9, 3wgmm), and a fresh install had them all. Both manifests
+  of `loomtracer-capture` are 0.1.5 and both of `loomtracer-context`, which had changed three
+  times since 0.1.1 the same way, are 0.1.2; run `claude plugin update` to get them.
+  `plugins/shipped-versions.json` records each plugin's version and a hash of its files, and
+  `tests/plugin_versions.rs` fails when the files change under the version recorded, or when a
+  plugin's two manifests disagree. It reads no git history, so it holds on a shallow checkout.
+  After bumping, `LOOMTRACER_BLESS_PLUGIN_VERSIONS=1 cargo test --test plugin_versions` rewrites
+  the lock, and refuses a plugin whose files changed under the version it already records.
+  (hivemind-j56j7)
 - **After a person disputes an attribution, `get_decision_context` and `analyze_failure_modes`
   no longer report them as the one who accepted.** `why`, `verify` and `brief` already read
   `decided by: <person> (..., disputed by <person>: <reason>)`, but the MCP `get_decision_context`
